@@ -122,3 +122,7 @@ Secondary: returning weekly voice sessions per user, and open loops closed withi
 * Every session produces a structured update plus next actions or explicitly states none.
 * Never silently create external tasks/events; require user confirmation.
 * Keep Thread memory editable and attributable to the source session.
+
+- track context and intent across interactions
+- an orchestration layer essentially
+- potential personas and custom setting for the agent

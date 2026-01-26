@@ -1,21 +1,32 @@
+import ThemeToggle from '@/app/components/ThemeToggle';
+
 export default function Home() {
   return (
     <div className="relative min-h-screen overflow-hidden bg-[#fbfaf7] text-slate-950 dark:bg-[#060606] dark:text-slate-100">
       <div className="pointer-events-none absolute inset-0">
-        <div className="absolute -left-32 top-[-140px] h-72 w-72 rounded-full bg-sky-200/40 blur-3xl dark:bg-sky-500/15" />
-        <div className="absolute bottom-[-160px] right-[-120px] h-80 w-80 rounded-full bg-emerald-200/40 blur-3xl dark:bg-emerald-500/15" />
+        <div className="absolute -left-32 top-[-140px] h-72 w-72 rounded-full bg-sky-200/40 blur-3xl dark:bg-sky-400/30" />
+        <div className="absolute bottom-[-160px] right-[-120px] h-80 w-80 rounded-full bg-emerald-200/40 blur-3xl dark:bg-emerald-400/30" />
         <div className="absolute inset-x-0 top-[22%] h-px bg-gradient-to-r from-transparent via-slate-200/70 to-transparent dark:via-slate-700/60" />
       </div>
 
       <main className="relative mx-auto flex min-h-screen w-full max-w-5xl flex-col px-6 py-8 sm:px-10">
-        <nav className="flex items-center justify-end">
-          <a
-            href="/login"
-            className="rounded-xl border border-slate-200 bg-white/80 px-4 py-2 text-sm font-medium text-slate-900 shadow-sm transition hover:border-slate-300 hover:bg-white dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-100 dark:hover:border-slate-700"
-          >
-            Login
-          </a>
-        </nav>
+        <header className="flex items-center justify-between">
+          <div>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Novus</p>
+            <h1 className="font-heading text-2xl text-slate-950 dark:text-white">
+              Novus
+            </h1>
+          </div>
+          <div className="flex items-center gap-3">
+            <ThemeToggle />
+            <a
+              href="/login"
+              className="rounded-xl border border-slate-200 bg-white/80 px-4 py-2 text-sm font-medium text-slate-900 shadow-sm transition hover:border-slate-300 hover:bg-white dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-100 dark:hover:border-slate-700 dark:hover:bg-slate-800/80"
+            >
+              Login
+            </a>
+          </div>
+        </header>
 
         <section className="flex flex-1 flex-col items-center justify-center gap-12 text-center">
           <div className="space-y-6">
@@ -29,7 +40,7 @@ export default function Home() {
           </div>
 
           <div className="flex flex-wrap items-center justify-center gap-4 text-sm">
-            <button className="rounded-xl bg-slate-900 px-6 py-3 font-semibold text-white shadow-sm transition hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200">
+            <button className="rounded-xl bg-slate-900 px-6 py-3 font-medium text-white shadow-sm transition hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200">
               Start talking
             </button>
             {/* <button className="rounded-xl border border-slate-300 px-6 py-3 font-semibold text-slate-700 transition hover:border-slate-400 hover:text-slate-900 dark:border-slate-700 dark:text-slate-300 dark:hover:border-slate-500 dark:hover:text-white">
