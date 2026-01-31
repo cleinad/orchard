@@ -12,7 +12,7 @@ export default function Home() {
       <main className="relative mx-auto flex min-h-screen w-full max-w-5xl flex-col px-6 py-8 sm:px-10">
         <header className="flex items-center justify-between">
           <div>
-            <p className="text-xs text-slate-500 dark:text-slate-400">Novus</p>
+            {/* <p className="text-xs text-slate-500 dark:text-slate-400">Novus</p> */}
             <h1 className="font-heading text-2xl text-slate-950 dark:text-white">
               Novus
             </h1>
