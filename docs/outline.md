@@ -1,127 +1,159 @@
-## Novus Overview
+# Novus
 
-### What Novus is
+## Vision
 
-Novus is an **interactive second brain** — a conversational knowledge companion that lets you capture, organize, and retrieve your thoughts and information through natural dialogue. Instead of sifting through files, notes, or scattered documents, you simply talk to Novus and it:
+A voice-native thinking partner that knows your life deeply, thinks with you when you need depth, thinks ahead for you when you're busy, and never acts without your say.
 
-1. understands your questions and context,
-2. retrieves relevant information from your stored knowledge,
-3. maintains organized memory across **Threads** (topics, projects, areas of life),
-4. helps you think through problems and synthesize insights.
-
-Conversation is the primary interface. The web app serves as a dashboard for browsing your second brain, reviewing history, and managing your knowledge — but the core experience is asking and receiving.
+**"The mind that knows you."**
 
 ---
 
-## Core product principles
+## The Core Problem
 
-* **Conversational access:** Ask questions naturally; Novus retrieves and synthesizes answers from your second brain.
-* **Deep conversations:** Novus helps you think through problems, make connections across topics, and create order from chaos.
-* **Thread-native memory:** Threads are living knowledge containers with structured memory, not just chat history.
-* **Effortless capture:** Speak your thoughts, and Novus organizes them into the right Thread automatically.
-* **Always available context:** No more "where did I put that?" — your knowledge is always a question away.
-* **Trust and control:** See what was captured, why it was stored, and easily edit or remove anything.
+You're juggling multiple high-context domains (classes, work, clubs, fitness, personal projects). You think out loud. You need something that:
+
+- Has better memory than you (otherwise what's the point?)
+- Helps you think through problems with real depth (not generic surface-level responses)
+- Proposes ideas, goals, and next steps
+- Helps you actually stick to commitments
+- Works while you're walking, driving, hands-busy
+
+Current tools fail:
+- **Obsidian/Notion**: Requires sitting down and typing. Doesn't push back or follow up.
+- **ChatGPT voice mode**: Interrupts constantly. Generic responses. No persistent memory.
+- **Todo apps**: Static lists. No context. No thinking partner.
 
 ---
 
-## Core concepts
+## Two Layers
 
-### Thread  
+### Layer 1: Second Brain (Memory)
 
-A Thread is a topic, project, or area of knowledge in your life. Examples: "Business Pivot," "Housr," "Health Research," "Bible Study," "Book Notes," "Personal Journal."
+The foundation. Novus knows your context, history, commitments, and how you think.
+
+- Stores and retrieves your knowledge across Threads (topics, projects, areas of life)
+- Remembers what you said you'd do
+- Connects dots across domains ("you mentioned burnout Tuesday + skipped gym three times")
+- Your knowledge is always a question away
+
+### Layer 2: Chief of Staff (Agency)
+
+Built on the memory layer. Novus uses what it knows to proactively help you.
+
+- Proposes priorities and next actions
+- Follows up on commitments
+- Surfaces what matters before you ask
+- Drafts responses, schedules, plans
+- **Never acts without your approval** (commit gating)
+
+The second brain is what makes the chief of staff good. A chief of staff without memory is just a generic assistant.
+
+---
+
+## Three Modes
+
+### 1. Explore
+Deep discussion. Get to the bottom of things. Socratic dialogue.
+- "Help me think through whether I should take this contract"
+- "What's the tradeoff between X and Y?"
+- Push back, ask why, challenge assumptions
+
+### 2. Capture
+You're dumping thoughts. Novus structures and remembers.
+- "Just had a call with the client, here's what happened..."
+- "Random idea for the club event..."
+- Auto-routes to the right Thread, extracts key points
+
+### 3. Manage
+Chief of staff mode. Novus proposes, you decide.
+- "Here's what's on your plate today"
+- "You said you'd email Prof X by Friday - draft ready?"
+- "Your contract deadline is tomorrow, should I block focus time?"
+
+---
+
+## Core Concepts
+
+### Thread
+
+A Thread is a topic, project, or area of knowledge in your life.
+
+Examples: "CS 401", "Contract Work", "Club Leadership", "Fitness", "Personal Journal"
 
 Each Thread maintains:
+- **Summary**: Current state in a few bullets
+- **Key insights**: Important conclusions and realizations
+- **Open questions**: Things you're still exploring
+- **Commitments**: Things you said you'd do
+- **Connections**: Links to related Threads
 
-* **Summary:** current state of knowledge in a few bullets
-* **Key insights:** important conclusions and realizations
-* **Open questions:** things you're still exploring or need to resolve
-* **Connections:** links to related Threads and cross-references
-* **Conversation history:** past dialogues + captured knowledge
-
-### Intent routing
+### Intent Routing
 
 Novus automatically determines:
+- Which Thread the conversation belongs to
+- Whether you're exploring, capturing, or managing
+- If ambiguous, asks: "Which Thread is this for?"
 
-* which Thread the user is asking about or adding to
-* whether the user is asking a question, capturing new information, brainstorming, or seeking connections across topics
-  If ambiguous, Novus asks: "Which Thread is this for?" and proceeds.
+### Commit Gating
 
----
-
-## MVP scope (initial)
-
-Must ship:
-
-* Conversational interface (text-based chat with Novus)
-* Threads (create/select; organize knowledge by topic)
-* Thread page (summary, key insights, open questions, conversation history)
-* Knowledge retrieval (ask questions, get answers from your stored information)
-* Capture flow (add new information to Threads via conversation)
-
-Explicitly not required for MVP:
-
-* External integrations (Calendar, Tasks, etc.)
-* File/document ingestion
-* Multi-user collaboration
-* Voice input (text-first for MVP, voice can come later)
+Novus proposes actions but never executes without explicit approval.
+- Builds trust gradually
+- You maintain control and agency
+- Novus learns your preferences through approval/rejection patterns
 
 ---
 
-## Success metric
+## Core Product Principles
 
-Primary: **Weekly active conversations** (users asking questions and capturing knowledge).
-Secondary: Knowledge retrieval success rate (did Novus answer the question from stored info?), and returning weekly users.
-
----
-
-## Tech stack
-
-* **Frontend:** Next.js (web app, conversational UI)
-* **Backend:** FastAPI (auth, conversation orchestration, knowledge retrieval, memory management)
-* **DB:** Supabase (Postgres for Threads, conversations, knowledge storage)
-* **LLM:** OpenAI or similar (conversation handling, knowledge synthesis, retrieval-augmented generation)
-* **Embeddings:** Vector storage for semantic search across your second brain
+- **Voice-first**: Conversation is the primary interface. Talk while walking.
+- **Depth over breadth**: Goes deep on YOUR life, not generic advice.
+- **Memory as context**: The more you talk, the smarter it gets about YOU.
+- **Proactive, not reactive**: Surfaces what matters before you ask.
+- **You stay in control**: Proposes, doesn't impose.
+- **Trust and transparency**: See what was captured, why, and easily edit or remove.
 
 ---
 
-## System responsibilities (high level)
+## MVP Scope
 
-### Frontend (Next.js)
+### Must ship:
 
-* Conversational chat interface
-* Display conversation history and responses
-* Thread selection and Thread dashboard (browse your second brain)
-* Knowledge capture confirmation
-* Settings: default Thread behavior, display preferences
+**Voice layer:**
+- Talk → it listens without interrupting
+- Responds with depth (not generic)
+- Basic memory: "what did we talk about yesterday?" works
+- Auto-extracts commitments and action items
 
-### Backend (FastAPI)
+**Visual layer (for review):**
+- Thread view: see past conversations by topic
+- Extracted items: ideas, action items, commitments
+- Today view: "here's what's on your plate"
+- Check things off / mark done
 
-* Auth + session management
-* Orchestrate LLM conversations and knowledge retrieval
-* Thread memory update pipeline (summary, insights, open questions)
-* Semantic search across stored knowledge
-* Embedding generation and vector storage management
+### Explicitly NOT in MVP:
 
-### Data model (minimum entities)
-
-* users
-* threads
-* conversations (messages, timestamps)
-* knowledge_items (captured information, embeddings)
-* thread_summaries
-* open_questions
-* connections (cross-thread references)
+- MCP integrations (gcal, email, etc.) — comes later
+- Proactive check-ins / push notifications
+- Mobile app (start web, prove the core)
+- Multi-user collaboration
+- File/document ingestion
 
 ---
 
-## Behavioral rules
+## Success Metrics
 
-* Respond conversationally; feel like talking to a knowledgeable friend who knows your context.
-* Ask at most 1 to 2 clarifying questions before producing a response.
-* When capturing new knowledge, confirm what was stored and where.
-* Make connections between topics when relevant — surface insights across Threads.
-* Keep Thread memory editable and attributable to the source conversation.
+**Primary**: Weekly active voice conversations (are you using it?)
 
-- track context and intent across interactions
-- an orchestration layer for your knowledge
-- potential personas and custom settings for the assistant (tone, verbosity, etc.)
+**Secondary**:
+- Retrieval success rate (did it remember what you needed?)
+- Commitment follow-through (did extracted action items get done?)
+- Returning weekly users
+
+---
+
+## Long-term Vision
+
+1. **Now**: Voice-first capture + memory + basic review UI
+2. **Next**: Chief of staff mode (proactive proposals, follow-ups)
+3. **Later**: MCP integrations (gcal, email, tasks, etc.)
+4. **Eventually**: Mobile app, autonomous execution with approval
