@@ -47,16 +47,17 @@ export default function ThemeToggle() {
       onClick={toggleTheme}
       aria-label={label}
       title={label}
-      className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 bg-white/80 text-slate-700 shadow-sm transition hover:bg-white hover:text-slate-900 dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-200 dark:hover:bg-slate-800 dark:hover:text-white"
+      className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-stone-200 bg-white/80 text-stone-700 shadow-sm transition hover:bg-white hover:text-stone-900 dark:border-stone-800 dark:bg-stone-900/80 dark:text-stone-200 dark:hover:bg-stone-800 dark:hover:text-white"
     >
       {isDark ? (
         <svg
           viewBox="0 0 24 24"
           aria-hidden="true"
-          className="h-5 w-5"
+          className="block h-5 w-5"
           fill="none"
           stroke="currentColor"
           strokeWidth="1.5"
+          strokeLinecap="round"
         >
           <circle cx="12" cy="12" r="4" />
           <path d="M12 2.5v2.5M12 19v2.5M4.5 12H2M22 12h-2.5M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M5.6 18.4l1.8-1.8M16.6 7.4l1.8-1.8" />
@@ -65,7 +66,7 @@ export default function ThemeToggle() {
         <svg
           viewBox="0 0 24 24"
           aria-hidden="true"
-          className="h-5 w-5"
+          className="block h-5 w-5"
           fill="none"
           stroke="currentColor"
           strokeWidth="1.5"

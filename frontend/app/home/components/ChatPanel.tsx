@@ -151,18 +151,18 @@ export default function ChatPanel({
   };
 
   return (
-    <div className="rounded-2xl border border-slate-200/70 bg-white/80 shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
+    <div className="rounded-2xl border border-stone-200/70 bg-white/80 shadow-sm dark:border-stone-800 dark:bg-stone-950/70">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-slate-200/50 px-4 py-2.5 dark:border-slate-800/50">
+      <div className="flex items-center justify-between border-b border-stone-200/50 px-4 py-2.5 dark:border-stone-800/50">
         <div className="flex items-center gap-2">
           <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.5)]" />
-          <span className="text-[11px] font-medium uppercase tracking-wider text-slate-400 dark:text-slate-500">
+          <span className="text-[11px] font-medium uppercase tracking-wider text-stone-400 dark:text-stone-500">
             Novus
           </span>
         </div>
         <button
           onClick={handleClearChat}
-          className="text-[11px] font-medium text-slate-400 transition hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300"
+          className="text-[11px] font-medium text-stone-400 transition hover:text-stone-600 dark:text-stone-500 dark:hover:text-stone-300"
         >
           Clear
         </button>
@@ -176,18 +176,18 @@ export default function ChatPanel({
       >
         {messages.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 px-4">
-            <div className="text-xs text-slate-300 dark:text-slate-600">
+            <div className="text-xs text-stone-300 dark:text-stone-600">
               &gt; awaiting input_
             </div>
           </div>
         ) : (
-          <div className="divide-y divide-slate-100/50 dark:divide-slate-800/30">
+          <div className="divide-y divide-stone-100/50 dark:divide-stone-800/30">
             {messages.map((message) => (
               <div
                 key={message.id}
                 className={`px-4 py-3 transition-colors ${
                   message.role === 'assistant'
-                    ? 'bg-slate-50/50 dark:bg-slate-900/30'
+                    ? 'bg-stone-50/50 dark:bg-stone-900/30'
                     : ''
                 }`}
               >
@@ -195,17 +195,17 @@ export default function ChatPanel({
                   <span
                     className={`mt-0.5 flex-shrink-0 text-[10px] font-semibold uppercase tracking-wider ${
                       message.role === 'user'
-                        ? 'text-slate-400 dark:text-slate-500'
+                        ? 'text-stone-400 dark:text-stone-500'
                         : 'text-emerald-500/80 dark:text-emerald-400/70'
                     }`}
                   >
                     {message.role === 'user' ? 'you' : 'ai'}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <div className="prose prose-sm max-w-none break-words text-[13px] leading-relaxed text-slate-700 dark:prose-invert dark:text-slate-200 [&_*]:my-0 [&_p]:my-1 [&_strong]:font-semibold [&_em]:italic [&_code]:rounded [&_code]:bg-slate-200 [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:text-[11px] [&_code]:font-mono dark:[&_code]:bg-slate-800 [&_pre]:my-2 [&_pre]:rounded [&_pre]:bg-slate-100 [&_pre]:p-3 dark:[&_pre]:bg-slate-800 [&_ul]:my-2 [&_ul]:list-inside [&_ol]:my-2 [&_ol]:list-inside [&_li]:ml-2 [&_blockquote]:border-l-2 [&_blockquote]:border-slate-300 [&_blockquote]:pl-3 [&_blockquote]:italic dark:[&_blockquote]:border-slate-700 [&_a]:text-blue-600 [&_a]:underline dark:[&_a]:text-blue-400">
+                    <div className="prose prose-sm max-w-none break-words text-[13px] leading-relaxed text-stone-700 dark:prose-invert dark:text-stone-200 [&_*]:my-0 [&_p]:my-1 [&_strong]:font-semibold [&_em]:italic [&_code]:rounded [&_code]:bg-stone-200 [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:text-[11px] [&_code]:font-mono dark:[&_code]:bg-stone-800 [&_pre]:my-2 [&_pre]:rounded [&_pre]:bg-stone-100 [&_pre]:p-3 dark:[&_pre]:bg-stone-800 [&_ul]:my-2 [&_ul]:list-inside [&_ol]:my-2 [&_ol]:list-inside [&_li]:ml-2 [&_blockquote]:border-l-2 [&_blockquote]:border-stone-300 [&_blockquote]:pl-3 [&_blockquote]:italic dark:[&_blockquote]:border-stone-700 [&_a]:text-blue-600 [&_a]:underline dark:[&_a]:text-blue-400">
                       <ReactMarkdown>{message.content}</ReactMarkdown>
                     </div>
-                    <p className="mt-2 text-[10px] tabular-nums text-slate-300 dark:text-slate-600">
+                    <p className="mt-2 text-[10px] tabular-nums text-stone-300 dark:text-stone-600">
                       {message.timestamp.toLocaleTimeString([], {
                         hour: '2-digit',
                         minute: '2-digit',
@@ -223,10 +223,10 @@ export default function ChatPanel({
                     you
                   </span>
                   <div className="min-w-0 flex-1">
-                    <div className="text-[13px] leading-relaxed text-slate-600 dark:text-slate-300">
+                    <div className="text-[13px] leading-relaxed text-stone-600 dark:text-stone-300">
                       <span>{liveTranscript}</span>
                       {interimTranscript && (
-                        <span className="text-slate-400 italic"> {interimTranscript}</span>
+                        <span className="text-stone-400 italic"> {interimTranscript}</span>
                       )}
                       <span className="ml-1 inline-block h-3 w-0.5 animate-pulse bg-sky-400" />
                     </div>
@@ -238,15 +238,15 @@ export default function ChatPanel({
               </div>
             )}
             {isLoading && (
-              <div className="bg-slate-50/50 px-4 py-3 dark:bg-slate-900/30">
+              <div className="bg-stone-50/50 px-4 py-3 dark:bg-stone-900/30">
                 <div className="flex items-start gap-3">
                   <span className="mt-0.5 flex-shrink-0 text-[10px] font-semibold uppercase tracking-wider text-emerald-500/80 dark:text-emerald-400/70">
                     ai
                   </span>
                   <div className="flex items-center gap-1.5">
-                    <span className="h-1 w-1 animate-pulse rounded-full bg-slate-400 dark:bg-slate-500" />
-                    <span className="h-1 w-1 animate-pulse rounded-full bg-slate-400 [animation-delay:150ms] dark:bg-slate-500" />
-                    <span className="h-1 w-1 animate-pulse rounded-full bg-slate-400 [animation-delay:300ms] dark:bg-slate-500" />
+                    <span className="h-1 w-1 animate-pulse rounded-full bg-stone-400 dark:bg-stone-500" />
+                    <span className="h-1 w-1 animate-pulse rounded-full bg-stone-400 [animation-delay:150ms] dark:bg-stone-500" />
+                    <span className="h-1 w-1 animate-pulse rounded-full bg-stone-400 [animation-delay:300ms] dark:bg-stone-500" />
                   </div>
                 </div>
               </div>
@@ -256,9 +256,9 @@ export default function ChatPanel({
       </div>
 
       {/* Integrated Input */}
-      <form onSubmit={handleSendMessage} className="border-t border-slate-200/50 dark:border-slate-800/50">
+      <form onSubmit={handleSendMessage} className="border-t border-stone-200/50 dark:border-stone-800/50">
         <div className="flex items-center">
-          <span className="pl-4 text-[11px] font-medium text-slate-300 dark:text-slate-600">
+          <span className="pl-4 text-[11px] font-medium text-stone-300 dark:text-stone-600">
             &gt;
           </span>
           <input
@@ -267,12 +267,12 @@ export default function ChatPanel({
             onChange={(e) => setInput(e.target.value)}
             placeholder="Type a message..."
             disabled={isLoading}
-            className="flex-1 bg-transparent px-2 py-3 font-mono text-[13px] text-slate-700 placeholder-slate-300 outline-none disabled:cursor-not-allowed disabled:opacity-50 dark:text-slate-200 dark:placeholder-slate-600"
+            className="flex-1 bg-transparent px-2 py-3 font-mono text-[13px] text-stone-700 placeholder-stone-300 outline-none disabled:cursor-not-allowed disabled:opacity-50 dark:text-stone-200 dark:placeholder-stone-600"
           />
           <button
             type="submit"
             disabled={!input.trim() || isLoading}
-            className="mr-2 rounded-lg px-3 py-1.5 text-[11px] font-medium text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+            className="mr-2 rounded-lg px-3 py-1.5 text-[11px] font-medium text-stone-400 transition hover:bg-stone-100 hover:text-stone-600 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent dark:text-stone-500 dark:hover:bg-stone-800 dark:hover:text-stone-300"
           >
             Enter
           </button>
