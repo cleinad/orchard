@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
 
 // LLM Provider configuration
-const LLM_PROVIDER = process.env.LLM_PROVIDER || 'gemini';
+const LLM_PROVIDER = process.env.LLM_PROVIDER || 'anthropic';
 const LLM_API_KEY = process.env.LLM_API_KEY || '';
 const LLM_MODEL = process.env.LLM_MODEL || getDefaultModel(LLM_PROVIDER);
 
@@ -15,22 +15,44 @@ function getDefaultModel(provider: string): string {
     case 'anthropic':
       return 'claude-sonnet-4-20250514';
     default:
-      return 'gemini-2.0-flash';
+      return 'claude-sonnet-4-20250514';
   }
 }
+
+const NOVUS_SYSTEM_PROMPT = `You are Novus, a voice-native thinking partner. You help the user think through problems with depth, capture their thoughts, and stay on top of their commitments.
+
+Core traits:
+- You think WITH the user, not just respond to them. Ask probing questions, challenge assumptions, help them get to the bottom of things.
+- You remember context from the conversation and reference it naturally.
+- You're concise but substantive. No fluff, no generic advice. Go deep.
+- You extract and track commitments, action items, and key ideas without being asked.
+- You speak like a thoughtful friend who happens to have excellent memory - warm but direct.
+
+When the user is:
+- EXPLORING a topic: Ask "why" questions, surface tradeoffs, help them think it through
+- CAPTURING thoughts: Acknowledge, organize, and confirm what you understood
+- MANAGING tasks: Be proactive about priorities, follow up on commitments
+
+Keep responses conversational and focused. This is a voice conversation - avoid walls of text, bullet dumps, or overly formal language.
+When appropriate, answer questions directly without snarky validation or introductions. You can be more direct and less summarative at times because this is a conversation with a human.
+Exercise your judgement on when to be more direct and when to be more conversational, you are to be an excellent communicator.
+`;
 
 interface ChatRequest {
   message: string;
   conversationId?: string;
+  threadId?: string;
 }
 
 async function callGemini(messages: { role: string; content: string }[]): Promise<string> {
+  // Add system instruction for Gemini
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${LLM_MODEL}:generateContent?key=${LLM_API_KEY}`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        systemInstruction: { parts: [{ text: NOVUS_SYSTEM_PROMPT }] },
         contents: messages.map((m) => ({
           role: m.role === 'assistant' ? 'model' : 'user',
           parts: [{ text: m.content }],
@@ -49,6 +71,11 @@ async function callGemini(messages: { role: string; content: string }[]): Promis
 }
 
 async function callOpenAI(messages: { role: string; content: string }[]): Promise<string> {
+  const messagesWithSystem = [
+    { role: 'system', content: NOVUS_SYSTEM_PROMPT },
+    ...messages.map((m) => ({ role: m.role, content: m.content })),
+  ];
+
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -57,7 +84,7 @@ async function callOpenAI(messages: { role: string; content: string }[]): Promis
     },
     body: JSON.stringify({
       model: LLM_MODEL,
-      messages: messages.map((m) => ({ role: m.role, content: m.content })),
+      messages: messagesWithSystem,
     }),
   });
 
@@ -81,6 +108,7 @@ async function callAnthropic(messages: { role: string; content: string }[]): Pro
     body: JSON.stringify({
       model: LLM_MODEL,
       max_tokens: 4096,
+      system: NOVUS_SYSTEM_PROMPT,
       messages: messages.map((m) => ({ role: m.role, content: m.content })),
     }),
   });
