@@ -1,128 +1,159 @@
-## Novus Overview
+# Novus
 
-### What Novus is
+## Vision
 
-Novus is a **voice-first executive assistant** that reduces the number of apps you use by letting you speak naturally and having the system:
+A voice-native thinking partner that knows your life deeply, thinks with you when you need depth, thinks ahead for you when you're busy, and never acts without your say.
 
-1. understand intent,
-2. route it to the right **Thread** and tool,
-3. maintain durable memory per Thread,
-4. propose and commit concrete next actions into your existing systems.
-
-Voice is the primary UI. The web app exists mainly as a control panel and audit trail, not as the main place you “work.”
+**"The mind that knows you."**
 
 ---
 
-## Core product principles
+## The Core Problem
 
-* **Voice-first, minimal UI:** user speaks; Novus asks clarifying questions only when needed.
-* **Deep Conversations** Novus is able to converse with the user and help them think through problems, convert into actionable steps and create order from chaos.
-* **Fewer apps:** Novus writes actions into existing tools (Calendar, Tasks) so the user does not manage yet another task system.
-* **Thread-native memory:** Threads are living workstreams with structured memory, not just chat history.
-* **Loop closing:** Most sessions should end with 1 to 3 proposed actions, with explicit user approval to commit.
-* **Trust and control:** show what was captured, why it was captured, and allow edits/undo.
+You're juggling multiple high-context domains (classes, work, clubs, fitness, personal projects). You think out loud. You need something that:
+
+- Has better memory than you (otherwise what's the point?)
+- Helps you think through problems with real depth (not generic surface-level responses)
+- Proposes ideas, goals, and next steps
+- Helps you actually stick to commitments
+- Works while you're walking, driving, hands-busy
+
+Current tools fail:
+- **Obsidian/Notion**: Requires sitting down and typing. Doesn't push back or follow up.
+- **ChatGPT voice mode**: Interrupts constantly. Generic responses. No persistent memory.
+- **Todo apps**: Static lists. No context. No thinking partner.
 
 ---
 
-## Core concepts
+## Two Layers
+
+### Layer 1: Second Brain (Memory)
+
+The foundation. Novus knows your context, history, commitments, and how you think.
+
+- Stores and retrieves your knowledge across Threads (topics, projects, areas of life)
+- Remembers what you said you'd do
+- Connects dots across domains ("you mentioned burnout Tuesday + skipped gym three times")
+- Your knowledge is always a question away
+
+### Layer 2: Chief of Staff (Agency)
+
+Built on the memory layer. Novus uses what it knows to proactively help you.
+
+- Proposes priorities and next actions
+- Follows up on commitments
+- Surfaces what matters before you ask
+- Drafts responses, schedules, plans
+- **Never acts without your approval** (commit gating)
+
+The second brain is what makes the chief of staff good. A chief of staff without memory is just a generic assistant.
+
+---
+
+## Three Modes
+
+### 1. Explore
+Deep discussion. Get to the bottom of things. Socratic dialogue.
+- "Help me think through whether I should take this contract"
+- "What's the tradeoff between X and Y?"
+- Push back, ask why, challenge assumptions
+
+### 2. Capture
+You're dumping thoughts. Novus structures and remembers.
+- "Just had a call with the client, here's what happened..."
+- "Random idea for the club event..."
+- Auto-routes to the right Thread, extracts key points
+
+### 3. Manage
+Chief of staff mode. Novus proposes, you decide.
+- "Here's what's on your plate today"
+- "You said you'd email Prof X by Friday - draft ready?"
+- "Your contract deadline is tomorrow, should I block focus time?"
+
+---
+
+## Core Concepts
 
 ### Thread
 
-A Thread is an ongoing workstream in a user’s life (project, role, goal, job). Examples: “Business Pivot” “Housr,” “Recruiting,” “Health,” “Bible study.”
+A Thread is a topic, project, or area of knowledge in your life.
+
+Examples: "CS 401", "Contract Work", "Club Leadership", "Fitness", "Personal Journal"
 
 Each Thread maintains:
+- **Summary**: Current state in a few bullets
+- **Key insights**: Important conclusions and realizations
+- **Open questions**: Things you're still exploring
+- **Commitments**: Things you said you'd do
+- **Connections**: Links to related Threads
 
-* **Brief:** current status in a few bullets
-* **Decisions:** timestamped
-* **Open loops:** pending questions or follow-ups
-* **Next actions:** proposed and committed actions
-* **Session history:** transcripts + structured outputs
-
-### Intent routing
+### Intent Routing
 
 Novus automatically determines:
+- Which Thread the conversation belongs to
+- Whether you're exploring, capturing, or managing
+- If ambiguous, asks: "Which Thread is this for?"
 
-* which Thread the user is talking about
-* whether the user is brainstorming, capturing notes, creating commitments, scheduling, or asking questions
-  If ambiguous, Novus asks: “Which Thread is this for?” and proceeds.
+### Commit Gating
 
----
-
-## MVP scope (initial)
-
-Must ship:
-
-* Voice chat (capture, transcription, assistant responses)
-* Threads (create/select; attach each session to one Thread)
-* Thread page (brief, open loops, proposed actions, history)
-* Google Tasks and Google Calendar integrations (via MCP or equivalent connector)
-* Commit gating (assistant proposes actions; user taps “Commit” to write to external tools)
-
-Explicitly not required for MVP:
-
-* Email sending
-* “Bring any page to life” content ingestion
-* Multi-user collaboration
-* Fully autonomous actions without confirmation
+Novus proposes actions but never executes without explicit approval.
+- Builds trust gradually
+- You maintain control and agency
+- Novus learns your preferences through approval/rejection patterns
 
 ---
 
-## Success metric
+## Core Product Principles
 
-Primary: **Weekly committed actions created from voice** (tasks/events written via Novus).
-Secondary: returning weekly voice sessions per user, and open loops closed within 7 days.
-
----
-
-## Tech stack
-
-* **Frontend:** Next.js (web app, ideally PWA-friendly for mobile voice use)
-* **Backend:** FastAPI (auth, session orchestration, tool calls, memory management)
-* **DB:** Supabase (Postgres for Threads, sessions, actions, sync state)
-* **Voice agent:** LiveKit (real-time voice pipeline, agent connection, streaming audio)
-* **Integrations:** MCP-based connectors for Google Calendar and Google Tasks (start with minimal actions: create task, create calendar event)
+- **Voice-first**: Conversation is the primary interface. Talk while walking.
+- **Depth over breadth**: Goes deep on YOUR life, not generic advice.
+- **Memory as context**: The more you talk, the smarter it gets about YOU.
+- **Proactive, not reactive**: Surfaces what matters before you ask.
+- **You stay in control**: Proposes, doesn't impose.
+- **Trust and transparency**: See what was captured, why, and easily edit or remove.
 
 ---
 
-## System responsibilities (high level)
+## MVP Scope
 
-### Frontend (Next.js)
+### Must ship:
 
-* Voice capture UI (tap-to-talk / hold-to-talk)
-* Display transcript and assistant output
-* Thread selection and lightweight Thread dashboard
-* Commit UI for proposed actions
-* Settings: default Thread behavior, integration status, safety toggles
+**Voice layer:**
+- Talk → it listens without interrupting
+- Responds with depth (not generic)
+- Basic memory: "what did we talk about yesterday?" works
+- Auto-extracts commitments and action items
 
-### Backend (FastAPI)
+**Visual layer (for review):**
+- Thread view: see past conversations by topic
+- Extracted items: ideas, action items, commitments
+- Today view: "here's what's on your plate"
+- Check things off / mark done
 
-* Auth + session management
-* Orchestrate STT, LLM reasoning, and tool execution
-* Thread memory update pipeline (brief, decisions, open loops, actions)
-* Tool routing (Google Tasks/Calendar) with commit gating
-* Sync state tracking + retries for external tool writes
+### Explicitly NOT in MVP:
 
-### Data model (minimum entities)
-
-* users
-* threads
-* voice_sessions (audio refs, transcript, timestamps)
-* thread_brief_items
-* open_loops
-* proposed_actions
-* committed_actions (external ids, status)
-* integration_tokens / connection metadata
+- MCP integrations (gcal, email, etc.) — comes later
+- Proactive check-ins / push notifications
+- Mobile app (start web, prove the core)
+- Multi-user collaboration
+- File/document ingestion
 
 ---
 
-## Behavioral rules
+## Success Metrics
 
-* Default to voice interaction; typed input is fallback.
-* Ask at most 1 to 2 clarifying questions before producing output.
-* Every session produces a structured update plus next actions or explicitly states none.
-* Never silently create external tasks/events; require user confirmation.
-* Keep Thread memory editable and attributable to the source session.
+**Primary**: Weekly active voice conversations (are you using it?)
 
-- track context and intent across interactions
-- an orchestration layer essentially
-- potential personas and custom setting for the agent
+**Secondary**:
+- Retrieval success rate (did it remember what you needed?)
+- Commitment follow-through (did extracted action items get done?)
+- Returning weekly users
+
+---
+
+## Long-term Vision
+
+1. **Now**: Voice-first capture + memory + basic review UI
+2. **Next**: Chief of staff mode (proactive proposals, follow-ups)
+3. **Later**: MCP integrations (gcal, email, tasks, etc.)
+4. **Eventually**: Mobile app, autonomous execution with approval
