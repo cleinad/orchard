@@ -1,93 +1,508 @@
 "use client";
 
-import { useState } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import ThemeToggle from '@/app/components/ThemeToggle';
 import HomeBackground from '@/app/home/components/HomeBackground';
-import MicVisualizer from '@/app/home/components/MicVisualizer';
-import ChatPanel, { Message } from '@/app/home/components/ChatPanel';
+import { useTTS } from '@/app/home/components/useTTS';
+import { useMicrophone } from '@/app/home/components/useMicrophone';
+import { useAudioVisualization } from '@/app/home/components/useAudioVisualization';
+import { useTranscription } from '@/app/home/components/useTranscription';
+import ReactMarkdown from 'react-markdown';
+
+export interface Message {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: Date;
+}
+
+function MicDodecahedron({ active }: { active: boolean }) {
+  return (
+    <svg viewBox="0 0 120 120" className="h-6 w-6">
+      <g
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className={`transition-colors duration-300 ${active ? 'text-slate-700 dark:text-slate-200' : 'text-slate-400 dark:text-slate-500'}`}
+      >
+        <polygon points="60,8 108,38 90,102 30,102 12,38" />
+        <polygon points="60,24 92,44 80,88 40,88 28,44" />
+        <line x1="60" y1="8" x2="60" y2="24" />
+        <line x1="108" y1="38" x2="92" y2="44" />
+        <line x1="90" y1="102" x2="80" y2="88" />
+        <line x1="30" y1="102" x2="40" y2="88" />
+        <line x1="12" y1="38" x2="28" y2="44" />
+      </g>
+    </svg>
+  );
+}
 
 /**
- * Home page - protected by proxy.ts middleware
- * Only authenticated users can access this page (proxy redirects unauthenticated users to /login)
+ * Home page - A cozy, integrated voice + text conversation interface
  */
 export default function HomePage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(null);
+  const [ttsEnabled] = useState(true);
+  const [micActive, setMicActive] = useState(false);
+  const [inputFocused, setInputFocused] = useState(false);
 
+  const tts = useTTS();
+  const microphone = useMicrophone();
+  const transcription = useTranscription();
+  const visualization = useAudioVisualization({
+    analyser: microphone.analyser,
+    isActive: micActive,
+  });
+
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [userHasScrolled, setUserHasScrolled] = useState(false);
+
+  // Auto-scroll to bottom
+  const scrollToBottom = useCallback(() => {
+    if (!userHasScrolled && messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [userHasScrolled]);
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, scrollToBottom]);
+
+  // Handle scroll detection
+  const handleScroll = () => {
+    const container = containerRef.current;
+    if (!container) return;
+    const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 100;
+    setUserHasScrolled(!isAtBottom);
+  };
+
+  // Auto-resize textarea
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 200) + 'px';
+    }
+  }, [input]);
+
+  // Mic controls
+  const startMic = useCallback(async () => {
+    tts.stop();
+    const result = await microphone.start();
+    if (result) {
+      setMicActive(true);
+      void transcription.start(result.stream, result.sessionId);
+    }
+  }, [microphone, transcription, tts]);
+
+  const stopMic = useCallback(() => {
+    microphone.stop();
+    transcription.stop();
+    setMicActive(false);
+  }, [microphone, transcription]);
+
+  const toggleMic = useCallback(() => {
+    if (micActive) {
+      stopMic();
+    } else {
+      startMic();
+    }
+  }, [micActive, startMic, stopMic]);
+
+  // Cleanup on unmount - use refs to avoid stale closures
+  const microphoneRef = useRef(microphone);
+  const transcriptionRef = useRef(transcription);
+  microphoneRef.current = microphone;
+  transcriptionRef.current = transcription;
+
+  useEffect(() => {
+    return () => {
+      microphoneRef.current.stop();
+      transcriptionRef.current.stop();
+    };
+  }, []);
+
+  // Send message (from text or voice)
+  const sendMessage = useCallback(async (content: string) => {
+    if (!content.trim() || isLoading) return;
+
+    // Clear transcript if from voice
+    transcription.stop();
+    microphone.stop();
+    setMicActive(false);
+
+    const userMessage: Message = {
+      id: Date.now().toString(),
+      role: 'user',
+      content: content.trim(),
+      timestamp: new Date(),
+    };
+
+    setMessages((prev) => [...prev, userMessage]);
+    setInput('');
+    setIsLoading(true);
+    setUserHasScrolled(false);
+
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: userMessage.content,
+          conversationId,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || data.error) {
+        const errorMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          role: 'assistant',
+          content: `Something went wrong. ${data.error || ''}`,
+          timestamp: new Date(),
+        };
+        setMessages((prev) => [...prev, errorMessage]);
+        return;
+      }
+
+      if (data.conversationId && !conversationId) {
+        setConversationId(data.conversationId);
+      }
+
+      const responseText = data.message || 'No response received.';
+      const assistantMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: responseText,
+        timestamp: new Date(),
+      };
+
+      setMessages((prev) => [...prev, assistantMessage]);
+
+      if (ttsEnabled && responseText && !responseText.startsWith('Something went wrong')) {
+        tts.speak(responseText);
+      }
+    } catch {
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: 'Sorry, there was an error processing your message.',
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, errorMessage]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [conversationId, isLoading, ttsEnabled, tts, transcription, microphone]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const textToSend = transcription.finalTranscript.trim() || input.trim();
+    if (textToSend) {
+      sendMessage(textToSend);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit(e);
+    }
+  };
+
+  const hasTranscript = transcription.finalTranscript.length > 0 || transcription.interimTranscript.length > 0;
+  const displayText = hasTranscript
+    ? `${transcription.finalTranscript}${transcription.interimTranscript ? ' ' + transcription.interimTranscript : ''}`
+    : input;
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[#fbfaf7] text-slate-950 dark:bg-[#060606] dark:text-slate-100">
+    <div className="relative min-h-screen overflow-hidden bg-[#faf9f6] text-slate-900 dark:bg-[#0a0a0a] dark:text-slate-100">
       <HomeBackground />
 
-      <main className="relative mx-auto flex min-h-screen w-full max-w-6xl flex-col px-6 py-8 sm:px-10">
-        <header className="flex items-center justify-between">
-          <div>
-            <p className="text-xs text-slate-500 dark:text-slate-400">Novus</p>
-            <h1 className="font-heading text-2xl text-slate-950 dark:text-white">
-              Voice session
-            </h1>
+      {/* Subtle grain texture */}
+      <div
+        className="pointer-events-none fixed inset-0 opacity-[0.012] dark:opacity-[0.025]"
+        style={{
+          backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E")`,
+        }}
+      />
+
+      <main className="relative mx-auto flex min-h-screen w-full max-w-3xl flex-col px-4 sm:px-6">
+        {/* Header */}
+        <header className="flex items-center justify-between py-6">
+          <div className="flex items-center gap-2">
+            <span className="font-heading text-xl text-slate-800 dark:text-slate-100">Novus</span>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             <ThemeToggle />
-            <button className="rounded-xl border border-slate-200 bg-white/80 px-4 py-2 text-sm font-semibold text-slate-900 shadow-sm transition hover:border-slate-300 hover:bg-white dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-100 dark:hover:border-slate-700 dark:hover:bg-slate-800/80">
-              End session
-            </button>
           </div>
         </header>
 
-        {/* Talking Area */}
-        <section className="mt-10">
-          <div className="rounded-2xl border border-slate-200/70 bg-white/80 p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
-            <div className="flex items-center justify-between text-xs text-slate-400">
-              <span className="font-heading text-sm text-slate-500 dark:text-slate-400">
-                Talking area
-              </span>
-              <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-[10px] font-semibold text-emerald-500">
-                Listening
-              </span>
+        {/* Conversation area */}
+        <div
+          ref={containerRef}
+          onScroll={handleScroll}
+          className="flex-1 overflow-y-auto pb-4"
+        >
+          {messages.length === 0 ? (
+            <div className="flex h-full min-h-[50vh] flex-col items-center justify-center px-4">
+              <div className="text-center">
+                <h1 className="font-heading text-3xl text-slate-800 dark:text-slate-100 sm:text-4xl">
+                  What&apos;s on your mind?
+                </h1>
+                <p className="mt-4 max-w-md text-sm leading-relaxed text-slate-500 dark:text-slate-400">
+                  I&apos;m here to help you think through problems, capture ideas, and stay on top of what matters. Speak or type — I&apos;m listening.
+                </p>
+              </div>
             </div>
-            <div className="mt-3 rounded-2xl border border-slate-200/70 bg-white px-4 py-2 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900/70 dark:text-slate-300">
-              "Capture my thoughts from today's customer calls and propose next
-              actions."
+          ) : (
+            <div className="py-6">
+              {messages.map((message) => (
+                <div
+                  key={message.id}
+                  className="py-4"
+                >
+                  <div className="mb-2 text-xs font-medium text-slate-400 dark:text-slate-500">
+                    {message.role === 'user' ? 'You' : 'Novus'}
+                  </div>
+                  <div className="text-[15px] leading-relaxed text-slate-800 dark:text-slate-100 [&_p]:mb-3 [&_p:last-child]:mb-0 [&_ul]:mb-3 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:mb-3 [&_ol]:ml-4 [&_ol]:list-decimal [&_li]:mb-1 [&_code]:rounded [&_code]:bg-slate-100 [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:text-[13px] [&_code]:text-slate-700 dark:[&_code]:bg-slate-800 dark:[&_code]:text-slate-300 [&_pre]:my-3 [&_pre]:rounded-lg [&_pre]:bg-slate-100 [&_pre]:p-4 dark:[&_pre]:bg-slate-800">
+                    <ReactMarkdown>{message.content}</ReactMarkdown>
+                  </div>
+                </div>
+              ))}
+
+              {/* Loading indicator */}
+              {isLoading && (
+                <div className="py-4">
+                  <div className="mb-2 text-xs font-medium text-slate-400 dark:text-slate-500">
+                    Novus
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="h-2 w-2 animate-bounce rounded-full bg-slate-300 dark:bg-slate-600" style={{ animationDelay: '0ms' }} />
+                    <span className="h-2 w-2 animate-bounce rounded-full bg-slate-300 dark:bg-slate-600" style={{ animationDelay: '150ms' }} />
+                    <span className="h-2 w-2 animate-bounce rounded-full bg-slate-300 dark:bg-slate-600" style={{ animationDelay: '300ms' }} />
+                  </div>
+                </div>
+              )}
+
+              <div ref={messagesEndRef} />
             </div>
-            <MicVisualizer />
-            <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-400">
-              <span className="rounded-full border border-slate-200/80 px-3 py-1 dark:border-slate-800">
-                Hold to talk
-              </span>
-              <span className="rounded-full border border-slate-200/80 px-3 py-1 dark:border-slate-800">
-                Auto transcript
-              </span>
-              <span className="rounded-full border border-slate-200/80 px-3 py-1 dark:border-slate-800">
-                Commit gating
-              </span>
+          )}
+        </div>
+
+        {/* Input area */}
+        <div className="sticky bottom-0 pb-6 pt-2">
+          {/* Live transcript preview */}
+          {hasTranscript && !isLoading && (
+            <div className="mb-3 rounded-2xl bg-white/60 px-4 py-2 text-sm text-slate-600 backdrop-blur-md dark:bg-[#1a1a1a]/80 dark:text-neutral-300">
+              <span className="text-[10px] font-medium uppercase tracking-widest text-slate-400 dark:text-neutral-500">Listening</span>
+              <p className="mt-1">
+                {transcription.finalTranscript}
+                {transcription.interimTranscript && (
+                  <span className="text-slate-400 dark:text-neutral-500"> {transcription.interimTranscript}</span>
+                )}
+                <span className="ml-1 inline-block h-4 w-0.5 animate-pulse bg-slate-400 dark:bg-neutral-500" />
+              </p>
             </div>
+          )}
+
+          {/* Voice waveform — floats above the input bar */}
+          <div className={`relative mx-auto mb-1.5 h-1 max-w-[80%] overflow-hidden rounded-full transition-opacity duration-500 ${micActive || isLoading ? 'opacity-100' : 'opacity-0'}`}>
+            <svg
+              viewBox="0 0 240 4"
+              className="absolute inset-0 h-full w-full"
+              preserveAspectRatio="none"
+            >
+              <polyline
+                ref={visualization.lineRef}
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="4"
+                points="0,2 240,2"
+                className={`text-slate-400 transition-opacity duration-300 dark:text-neutral-400 ${micActive ? 'opacity-100' : 'opacity-0'}`}
+              />
+              <polyline
+                ref={visualization.glowRef}
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="4"
+                points="0,2 240,2"
+                className={`text-slate-300 transition-opacity duration-300 dark:text-neutral-500 ${micActive ? 'opacity-50' : 'opacity-0'}`}
+                style={{ filter: 'blur(2px)' }}
+              />
+            </svg>
+            {/* Shimmer loader */}
+            {!micActive && isLoading && (
+              <div className="absolute inset-0 animate-shimmer bg-gradient-to-r from-slate-200 via-slate-300 to-slate-200 dark:from-neutral-700 dark:via-neutral-500 dark:to-neutral-700"
+                style={{ backgroundSize: '200% 100%' }}
+              />
+            )}
           </div>
-        </section>
 
-        {/* Chat Interface */}
-        <section className="mt-8">
-          <ChatPanel
-            messages={messages}
-            setMessages={setMessages}
-            input={input}
-            setInput={setInput}
-            isLoading={isLoading}
-            setIsLoading={setIsLoading}
-            conversationId={conversationId}
-            setConversationId={setConversationId}
-          />
-        </section>
+          <form onSubmit={handleSubmit} className="flex items-end gap-3">
+            {/* Mic button — floating circle, detached from the main capsule */}
+            <button
+              type="button"
+              onClick={toggleMic}
+              disabled={isLoading}
+              className={`input-glass-orb flex-shrink-0 rounded-full p-3 transition-all duration-200 ${
+                micActive
+                  ? 'bg-white shadow-md dark:bg-[#2a2a2a]'
+                  : 'bg-white/80 hover:bg-white dark:bg-[#1e1e1e] dark:hover:bg-[#262626]'
+              } disabled:cursor-not-allowed disabled:opacity-50`}
+            >
+              <MicDodecahedron active={micActive} />
+            </button>
 
-        <footer className="mt-auto flex flex-col items-start justify-between gap-3 border-t border-slate-200/60 pt-6 text-xs text-slate-400 dark:border-slate-800 sm:flex-row sm:items-center">
-          <span>© 2026 Novus</span>
-          <span>Voice-first control panel</span>
-        </footer>
+            {/* Main input capsule */}
+            <div className="input-glass-capsule relative flex min-w-0 flex-1 items-end gap-2 rounded-[24px] bg-white/80 py-2 pl-5 pr-2 backdrop-blur-xl transition-all duration-200 dark:bg-[#1a1a1a]/90">
+              {/* Top rim highlight */}
+              <div className="pointer-events-none absolute inset-x-4 top-0 h-px bg-gradient-to-r from-transparent via-black/[0.06] to-transparent dark:via-white/[0.07]" />
+
+              {/* Text input */}
+              <textarea
+                ref={textareaRef}
+                value={hasTranscript ? displayText : input}
+                onChange={(e) => {
+                  if (!hasTranscript) setInput(e.target.value);
+                }}
+                onFocus={() => setInputFocused(true)}
+                onBlur={() => setInputFocused(false)}
+                onKeyDown={handleKeyDown}
+                placeholder={micActive ? "Listening..." : "What's on your mind?"}
+                disabled={isLoading}
+                rows={1}
+                className="w-full min-w-0 resize-none bg-transparent py-1.5 text-sm leading-relaxed text-slate-700 placeholder-slate-400 outline-none disabled:cursor-not-allowed disabled:opacity-50 dark:text-neutral-100 dark:placeholder-neutral-500"
+                style={{ maxHeight: '200px' }}
+              />
+
+              {/* Send button */}
+              <button
+                type="submit"
+                disabled={(!input.trim() && !hasTranscript) || isLoading}
+                className="flex-shrink-0 rounded-full bg-slate-900 p-2.5 text-white transition-all hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-20 dark:bg-white dark:text-black dark:hover:bg-neutral-200"
+              >
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 10l7-7m0 0l7 7m-7-7v18" />
+                </svg>
+              </button>
+            </div>
+          </form>
+
+          {/* Status line — floating below */}
+          <div className="mt-2 flex items-center justify-between px-16 text-[11px] text-slate-400 dark:text-neutral-500">
+            <div className="flex items-center gap-3">
+              {micActive && (
+                <span className="flex items-center gap-1.5">
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
+                  <span>
+                    {transcription.status === 'connected' ? 'Listening' : transcription.status === 'connecting' ? 'Connecting...' : 'Ready'}
+                  </span>
+                </span>
+              )}
+              {tts.isLoading && <span>Generating voice...</span>}
+              {tts.isPlaying && <span>Speaking...</span>}
+            </div>
+            <span className="hidden sm:inline">
+              Enter to send · Shift+Enter for new line
+            </span>
+          </div>
+
+          {/* Mic errors */}
+          {microphone.status === 'blocked' && (
+            <p className="mt-2 text-center text-xs text-slate-500 dark:text-neutral-400">
+              Microphone permission denied. Check browser settings.
+            </p>
+          )}
+          {microphone.status === 'error' && microphone.errorMessage && (
+            <p className="mt-2 text-center text-xs text-rose-500">{microphone.errorMessage}</p>
+          )}
+        </div>
       </main>
+
+      <style jsx>{`
+        @keyframes shimmer {
+          0% { background-position: 200% 0; }
+          100% { background-position: -200% 0; }
+        }
+
+        .animate-shimmer {
+          animation: shimmer 2s linear infinite;
+        }
+
+        .input-glass-capsule {
+          box-shadow:
+            0 0 0 1px rgba(0,0,0,0.04),
+            0 2px 8px rgba(0,0,0,0.04),
+            0 8px 32px rgba(0,0,0,0.03),
+            inset 0 1px 0 rgba(255,255,255,0.6);
+        }
+
+        :global(.dark) .input-glass-capsule {
+          box-shadow:
+            0 0 0 1px rgba(255,255,255,0.08),
+            inset 0 1px 0 rgba(255,255,255,0.05),
+            inset 0 -1px 0 rgba(255,255,255,0.02),
+            0 2px 12px rgba(0,0,0,0.3),
+            0 8px 40px rgba(0,0,0,0.2);
+        }
+
+        .input-glass-orb {
+          box-shadow:
+            0 0 0 1px rgba(0,0,0,0.04),
+            0 2px 8px rgba(0,0,0,0.05),
+            inset 0 1px 0 rgba(255,255,255,0.5);
+        }
+
+        :global(.dark) .input-glass-orb {
+          box-shadow:
+            0 0 0 1px rgba(255,255,255,0.08),
+            inset 0 1px 0 rgba(255,255,255,0.06),
+            0 2px 12px rgba(0,0,0,0.3);
+        }
+
+        /* Subtle scrollbar for textarea */
+        .input-glass-capsule textarea {
+          scrollbar-width: thin;
+          scrollbar-color: rgba(0,0,0,0.15) transparent;
+        }
+
+        :global(.dark) .input-glass-capsule textarea {
+          scrollbar-color: rgba(255,255,255,0.15) transparent;
+        }
+
+        .input-glass-capsule textarea::-webkit-scrollbar {
+          width: 4px;
+        }
+
+        .input-glass-capsule textarea::-webkit-scrollbar-track {
+          background: transparent;
+        }
+
+        .input-glass-capsule textarea::-webkit-scrollbar-thumb {
+          background: rgba(0,0,0,0.12);
+          border-radius: 4px;
+        }
+
+        .input-glass-capsule textarea::-webkit-scrollbar-thumb:hover {
+          background: rgba(0,0,0,0.2);
+        }
+
+        :global(.dark) .input-glass-capsule textarea::-webkit-scrollbar-thumb {
+          background: rgba(255,255,255,0.12);
+        }
+
+        :global(.dark) .input-glass-capsule textarea::-webkit-scrollbar-thumb:hover {
+          background: rgba(255,255,255,0.2);
+        }
+      `}</style>
     </div>
   );
 }
-
-
