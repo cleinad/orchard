@@ -5,6 +5,12 @@ import { useMicrophone } from './useMicrophone';
 import { useAudioVisualization } from './useAudioVisualization';
 import { useTranscription } from './useTranscription';
 
+interface MicVisualizerProps {
+  onSendTranscript?: (transcript: string) => void;
+  onTranscriptUpdate?: (final: string, interim: string) => void;
+  isProcessing?: boolean;
+}
+
 function MicDodecahedron() {
   return (
     <svg viewBox="0 0 120 120" className="h-20 w-20">
@@ -38,7 +44,7 @@ function MicDodecahedron() {
   );
 }
 
-export default function MicVisualizer() {
+export default function MicVisualizer({ onSendTranscript, onTranscriptUpdate, isProcessing }: MicVisualizerProps) {
   const [active, setActive] = useState(false);
   const microphone = useMicrophone();
   const transcription = useTranscription();
@@ -46,6 +52,24 @@ export default function MicVisualizer() {
     analyser: microphone.analyser,
     isActive: active,
   });
+
+  // Notify parent of transcript updates
+  useEffect(() => {
+    if (onTranscriptUpdate) {
+      onTranscriptUpdate(transcription.finalTranscript, transcription.interimTranscript);
+    }
+  }, [transcription.finalTranscript, transcription.interimTranscript, onTranscriptUpdate]);
+
+  const handleSendTranscript = useCallback(() => {
+    const transcript = transcription.finalTranscript.trim();
+    if (transcript && onSendTranscript) {
+      onSendTranscript(transcript);
+      // Clear the transcript after sending
+      transcription.stop();
+      microphone.stop();
+      setActive(false);
+    }
+  }, [transcription, onSendTranscript, microphone]);
 
   const stopMic = useCallback(() => {
     microphone.stop();
@@ -200,6 +224,16 @@ export default function MicVisualizer() {
           </p>
           {transcription.error && (
             <p className="mt-2 text-xs text-rose-500">{transcription.error}</p>
+          )}
+          {transcription.finalTranscript.trim() && onSendTranscript && (
+            <button
+              type="button"
+              onClick={handleSendTranscript}
+              disabled={isProcessing}
+              className="mt-3 w-full rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100"
+            >
+              {isProcessing ? 'Thinking...' : 'Send to Novus'}
+            </button>
           )}
         </div>
 

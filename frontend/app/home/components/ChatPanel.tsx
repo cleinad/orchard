@@ -19,6 +19,8 @@ export interface ChatPanelProps {
   setIsLoading: React.Dispatch<React.SetStateAction<boolean>>;
   conversationId: string | null;
   setConversationId: React.Dispatch<React.SetStateAction<string | null>>;
+  liveTranscript?: string;
+  interimTranscript?: string;
 }
 
 export default function ChatPanel({
@@ -30,6 +32,8 @@ export default function ChatPanel({
   setIsLoading,
   conversationId,
   setConversationId,
+  liveTranscript = '',
+  interimTranscript = '',
 }: ChatPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [userHasScrolled, setUserHasScrolled] = useState(false);
@@ -47,7 +51,9 @@ export default function ChatPanel({
     if (!userHasScrolled) {
       scrollToBottom();
     }
-  }, [messages, userHasScrolled]);
+  }, [messages, userHasScrolled, liveTranscript, interimTranscript]);
+
+  const hasLiveTranscript = liveTranscript.length > 0 || interimTranscript.length > 0;
 
   // Detect if user scrolls up manually
   const handleScroll = () => {
@@ -209,6 +215,28 @@ export default function ChatPanel({
                 </div>
               </div>
             ))}
+            {/* Live transcript preview */}
+            {hasLiveTranscript && !isLoading && (
+              <div className="border-l-2 border-sky-400/50 bg-sky-50/30 px-4 py-3 dark:border-sky-500/50 dark:bg-sky-900/10">
+                <div className="flex items-start gap-3">
+                  <span className="mt-0.5 flex-shrink-0 text-[10px] font-semibold uppercase tracking-wider text-sky-500/80">
+                    you
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[13px] leading-relaxed text-slate-600 dark:text-slate-300">
+                      <span>{liveTranscript}</span>
+                      {interimTranscript && (
+                        <span className="text-slate-400 italic"> {interimTranscript}</span>
+                      )}
+                      <span className="ml-1 inline-block h-3 w-0.5 animate-pulse bg-sky-400" />
+                    </div>
+                    <p className="mt-1 text-[10px] text-sky-500/70">
+                      Listening...
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
             {isLoading && (
               <div className="bg-slate-50/50 px-4 py-3 dark:bg-slate-900/30">
                 <div className="flex items-start gap-3">
