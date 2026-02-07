@@ -90,10 +90,6 @@ export function useTranscription({ onStop }: UseTranscriptionProps = {}) {
       wsUrl.searchParams.set('punctuate', 'true');
       wsUrl.searchParams.set('smart_format', 'true');
       wsUrl.searchParams.set('content-type', recorderMimeType);
-      if (recorderMimeType.includes('opus')) {
-        wsUrl.searchParams.set('encoding', 'opus');
-        wsUrl.searchParams.set('sample_rate', '48000');
-      }
 
       setStatus('connecting');
       setError(null);
