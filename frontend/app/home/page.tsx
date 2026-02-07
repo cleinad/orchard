@@ -101,9 +101,16 @@ export default function HomePage() {
     }
   }, [microphone, transcription, tts]);
 
+  const autoSendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const stopMic = useCallback(() => {
+    if (autoSendTimerRef.current) {
+      clearTimeout(autoSendTimerRef.current);
+      autoSendTimerRef.current = null;
+    }
     microphone.stop();
     transcription.stop();
+    transcription.clearTranscript();
     setMicActive(false);
   }, [microphone, transcription]);
 
@@ -132,10 +139,12 @@ export default function HomePage() {
   const sendMessage = useCallback(async (content: string) => {
     if (!content.trim() || isLoading) return;
 
-    // Clear transcript if from voice
-    transcription.stop();
-    microphone.stop();
-    setMicActive(false);
+    // Cancel pending auto-send and clear transcript
+    if (autoSendTimerRef.current) {
+      clearTimeout(autoSendTimerRef.current);
+      autoSendTimerRef.current = null;
+    }
+    transcription.clearTranscript();
 
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -200,11 +209,31 @@ export default function HomePage() {
     } finally {
       setIsLoading(false);
     }
-  }, [conversationId, isLoading, ttsEnabled, tts, transcription, microphone]);
+  }, [conversationId, isLoading, ttsEnabled, tts, transcription.clearTranscript]);
+
+  // Auto-send voice transcript after 3s of silence
+  useEffect(() => {
+    const hasFinal = transcription.finalTranscript.trim().length > 0;
+    const hasInterim = transcription.interimTranscript.length > 0;
+
+    if (hasFinal && !hasInterim && micActive && !isLoading) {
+      autoSendTimerRef.current = setTimeout(() => {
+        sendMessage(transcription.finalTranscript.trim());
+        autoSendTimerRef.current = null;
+      }, 3000);
+    }
+
+    return () => {
+      if (autoSendTimerRef.current) {
+        clearTimeout(autoSendTimerRef.current);
+        autoSendTimerRef.current = null;
+      }
+    };
+  }, [transcription.finalTranscript, transcription.interimTranscript, micActive, isLoading, sendMessage]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const textToSend = transcription.finalTranscript.trim() || input.trim();
+    const textToSend = input.trim();
     if (textToSend) {
       sendMessage(textToSend);
     }
@@ -218,9 +247,6 @@ export default function HomePage() {
   };
 
   const hasTranscript = transcription.finalTranscript.length > 0 || transcription.interimTranscript.length > 0;
-  const displayText = hasTranscript
-    ? `${transcription.finalTranscript}${transcription.interimTranscript ? ' ' + transcription.interimTranscript : ''}`
-    : input;
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-[#faf9f6] text-stone-900 dark:bg-[#0c0c0b] dark:text-stone-100">
@@ -369,10 +395,8 @@ export default function HomePage() {
               {/* Text input */}
               <textarea
                 ref={textareaRef}
-                value={hasTranscript ? displayText : input}
-                onChange={(e) => {
-                  if (!hasTranscript) setInput(e.target.value);
-                }}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
                 onFocus={() => setInputFocused(true)}
                 onBlur={() => setInputFocused(false)}
                 onKeyDown={handleKeyDown}
@@ -386,7 +410,7 @@ export default function HomePage() {
               {/* Send button */}
               <button
                 type="submit"
-                disabled={(!input.trim() && !hasTranscript) || isLoading}
+                disabled={!input.trim() || isLoading}
                 className="flex-shrink-0 rounded-full bg-stone-900 p-2.5 text-white transition-all hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-20 dark:bg-white dark:text-black dark:hover:bg-neutral-200"
               >
                 <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">

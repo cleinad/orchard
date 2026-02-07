@@ -37,6 +37,11 @@ export function useTranscription({ onStop }: UseTranscriptionProps = {}) {
     onStop?.();
   }, [onStop]);
 
+  const clearTranscript = useCallback(() => {
+    setFinalTranscript('');
+    setInterimTranscript('');
+  }, []);
+
   const start = useCallback(
     async (stream: MediaStream, sessionId: number) => {
       const isStale = () => sessionRef.current !== sessionId;
@@ -245,5 +250,6 @@ export function useTranscription({ onStop }: UseTranscriptionProps = {}) {
     interimTranscript,
     start,
     stop,
+    clearTranscript,
   };
 }
