@@ -51,7 +51,7 @@ export default function HomeBackground() {
         className="absolute inset-0 opacity-100 transition duration-500 ease-out dark:opacity-0"
         style={{
           background:
-            'radial-gradient(200px circle at var(--cursor-x, 50%) var(--cursor-y, 35%), rgba(148, 163, 184, 0.08), transparent 60%)',
+            'radial-gradient(200px circle at var(--cursor-x, 50%) var(--cursor-y, 35%), rgba(168, 162, 158, 0.08), transparent 60%)',
         }}
       />
       {/* Subtle cursor glow - dark mode */}
@@ -59,17 +59,17 @@ export default function HomeBackground() {
         className="absolute inset-0 opacity-0 transition duration-500 ease-out dark:opacity-100"
         style={{
           background:
-            'radial-gradient(200px circle at var(--cursor-x, 50%) var(--cursor-y, 35%), rgba(148, 163, 184, 0.06), transparent 60%)',
+            'radial-gradient(200px circle at var(--cursor-x, 50%) var(--cursor-y, 35%), rgba(168, 162, 158, 0.06), transparent 60%)',
         }}
       />
 
       {/* Very subtle ambient blobs - light mode */}
-      <div className="absolute -left-40 -top-40 h-96 w-96 rounded-full bg-slate-200/30 blur-3xl dark:opacity-0" />
-      <div className="absolute -bottom-32 -right-32 h-80 w-80 rounded-full bg-slate-100/40 blur-3xl dark:opacity-0" />
+      <div className="absolute -left-40 -top-40 h-96 w-96 rounded-full bg-stone-200/30 blur-3xl dark:opacity-0" />
+      <div className="absolute -bottom-32 -right-32 h-80 w-80 rounded-full bg-stone-100/40 blur-3xl dark:opacity-0" />
 
       {/* Very subtle ambient blobs - dark mode */}
-      <div className="absolute -left-40 -top-40 h-96 w-96 rounded-full bg-slate-800/30 opacity-0 blur-3xl dark:opacity-100" />
-      <div className="absolute -bottom-32 -right-32 h-80 w-80 rounded-full bg-slate-800/20 opacity-0 blur-3xl dark:opacity-100" />
+      <div className="absolute -left-40 -top-40 h-96 w-96 rounded-full bg-stone-800/30 opacity-0 blur-3xl dark:opacity-100" />
+      <div className="absolute -bottom-32 -right-32 h-80 w-80 rounded-full bg-stone-800/20 opacity-0 blur-3xl dark:opacity-100" />
     </div>
   );
 }

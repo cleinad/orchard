@@ -27,7 +27,7 @@ function TypingText({ text, delay = 0 }: { text: string; delay?: number }) {
     <span>
       {displayed}
       {started && displayed.length < text.length && (
-        <span className="ml-px inline-block h-[1.1em] w-[2px] translate-y-[2px] animate-pulse bg-amber-600/70 dark:bg-amber-400/70" />
+        <span className="ml-px inline-block h-[1.1em] w-[2px] translate-y-[2px] animate-pulse bg-amber-600/70 dark:bg-stone-400/70" />
       )}
     </span>
   );
@@ -44,9 +44,9 @@ export default function Home() {
     <div className="relative min-h-screen overflow-hidden bg-[#faf9f6] text-stone-900 dark:bg-[#0c0c0b] dark:text-stone-100">
       {/* Ambient background */}
       <div className="pointer-events-none absolute inset-0">
-        <div className="absolute -left-40 -top-40 h-[500px] w-[500px] rounded-full bg-amber-100/50 blur-[120px] dark:bg-amber-900/15" />
+        <div className="absolute -left-40 -top-40 h-[500px] w-[500px] rounded-full bg-amber-100/50 blur-[120px] dark:bg-stone-800/15" />
         <div className="absolute -bottom-32 -right-32 h-[400px] w-[400px] rounded-full bg-stone-200/40 blur-[100px] dark:bg-stone-800/20" />
-        <div className="absolute left-1/2 top-1/3 h-[300px] w-[600px] -translate-x-1/2 rounded-full bg-orange-50/30 blur-[80px] dark:bg-orange-950/10" />
+        <div className="absolute left-1/2 top-1/3 h-[300px] w-[600px] -translate-x-1/2 rounded-full bg-orange-50/30 blur-[80px] dark:bg-stone-800/10" />
       </div>
 
       {/* Subtle grain overlay */}
@@ -90,10 +90,10 @@ export default function Home() {
         <section className="flex flex-1 flex-col items-center justify-center pb-16 pt-12">
           <div className="flex max-w-2xl flex-col items-center text-center">
             <div
-              className={`mb-6 inline-flex items-center gap-2 rounded-full border border-amber-200/60 bg-amber-50/50 px-3.5 py-1.5 text-xs tracking-wide text-amber-800 dark:border-amber-800/40 dark:bg-amber-950/30 dark:text-amber-300 transition-all duration-500 ${mounted ? 'translate-y-0 opacity-100' : 'translate-y-2 opacity-0'}`}
+              className={`mb-6 inline-flex items-center gap-2 rounded-full border border-amber-200/60 bg-amber-50/50 px-3.5 py-1.5 text-xs tracking-wide text-amber-800 dark:border-stone-700/40 dark:bg-stone-800/30 dark:text-stone-300 transition-all duration-500 ${mounted ? 'translate-y-0 opacity-100' : 'translate-y-2 opacity-0'}`}
               style={{ transitionDelay: '100ms' }}
             >
-              <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500 dark:bg-amber-400" />
+              <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500 dark:bg-stone-400" />
               Private by design
             </div>
 
@@ -195,7 +195,7 @@ export default function Home() {
               <div className="flex items-center justify-between text-[11px] text-stone-400 dark:text-stone-500">
                 <span>3 actions queued</span>
                 <span className="flex items-center gap-1">
-                  <span className="inline-block h-1 w-1 rounded-full bg-amber-500/70" />
+                  <span className="inline-block h-1 w-1 rounded-full bg-stone-400/70" />
                   Awaiting approval
                 </span>
               </div>

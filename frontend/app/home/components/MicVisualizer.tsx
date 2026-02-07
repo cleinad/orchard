@@ -115,13 +115,13 @@ export default function MicVisualizer({ onSendTranscript, onTranscriptUpdate, is
       : 'Idle';
 
   return (
-    <div className="mt-6 rounded-2xl border border-slate-200/70 bg-slate-50/80 p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/60">
+    <div className="mt-6 rounded-2xl border border-stone-200/70 bg-stone-50/80 p-4 shadow-sm dark:border-stone-800 dark:bg-stone-900/60">
       <div className="flex flex-col gap-4">
         <div>
-          <p className="text-sm font-medium text-slate-600 dark:text-slate-100">
+          <p className="text-sm font-medium text-stone-600 dark:text-stone-100">
             {active ? 'Mic open — talk to animate.' : 'Click and start speaking'}
           </p>
-          <p className="text-xs text-slate-500 dark:text-slate-400">
+          <p className="text-xs text-stone-500 dark:text-stone-400">
             Your voice energizes the line below.
           </p>
         </div>
@@ -165,7 +165,7 @@ export default function MicVisualizer({ onSendTranscript, onTranscriptUpdate, is
               className={`pointer-events-auto group relative z-10 flex h-24 w-24 items-center justify-center rounded-[28px] border transition ${
                 active
                   ? 'border-sky-400/70 bg-sky-200/40 shadow-[0_0_28px_rgba(56,189,248,0.28)] dark:border-sky-400/70 dark:bg-sky-500/10'
-                  : 'border-slate-200 bg-white/90 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-950/70'
+                  : 'border-stone-200 bg-white/90 hover:border-stone-300 dark:border-stone-800 dark:bg-stone-950/70'
               }`}
             >
               <span
@@ -182,12 +182,12 @@ export default function MicVisualizer({ onSendTranscript, onTranscriptUpdate, is
         </div>
 
         <div
-          className={`rounded-xl border border-slate-200/70 bg-white/80 p-3 text-sm text-slate-700 shadow-inner transition-all duration-500 dark:border-slate-800 dark:bg-slate-950/60 dark:text-slate-200 ${
+          className={`rounded-xl border border-stone-200/70 bg-white/80 p-3 text-sm text-stone-700 shadow-inner transition-all duration-500 dark:border-stone-800 dark:bg-stone-950/60 dark:text-stone-200 ${
             showTranscriptPanel ? 'max-h-40 opacity-100' : 'max-h-0 opacity-0'
           }`}
           aria-live="polite"
         >
-          <div className="flex items-center justify-between text-[11px] text-slate-400">
+          <div className="flex items-center justify-between text-[11px] text-stone-400">
             <span className="font-semibold uppercase tracking-wide">
               Transcript
             </span>
@@ -199,7 +199,7 @@ export default function MicVisualizer({ onSendTranscript, onTranscriptUpdate, is
                   ? 'bg-sky-500/10 text-sky-500'
                   : transcription.status === 'error'
                   ? 'bg-rose-500/10 text-rose-500'
-                  : 'bg-slate-500/10 text-slate-400'
+                  : 'bg-stone-500/10 text-stone-400'
               }`}
             >
               {transcriptBadge}
@@ -210,14 +210,14 @@ export default function MicVisualizer({ onSendTranscript, onTranscriptUpdate, is
               <>
                 <span>{transcription.finalTranscript}</span>
                 {transcription.interimTranscript && (
-                  <span className="text-slate-400 italic">
+                  <span className="text-stone-400 italic">
                     {' '}
                     {transcription.interimTranscript}
                   </span>
                 )}
               </>
             ) : (
-              <span className="text-slate-400">
+              <span className="text-stone-400">
                 Start talking to see live transcription.
               </span>
             )}
@@ -230,7 +230,7 @@ export default function MicVisualizer({ onSendTranscript, onTranscriptUpdate, is
               type="button"
               onClick={handleSendTranscript}
               disabled={isProcessing}
-              className="mt-3 w-full rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100"
+              className="mt-3 w-full rounded-lg bg-stone-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-stone-900 dark:hover:bg-stone-100"
             >
               {isProcessing ? 'Thinking...' : 'Send to Novus'}
             </button>
@@ -250,7 +250,7 @@ export default function MicVisualizer({ onSendTranscript, onTranscriptUpdate, is
       <style jsx>{`
         .mic-line {
           fill: none;
-          stroke: #94a3b8;
+          stroke: #a8a29e;
           stroke-width: 1.4;
           opacity: 0.45;
         }

@@ -78,32 +78,32 @@ export default function LoginPage() {
   // Show loading state while checking authentication
   if (checkingAuth) {
     return (
-      <div className="relative min-h-screen overflow-hidden bg-[#fbfaf7] text-slate-950 dark:bg-[#060606] dark:text-slate-100">
+      <div className="relative min-h-screen overflow-hidden bg-[#faf9f6] text-stone-950 dark:bg-[#0c0c0b] dark:text-stone-100">
         <div className="pointer-events-none absolute inset-0">
-          <div className="absolute -left-32 top-[-140px] h-72 w-72 rounded-full bg-sky-200/40 blur-3xl dark:bg-sky-400/30" />
-          <div className="absolute bottom-[-160px] right-[-120px] h-80 w-80 rounded-full bg-emerald-200/40 blur-3xl dark:bg-emerald-400/30" />
+          <div className="absolute -left-32 top-[-140px] h-72 w-72 rounded-full bg-rose-200/30 blur-3xl dark:bg-stone-800/15" />
+          <div className="absolute bottom-[-160px] right-[-120px] h-80 w-80 rounded-full bg-stone-200/40 blur-3xl dark:bg-stone-800/20" />
         </div>
         <main className="relative mx-auto flex min-h-screen w-full max-w-md flex-col items-center justify-center px-6 py-8">
-          <div className="text-sm text-slate-600 dark:text-slate-400">Loading...</div>
+          <div className="text-sm text-stone-600 dark:text-stone-400">Loading...</div>
         </main>
       </div>
     );
   }
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[#fbfaf7] text-slate-950 dark:bg-[#060606] dark:text-slate-100">
+    <div className="relative min-h-screen overflow-hidden bg-[#faf9f6] text-stone-950 dark:bg-[#0c0c0b] dark:text-stone-100">
       <div className="pointer-events-none absolute inset-0">
-        <div className="absolute -left-32 top-[-140px] h-72 w-72 rounded-full bg-sky-200/40 blur-3xl dark:bg-sky-400/30" />
-        <div className="absolute bottom-[-160px] right-[-120px] h-80 w-80 rounded-full bg-emerald-200/40 blur-3xl dark:bg-emerald-400/30" />
+        <div className="absolute -left-32 top-[-140px] h-72 w-72 rounded-full bg-rose-200/30 blur-3xl dark:bg-stone-800/15" />
+        <div className="absolute bottom-[-160px] right-[-120px] h-80 w-80 rounded-full bg-stone-200/40 blur-3xl dark:bg-stone-800/20" />
       </div>
 
       <main className="relative mx-auto flex min-h-screen w-full max-w-md flex-col items-center justify-center px-6 py-8">
-        <div className="w-full rounded-2xl border border-slate-200/70 bg-white/80 p-8 shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
+        <div className="w-full rounded-2xl border border-stone-200/70 bg-white/80 p-8 shadow-sm dark:border-stone-800 dark:bg-stone-950/70">
           <div className="mb-8 text-center">
-            <h1 className="font-heading text-3xl font-semibold text-slate-950 dark:text-white">
+            <h1 className="font-heading text-3xl font-semibold text-stone-950 dark:text-white">
               {isSignUp ? 'Create Account' : 'Welcome Back'}
             </h1>
-            <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
+            <p className="mt-2 text-sm text-stone-600 dark:text-stone-400">
               {isSignUp
                 ? 'Sign up to start using Novus'
                 : 'Sign in to your Novus account'}
@@ -115,7 +115,7 @@ export default function LoginPage() {
             <div>
               <label
                 htmlFor="email"
-                className="block text-sm font-medium text-slate-700 dark:text-slate-300"
+                className="block text-sm font-medium text-stone-700 dark:text-stone-300"
               >
                 Email
               </label>
@@ -125,7 +125,7 @@ export default function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-                className="mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 shadow-sm transition focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-400/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder-slate-500 dark:focus:border-slate-600"
+                className="mt-1.5 w-full rounded-xl border border-stone-300 bg-white px-4 py-2.5 text-sm text-stone-900 placeholder-stone-400 shadow-sm transition focus:border-stone-400 focus:outline-none focus:ring-2 focus:ring-stone-400/20 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100 dark:placeholder-stone-500 dark:focus:border-stone-600"
                 placeholder="you@example.com"
                 disabled={loading}
               />
@@ -135,7 +135,7 @@ export default function LoginPage() {
             <div>
               <label
                 htmlFor="password"
-                className="block text-sm font-medium text-slate-700 dark:text-slate-300"
+                className="block text-sm font-medium text-stone-700 dark:text-stone-300"
               >
                 Password
               </label>
@@ -146,7 +146,7 @@ export default function LoginPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 required
                 minLength={6}
-                className="mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 shadow-sm transition focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-400/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder-slate-500 dark:focus:border-slate-600"
+                className="mt-1.5 w-full rounded-xl border border-stone-300 bg-white px-4 py-2.5 text-sm text-stone-900 placeholder-stone-400 shadow-sm transition focus:border-stone-400 focus:outline-none focus:ring-2 focus:ring-stone-400/20 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100 dark:placeholder-stone-500 dark:focus:border-stone-600"
                 placeholder="••••••••"
                 disabled={loading}
               />
@@ -170,14 +170,14 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+              className="w-full rounded-xl bg-stone-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-stone-800 dark:text-stone-100 dark:hover:bg-stone-700"
             >
               {loading ? 'Please wait...' : isSignUp ? 'Create Account' : 'Sign In'}
             </button>
           </form>
 
           {/* Toggle between sign in and sign up */}
-          <div className="mt-6 text-center text-sm text-slate-600 dark:text-slate-400">
+          <div className="mt-6 text-center text-sm text-stone-600 dark:text-stone-400">
             {isSignUp ? (
               <>
                 Already have an account?{' '}
@@ -187,7 +187,7 @@ export default function LoginPage() {
                     setError(null);
                     setMessage(null);
                   }}
-                  className="font-semibold text-slate-900 hover:underline dark:text-slate-100"
+                  className="font-semibold text-stone-900 hover:underline dark:text-stone-100"
                 >
                   Sign in
                 </button>
@@ -201,7 +201,7 @@ export default function LoginPage() {
                     setError(null);
                     setMessage(null);
                   }}
-                  className="font-semibold text-slate-900 hover:underline dark:text-slate-100"
+                  className="font-semibold text-stone-900 hover:underline dark:text-stone-100"
                 >
                   Sign up
                 </button>

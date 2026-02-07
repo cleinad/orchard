@@ -25,7 +25,7 @@ function MicDodecahedron({ active }: { active: boolean }) {
         strokeWidth="4"
         strokeLinecap="round"
         strokeLinejoin="round"
-        className={`transition-colors duration-300 ${active ? 'text-slate-700 dark:text-slate-200' : 'text-slate-400 dark:text-slate-500'}`}
+        className={`transition-colors duration-300 ${active ? 'text-stone-700 dark:text-stone-200' : 'text-stone-400 dark:text-stone-500'}`}
       >
         <polygon points="60,8 108,38 90,102 30,102 12,38" />
         <polygon points="60,24 92,44 80,88 40,88 28,44" />
@@ -223,7 +223,7 @@ export default function HomePage() {
     : input;
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[#faf9f6] text-slate-900 dark:bg-[#0a0a0a] dark:text-slate-100">
+    <div className="relative min-h-screen overflow-hidden bg-[#faf9f6] text-stone-900 dark:bg-[#0c0c0b] dark:text-stone-100">
       <HomeBackground />
 
       {/* Subtle grain texture */}
@@ -238,7 +238,7 @@ export default function HomePage() {
         {/* Header */}
         <header className="flex items-center justify-between py-6">
           <div className="flex items-center gap-2">
-            <span className="font-heading text-xl text-slate-800 dark:text-slate-100">Novus</span>
+            <span className="font-heading text-xl text-stone-800 dark:text-stone-100">Novus</span>
           </div>
           <div className="flex items-center gap-2">
             <ThemeToggle />
@@ -254,10 +254,10 @@ export default function HomePage() {
           {messages.length === 0 ? (
             <div className="flex h-full min-h-[50vh] flex-col items-center justify-center px-4">
               <div className="text-center">
-                <h1 className="font-heading text-3xl text-slate-800 dark:text-slate-100 sm:text-4xl">
+                <h1 className="font-heading text-3xl text-stone-800 dark:text-stone-100 sm:text-4xl">
                   What&apos;s on your mind?
                 </h1>
-                <p className="mt-4 max-w-md text-sm leading-relaxed text-slate-500 dark:text-slate-400">
+                <p className="mt-4 max-w-md text-sm leading-relaxed text-stone-500 dark:text-stone-400">
                   I&apos;m here to help you think through problems, capture ideas, and stay on top of what matters. Speak or type — I&apos;m listening.
                 </p>
               </div>
@@ -269,10 +269,10 @@ export default function HomePage() {
                   key={message.id}
                   className="py-4"
                 >
-                  <div className="mb-2 text-xs font-medium text-slate-400 dark:text-slate-500">
+                  <div className="mb-2 text-xs font-medium text-stone-400 dark:text-stone-500">
                     {message.role === 'user' ? 'You' : 'Novus'}
                   </div>
-                  <div className="text-[15px] leading-relaxed text-slate-800 dark:text-slate-100 [&_p]:mb-3 [&_p:last-child]:mb-0 [&_ul]:mb-3 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:mb-3 [&_ol]:ml-4 [&_ol]:list-decimal [&_li]:mb-1 [&_code]:rounded [&_code]:bg-slate-100 [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:text-[13px] [&_code]:text-slate-700 dark:[&_code]:bg-slate-800 dark:[&_code]:text-slate-300 [&_pre]:my-3 [&_pre]:rounded-lg [&_pre]:bg-slate-100 [&_pre]:p-4 dark:[&_pre]:bg-slate-800">
+                  <div className="text-[15px] leading-relaxed text-stone-800 dark:text-stone-100 [&_p]:mb-3 [&_p:last-child]:mb-0 [&_ul]:mb-3 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:mb-3 [&_ol]:ml-4 [&_ol]:list-decimal [&_li]:mb-1 [&_code]:rounded [&_code]:bg-stone-100 [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:text-[13px] [&_code]:text-stone-700 dark:[&_code]:bg-stone-800 dark:[&_code]:text-stone-300 [&_pre]:my-3 [&_pre]:rounded-lg [&_pre]:bg-stone-100 [&_pre]:p-4 dark:[&_pre]:bg-stone-800">
                     <ReactMarkdown>{message.content}</ReactMarkdown>
                   </div>
                 </div>
@@ -281,13 +281,13 @@ export default function HomePage() {
               {/* Loading indicator */}
               {isLoading && (
                 <div className="py-4">
-                  <div className="mb-2 text-xs font-medium text-slate-400 dark:text-slate-500">
+                  <div className="mb-2 text-xs font-medium text-stone-400 dark:text-stone-500">
                     Novus
                   </div>
                   <div className="flex items-center gap-1.5">
-                    <span className="h-2 w-2 animate-bounce rounded-full bg-slate-300 dark:bg-slate-600" style={{ animationDelay: '0ms' }} />
-                    <span className="h-2 w-2 animate-bounce rounded-full bg-slate-300 dark:bg-slate-600" style={{ animationDelay: '150ms' }} />
-                    <span className="h-2 w-2 animate-bounce rounded-full bg-slate-300 dark:bg-slate-600" style={{ animationDelay: '300ms' }} />
+                    <span className="h-2 w-2 animate-bounce rounded-full bg-stone-300 dark:bg-stone-600" style={{ animationDelay: '0ms' }} />
+                    <span className="h-2 w-2 animate-bounce rounded-full bg-stone-300 dark:bg-stone-600" style={{ animationDelay: '150ms' }} />
+                    <span className="h-2 w-2 animate-bounce rounded-full bg-stone-300 dark:bg-stone-600" style={{ animationDelay: '300ms' }} />
                   </div>
                 </div>
               )}
@@ -301,14 +301,14 @@ export default function HomePage() {
         <div className="sticky bottom-0 pb-6 pt-2">
           {/* Live transcript preview */}
           {hasTranscript && !isLoading && (
-            <div className="mb-3 rounded-2xl bg-white/60 px-4 py-2 text-sm text-slate-600 backdrop-blur-md dark:bg-[#1a1a1a]/80 dark:text-neutral-300">
-              <span className="text-[10px] font-medium uppercase tracking-widest text-slate-400 dark:text-neutral-500">Listening</span>
+            <div className="mb-3 rounded-2xl bg-white/60 px-4 py-2 text-sm text-stone-600 backdrop-blur-md dark:bg-[#1a1a1a]/80 dark:text-neutral-300">
+              <span className="text-[10px] font-medium uppercase tracking-widest text-stone-400 dark:text-neutral-500">Listening</span>
               <p className="mt-1">
                 {transcription.finalTranscript}
                 {transcription.interimTranscript && (
-                  <span className="text-slate-400 dark:text-neutral-500"> {transcription.interimTranscript}</span>
+                  <span className="text-stone-400 dark:text-neutral-500"> {transcription.interimTranscript}</span>
                 )}
-                <span className="ml-1 inline-block h-4 w-0.5 animate-pulse bg-slate-400 dark:bg-neutral-500" />
+                <span className="ml-1 inline-block h-4 w-0.5 animate-pulse bg-stone-400 dark:bg-neutral-500" />
               </p>
             </div>
           )}
@@ -326,7 +326,7 @@ export default function HomePage() {
                 stroke="currentColor"
                 strokeWidth="4"
                 points="0,2 240,2"
-                className={`text-slate-400 transition-opacity duration-300 dark:text-neutral-400 ${micActive ? 'opacity-100' : 'opacity-0'}`}
+                className={`text-stone-400 transition-opacity duration-300 dark:text-neutral-400 ${micActive ? 'opacity-100' : 'opacity-0'}`}
               />
               <polyline
                 ref={visualization.glowRef}
@@ -334,13 +334,13 @@ export default function HomePage() {
                 stroke="currentColor"
                 strokeWidth="4"
                 points="0,2 240,2"
-                className={`text-slate-300 transition-opacity duration-300 dark:text-neutral-500 ${micActive ? 'opacity-50' : 'opacity-0'}`}
+                className={`text-stone-300 transition-opacity duration-300 dark:text-neutral-500 ${micActive ? 'opacity-50' : 'opacity-0'}`}
                 style={{ filter: 'blur(2px)' }}
               />
             </svg>
             {/* Shimmer loader */}
             {!micActive && isLoading && (
-              <div className="absolute inset-0 animate-shimmer bg-gradient-to-r from-slate-200 via-slate-300 to-slate-200 dark:from-neutral-700 dark:via-neutral-500 dark:to-neutral-700"
+              <div className="absolute inset-0 animate-shimmer bg-gradient-to-r from-stone-200 via-stone-300 to-stone-200 dark:from-neutral-700 dark:via-neutral-500 dark:to-neutral-700"
                 style={{ backgroundSize: '200% 100%' }}
               />
             )}
@@ -379,7 +379,7 @@ export default function HomePage() {
                 placeholder={micActive ? "Listening..." : "What's on your mind?"}
                 disabled={isLoading}
                 rows={1}
-                className="w-full min-w-0 resize-none bg-transparent py-1.5 text-sm leading-relaxed text-slate-700 placeholder-slate-400 outline-none disabled:cursor-not-allowed disabled:opacity-50 dark:text-neutral-100 dark:placeholder-neutral-500"
+                className="w-full min-w-0 resize-none bg-transparent py-1.5 text-sm leading-relaxed text-stone-700 placeholder-stone-400 outline-none disabled:cursor-not-allowed disabled:opacity-50 dark:text-neutral-100 dark:placeholder-neutral-500"
                 style={{ maxHeight: '200px' }}
               />
 
@@ -387,7 +387,7 @@ export default function HomePage() {
               <button
                 type="submit"
                 disabled={(!input.trim() && !hasTranscript) || isLoading}
-                className="flex-shrink-0 rounded-full bg-slate-900 p-2.5 text-white transition-all hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-20 dark:bg-white dark:text-black dark:hover:bg-neutral-200"
+                className="flex-shrink-0 rounded-full bg-stone-900 p-2.5 text-white transition-all hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-20 dark:bg-white dark:text-black dark:hover:bg-neutral-200"
               >
                 <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 10l7-7m0 0l7 7m-7-7v18" />
@@ -397,7 +397,7 @@ export default function HomePage() {
           </form>
 
           {/* Status line — floating below */}
-          <div className="mt-2 flex items-center justify-between px-16 text-[11px] text-slate-400 dark:text-neutral-500">
+          <div className="mt-2 flex items-center justify-between px-16 text-[11px] text-stone-400 dark:text-neutral-500">
             <div className="flex items-center gap-3">
               {micActive && (
                 <span className="flex items-center gap-1.5">
@@ -417,7 +417,7 @@ export default function HomePage() {
 
           {/* Mic errors */}
           {microphone.status === 'blocked' && (
-            <p className="mt-2 text-center text-xs text-slate-500 dark:text-neutral-400">
+            <p className="mt-2 text-center text-xs text-stone-500 dark:text-neutral-400">
               Microphone permission denied. Check browser settings.
             </p>
           )}
