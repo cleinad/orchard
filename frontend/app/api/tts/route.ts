@@ -27,9 +27,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Call ElevenLabs API
+    // Call ElevenLabs streaming endpoint — audio chunks arrive as they're generated
     const response = await fetch(
-      `https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`,
+      `https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}/stream`,
       {
         method: 'POST',
         headers: {
@@ -47,6 +47,8 @@ export async function POST(request: NextRequest) {
             use_speaker_boost: true,
           },
         }),
+        // Abort the ElevenLabs request if the client disconnects (e.g. user interrupts)
+        signal: request.signal,
       }
     );
 
@@ -59,16 +61,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Return the audio as a stream
-    const audioBuffer = await response.arrayBuffer();
-
-    return new NextResponse(audioBuffer, {
+    // Pipe the stream straight through — no buffering
+    return new NextResponse(response.body, {
       headers: {
         'Content-Type': 'audio/mpeg',
-        'Content-Length': audioBuffer.byteLength.toString(),
       },
     });
   } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      // Client disconnected — nothing to send back
+      return new NextResponse(null, { status: 499 });
+    }
     console.error('TTS API error:', error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Internal server error' },

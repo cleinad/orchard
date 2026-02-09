@@ -211,6 +211,13 @@ export default function HomePage() {
     }
   }, [conversationId, isLoading, ttsEnabled, tts, transcription.clearTranscript]);
 
+  // Interrupt TTS when the user starts speaking
+  useEffect(() => {
+    if (micActive && (tts.isPlaying || tts.isLoading) && (transcription.interimTranscript || transcription.finalTranscript)) {
+      tts.stop();
+    }
+  }, [micActive, tts, transcription.interimTranscript, transcription.finalTranscript]);
+
   // Auto-send voice transcript after 3s of silence
   useEffect(() => {
     const hasFinal = transcription.finalTranscript.trim().length > 0;
