@@ -218,16 +218,42 @@ export default function HomePage() {
     }
   }, [micActive, tts, transcription.interimTranscript, transcription.finalTranscript]);
 
-  // Auto-send voice transcript after 3s of silence
+  // Auto-send voice transcript with adaptive delay based on transcript completeness.
+  // Deepgram provides punctuation via punctuate=true & smart_format=true, so we can
+  // use sentence-ending punctuation as a strong signal of a complete thought.
   useEffect(() => {
-    const hasFinal = transcription.finalTranscript.trim().length > 0;
+    const text = transcription.finalTranscript.trim();
+    const hasFinal = text.length > 0;
     const hasInterim = transcription.interimTranscript.length > 0;
 
     if (hasFinal && !hasInterim && micActive && !isLoading) {
+      const lastChar = text[text.length - 1];
+      const lastWord = text.split(/\s+/).pop()?.toLowerCase().replace(/[.,!?;:]$/, '') ?? '';
+      const wordCount = text.split(/\s+/).length;
+
+      let delay: number;
+
+      // Trailing conjunctions / prepositions — clearly mid-thought
+      const incomplete = ['and', 'but', 'or', 'so', 'because', 'since', 'although',
+        'however', 'with', 'to', 'for', 'the', 'a', 'an', 'that', 'which', 'who',
+        'if', 'then', 'like', 'of', 'in', 'on', 'about', 'is', 'are', 'was', 'were'];
+      if (incomplete.includes(lastWord)) {
+        delay = 4000;
+      // Mid-sentence punctuation — user paused but isn't done
+      } else if (lastChar === ',' || lastChar === ';' || lastChar === ':') {
+        delay = 4000;
+      // Complete sentence — Deepgram is confident it's a full thought
+      } else if (lastChar === '.' || lastChar === '?' || lastChar === '!') {
+        delay = wordCount <= 4 ? 1500 : 2000;
+      // No terminal punctuation — Deepgram wasn't sure, give a bit more time
+      } else {
+        delay = 3000;
+      }
+
       autoSendTimerRef.current = setTimeout(() => {
         sendMessage(transcription.finalTranscript.trim());
         autoSendTimerRef.current = null;
-      }, 3000);
+      }, delay);
     }
 
     return () => {
