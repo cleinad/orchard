@@ -1,5 +1,8 @@
+import { generateText, tool, stepCountIs } from 'ai';
+import { z } from 'zod';
 import { createSupabaseServiceClient } from './supabase-service';
 import { MEMORY_CATEGORIES, dailyFilePath } from './memory-types';
+import { MEMORY_MODEL } from './models';
 
 const MEMORY_AGENT_SYSTEM_PROMPT = `You are a memory management agent for Novus, a voice AI assistant. Your job is to analyze conversation exchanges and update the user's memory files when noteworthy information is revealed.
 
@@ -43,164 +46,92 @@ Category descriptions:
 7. Be concise. Each entry should be a single line.
 8. If nothing noteworthy was said, do nothing — just respond that no updates are needed.`;
 
-const MEMORY_TOOLS = [
-  {
-    name: 'read_memory_file',
-    description:
-      'Read the current content of a memory file. Always read before writing to avoid losing data.',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        file_path: {
-          type: 'string',
-          description:
-            'Path like "daily/2026-02-12.md" or "long-term/interests.md"',
-        },
-      },
-      required: ['file_path'],
-    },
-  },
-  {
-    name: 'write_memory_file',
-    description:
-      'Overwrite a memory file with new content. Use for long-term files when updating/merging entries. Always read first.',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        file_path: {
-          type: 'string',
-          description:
-            'Path like "long-term/interests.md"',
-        },
-        content: {
-          type: 'string',
-          description: 'The full new content for the file',
-        },
-      },
-      required: ['file_path', 'content'],
-    },
-  },
-  {
-    name: 'append_to_memory_file',
-    description:
-      'Append content to the end of a memory file. Use for daily journal files.',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        file_path: {
-          type: 'string',
-          description: 'Path like "daily/2026-02-12.md"',
-        },
-        content: {
-          type: 'string',
-          description: 'Content to append (will be added on a new line)',
-        },
-      },
-      required: ['file_path', 'content'],
-    },
-  },
-];
-
 function categoryFromPath(filePath: string): string {
   if (filePath.startsWith('daily/')) return 'daily';
   return filePath.replace('long-term/', '').replace('.md', '');
 }
 
-async function executeMemoryTool(
+function createMemoryTools(
   supabase: ReturnType<typeof createSupabaseServiceClient>,
-  userId: string,
-  toolName: string,
-  input: Record<string, string>
-): Promise<string> {
-  switch (toolName) {
-    case 'read_memory_file': {
-      const { data } = await supabase
-        .from('memory_files')
-        .select('content')
-        .eq('user_id', userId)
-        .eq('file_path', input.file_path)
-        .single();
-      return data?.content || '(file does not exist yet — it will be created on first write)';
-    }
-
-    case 'write_memory_file': {
-      const category = categoryFromPath(input.file_path);
-      const { error } = await supabase.from('memory_files').upsert(
-        {
-          user_id: userId,
-          file_path: input.file_path,
-          category,
-          content: input.content,
-        },
-        { onConflict: 'user_id,file_path' }
-      );
-      if (error) return `Error writing file: ${error.message}`;
-      return 'File written successfully.';
-    }
-
-    case 'append_to_memory_file': {
-      const { data: existing } = await supabase
-        .from('memory_files')
-        .select('content')
-        .eq('user_id', userId)
-        .eq('file_path', input.file_path)
-        .single();
-
-      const newContent = existing?.content
-        ? `${existing.content}\n${input.content}`
-        : input.content;
-
-      const category = categoryFromPath(input.file_path);
-      const { error } = await supabase.from('memory_files').upsert(
-        {
-          user_id: userId,
-          file_path: input.file_path,
-          category,
-          content: newContent,
-        },
-        { onConflict: 'user_id,file_path' }
-      );
-      if (error) return `Error appending to file: ${error.message}`;
-      return 'Content appended successfully.';
-    }
-
-    default:
-      return `Unknown tool: ${toolName}`;
-  }
-}
-
-async function callAnthropicWithTools(
-  systemPrompt: string,
-  messages: Array<{ role: string; content: unknown }>,
-  tools: typeof MEMORY_TOOLS
+  userId: string
 ) {
-  const apiKey =
-    process.env.MEMORY_AGENT_API_KEY || process.env.LLM_API_KEY || '';
-  const model =
-    process.env.MEMORY_AGENT_MODEL || 'claude-haiku-4-5-20251001';
-
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: 1024,
-      system: systemPrompt,
-      messages,
-      tools,
+  return {
+    read_memory_file: tool({
+      description:
+        'Read the current content of a memory file. Always read before writing to avoid losing data.',
+      inputSchema: z.object({
+        file_path: z
+          .string()
+          .describe('Path like "daily/2026-02-12.md" or "long-term/interests.md"'),
+      }),
+      execute: async ({ file_path }) => {
+        const { data } = await supabase
+          .from('memory_files')
+          .select('content')
+          .eq('user_id', userId)
+          .eq('file_path', file_path)
+          .single();
+        return data?.content || '(file does not exist yet — it will be created on first write)';
+      },
     }),
-  });
 
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Memory agent API error: ${error}`);
-  }
+    write_memory_file: tool({
+      description:
+        'Overwrite a memory file with new content. Use for long-term files when updating/merging entries. Always read first.',
+      inputSchema: z.object({
+        file_path: z.string().describe('Path like "long-term/interests.md"'),
+        content: z.string().describe('The full new content for the file'),
+      }),
+      execute: async ({ file_path, content }) => {
+        const category = categoryFromPath(file_path);
+        const { error } = await supabase.from('memory_files').upsert(
+          {
+            user_id: userId,
+            file_path,
+            category,
+            content,
+          },
+          { onConflict: 'user_id,file_path' }
+        );
+        if (error) return `Error writing file: ${error.message}`;
+        return 'File written successfully.';
+      },
+    }),
 
-  return response.json();
+    append_to_memory_file: tool({
+      description:
+        'Append content to the end of a memory file. Use for daily journal files.',
+      inputSchema: z.object({
+        file_path: z.string().describe('Path like "daily/2026-02-12.md"'),
+        content: z.string().describe('Content to append (will be added on a new line)'),
+      }),
+      execute: async ({ file_path, content }) => {
+        const { data: existing } = await supabase
+          .from('memory_files')
+          .select('content')
+          .eq('user_id', userId)
+          .eq('file_path', file_path)
+          .single();
+
+        const newContent = existing?.content
+          ? `${existing.content}\n${content}`
+          : content;
+
+        const category = categoryFromPath(file_path);
+        const { error } = await supabase.from('memory_files').upsert(
+          {
+            user_id: userId,
+            file_path,
+            category,
+            content: newContent,
+          },
+          { onConflict: 'user_id,file_path' }
+        );
+        if (error) return `Error appending to file: ${error.message}`;
+        return 'Content appended successfully.';
+      },
+    }),
+  };
 }
 
 export async function processMemory(
@@ -211,7 +142,7 @@ export async function processMemory(
   const supabase = createSupabaseServiceClient();
   const today = dailyFilePath(new Date());
 
-  // Build context: last few exchanges + the latest response for the memory agent
+  // Build context: last few exchanges + the latest response
   const fullExchange = [
     ...conversationMessages.slice(-5),
     { role: 'assistant', content: latestResponse },
@@ -220,58 +151,25 @@ export async function processMemory(
     .map((m) => `${m.role}: ${m.content}`)
     .join('\n\n');
 
-  const messages: Array<{ role: string; content: unknown }> = [
-    {
-      role: 'user',
-      content: `Analyze this conversation exchange and update memory files as needed. Today's date is ${new Date().toISOString().split('T')[0]}. Today's daily file path is "${today}".\n\n---\n\n${conversationSummary}`,
-    },
-  ];
+  const memoryTools = createMemoryTools(supabase, userId);
 
-  // Tool use loop — max 10 iterations to allow read-then-write patterns
-  for (let i = 0; i < 10; i++) {
-    const response = await callAnthropicWithTools(
-      MEMORY_AGENT_SYSTEM_PROMPT,
-      messages,
-      MEMORY_TOOLS
-    );
-
-    // If the model is done (text response, no more tool calls), exit
-    if (response.stop_reason === 'end_turn') {
-      console.log('[Memory Agent] Done:', response.content?.[0]?.text || 'no message');
-      break;
-    }
-
-    // Process tool calls
-    if (response.stop_reason === 'tool_use') {
-      // Add the assistant's response (with tool_use blocks) to messages
-      messages.push({ role: 'assistant', content: response.content });
-
-      // Execute each tool and collect results
-      const toolResults: Array<{
-        type: 'tool_result';
-        tool_use_id: string;
-        content: string;
-      }> = [];
-
-      for (const block of response.content) {
-        if (block.type === 'tool_use') {
-          console.log(`[Memory Agent] Tool: ${block.name}(${JSON.stringify(block.input)})`);
-          const result = await executeMemoryTool(
-            supabase,
-            userId,
-            block.name,
-            block.input as Record<string, string>
-          );
-          toolResults.push({
-            type: 'tool_result',
-            tool_use_id: block.id,
-            content: result,
-          });
-        }
+  const result = await generateText({
+    model: MEMORY_MODEL,
+    system: MEMORY_AGENT_SYSTEM_PROMPT,
+    messages: [
+      {
+        role: 'user',
+        content: `Analyze this conversation exchange and update memory files as needed. Today's date is ${new Date().toISOString().split('T')[0]}. Today's daily file path is "${today}".\n\n---\n\n${conversationSummary}`,
+      },
+    ],
+    tools: memoryTools,
+    stopWhen: stepCountIs(10),
+    onStepFinish({ toolResults }) {
+      for (const tr of toolResults) {
+        console.log(`[Memory Agent] Tool: ${tr.toolName}(${JSON.stringify(tr.input)})`);
       }
+    },
+  });
 
-      // Send tool results back to the model
-      messages.push({ role: 'user', content: toolResults });
-    }
-  }
+  console.log('[Memory Agent] Done:', result.text || 'no message');
 }

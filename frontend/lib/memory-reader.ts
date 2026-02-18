@@ -1,15 +1,5 @@
 import { SupabaseClient } from '@supabase/supabase-js';
-import { MEMORY_CATEGORIES, type MemoryCategory } from './memory-types';
-
-const CATEGORY_HEADINGS: Record<MemoryCategory, string> = {
-  meta: 'About the User',
-  interests: 'Interests',
-  projects: 'Projects',
-  work: 'Work',
-  beliefs: 'Beliefs',
-  dislikes: 'Dislikes',
-  people: 'People',
-};
+import { MEMORY_CATEGORIES, CATEGORY_HEADINGS } from './memory-types';
 
 export async function loadMemoryContext(
   supabase: SupabaseClient,
