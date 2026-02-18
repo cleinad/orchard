@@ -1,26 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { after } from 'next/server';
+import { generateText } from 'ai';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
 import { loadMemoryContext } from '@/lib/memory-reader';
 import { processMemory } from '@/lib/memory-agent';
-
-// LLM Provider configuration
-const LLM_PROVIDER = process.env.LLM_PROVIDER || 'anthropic';
-const LLM_API_KEY = process.env.LLM_API_KEY || '';
-const LLM_MODEL = process.env.LLM_MODEL || getDefaultModel(LLM_PROVIDER);
-
-function getDefaultModel(provider: string): string {
-  switch (provider.toLowerCase()) {
-    case 'gemini':
-      return 'gemini-2.0-flash';
-    case 'openai':
-      return 'gpt-4o';
-    case 'anthropic':
-      return 'claude-sonnet-4-20250514';
-    default:
-      return 'claude-sonnet-4-20250514';
-  }
-}
+import { CHAT_MODEL } from '@/lib/models';
 
 const BASE_SYSTEM_PROMPT = `You are Novus, a voice-native thinking partner. You help the user think through problems with depth, capture their thoughts, and stay on top of their commitments.
 
@@ -55,108 +39,10 @@ ${memoryContext}
 interface ChatRequest {
   message: string;
   conversationId?: string;
-  threadId?: string;
-}
-
-async function callGemini(messages: { role: string; content: string }[], systemPrompt: string): Promise<string> {
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${LLM_MODEL}:generateContent?key=${LLM_API_KEY}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: systemPrompt }] },
-        contents: messages.map((m) => ({
-          role: m.role === 'assistant' ? 'model' : 'user',
-          parts: [{ text: m.content }],
-        })),
-      }),
-    }
-  );
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Gemini API error: ${error}`);
-  }
-
-  const data = await response.json();
-  return data.candidates?.[0]?.content?.parts?.[0]?.text || 'No response generated';
-}
-
-async function callOpenAI(messages: { role: string; content: string }[], systemPrompt: string): Promise<string> {
-  const messagesWithSystem = [
-    { role: 'system', content: systemPrompt },
-    ...messages.map((m) => ({ role: m.role, content: m.content })),
-  ];
-
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${LLM_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: LLM_MODEL,
-      messages: messagesWithSystem,
-    }),
-  });
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`OpenAI API error: ${error}`);
-  }
-
-  const data = await response.json();
-  return data.choices?.[0]?.message?.content || 'No response generated';
-}
-
-async function callAnthropic(messages: { role: string; content: string }[], systemPrompt: string): Promise<string> {
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': LLM_API_KEY,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: LLM_MODEL,
-      max_tokens: 4096,
-      system: systemPrompt,
-      messages: messages.map((m) => ({ role: m.role, content: m.content })),
-    }),
-  });
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Anthropic API error: ${error}`);
-  }
-
-  const data = await response.json();
-  return data.content?.[0]?.text || 'No response generated';
-}
-
-async function callLLM(messages: { role: string; content: string }[], systemPrompt: string): Promise<string> {
-  switch (LLM_PROVIDER.toLowerCase()) {
-    case 'gemini':
-      return callGemini(messages, systemPrompt);
-    case 'openai':
-      return callOpenAI(messages, systemPrompt);
-    case 'anthropic':
-      return callAnthropic(messages, systemPrompt);
-    default:
-      throw new Error(`Unknown LLM provider: ${LLM_PROVIDER}`);
-  }
 }
 
 export async function POST(request: NextRequest) {
   try {
-    if (!LLM_API_KEY) {
-      return NextResponse.json(
-        { error: 'LLM API key not configured' },
-        { status: 500 }
-      );
-    }
-
     const supabase = await createSupabaseServerClient();
 
     // Get current user
@@ -226,8 +112,15 @@ export async function POST(request: NextRequest) {
     const memoryContext = await loadMemoryContext(supabase, user.id);
     const systemPrompt = buildSystemPrompt(memoryContext);
 
-    // Call LLM
-    const assistantResponse = await callLLM(messages, systemPrompt);
+    // Call LLM via Vercel AI SDK
+    const { text: assistantResponse } = await generateText({
+      model: CHAT_MODEL,
+      system: systemPrompt,
+      messages: messages.map((m) => ({
+        role: m.role as 'user' | 'assistant',
+        content: m.content,
+      })),
+    });
 
     // Save assistant message
     const { error: assistantMsgError } = await supabase.from('messages').insert({

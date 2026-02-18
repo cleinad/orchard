@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import ThemeToggle from '@/app/components/ThemeToggle';
+import MemoryPanel from '@/app/home/components/MemoryPanel';
 import HomeBackground from '@/app/home/components/HomeBackground';
 import { useTTS } from '@/app/home/components/useTTS';
 import { useMicrophone } from '@/app/home/components/useMicrophone';
@@ -49,7 +50,7 @@ export default function HomePage() {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [ttsEnabled] = useState(true);
   const [micActive, setMicActive] = useState(false);
-  const [inputFocused, setInputFocused] = useState(false);
+  const [memoryPanelOpen, setMemoryPanelOpen] = useState(false);
 
   const tts = useTTS();
   const microphone = useMicrophone();
@@ -300,6 +301,26 @@ export default function HomePage() {
             <span className="font-heading text-xl text-stone-800 dark:text-stone-100">Novus</span>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setMemoryPanelOpen(true)}
+              aria-label="View memories"
+              title="View memories"
+              className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-stone-200 bg-white/80 text-stone-700 shadow-sm transition hover:bg-white hover:text-stone-900 dark:border-stone-800 dark:bg-stone-900/80 dark:text-stone-200 dark:hover:bg-stone-800 dark:hover:text-white"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+                className="block h-5 w-5"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M12 18v-5.25m0 0a6.01 6.01 0 001.5-.189m-1.5.189a6.01 6.01 0 01-1.5-.189m3.75 7.478a12.06 12.06 0 01-4.5 0m3.75 2.383a14.406 14.406 0 01-3 0M14.25 18v-.192c0-.983.658-1.823 1.508-2.316a7.5 7.5 0 10-7.517 0c.85.493 1.509 1.333 1.509 2.316V18" />
+              </svg>
+            </button>
             <ThemeToggle />
           </div>
         </header>
@@ -430,8 +451,6 @@ export default function HomePage() {
                 ref={textareaRef}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                onFocus={() => setInputFocused(true)}
-                onBlur={() => setInputFocused(false)}
                 onKeyDown={handleKeyDown}
                 placeholder={micActive ? "Listening..." : "What's on your mind?"}
                 disabled={isLoading}
@@ -483,6 +502,8 @@ export default function HomePage() {
           )}
         </div>
       </main>
+
+      <MemoryPanel isOpen={memoryPanelOpen} onClose={() => setMemoryPanelOpen(false)} />
 
       <style jsx>{`
         @keyframes shimmer {
