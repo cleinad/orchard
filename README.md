@@ -3,5 +3,5 @@ uv run python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000 --env-file
 
 instead of this ^ which does not work, run:
 ```bash
- uv run uvicorn main:app --reload --ws wsproto
- ```
+uv run uvicorn main:app --reload --ws wsproto
+```

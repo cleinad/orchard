@@ -283,7 +283,7 @@ export default function HomePage() {
   const hasTranscript = transcription.finalTranscript.length > 0 || transcription.interimTranscript.length > 0;
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[#faf9f6] text-stone-900 dark:bg-[#0c0c0b] dark:text-stone-100">
+    <div className="relative h-screen overflow-hidden bg-[#faf9f6] text-stone-900 dark:bg-[#0c0c0b] dark:text-stone-100">
       <HomeBackground />
 
       {/* Subtle grain texture */}
@@ -294,7 +294,7 @@ export default function HomePage() {
         }}
       />
 
-      <main className="relative mx-auto flex min-h-screen w-full max-w-3xl flex-col px-4 sm:px-6">
+      <main className="relative mx-auto flex h-screen w-full max-w-3xl flex-col px-4 sm:px-6">
         {/* Header */}
         <header className="flex items-center justify-between py-6">
           <div className="flex items-center gap-2">
@@ -329,7 +329,7 @@ export default function HomePage() {
         <div
           ref={containerRef}
           onScroll={handleScroll}
-          className="flex-1 overflow-y-auto pb-4"
+          className="conversation-scroll flex-1 overflow-y-auto pb-4 pr-4"
         >
           {messages.length === 0 ? (
             <div className="flex h-full min-h-[50vh] flex-col items-center justify-center px-4">
@@ -544,6 +544,41 @@ export default function HomePage() {
             0 0 0 1px rgba(255,255,255,0.08),
             inset 0 1px 0 rgba(255,255,255,0.06),
             0 2px 12px rgba(0,0,0,0.3);
+        }
+
+        /* Conversation scroll area */
+        .conversation-scroll {
+          scrollbar-width: thin;
+          scrollbar-color: rgba(0,0,0,0.12) transparent;
+        }
+
+        :global(.dark) .conversation-scroll {
+          scrollbar-color: rgba(255,255,255,0.1) transparent;
+        }
+
+        .conversation-scroll::-webkit-scrollbar {
+          width: 4px;
+        }
+
+        .conversation-scroll::-webkit-scrollbar-track {
+          background: transparent;
+        }
+
+        .conversation-scroll::-webkit-scrollbar-thumb {
+          background: rgba(0,0,0,0.12);
+          border-radius: 4px;
+        }
+
+        .conversation-scroll::-webkit-scrollbar-thumb:hover {
+          background: rgba(0,0,0,0.2);
+        }
+
+        :global(.dark) .conversation-scroll::-webkit-scrollbar-thumb {
+          background: rgba(255,255,255,0.1);
+        }
+
+        :global(.dark) .conversation-scroll::-webkit-scrollbar-thumb:hover {
+          background: rgba(255,255,255,0.18);
         }
 
         /* Subtle scrollbar for textarea */
