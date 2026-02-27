@@ -40,7 +40,7 @@ create table experts (
   -- Metadata
   is_builtin boolean default false, -- true for seeded defaults, false for user-created
   accent_color text,                -- hex color for UI accent (e.g. '#E85D3A')
-  avatar_url text,                  -- optional avatar image
+  avatar_url text,                  -- optional avatar image URL (set via upload flow)
   voice_id text,                    -- TTS voice identifier (nullable, falls back to default)
   model_id text,                    -- LLM model override (nullable, falls back to CHAT_MODEL)
 
@@ -63,9 +63,15 @@ Add an `expert_id` column to link conversations to experts.
 ```sql
 alter table conversations
   add column expert_id uuid references experts(id) on delete set null;
+
+create unique index conversations_user_expert_unique_idx
+  on conversations (user_id, expert_id)
+  where expert_id is not null;
 ```
 
 `expert_id = null` means a conversation with Novus (the default). This preserves backward compatibility with existing conversations.
+
+v1 invariant: exactly one conversation per expert per user. Re-opening an expert always resumes that same thread.
 
 ### Novus as an expert
 
@@ -217,6 +223,60 @@ Create a custom expert. Body:
 
 `slug` is auto-generated from the name. `is_builtin` is set to false.
 
+#### `POST /api/experts/generate`
+
+Generate a custom expert draft from a natural-language user description (AI-assisted creation in v1). Body:
+
+```json
+{
+  "prompt": "I want an expert who helps me practice public speaking for technical talks."
+}
+```
+
+Uses `CHAT_MODEL` in v1 (same default model as expert chats).
+
+Response:
+
+```json
+{
+  "name": "The Speaking Coach",
+  "tagline": "Helps you deliver technical talks clearly and confidently.",
+  "description": "...",
+  "base_system_prompt": "You are..."
+}
+```
+
+Client flow:
+1. User writes what they want in plain English.
+2. Call `POST /api/experts/generate` to get a structured draft.
+3. User reviews/edits.
+4. Save via `POST /api/experts`.
+
+#### `POST /api/experts/avatar/upload-url`
+
+Create a signed upload URL for avatar file upload (v1). Body:
+
+```json
+{
+  "file_name": "chef-avatar.png",
+  "content_type": "image/png"
+}
+```
+
+Response:
+
+```json
+{
+  "upload_url": "https://...",
+  "public_url": "https://..."
+}
+```
+
+Client flow:
+1. Request signed URL from `POST /api/experts/avatar/upload-url`.
+2. Upload the image file directly to storage.
+3. Save `public_url` into `avatar_url` via `PATCH /api/experts/[slug]`.
+
 #### `PATCH /api/experts/[slug]`
 
 Update an expert. For built-in experts, only `user_instructions`, `accent_color`, and `avatar_url` are writable. For custom experts, all fields are writable.
@@ -285,6 +345,7 @@ For built-in experts:
 - Shows name, tagline, description (read-only)
 - Editable `user_instructions` field ("Add your preferences")
 - Accent color picker
+- Avatar image upload
 
 For custom experts:
 - All fields editable
@@ -300,6 +361,14 @@ Form with fields:
 - Accent color
 
 **AI-assisted creation**: User describes the expert they want in natural language ("I want someone who can help me with public speaking"). The AI generates a structured system prompt from that description. User can review and edit before saving.
+
+### v1 Visual Customization Scope
+
+Per-expert visual customization is limited to:
+- Accent color
+- Avatar image upload
+
+No per-expert typography, layout, or full theme customization in v1.
 
 ---
 
@@ -328,6 +397,7 @@ When per-expert voices are implemented:
 ### v1
 
 All experts use `CHAT_MODEL` from `models.ts`. The `model_id` column exists but is null.
+`POST /api/experts/generate` also uses `CHAT_MODEL` in v1.
 
 In the chat route:
 ```typescript

@@ -33,6 +33,7 @@ The user opens Novus and talks to Novus as usual - their personal assistant, the
 From the main interface, the user can open a **contacts list** - a browsable roster of available experts. This functions like a marketplace of people you can talk to.
 
 Selecting an expert opens a dedicated conversation with that persona. Each expert has its own conversation history and context.
+In v1, this is exactly one persistent conversation thread per expert (per user), resumed every time.
 
 ### Built-in Experts
 
@@ -51,7 +52,7 @@ Users can customize built-in experts to better fit their needs:
 - Adjust the expert's focus area (e.g. narrow "Tech Interview Coach" to backend systems design at FAANG)
 - Set preferences the expert should always know (e.g. "I'm vegetarian" for the chef, "I have a home gym" for the trainer)
 
-Users can also create entirely new experts from scratch by defining:
+Users can also create entirely new experts with AI-assisted generation (at launch), then refine/edit before saving:
 
 - **Name and role** - who this person is
 - **Persona** - their background, expertise, tone, and behavior (the "character sheet")
@@ -76,7 +77,7 @@ Since Novus is voice-first, the visual UI primarily exists for review, browsing 
 
 The design system stays consistent, but experts can carry **subtle visual shifts** - accent colors, avatar presence at the top of the chat, slightly different energy. Talking to Novus (your home base) should feel slightly warmer and more familiar. Talking to an expert should feel slightly more focused. Same design language, different tone.
 
-These shifts are small by default (built-in experts have curated accents), but users can customize the look of their own experts and the overall theme.
+These shifts are small by default (built-in experts have curated accents). In v1, visual customization is limited to per-expert accent color and avatar upload.
 
 ## Novus's Role
 
@@ -91,11 +92,11 @@ In the future, Novus could consult other experts on your behalf (e.g. "let me ch
 ### v1 - Core Expert System
 - Built-in curated experts ship with the app
 - Users can customize built-in expert preferences
-- Users can create custom experts from scratch
-    - ai can help them create their expert
-- Each expert has its own dedicated conversation
+- Users can create custom experts with AI-assisted generation at launch
+- Each expert has exactly one dedicated conversation thread
 - Voice-enabled conversations with experts
-- Clean, Perplexity-esque default theme with subtle per-expert accent shifts (colors, avatar presence)
+- Clean, Perplexity-esque default theme with subtle per-expert accent shifts (accent color, avatar presence)
+- Per-expert avatar file upload
 
 ### v2 - Knowledge-Enhanced Experts
 - Attach knowledge bases and reference documents to experts (e.g. a cookbook PDF to the chef, your company's interview rubric to the interview coach)
@@ -114,6 +115,7 @@ In the future, Novus could consult other experts on your behalf (e.g. "let me ch
 ### v5 - Custom Theming
 - Users can customize the overall app theme
 - Users can define custom visual themes for their own experts
+- AI-generated expert avatars
 - Community-shared themes in the marketplace
 
 ### v6 - Expert Marketplace
