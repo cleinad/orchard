@@ -77,7 +77,7 @@ Since Novus is voice-first, the visual UI primarily exists for review, browsing 
 
 The design system stays consistent, but experts can carry **subtle visual shifts** - accent colors, avatar presence at the top of the chat, slightly different energy. Talking to Novus (your home base) should feel slightly warmer and more familiar. Talking to an expert should feel slightly more focused. Same design language, different tone.
 
-These shifts are small by default (built-in experts have curated accents). In v1, visual customization is limited to per-expert accent color and avatar upload.
+These shifts are small by default (built-in experts have curated accents). In v1, visual customization is limited to per-expert accent color and avatar.
 
 ## Novus's Role
 
@@ -96,11 +96,11 @@ In the future, Novus could consult other experts on your behalf (e.g. "let me ch
 - Each expert has exactly one dedicated conversation thread
 - Voice-enabled conversations with experts
 - Clean, Perplexity-esque default theme with subtle per-expert accent shifts (accent color, avatar presence)
-- Per-expert avatar file upload
 
 ### v2 - Knowledge-Enhanced Experts
 - Attach knowledge bases and reference documents to experts (e.g. a cookbook PDF to the chef, your company's interview rubric to the interview coach)
 - Experts can reference and cite their attached materials during conversations
+- Image generate expert photo
 
 ### v3 - Context Sharing
 - User-controlled context sharing between Novus and experts
@@ -115,7 +115,6 @@ In the future, Novus could consult other experts on your behalf (e.g. "let me ch
 ### v5 - Custom Theming
 - Users can customize the overall app theme
 - Users can define custom visual themes for their own experts
-- AI-generated expert avatars
 - Community-shared themes in the marketplace
 
 ### v6 - Expert Marketplace
