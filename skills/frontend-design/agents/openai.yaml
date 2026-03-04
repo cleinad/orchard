@@ -1,0 +1,4 @@
+interface:
+  display_name: "Frontend Design"
+  short_description: "Design distinctive frontend interfaces"
+  default_prompt: "Use $frontend-design to define and implement a bold, responsive frontend visual direction with coherent tokens and motion."
