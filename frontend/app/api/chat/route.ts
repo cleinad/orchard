@@ -5,6 +5,7 @@ import { createSupabaseServerClient } from '@/lib/supabase-server';
 import { loadMemoryContext } from '@/lib/memory-reader';
 import { processMemory } from '@/lib/memory-agent';
 import { CHAT_MODEL } from '@/lib/models';
+import { buildMentorPrompt } from '@/lib/mentors/prompts';
 
 const BASE_SYSTEM_PROMPT = `You are Novus, a voice-native thinking partner. You help the user think through problems with depth, capture their thoughts, and stay on top of their commitments.
 
@@ -39,6 +40,7 @@ ${memoryContext}
 interface ChatRequest {
   message: string;
   conversationId?: string;
+  mentorId?: string;
 }
 
 export async function POST(request: NextRequest) {
@@ -56,7 +58,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body: ChatRequest = await request.json();
-    const { message, conversationId } = body;
+    const { message, conversationId, mentorId } = body;
 
     if (!message?.trim()) {
       return NextResponse.json(
@@ -67,23 +69,139 @@ export async function POST(request: NextRequest) {
 
     let activeConversationId = conversationId;
 
-    // Create new conversation if none provided
-    if (!activeConversationId) {
-      const { data: conversation, error: convError } = await supabase
-        .from('conversations')
-        .insert({ user_id: user.id, title: message.slice(0, 100) })
-        .select('id')
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('full_name')
+      .eq('id', user.id)
+      .maybeSingle();
+
+    let mentor: {
+      id: string;
+      base_system_prompt: string;
+      user_instructions: string;
+      model_id: string | null;
+    } | null = null;
+
+    if (mentorId) {
+      const { data: mentorRow, error: mentorError } = await supabase
+        .from('mentors')
+        .select('id, base_system_prompt, user_instructions, model_id')
+        .eq('id', mentorId)
+        .eq('user_id', user.id)
         .single();
 
-      if (convError) {
-        console.error('Error creating conversation:', convError);
+      if (mentorError || !mentorRow) {
+        return NextResponse.json({ error: 'Mentor not found' }, { status: 404 });
+      }
+
+      mentor = mentorRow;
+    }
+
+    // Validate an existing conversation, and infer mentor context when possible.
+    if (activeConversationId) {
+      const { data: existingConversation, error: conversationError } = await supabase
+        .from('conversations')
+        .select('id, mentor_id')
+        .eq('id', activeConversationId)
+        .eq('user_id', user.id)
+        .single();
+
+      if (conversationError || !existingConversation) {
         return NextResponse.json(
-          { error: 'Failed to create conversation' },
-          { status: 500 }
+          { error: 'Conversation not found' },
+          { status: 404 }
         );
       }
 
-      activeConversationId = conversation.id;
+      if (mentor && existingConversation.mentor_id !== mentor.id) {
+        return NextResponse.json(
+          { error: 'Conversation does not match the selected mentor' },
+          { status: 400 }
+        );
+      }
+
+      if (!mentor && existingConversation.mentor_id) {
+        const { data: mentorFromConversation } = await supabase
+          .from('mentors')
+          .select('id, base_system_prompt, user_instructions, model_id')
+          .eq('id', existingConversation.mentor_id)
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+        if (mentorFromConversation) {
+          mentor = mentorFromConversation;
+        }
+      }
+    }
+
+    // Create or reuse conversation when none is provided.
+    if (!activeConversationId) {
+      if (mentor) {
+        const { data: existingMentorConversation } = await supabase
+          .from('conversations')
+          .select('id')
+          .eq('user_id', user.id)
+          .eq('mentor_id', mentor.id)
+          .maybeSingle();
+
+        if (existingMentorConversation) {
+          activeConversationId = existingMentorConversation.id;
+        } else {
+          const { data: conversation, error: convError } = await supabase
+            .from('conversations')
+            .insert({
+              user_id: user.id,
+              title: message.slice(0, 100),
+              mentor_id: mentor.id,
+            })
+            .select('id')
+            .single();
+
+          if (convError || !conversation) {
+            // Another request may have created it first (unique index on user_id + mentor_id).
+            if (convError?.code === '23505') {
+              const { data: retriedConversation } = await supabase
+                .from('conversations')
+                .select('id')
+                .eq('user_id', user.id)
+                .eq('mentor_id', mentor.id)
+                .maybeSingle();
+
+              if (retriedConversation) {
+                activeConversationId = retriedConversation.id;
+              }
+            }
+
+            if (!activeConversationId) {
+              console.error('Error creating mentor conversation:', convError);
+              return NextResponse.json(
+                { error: 'Failed to create conversation' },
+                { status: 500 }
+              );
+            }
+          }
+
+          if (conversation?.id) {
+            activeConversationId = conversation.id;
+          }
+        }
+      } else {
+        const { data: conversation, error: convError } = await supabase
+          .from('conversations')
+          .insert({ user_id: user.id, title: message.slice(0, 100) })
+          .select('id')
+          .single();
+
+        if (convError || !conversation) {
+          console.error('Error creating conversation:', convError);
+          return NextResponse.json(
+            { error: 'Failed to create conversation' },
+            { status: 500 }
+          );
+        }
+
+        activeConversationId = conversation.id;
+      }
     }
 
     // Save user message
@@ -108,9 +226,12 @@ export async function POST(request: NextRequest) {
 
     const messages = history || [{ role: 'user', content: message }];
 
-    // Load memory context and build system prompt
-    const memoryContext = await loadMemoryContext(supabase, user.id);
-    const systemPrompt = buildSystemPrompt(memoryContext);
+    const isMentorConversation = !!mentor;
+
+    // Build Novus or mentor system prompt.
+    const systemPrompt = isMentorConversation
+      ? buildMentorPrompt(mentor!, profile?.full_name || '')
+      : buildSystemPrompt(await loadMemoryContext(supabase, user.id));
 
     // Call LLM via Vercel AI SDK
     const { text: assistantResponse } = await generateText({
@@ -134,18 +255,21 @@ export async function POST(request: NextRequest) {
       console.error('Error saving assistant message:', assistantMsgError);
     }
 
-    // Fire background memory agent (runs after response is sent)
-    after(async () => {
-      try {
-        await processMemory(user.id, messages, assistantResponse);
-      } catch (err) {
-        console.error('[Memory Agent] Error:', err);
-      }
-    });
+    // Novus conversations update memory. Mentor conversations skip memory in v1.
+    if (!isMentorConversation) {
+      after(async () => {
+        try {
+          await processMemory(user.id, messages, assistantResponse);
+        } catch (err) {
+          console.error('[Memory Agent] Error:', err);
+        }
+      });
+    }
 
     return NextResponse.json({
       message: assistantResponse,
       conversationId: activeConversationId,
+      mentorId: mentor?.id ?? null,
     });
   } catch (error) {
     console.error('Chat API error:', error);

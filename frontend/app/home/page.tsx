@@ -1,20 +1,34 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { Suspense, useState, useCallback, useRef, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import ThemeToggle from '@/app/components/ThemeToggle';
-import MemoryPanel from '@/app/home/components/MemoryPanel';
 import HomeBackground from '@/app/home/components/HomeBackground';
 import { useTTS } from '@/app/home/components/useTTS';
 import { useMicrophone } from '@/app/home/components/useMicrophone';
 import { useAudioVisualization } from '@/app/home/components/useAudioVisualization';
 import { useTranscription } from '@/app/home/components/useTranscription';
 import ReactMarkdown from 'react-markdown';
+import { supabase } from '@/lib/supabase';
+import type { MentorListItem } from '@/lib/mentors/types';
+import { type ConversationListItem } from '@/app/home/components/ConversationsPanel';
+import SidePanel from '@/app/home/components/SidePanel';
+import MentorDetailPanel from '@/app/home/components/MentorDetailPanel';
+import CreateMentorPanel from '@/app/home/components/CreateMentorPanel';
 
 export interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
+}
+
+interface ConversationRow {
+  id: string;
+  title: string | null;
+  mentor_id: string | null;
+  updated_at: string;
+  created_at: string;
 }
 
 function MicDodecahedron({ active }: { active: boolean }) {
@@ -44,13 +58,33 @@ function MicDodecahedron({ active }: { active: boolean }) {
  * Home page - A cozy, integrated voice + text conversation interface
  */
 export default function HomePage() {
+  return (
+    <Suspense>
+      <HomePageInner />
+    </Suspense>
+  );
+}
+
+function HomePageInner() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(null);
+  const [activeMentor, setActiveMentor] = useState<MentorListItem | null>(null);
+  const [mentors, setMentors] = useState<MentorListItem[]>([]);
+  const [conversations, setConversations] = useState<ConversationListItem[]>([]);
+  const [loadingLists, setLoadingLists] = useState(false);
+  const [listError, setListError] = useState<string | null>(null);
+
   const [ttsEnabled] = useState(true);
   const [micActive, setMicActive] = useState(false);
-  const [memoryPanelOpen, setMemoryPanelOpen] = useState(false);
+  const [sidePanelOpen, setSidePanelOpen] = useState(false);
+  const [detailMentorSlug, setDetailMentorSlug] = useState<string | null>(null);
+  const [detailPanelOpen, setDetailPanelOpen] = useState(false);
+  const [createPanelOpen, setCreatePanelOpen] = useState(false);
+
+  const router = useRouter();
+  const searchParams = useSearchParams();
 
   const tts = useTTS();
   const microphone = useMicrophone();
@@ -65,6 +99,115 @@ export default function HomePage() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [userHasScrolled, setUserHasScrolled] = useState(false);
 
+  const loadMentors = useCallback(async (): Promise<MentorListItem[]> => {
+    const response = await fetch('/api/mentors', { cache: 'no-store' });
+    const data = await response.json();
+    if (!response.ok || data.error) {
+      throw new Error(data.error || 'Failed to load mentors');
+    }
+    return data as MentorListItem[];
+  }, []);
+
+  const loadConversations = useCallback(
+    async (mentorSource: MentorListItem[]) => {
+      const mentorById = new Map(mentorSource.map((mentor) => [mentor.id, mentor]));
+      const { data: conversationRows, error: conversationError } = await supabase
+        .from('conversations')
+        .select('id, title, mentor_id, updated_at, created_at')
+        .order('updated_at', { ascending: false })
+        .limit(100);
+
+      if (conversationError) {
+        throw new Error(conversationError.message);
+      }
+
+      const rows = (conversationRows || []) as ConversationRow[];
+      const previews = await Promise.all(
+        rows.map(async (row) => {
+          const { data: latestMessage } = await supabase
+            .from('messages')
+            .select('content')
+            .eq('conversation_id', row.id)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          return {
+            conversationId: row.id,
+            preview: latestMessage?.content || '',
+          };
+        })
+      );
+
+      const previewByConversationId = new Map(
+        previews.map((item) => [item.conversationId, item.preview])
+      );
+
+      const nextConversations: ConversationListItem[] = rows.map((row) => {
+        const mentor = row.mentor_id ? mentorById.get(row.mentor_id) : null;
+        const preview = previewByConversationId.get(row.id) || '';
+        return {
+          id: row.id,
+          title: row.title,
+          mentor_id: row.mentor_id,
+          updated_at: row.updated_at,
+          created_at: row.created_at,
+          preview: preview.length > 180 ? `${preview.slice(0, 177)}...` : preview,
+          mentor_name: mentor?.name || 'Novus',
+          mentor_accent_color: mentor?.accent_color || null,
+        };
+      });
+
+      setConversations(nextConversations);
+    },
+    []
+  );
+
+  const refreshSidebarData = useCallback(async () => {
+    setLoadingLists(true);
+    setListError(null);
+    try {
+      const nextMentors = await loadMentors();
+      setMentors(nextMentors);
+      await loadConversations(nextMentors);
+    } catch (err) {
+      setListError(
+        err instanceof Error ? err.message : 'Failed to load mentors and conversations'
+      );
+    } finally {
+      setLoadingLists(false);
+    }
+  }, [loadConversations, loadMentors]);
+
+  const loadConversationMessages = useCallback(async (nextConversationId: string) => {
+    const { data, error } = await supabase
+      .from('messages')
+      .select('id, role, content, created_at')
+      .eq('conversation_id', nextConversationId)
+      .order('created_at', { ascending: true })
+      .limit(200);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    const nextMessages: Message[] = ((data || []) as Array<{
+      id: string;
+      role: 'user' | 'assistant';
+      content: string;
+      created_at: string;
+    }>).map((message) => ({
+      id: message.id,
+      role: message.role,
+      content: message.content,
+      timestamp: new Date(message.created_at),
+    }));
+
+    setMessages(nextMessages);
+    setConversationId(nextConversationId);
+    setUserHasScrolled(false);
+  }, []);
+
   // Auto-scroll to bottom
   const scrollToBottom = useCallback(() => {
     if (!userHasScrolled && messagesEndRef.current) {
@@ -75,6 +218,18 @@ export default function HomePage() {
   useEffect(() => {
     scrollToBottom();
   }, [messages, scrollToBottom]);
+
+  useEffect(() => {
+    void refreshSidebarData();
+  }, [refreshSidebarData]);
+
+  useEffect(() => {
+    if (!activeMentor) return;
+    const synced = mentors.find((mentor) => mentor.id === activeMentor.id);
+    if (synced && synced !== activeMentor) {
+      setActiveMentor(synced);
+    }
+  }, [activeMentor, mentors]);
 
   // Handle scroll detection
   const handleScroll = () => {
@@ -136,6 +291,72 @@ export default function HomePage() {
     };
   }, []);
 
+  const handleSelectNovus = useCallback(() => {
+    tts.stop();
+    setActiveMentor(null);
+    setConversationId(null);
+    setMessages([]);
+    setInput('');
+    setUserHasScrolled(false);
+  }, [tts]);
+
+  const handleSelectMentor = useCallback(
+    async (mentor: MentorListItem) => {
+      tts.stop();
+      setActiveMentor(mentor);
+      setInput('');
+      setUserHasScrolled(false);
+
+      if (mentor.conversation_id) {
+        try {
+          await loadConversationMessages(mentor.conversation_id);
+        } catch (err) {
+          setListError(err instanceof Error ? err.message : 'Failed to load conversation');
+        }
+      } else {
+        setConversationId(null);
+        setMessages([]);
+      }
+    },
+    [loadConversationMessages, tts]
+  );
+
+  // Handle ?mentor=<slug> search param from /mentors page
+  const mentorSlugHandledRef = useRef(false);
+  useEffect(() => {
+    if (mentorSlugHandledRef.current) return;
+    const mentorSlug = searchParams.get('mentor');
+    if (!mentorSlug || mentors.length === 0) return;
+    mentorSlugHandledRef.current = true;
+
+    const target = mentors.find((m) => m.slug === mentorSlug);
+    if (target) {
+      void handleSelectMentor(target);
+    }
+    // Clear the search param
+    router.replace('/home', { scroll: false });
+  }, [searchParams, mentors, handleSelectMentor, router]);
+
+  const handleSelectConversation = useCallback(
+    async (conversation: ConversationListItem) => {
+      tts.stop();
+      setInput('');
+      setUserHasScrolled(false);
+
+      const nextMentor = conversation.mentor_id
+        ? mentors.find((mentor) => mentor.id === conversation.mentor_id) || null
+        : null;
+      setActiveMentor(nextMentor);
+
+      try {
+        await loadConversationMessages(conversation.id);
+      } catch (err) {
+        setListError(err instanceof Error ? err.message : 'Failed to load conversation');
+      }
+    },
+    [mentors, loadConversationMessages, tts]
+  );
+
   // Send message (from text or voice)
   const sendMessage = useCallback(async (content: string) => {
     if (!content.trim() || isLoading) return;
@@ -166,6 +387,7 @@ export default function HomePage() {
         body: JSON.stringify({
           message: userMessage.content,
           conversationId,
+          mentorId: activeMentor?.id ?? undefined,
         }),
       });
 
@@ -182,7 +404,7 @@ export default function HomePage() {
         return;
       }
 
-      if (data.conversationId && !conversationId) {
+      if (data.conversationId && data.conversationId !== conversationId) {
         setConversationId(data.conversationId);
       }
 
@@ -195,6 +417,8 @@ export default function HomePage() {
       };
 
       setMessages((prev) => [...prev, assistantMessage]);
+
+      await refreshSidebarData();
 
       if (ttsEnabled && responseText && !responseText.startsWith('Something went wrong')) {
         tts.speak(responseText);
@@ -210,7 +434,15 @@ export default function HomePage() {
     } finally {
       setIsLoading(false);
     }
-  }, [conversationId, isLoading, ttsEnabled, tts, transcription.clearTranscript]);
+  }, [
+    activeMentor?.id,
+    conversationId,
+    isLoading,
+    refreshSidebarData,
+    ttsEnabled,
+    tts,
+    transcription.clearTranscript,
+  ]);
 
   // Interrupt TTS when the user starts speaking
   useEffect(() => {
@@ -281,6 +513,8 @@ export default function HomePage() {
   };
 
   const hasTranscript = transcription.finalTranscript.length > 0 || transcription.interimTranscript.length > 0;
+  const activeName = activeMentor?.name || 'Novus';
+  const activeAccent = activeMentor?.accent_color || '#64748B';
 
   return (
     <div className="relative h-screen overflow-hidden bg-[#faf9f6] text-stone-900 dark:bg-[#0c0c0b] dark:text-stone-100">
@@ -297,33 +531,55 @@ export default function HomePage() {
       <main className="relative mx-auto flex h-screen w-full max-w-3xl flex-col px-4 sm:px-6">
         {/* Header */}
         <header className="flex items-center justify-between py-6">
-          <div className="flex items-center gap-2">
-            <span className="font-heading text-xl text-stone-800 dark:text-stone-100">Novus</span>
-          </div>
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 items-center gap-3">
+            {/* Hamburger — opens side panel */}
             <button
               type="button"
-              onClick={() => setMemoryPanelOpen(true)}
-              aria-label="View memories"
-              title="View memories"
-              className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-stone-200 bg-white/80 text-stone-700 shadow-sm transition hover:bg-white hover:text-stone-900 dark:border-stone-800 dark:bg-stone-900/80 dark:text-stone-200 dark:hover:bg-stone-800 dark:hover:text-white"
+              onClick={() => setSidePanelOpen(true)}
+              aria-label="Open conversations"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-stone-400 transition hover:text-stone-600 dark:text-stone-500 dark:hover:text-stone-300"
             >
-              <svg
-                viewBox="0 0 24 24"
-                aria-hidden="true"
-                className="block h-5 w-5"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M12 18v-5.25m0 0a6.01 6.01 0 001.5-.189m-1.5.189a6.01 6.01 0 01-1.5-.189m3.75 7.478a12.06 12.06 0 01-4.5 0m3.75 2.383a14.406 14.406 0 01-3 0M14.25 18v-.192c0-.983.658-1.823 1.508-2.316a7.5 7.5 0 10-7.517 0c.85.493 1.509 1.333 1.509 2.316V18" />
+              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5M3.75 17.25h16.5" />
+              </svg>
+            </button>
+            <div className="min-w-0">
+              <p className="text-[11px] font-medium uppercase tracking-widest text-stone-400 dark:text-stone-500">
+                Talking With
+              </p>
+              <div className="mt-0.5 flex items-center gap-2">
+                <span
+                  className="h-2 w-2 rounded-full"
+                  style={{ backgroundColor: activeAccent }}
+                />
+                <span className="truncate font-heading text-lg text-stone-800 dark:text-stone-100">
+                  {activeName}
+                </span>
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5">
+            {/* Grid icon — navigate to /mentors */}
+            <button
+              type="button"
+              onClick={() => router.push('/mentors')}
+              aria-label="Browse mentors"
+              title="Browse mentors"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-stone-400 transition hover:text-stone-600 dark:text-stone-500 dark:hover:text-stone-300"
+            >
+              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
               </svg>
             </button>
             <ThemeToggle />
           </div>
         </header>
+
+        {(loadingLists || listError) && (
+          <div className="mb-3 rounded-xl border border-stone-200/70 bg-white/70 px-3 py-2 text-xs text-stone-500 dark:border-stone-800 dark:bg-stone-900/70 dark:text-stone-400">
+            {loadingLists ? 'Loading chats and mentors...' : listError}
+          </div>
+        )}
 
         {/* Conversation area */}
         <div
@@ -335,10 +591,12 @@ export default function HomePage() {
             <div className="flex h-full min-h-[50vh] flex-col items-center justify-center px-4">
               <div className="text-center">
                 <h1 className="font-heading text-3xl text-stone-800 dark:text-stone-100 sm:text-4xl">
-                  What&apos;s on your mind?
+                  {activeMentor ? `Talk to ${activeMentor.name}` : "What's on your mind?"}
                 </h1>
                 <p className="mt-4 max-w-md text-sm leading-relaxed text-stone-500 dark:text-stone-400">
-                  I&apos;m here to help you think through problems, capture ideas, and stay on top of what matters. Speak or type — I&apos;m listening.
+                  {activeMentor
+                    ? activeMentor.tagline
+                    : "I'm here to help you think through problems, capture ideas, and stay on top of what matters. Speak or type — I'm listening."}
                 </p>
               </div>
             </div>
@@ -350,7 +608,7 @@ export default function HomePage() {
                   className="py-4"
                 >
                   <div className="mb-2 text-xs font-medium text-stone-400 dark:text-stone-500">
-                    {message.role === 'user' ? 'You' : 'Novus'}
+                    {message.role === 'user' ? 'You' : activeName}
                   </div>
                   <div className="text-[15px] leading-relaxed text-stone-800 dark:text-stone-100 [&_p]:mb-3 [&_p:last-child]:mb-0 [&_ul]:mb-3 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:mb-3 [&_ol]:ml-4 [&_ol]:list-decimal [&_li]:mb-1 [&_code]:rounded [&_code]:bg-stone-100 [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:text-[13px] [&_code]:text-stone-700 dark:[&_code]:bg-stone-800 dark:[&_code]:text-stone-300 [&_pre]:my-3 [&_pre]:rounded-lg [&_pre]:bg-stone-100 [&_pre]:p-4 dark:[&_pre]:bg-stone-800">
                     <ReactMarkdown>{message.content}</ReactMarkdown>
@@ -362,7 +620,7 @@ export default function HomePage() {
               {isLoading && (
                 <div className="py-4">
                   <div className="mb-2 text-xs font-medium text-stone-400 dark:text-stone-500">
-                    Novus
+                    {activeName}
                   </div>
                   <div className="flex items-center gap-1.5">
                     <span className="h-2 w-2 animate-bounce rounded-full bg-stone-300 dark:bg-stone-600" style={{ animationDelay: '0ms' }} />
@@ -452,7 +710,7 @@ export default function HomePage() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder={micActive ? "Listening..." : "What's on your mind?"}
+                placeholder={micActive ? 'Listening...' : `Message ${activeName}...`}
                 disabled={isLoading}
                 rows={1}
                 className="w-full min-w-0 resize-none bg-transparent py-1.5 text-sm leading-relaxed text-stone-700 placeholder-stone-400 outline-none disabled:cursor-not-allowed disabled:opacity-50 dark:text-neutral-100 dark:placeholder-neutral-500"
@@ -503,7 +761,41 @@ export default function HomePage() {
         </div>
       </main>
 
-      <MemoryPanel isOpen={memoryPanelOpen} onClose={() => setMemoryPanelOpen(false)} />
+      <SidePanel
+        isOpen={sidePanelOpen}
+        onClose={() => setSidePanelOpen(false)}
+        conversations={conversations}
+        activeConversationId={conversationId}
+        onSelectConversation={(conversation) => {
+          void handleSelectConversation(conversation);
+        }}
+        onNewNovusChat={handleSelectNovus}
+      />
+      <MentorDetailPanel
+        isOpen={detailPanelOpen}
+        slug={detailMentorSlug}
+        onClose={() => setDetailPanelOpen(false)}
+        onUpdated={() => {
+          void refreshSidebarData();
+        }}
+        onDeleted={(deletedSlug) => {
+          if (activeMentor?.slug === deletedSlug) {
+            handleSelectNovus();
+          }
+          void refreshSidebarData();
+        }}
+      />
+      <CreateMentorPanel
+        isOpen={createPanelOpen}
+        onClose={() => setCreatePanelOpen(false)}
+        onCreated={(mentor) => {
+          setActiveMentor(mentor);
+          setConversationId(null);
+          setMessages([]);
+          setUserHasScrolled(false);
+          void refreshSidebarData();
+        }}
+      />
 
       <style jsx>{`
         @keyframes shimmer {
