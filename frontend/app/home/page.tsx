@@ -31,31 +31,8 @@ interface ConversationRow {
   created_at: string;
 }
 
-function MicDodecahedron({ active }: { active: boolean }) {
-  return (
-    <svg viewBox="0 0 120 120" className="h-6 w-6">
-      <g
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="4"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        className={`transition-colors duration-300 ${active ? 'text-stone-700 dark:text-stone-200' : 'text-stone-400 dark:text-stone-500'}`}
-      >
-        <polygon points="60,8 108,38 90,102 30,102 12,38" />
-        <polygon points="60,24 92,44 80,88 40,88 28,44" />
-        <line x1="60" y1="8" x2="60" y2="24" />
-        <line x1="108" y1="38" x2="92" y2="44" />
-        <line x1="90" y1="102" x2="80" y2="88" />
-        <line x1="30" y1="102" x2="40" y2="88" />
-        <line x1="12" y1="38" x2="28" y2="44" />
-      </g>
-    </svg>
-  );
-}
-
 /**
- * Home page - A cozy, integrated voice + text conversation interface
+ * Home page - editorial voice + text conversation interface
  */
 export default function HomePage() {
   return (
@@ -575,32 +552,35 @@ function HomePageInner() {
         <div
           ref={containerRef}
           onScroll={handleScroll}
-          className="conversation-scroll flex-1 overflow-y-auto pb-4 pr-4"
+          className="flex-1 overflow-y-auto pb-4 pr-2"
+          style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(0,0,0,0.08) transparent' }}
         >
           {messages.length === 0 ? (
             <div className="flex h-full min-h-[50vh] flex-col items-center justify-center px-4">
               <div className="text-center">
-                <h1 className="font-heading text-3xl text-stone-800 dark:text-stone-100 sm:text-4xl">
+                <h1 className="font-heading text-3xl text-foreground sm:text-4xl">
                   {activeMentor ? `Talk to ${activeMentor.name}` : "What's on your mind?"}
                 </h1>
-                <p className="mt-4 max-w-md text-sm leading-relaxed text-stone-500 dark:text-stone-400">
+                <p className="mt-4 max-w-md text-sm leading-relaxed text-muted">
                   {activeMentor
                     ? activeMentor.tagline
-                    : "I'm here to help you think through problems, capture ideas, and stay on top of what matters. Speak or type — I'm listening."}
+                    : "Speak or type. I'm listening."}
                 </p>
               </div>
             </div>
           ) : (
-            <div className="py-6">
+            <div className="py-8">
               {messages.map((message) => (
-                <div
-                  key={message.id}
-                  className="py-4"
-                >
-                  <div className="mb-2 text-xs font-medium text-stone-400 dark:text-stone-500">
-                    {message.role === 'user' ? 'You' : activeName}
+                <div key={message.id} className="py-4">
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-xs font-medium uppercase tracking-wider text-muted">
+                      {message.role === 'user' ? 'You' : activeName}
+                    </span>
+                    <span className="text-xs text-muted/60">
+                      {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
                   </div>
-                  <div className="text-[15px] leading-relaxed text-stone-800 dark:text-stone-100 [&_p]:mb-3 [&_p:last-child]:mb-0 [&_ul]:mb-3 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:mb-3 [&_ol]:ml-4 [&_ol]:list-decimal [&_li]:mb-1 [&_code]:rounded [&_code]:bg-stone-100 [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:text-[13px] [&_code]:text-stone-700 dark:[&_code]:bg-stone-800 dark:[&_code]:text-stone-300 [&_pre]:my-3 [&_pre]:rounded-lg [&_pre]:bg-stone-100 [&_pre]:p-4 dark:[&_pre]:bg-stone-800">
+                  <div className="mt-2 text-base leading-relaxed text-foreground [&_p]:mb-4 [&_p:last-child]:mb-0 [&_ul]:mb-4 [&_ul]:ml-5 [&_ul]:list-disc [&_ol]:mb-4 [&_ol]:ml-5 [&_ol]:list-decimal [&_li]:mb-1 [&_code]:rounded [&_code]:bg-stone-100 [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:text-sm [&_code]:text-stone-700 dark:[&_code]:bg-stone-800 dark:[&_code]:text-stone-300 [&_pre]:my-4 [&_pre]:rounded-lg [&_pre]:bg-stone-100 [&_pre]:p-4 dark:[&_pre]:bg-stone-800">
                     <ReactMarkdown>{message.content}</ReactMarkdown>
                   </div>
                 </div>
@@ -609,13 +589,13 @@ function HomePageInner() {
               {/* Loading indicator */}
               {isLoading && (
                 <div className="py-4">
-                  <div className="mb-2 text-xs font-medium text-stone-400 dark:text-stone-500">
+                  <span className="text-xs font-medium uppercase tracking-wider text-muted">
                     {activeName}
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="h-2 w-2 animate-bounce rounded-full bg-stone-300 dark:bg-stone-600" style={{ animationDelay: '0ms' }} />
-                    <span className="h-2 w-2 animate-bounce rounded-full bg-stone-300 dark:bg-stone-600" style={{ animationDelay: '150ms' }} />
-                    <span className="h-2 w-2 animate-bounce rounded-full bg-stone-300 dark:bg-stone-600" style={{ animationDelay: '300ms' }} />
+                  </span>
+                  <div className="mt-2 flex items-center gap-1.5">
+                    <span className="h-2 w-2 animate-bounce rounded-full bg-muted/40" style={{ animationDelay: '0ms' }} />
+                    <span className="h-2 w-2 animate-bounce rounded-full bg-muted/40" style={{ animationDelay: '150ms' }} />
+                    <span className="h-2 w-2 animate-bounce rounded-full bg-muted/40" style={{ animationDelay: '300ms' }} />
                   </div>
                 </div>
               )}
@@ -629,20 +609,20 @@ function HomePageInner() {
         <div className="sticky bottom-0 pb-6 pt-2">
           {/* Live transcript preview */}
           {hasTranscript && !isLoading && (
-            <div className="mb-3 rounded-2xl bg-white/60 px-4 py-2 text-sm text-stone-600 backdrop-blur-md dark:bg-[#1a1a1a]/80 dark:text-neutral-300">
-              <span className="text-[10px] font-medium uppercase tracking-widest text-stone-400 dark:text-neutral-500">Listening</span>
+            <div className="mb-3 rounded-lg bg-surface px-4 py-2 text-sm text-muted shadow-sm">
+              <span className="text-xs font-medium uppercase tracking-wider text-muted/60">Listening</span>
               <p className="mt-1">
                 {transcription.finalTranscript}
                 {transcription.interimTranscript && (
-                  <span className="text-stone-400 dark:text-neutral-500"> {transcription.interimTranscript}</span>
+                  <span className="text-muted/50"> {transcription.interimTranscript}</span>
                 )}
-                <span className="ml-1 inline-block h-4 w-0.5 animate-pulse bg-stone-400 dark:bg-neutral-500" />
+                <span className="ml-1 inline-block h-4 w-0.5 animate-pulse bg-muted/50" />
               </p>
             </div>
           )}
 
-          {/* Voice waveform — floats above the input bar */}
-          <div className={`relative mx-auto mb-1.5 h-1 max-w-[80%] overflow-hidden rounded-full transition-opacity duration-500 ${micActive || isLoading ? 'opacity-100' : 'opacity-0'}`}>
+          {/* Voice waveform line - always visible */}
+          <div className="relative mx-auto mb-1 h-0.5 max-w-[90%] overflow-hidden rounded-full">
             <svg
               viewBox="0 0 240 4"
               className="absolute inset-0 h-full w-full"
@@ -654,7 +634,9 @@ function HomePageInner() {
                 stroke="currentColor"
                 strokeWidth="4"
                 points="0,2 240,2"
-                className={`text-stone-400 transition-opacity duration-300 dark:text-neutral-400 ${micActive ? 'opacity-100' : 'opacity-0'}`}
+                className={`transition-colors duration-300 ${
+                  micActive ? 'text-muted' : 'text-muted/30'
+                }`}
               />
               <polyline
                 ref={visualization.glowRef}
@@ -662,37 +644,39 @@ function HomePageInner() {
                 stroke="currentColor"
                 strokeWidth="4"
                 points="0,2 240,2"
-                className={`text-stone-300 transition-opacity duration-300 dark:text-neutral-500 ${micActive ? 'opacity-50' : 'opacity-0'}`}
+                className={`transition-opacity duration-300 ${
+                  micActive ? 'text-muted/40 opacity-50' : 'opacity-0'
+                }`}
                 style={{ filter: 'blur(2px)' }}
               />
             </svg>
-            {/* Shimmer loader */}
+            {/* Shimmer loader when processing */}
             {!micActive && isLoading && (
-              <div className="absolute inset-0 animate-shimmer bg-gradient-to-r from-stone-200 via-stone-300 to-stone-200 dark:from-neutral-700 dark:via-neutral-500 dark:to-neutral-700"
+              <div
+                className="absolute inset-0 animate-shimmer bg-gradient-to-r from-stone-200 via-stone-300 to-stone-200 dark:from-stone-700 dark:via-stone-500 dark:to-stone-700"
                 style={{ backgroundSize: '200% 100%' }}
               />
             )}
           </div>
 
-          <form onSubmit={handleSubmit} className="flex items-end gap-3">
-            {/* Mic button — floating circle, detached from the main capsule */}
-            <button
-              type="button"
-              onClick={toggleMic}
-              disabled={isLoading}
-              className={`input-glass-orb flex-shrink-0 rounded-full p-3 transition-all duration-200 ${
-                micActive
-                  ? 'bg-white shadow-md dark:bg-[#2a2a2a]'
-                  : 'bg-white/80 hover:bg-white dark:bg-[#1e1e1e] dark:hover:bg-[#262626]'
-              } disabled:cursor-not-allowed disabled:opacity-50`}
-            >
-              <MicDodecahedron active={micActive} />
-            </button>
-
-            {/* Main input capsule */}
-            <div className="input-glass-capsule relative flex min-w-0 flex-1 items-end gap-2 rounded-[24px] bg-white/80 py-2 pl-5 pr-2 backdrop-blur-xl transition-all duration-200 dark:bg-[#1a1a1a]/90">
-              {/* Top rim highlight */}
-              <div className="pointer-events-none absolute inset-x-4 top-0 h-px bg-gradient-to-r from-transparent via-black/[0.06] to-transparent dark:via-white/[0.07]" />
+          {/* Input area */}
+          <form onSubmit={handleSubmit} className="relative">
+            <div className="flex items-end gap-0 rounded-xl bg-surface px-4 py-2 shadow-sm ring-1 ring-black/[0.04] dark:ring-white/[0.06]">
+              {/* Mic toggle - subtle, integrated */}
+              <button
+                type="button"
+                onClick={toggleMic}
+                disabled={isLoading}
+                className={`mr-3 flex-shrink-0 rounded-lg p-2 transition-colors ${
+                  micActive
+                    ? 'text-foreground'
+                    : 'text-muted/50 hover:text-muted'
+                } disabled:cursor-not-allowed disabled:opacity-50`}
+              >
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
+                </svg>
+              </button>
 
               {/* Text input */}
               <textarea
@@ -703,7 +687,7 @@ function HomePageInner() {
                 placeholder={micActive ? 'Listening...' : `Message ${activeName}...`}
                 disabled={isLoading}
                 rows={1}
-                className="w-full min-w-0 resize-none bg-transparent py-1.5 text-sm leading-relaxed text-stone-700 placeholder-stone-400 outline-none disabled:cursor-not-allowed disabled:opacity-50 dark:text-neutral-100 dark:placeholder-neutral-500"
+                className="w-full min-w-0 resize-none bg-transparent py-1.5 text-sm leading-relaxed text-foreground placeholder-muted/50 outline-none disabled:cursor-not-allowed disabled:opacity-50"
                 style={{ maxHeight: '200px' }}
               />
 
@@ -711,7 +695,7 @@ function HomePageInner() {
               <button
                 type="submit"
                 disabled={!input.trim() || isLoading}
-                className="flex-shrink-0 rounded-full bg-stone-900 p-2.5 text-white transition-all hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-20 dark:bg-white dark:text-black dark:hover:bg-neutral-200"
+                className="ml-2 flex-shrink-0 rounded-lg bg-foreground p-2 text-background transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-20"
               >
                 <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 10l7-7m0 0l7 7m-7-7v18" />
@@ -720,8 +704,8 @@ function HomePageInner() {
             </div>
           </form>
 
-          {/* Status line — floating below */}
-          <div className="mt-2 flex items-center justify-between px-16 text-[11px] text-stone-400 dark:text-neutral-500">
+          {/* Status line */}
+          <div className="mt-2 flex items-center justify-between px-4 text-xs text-muted/60">
             <div className="flex items-center gap-3">
               {micActive && (
                 <span className="flex items-center gap-1.5">
@@ -735,13 +719,13 @@ function HomePageInner() {
               {tts.isPlaying && <span>Speaking...</span>}
             </div>
             <span className="hidden sm:inline">
-              Enter to send · Shift+Enter for new line
+              Enter to send
             </span>
           </div>
 
           {/* Mic errors */}
           {microphone.status === 'blocked' && (
-            <p className="mt-2 text-center text-xs text-stone-500 dark:text-neutral-400">
+            <p className="mt-2 text-center text-xs text-muted">
               Microphone permission denied. Check browser settings.
             </p>
           )}
@@ -787,117 +771,6 @@ function HomePageInner() {
         }}
       />
 
-      <style jsx>{`
-        @keyframes shimmer {
-          0% { background-position: 200% 0; }
-          100% { background-position: -200% 0; }
-        }
-
-        .animate-shimmer {
-          animation: shimmer 2s linear infinite;
-        }
-
-        .input-glass-capsule {
-          box-shadow:
-            0 0 0 1px rgba(0,0,0,0.04),
-            0 2px 8px rgba(0,0,0,0.04),
-            0 8px 32px rgba(0,0,0,0.03),
-            inset 0 1px 0 rgba(255,255,255,0.6);
-        }
-
-        :global(.dark) .input-glass-capsule {
-          box-shadow:
-            0 0 0 1px rgba(255,255,255,0.08),
-            inset 0 1px 0 rgba(255,255,255,0.05),
-            inset 0 -1px 0 rgba(255,255,255,0.02),
-            0 2px 12px rgba(0,0,0,0.3),
-            0 8px 40px rgba(0,0,0,0.2);
-        }
-
-        .input-glass-orb {
-          box-shadow:
-            0 0 0 1px rgba(0,0,0,0.04),
-            0 2px 8px rgba(0,0,0,0.05),
-            inset 0 1px 0 rgba(255,255,255,0.5);
-        }
-
-        :global(.dark) .input-glass-orb {
-          box-shadow:
-            0 0 0 1px rgba(255,255,255,0.08),
-            inset 0 1px 0 rgba(255,255,255,0.06),
-            0 2px 12px rgba(0,0,0,0.3);
-        }
-
-        /* Conversation scroll area */
-        .conversation-scroll {
-          scrollbar-width: thin;
-          scrollbar-color: rgba(0,0,0,0.12) transparent;
-        }
-
-        :global(.dark) .conversation-scroll {
-          scrollbar-color: rgba(255,255,255,0.1) transparent;
-        }
-
-        .conversation-scroll::-webkit-scrollbar {
-          width: 4px;
-        }
-
-        .conversation-scroll::-webkit-scrollbar-track {
-          background: transparent;
-        }
-
-        .conversation-scroll::-webkit-scrollbar-thumb {
-          background: rgba(0,0,0,0.12);
-          border-radius: 4px;
-        }
-
-        .conversation-scroll::-webkit-scrollbar-thumb:hover {
-          background: rgba(0,0,0,0.2);
-        }
-
-        :global(.dark) .conversation-scroll::-webkit-scrollbar-thumb {
-          background: rgba(255,255,255,0.1);
-        }
-
-        :global(.dark) .conversation-scroll::-webkit-scrollbar-thumb:hover {
-          background: rgba(255,255,255,0.18);
-        }
-
-        /* Subtle scrollbar for textarea */
-        .input-glass-capsule textarea {
-          scrollbar-width: thin;
-          scrollbar-color: rgba(0,0,0,0.15) transparent;
-        }
-
-        :global(.dark) .input-glass-capsule textarea {
-          scrollbar-color: rgba(255,255,255,0.15) transparent;
-        }
-
-        .input-glass-capsule textarea::-webkit-scrollbar {
-          width: 4px;
-        }
-
-        .input-glass-capsule textarea::-webkit-scrollbar-track {
-          background: transparent;
-        }
-
-        .input-glass-capsule textarea::-webkit-scrollbar-thumb {
-          background: rgba(0,0,0,0.12);
-          border-radius: 4px;
-        }
-
-        .input-glass-capsule textarea::-webkit-scrollbar-thumb:hover {
-          background: rgba(0,0,0,0.2);
-        }
-
-        :global(.dark) .input-glass-capsule textarea::-webkit-scrollbar-thumb {
-          background: rgba(255,255,255,0.12);
-        }
-
-        :global(.dark) .input-glass-capsule textarea::-webkit-scrollbar-thumb:hover {
-          background: rgba(255,255,255,0.2);
-        }
-      `}</style>
     </div>
   );
 }
