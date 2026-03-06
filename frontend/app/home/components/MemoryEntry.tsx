@@ -123,7 +123,7 @@ export default function MemoryEntry({ entry, onUpdate, onDelete }: Props) {
               </span>
             )}
             {entry.longTerm.date && (
-              <span className="ml-2 inline-block rounded-full bg-stone-100 px-2 py-0.5 text-[10px] text-stone-400 dark:bg-stone-800 dark:text-stone-500">
+              <span className="ml-2 inline-block rounded-full bg-foreground/[0.04] px-2 py-0.5 text-xs text-muted">
                 {entry.longTerm.date}
               </span>
             )}

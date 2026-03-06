@@ -132,7 +132,7 @@ export default function ConversationsPanel({
                             {conversation.mentor_name}
                           </span>
                         </div>
-                        <span className="flex-shrink-0 text-[11px] text-stone-400 dark:text-stone-500">
+                        <span className="flex-shrink-0 text-xs text-muted">
                           {formatDate(conversation.updated_at)}
                         </span>
                       </div>
