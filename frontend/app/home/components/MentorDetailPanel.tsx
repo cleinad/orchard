@@ -224,7 +224,7 @@ export default function MentorDetailPanel({
       }`}
     >
       <div
-        className={`absolute inset-0 bg-black/20 backdrop-blur-sm transition-opacity duration-300 dark:bg-black/40 ${
+        className={`absolute inset-0 bg-black/10 transition-opacity duration-300 dark:bg-black/40 ${
           isOpen ? 'opacity-100' : 'opacity-0'
         }`}
         onClick={onClose}
@@ -235,13 +235,13 @@ export default function MentorDetailPanel({
           isOpen ? 'translate-x-0' : 'translate-x-full'
         }`}
       >
-        <div className="flex h-full flex-col border-l border-stone-200/50 bg-white/95 backdrop-blur-2xl dark:border-stone-800/50 dark:bg-[#111111]/95">
-          <div className="flex items-center justify-between border-b border-stone-100 px-5 py-4 dark:border-stone-800/50">
+        <div className="flex h-full flex-col border-l border-black/[0.06] bg-background shadow-xl dark:border-white/[0.06] dark:bg-[#131312]">
+          <div className="flex items-center justify-between border-b border-black/[0.06] px-5 py-4 dark:border-white/[0.06]">
             <div>
-              <h2 className="text-sm font-medium text-stone-800 dark:text-stone-100">
+              <h2 className="text-sm font-medium text-foreground">
                 {panelTitle}
               </h2>
-              <p className="mt-0.5 text-xs text-stone-400 dark:text-stone-500">
+              <p className="mt-0.5 text-xs text-muted">
                 {mentor?.is_builtin
                   ? 'Built-in mentor: behavior prompt is locked'
                   : 'Custom mentor: all fields editable'}
@@ -249,7 +249,7 @@ export default function MentorDetailPanel({
             </div>
             <button
               onClick={onClose}
-              className="rounded-lg p-1.5 text-stone-400 transition hover:bg-stone-100 hover:text-stone-600 dark:text-stone-500 dark:hover:bg-stone-800 dark:hover:text-stone-300"
+              className="rounded-lg p-1.5 text-muted transition hover:text-foreground"
               aria-label="Close"
             >
               <svg
@@ -267,10 +267,10 @@ export default function MentorDetailPanel({
           <div className="flex-1 overflow-y-auto px-5 py-4">
             {loading ? (
               <div className="flex items-center justify-center py-10">
-                <div className="h-5 w-5 animate-spin rounded-full border-2 border-stone-200 border-t-stone-500 dark:border-stone-700 dark:border-t-stone-400" />
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-muted/20 border-t-muted" />
               </div>
             ) : !mentor ? (
-              <p className="text-sm text-stone-500 dark:text-stone-400">
+              <p className="text-sm text-muted">
                 Select a mentor to customize.
               </p>
             ) : (
@@ -281,7 +281,7 @@ export default function MentorDetailPanel({
                       <input
                         value={name}
                         onChange={(event) => setName(event.target.value)}
-                        className="w-full rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm text-stone-900 outline-none focus:border-stone-400 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100 dark:focus:border-stone-600"
+                        className="w-full rounded-lg bg-surface px-3 py-2 text-sm text-foreground outline-none ring-1 ring-black/[0.06] focus:ring-black/[0.12] dark:ring-white/[0.06] dark:focus:ring-white/[0.12]"
                       />
                     </Field>
 
@@ -289,7 +289,7 @@ export default function MentorDetailPanel({
                       <input
                         value={tagline}
                         onChange={(event) => setTagline(event.target.value)}
-                        className="w-full rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm text-stone-900 outline-none focus:border-stone-400 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100 dark:focus:border-stone-600"
+                        className="w-full rounded-lg bg-surface px-3 py-2 text-sm text-foreground outline-none ring-1 ring-black/[0.06] focus:ring-black/[0.12] dark:ring-white/[0.06] dark:focus:ring-white/[0.12]"
                       />
                     </Field>
 
@@ -298,7 +298,7 @@ export default function MentorDetailPanel({
                         value={description}
                         onChange={(event) => setDescription(event.target.value)}
                         rows={4}
-                        className="w-full rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm text-stone-900 outline-none focus:border-stone-400 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100 dark:focus:border-stone-600"
+                        className="w-full rounded-lg bg-surface px-3 py-2 text-sm text-foreground outline-none ring-1 ring-black/[0.06] focus:ring-black/[0.12] dark:ring-white/[0.06] dark:focus:ring-white/[0.12]"
                       />
                     </Field>
                   </>
@@ -310,12 +310,12 @@ export default function MentorDetailPanel({
                       type="color"
                       value={accentColor || DEFAULT_ACCENT}
                       onChange={(event) => setAccentColor(event.target.value.toUpperCase())}
-                      className="h-10 w-14 cursor-pointer rounded-lg border border-stone-300 bg-white p-1 dark:border-stone-700 dark:bg-stone-900"
+                      className="h-10 w-14 cursor-pointer rounded-lg bg-surface p-1 ring-1 ring-black/[0.06] dark:ring-white/[0.06]"
                     />
                     <input
                       value={accentColor}
                       onChange={(event) => setAccentColor(event.target.value.toUpperCase())}
-                      className="w-full rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm text-stone-900 outline-none focus:border-stone-400 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100 dark:focus:border-stone-600"
+                      className="w-full rounded-lg bg-surface px-3 py-2 text-sm text-foreground outline-none ring-1 ring-black/[0.06] focus:ring-black/[0.12] dark:ring-white/[0.06] dark:focus:ring-white/[0.12]"
                     />
                   </div>
                 </Field>
@@ -330,7 +330,7 @@ export default function MentorDetailPanel({
                         className="h-20 w-20 rounded-xl object-cover"
                       />
                     ) : (
-                      <div className="flex h-20 w-20 items-center justify-center rounded-xl border border-dashed border-stone-300 text-xs text-stone-500 dark:border-stone-700 dark:text-stone-400">
+                      <div className="flex h-20 w-20 items-center justify-center rounded-xl border border-dashed border-muted/30 text-xs text-muted">
                         No avatar
                       </div>
                     )}
@@ -345,13 +345,13 @@ export default function MentorDetailPanel({
                         event.currentTarget.value = '';
                       }}
                       disabled={uploading}
-                      className="block w-full text-xs text-stone-500 file:mr-3 file:rounded-lg file:border-0 file:bg-stone-900 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white dark:text-stone-400 dark:file:bg-stone-100 dark:file:text-stone-900"
+                      className="block w-full text-xs text-muted file:mr-3 file:rounded-lg file:border-0 file:bg-foreground file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-background"
                     />
                     {avatarUrl && (
                       <button
                         type="button"
                         onClick={() => setAvatarUrl('')}
-                        className="text-xs text-stone-500 underline dark:text-stone-400"
+                        className="text-xs text-muted underline"
                       >
                         Remove avatar
                       </button>
@@ -365,7 +365,7 @@ export default function MentorDetailPanel({
                     onChange={(event) => setUserInstructions(event.target.value)}
                     rows={5}
                     placeholder="Preferences, boundaries, constraints..."
-                    className="w-full rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm text-stone-900 outline-none focus:border-stone-400 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100 dark:focus:border-stone-600"
+                    className="w-full rounded-lg bg-surface px-3 py-2 text-sm text-foreground outline-none ring-1 ring-black/[0.06] focus:ring-black/[0.12] dark:ring-white/[0.06] dark:focus:ring-white/[0.12]"
                   />
                 </Field>
 
@@ -389,14 +389,14 @@ export default function MentorDetailPanel({
             )}
           </div>
 
-          <div className="flex items-center justify-between border-t border-stone-100 px-5 py-3 dark:border-stone-800/50">
+          <div className="flex items-center justify-between border-t border-black/[0.06] px-5 py-3 dark:border-white/[0.06]">
             <div>
               {mentor && !mentor.is_builtin && (
                 <button
                   type="button"
                   onClick={handleDelete}
                   disabled={saving}
-                  className="rounded-lg px-3 py-2 text-xs font-semibold text-rose-600 transition hover:bg-rose-50 disabled:opacity-50 dark:text-rose-400 dark:hover:bg-rose-900/20"
+                  className="rounded-lg px-3 py-2 text-xs font-semibold text-rose-600 transition hover:bg-rose-50/50 disabled:opacity-50 dark:text-rose-400 dark:hover:bg-rose-900/20"
                 >
                   Delete Mentor
                 </button>
@@ -406,7 +406,7 @@ export default function MentorDetailPanel({
               type="button"
               onClick={handleSave}
               disabled={saving || loading || !mentor}
-              className="rounded-xl bg-stone-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-stone-800 disabled:opacity-50 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-stone-200"
+              className="rounded-lg bg-foreground px-4 py-2 text-sm font-semibold text-background transition hover:opacity-80 disabled:opacity-50"
             >
               {uploading ? 'Uploading...' : saving ? 'Saving...' : 'Save'}
             </button>
@@ -420,7 +420,7 @@ export default function MentorDetailPanel({
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block">
-      <span className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-stone-500 dark:text-stone-400">
+      <span className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-muted">
         {label}
       </span>
       {children}

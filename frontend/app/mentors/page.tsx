@@ -55,32 +55,24 @@ export default function MentorsPage() {
   };
 
   return (
-    <div className="relative min-h-screen bg-[#faf9f6] text-stone-900 dark:bg-[#0c0c0b] dark:text-stone-100">
+    <div className="relative min-h-screen bg-background text-foreground">
       <HomeBackground />
-
-      {/* Grain texture */}
-      <div
-        className="pointer-events-none fixed inset-0 opacity-[0.012] dark:opacity-[0.025]"
-        style={{
-          backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E")`,
-        }}
-      />
 
       <div className="relative mx-auto max-w-5xl px-4 sm:px-6">
         {/* Header */}
-        <header className="flex items-center justify-between py-6">
+        <header className="flex h-16 items-center justify-between">
           <div className="flex items-center gap-3">
             <button
               type="button"
               onClick={() => router.push('/home')}
               aria-label="Back to chat"
-              className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-stone-400 transition hover:text-stone-600 dark:text-stone-500 dark:hover:text-stone-300"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-muted transition hover:text-foreground"
             >
               <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
               </svg>
             </button>
-            <h1 className="font-heading text-2xl text-stone-800 dark:text-stone-100">
+            <h1 className="font-heading text-2xl text-foreground">
               Mentors
             </h1>
           </div>
@@ -90,10 +82,10 @@ export default function MentorsPage() {
         {/* Content */}
         {loading ? (
           <div className="flex items-center justify-center py-32">
-            <div className="h-6 w-6 animate-spin rounded-full border-2 border-stone-200 border-t-stone-500 dark:border-stone-700 dark:border-t-stone-400" />
+            <div className="h-6 w-6 animate-spin rounded-full border-2 border-muted/20 border-t-muted" />
           </div>
         ) : error ? (
-          <div className="py-16 text-center text-sm text-stone-500 dark:text-stone-400">
+          <div className="py-16 text-center text-sm text-muted">
             {error}
           </div>
         ) : (
@@ -105,11 +97,11 @@ export default function MentorsPage() {
                   key={mentor.id}
                   type="button"
                   onClick={() => router.push(`/home?mentor=${mentor.slug}`)}
-                  className="mentor-card group relative rounded-2xl border border-stone-200/60 bg-white/70 p-5 text-left backdrop-blur-sm transition-all duration-200 hover:border-stone-300/80 hover:bg-white/90 hover:shadow-lg dark:border-stone-800/50 dark:bg-[#161615]/70 dark:hover:border-stone-700/60 dark:hover:bg-[#1a1a19]/90"
+                  className="group relative rounded-xl bg-surface p-5 text-left shadow-sm ring-1 ring-black/[0.04] transition-all duration-200 hover:shadow-md hover:ring-black/[0.06] dark:ring-white/[0.06] dark:hover:ring-white/[0.08]"
                 >
                   {/* Accent bar */}
                   <div
-                    className="absolute left-5 right-5 top-0 h-px"
+                    className="absolute left-5 right-5 top-0 h-0.5"
                     style={{ backgroundColor: accentTint(accent, 0.3) }}
                   />
 
@@ -124,7 +116,7 @@ export default function MentorsPage() {
                       />
                     ) : (
                       <div
-                        className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full text-[11px] font-medium"
+                        className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full text-xs font-medium"
                         style={{
                           backgroundColor: accentTint(accent, 0.1),
                           color: accent,
@@ -136,7 +128,7 @@ export default function MentorsPage() {
 
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
-                        <span className="truncate font-heading text-[15px] text-stone-800 dark:text-stone-100">
+                        <span className="truncate font-heading text-base text-foreground">
                           {mentor.name}
                         </span>
                         {mentor.conversation_id && (
@@ -146,14 +138,14 @@ export default function MentorsPage() {
                           />
                         )}
                       </div>
-                      <p className="mt-0.5 truncate text-[12px] text-stone-500 dark:text-stone-400">
+                      <p className="mt-0.5 truncate text-xs text-muted">
                         {mentor.tagline}
                       </p>
                     </div>
                   </div>
 
                   {mentor.description && (
-                    <p className="mt-3 line-clamp-2 text-[12px] leading-relaxed text-stone-400 dark:text-stone-500">
+                    <p className="mt-3 line-clamp-2 text-xs leading-relaxed text-muted/70">
                       {mentor.description}
                     </p>
                   )}
@@ -177,7 +169,7 @@ export default function MentorsPage() {
                     }}
                     aria-label={`Customize ${mentor.name}`}
                   >
-                    <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-stone-300 transition-colors hover:bg-stone-100 hover:text-stone-500 dark:text-stone-600 dark:hover:bg-stone-800 dark:hover:text-stone-400">
+                    <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-muted/40 transition-colors hover:bg-foreground/[0.04] hover:text-muted dark:hover:bg-foreground/[0.06]">
                       <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
                         <circle cx="12" cy="12" r="1" />
                         <circle cx="12" cy="5" r="1" />
@@ -193,11 +185,11 @@ export default function MentorsPage() {
             <button
               type="button"
               onClick={() => setCreateOpen(true)}
-              className="group flex flex-col items-center justify-center rounded-2xl border border-dashed border-stone-300/60 bg-transparent p-8 text-center transition-all duration-200 hover:border-stone-400/70 hover:bg-white/40 dark:border-stone-700/50 dark:hover:border-stone-600/60 dark:hover:bg-[#161615]/40"
+              className="group flex flex-col items-center justify-center rounded-xl border border-dashed border-muted/30 p-8 text-center transition-colors hover:border-muted/50 hover:bg-surface/50"
             >
-              <div className="flex h-11 w-11 items-center justify-center rounded-full bg-stone-100 transition-colors group-hover:bg-stone-200 dark:bg-stone-800 dark:group-hover:bg-stone-700">
+              <div className="flex h-11 w-11 items-center justify-center rounded-full bg-foreground/[0.04] transition-colors group-hover:bg-foreground/[0.08]">
                 <svg
-                  className="h-5 w-5 text-stone-400 dark:text-stone-500"
+                  className="h-5 w-5 text-muted"
                   fill="none"
                   stroke="currentColor"
                   strokeWidth="1.5"
@@ -206,7 +198,7 @@ export default function MentorsPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
                 </svg>
               </div>
-              <span className="mt-3 text-[13px] font-medium text-stone-400 transition-colors group-hover:text-stone-600 dark:text-stone-500 dark:group-hover:text-stone-300">
+              <span className="mt-3 text-sm font-medium text-muted transition-colors group-hover:text-foreground">
                 Create Mentor
               </span>
             </button>
@@ -229,33 +221,6 @@ export default function MentorsPage() {
         }}
       />
 
-      <style jsx>{`
-        .mentor-card {
-          box-shadow:
-            0 0 0 1px rgba(0, 0, 0, 0.03),
-            0 1px 4px rgba(0, 0, 0, 0.02);
-        }
-
-        .mentor-card:hover {
-          box-shadow:
-            0 0 0 1px rgba(0, 0, 0, 0.05),
-            0 4px 16px rgba(0, 0, 0, 0.06),
-            0 8px 32px rgba(0, 0, 0, 0.03);
-        }
-
-        :global(.dark) .mentor-card {
-          box-shadow:
-            0 0 0 1px rgba(255, 255, 255, 0.04),
-            0 1px 4px rgba(0, 0, 0, 0.1);
-        }
-
-        :global(.dark) .mentor-card:hover {
-          box-shadow:
-            0 0 0 1px rgba(255, 255, 255, 0.06),
-            0 4px 16px rgba(0, 0, 0, 0.2),
-            0 8px 32px rgba(0, 0, 0, 0.15);
-        }
-      `}</style>
     </div>
   );
 }
