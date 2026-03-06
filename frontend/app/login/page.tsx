@@ -20,7 +20,6 @@ export default function LoginPage() {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (session) {
-          // User is already logged in, redirect to home
           router.push('/home');
           router.refresh();
         }
@@ -42,7 +41,6 @@ export default function LoginPage() {
 
     try {
       if (isSignUp) {
-        // Sign up new user
         const { data, error: signUpError } = await supabase.auth.signUp({
           email,
           password,
@@ -54,7 +52,6 @@ export default function LoginPage() {
           setMessage('Account created! Please check your email to verify your account.');
         }
       } else {
-        // Sign in existing user
         const { data, error: signInError } = await supabase.auth.signInWithPassword({
           email,
           password,
@@ -63,7 +60,6 @@ export default function LoginPage() {
         if (signInError) throw signInError;
 
         if (data.user) {
-          // Redirect to home page on successful login
           router.push('/home');
           router.refresh();
         }
@@ -78,32 +74,32 @@ export default function LoginPage() {
   // Show loading state while checking authentication
   if (checkingAuth) {
     return (
-      <div className="relative min-h-screen overflow-hidden bg-[#faf9f6] text-stone-950 dark:bg-[#0c0c0b] dark:text-stone-100">
+      <div className="relative min-h-screen overflow-hidden bg-background text-foreground">
         <div className="pointer-events-none absolute inset-0">
-          <div className="absolute -left-32 top-[-140px] h-72 w-72 rounded-full bg-rose-200/30 blur-3xl dark:bg-stone-800/15" />
-          <div className="absolute bottom-[-160px] right-[-120px] h-80 w-80 rounded-full bg-stone-200/40 blur-3xl dark:bg-stone-800/20" />
+          <div className="absolute -left-32 top-[-140px] h-72 w-72 rounded-full bg-stone-200/20 blur-3xl dark:bg-stone-800/15" />
+          <div className="absolute bottom-[-160px] right-[-120px] h-80 w-80 rounded-full bg-stone-200/20 blur-3xl dark:bg-stone-800/20" />
         </div>
         <main className="relative mx-auto flex min-h-screen w-full max-w-md flex-col items-center justify-center px-6 py-8">
-          <div className="text-sm text-stone-600 dark:text-stone-400">Loading...</div>
+          <div className="text-sm text-muted">Loading...</div>
         </main>
       </div>
     );
   }
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[#faf9f6] text-stone-950 dark:bg-[#0c0c0b] dark:text-stone-100">
+    <div className="relative min-h-screen overflow-hidden bg-background text-foreground">
       <div className="pointer-events-none absolute inset-0">
-        <div className="absolute -left-32 top-[-140px] h-72 w-72 rounded-full bg-rose-200/30 blur-3xl dark:bg-stone-800/15" />
-        <div className="absolute bottom-[-160px] right-[-120px] h-80 w-80 rounded-full bg-stone-200/40 blur-3xl dark:bg-stone-800/20" />
+        <div className="absolute -left-32 top-[-140px] h-72 w-72 rounded-full bg-stone-200/20 blur-3xl dark:bg-stone-800/15" />
+        <div className="absolute bottom-[-160px] right-[-120px] h-80 w-80 rounded-full bg-stone-200/20 blur-3xl dark:bg-stone-800/20" />
       </div>
 
       <main className="relative mx-auto flex min-h-screen w-full max-w-md flex-col items-center justify-center px-6 py-8">
-        <div className="w-full rounded-2xl border border-stone-200/70 bg-white/80 p-8 shadow-sm dark:border-stone-800 dark:bg-stone-950/70">
+        <div className="w-full rounded-xl bg-surface p-8 shadow-sm ring-1 ring-black/[0.04] dark:ring-white/[0.06]">
           <div className="mb-8 text-center">
-            <h1 className="font-heading text-3xl font-semibold text-stone-950 dark:text-white">
+            <h1 className="font-heading text-3xl text-foreground">
               {isSignUp ? 'Create Account' : 'Welcome Back'}
             </h1>
-            <p className="mt-2 text-sm text-stone-600 dark:text-stone-400">
+            <p className="mt-2 text-sm text-muted">
               {isSignUp
                 ? 'Sign up to start using Novus'
                 : 'Sign in to your Novus account'}
@@ -115,7 +111,7 @@ export default function LoginPage() {
             <div>
               <label
                 htmlFor="email"
-                className="block text-sm font-medium text-stone-700 dark:text-stone-300"
+                className="block text-xs font-medium uppercase tracking-wider text-muted"
               >
                 Email
               </label>
@@ -125,7 +121,7 @@ export default function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-                className="mt-1.5 w-full rounded-xl border border-stone-300 bg-white px-4 py-2.5 text-sm text-stone-900 placeholder-stone-400 shadow-sm transition focus:border-stone-400 focus:outline-none focus:ring-2 focus:ring-stone-400/20 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100 dark:placeholder-stone-500 dark:focus:border-stone-600"
+                className="mt-1.5 w-full rounded-lg bg-background px-4 py-2.5 text-sm text-foreground placeholder-muted/50 outline-none ring-1 ring-black/[0.06] transition focus:ring-black/[0.12] dark:ring-white/[0.06] dark:focus:ring-white/[0.12]"
                 placeholder="you@example.com"
                 disabled={loading}
               />
@@ -135,7 +131,7 @@ export default function LoginPage() {
             <div>
               <label
                 htmlFor="password"
-                className="block text-sm font-medium text-stone-700 dark:text-stone-300"
+                className="block text-xs font-medium uppercase tracking-wider text-muted"
               >
                 Password
               </label>
@@ -146,7 +142,7 @@ export default function LoginPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 required
                 minLength={6}
-                className="mt-1.5 w-full rounded-xl border border-stone-300 bg-white px-4 py-2.5 text-sm text-stone-900 placeholder-stone-400 shadow-sm transition focus:border-stone-400 focus:outline-none focus:ring-2 focus:ring-stone-400/20 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100 dark:placeholder-stone-500 dark:focus:border-stone-600"
+                className="mt-1.5 w-full rounded-lg bg-background px-4 py-2.5 text-sm text-foreground placeholder-muted/50 outline-none ring-1 ring-black/[0.06] transition focus:ring-black/[0.12] dark:ring-white/[0.06] dark:focus:ring-white/[0.12]"
                 placeholder="••••••••"
                 disabled={loading}
               />
@@ -154,7 +150,7 @@ export default function LoginPage() {
 
             {/* Error message */}
             {error && (
-              <div className="rounded-lg bg-red-50 p-3 text-sm text-red-600 dark:bg-red-900/20 dark:text-red-400">
+              <div className="rounded-lg bg-rose-50 p-3 text-sm text-rose-600 dark:bg-rose-900/20 dark:text-rose-400">
                 {error}
               </div>
             )}
@@ -170,14 +166,14 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full rounded-xl bg-stone-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-stone-800 dark:text-stone-100 dark:hover:bg-stone-700"
+              className="w-full rounded-lg bg-foreground px-4 py-2.5 text-sm font-semibold text-background transition hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {loading ? 'Please wait...' : isSignUp ? 'Create Account' : 'Sign In'}
             </button>
           </form>
 
           {/* Toggle between sign in and sign up */}
-          <div className="mt-6 text-center text-sm text-stone-600 dark:text-stone-400">
+          <div className="mt-6 text-center text-sm text-muted">
             {isSignUp ? (
               <>
                 Already have an account?{' '}
@@ -187,21 +183,21 @@ export default function LoginPage() {
                     setError(null);
                     setMessage(null);
                   }}
-                  className="font-semibold text-stone-900 hover:underline dark:text-stone-100"
+                  className="font-semibold text-foreground hover:underline"
                 >
                   Sign in
                 </button>
               </>
             ) : (
               <>
-                Don't have an account?{' '}
+                Don&apos;t have an account?{' '}
                 <button
                   onClick={() => {
                     setIsSignUp(true);
                     setError(null);
                     setMessage(null);
                   }}
-                  className="font-semibold text-stone-900 hover:underline dark:text-stone-100"
+                  className="font-semibold text-foreground hover:underline"
                 >
                   Sign up
                 </button>
