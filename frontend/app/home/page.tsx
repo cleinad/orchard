@@ -517,55 +517,45 @@ function HomePageInner() {
   const activeAccent = activeMentor?.accent_color || '#64748B';
 
   return (
-    <div className="relative h-screen overflow-hidden bg-[#faf9f6] text-stone-900 dark:bg-[#0c0c0b] dark:text-stone-100">
+    <div className="relative h-screen overflow-hidden bg-background text-foreground">
       <HomeBackground />
 
-      {/* Subtle grain texture */}
-      <div
-        className="pointer-events-none fixed inset-0 opacity-[0.012] dark:opacity-[0.025]"
-        style={{
-          backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E")`,
-        }}
-      />
-
-      <main className="relative mx-auto flex h-screen w-full max-w-3xl flex-col px-4 sm:px-6">
+      <main className="relative mx-auto flex h-screen w-full max-w-2xl flex-col px-6">
         {/* Header */}
-        <header className="flex items-center justify-between py-6">
+        <header className="flex h-16 items-center justify-between">
           <div className="flex min-w-0 items-center gap-3">
-            {/* Hamburger — opens side panel */}
             <button
               type="button"
               onClick={() => setSidePanelOpen(true)}
               aria-label="Open conversations"
-              className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-stone-400 transition hover:text-stone-600 dark:text-stone-500 dark:hover:text-stone-300"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-muted transition hover:text-foreground"
             >
               <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5M3.75 17.25h16.5" />
               </svg>
             </button>
             <div className="min-w-0">
-              <p className="text-[11px] font-medium uppercase tracking-widest text-stone-400 dark:text-stone-500">
+              <p className="text-xs font-medium uppercase tracking-widest text-muted">
                 Talking With
               </p>
-              <div className="mt-0.5 flex items-center gap-2">
+              <div className="mt-1 flex items-center gap-2">
                 <span
                   className="h-2 w-2 rounded-full"
                   style={{ backgroundColor: activeAccent }}
                 />
-                <span className="truncate font-heading text-lg text-stone-800 dark:text-stone-100">
+                <span className="truncate font-heading text-xl text-foreground">
                   {activeName}
                 </span>
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-1.5">
-            {/* Grid icon — navigate to /mentors */}
+          <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => router.push('/mentors')}
               aria-label="Browse mentors"
               title="Browse mentors"
-              className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-stone-400 transition hover:text-stone-600 dark:text-stone-500 dark:hover:text-stone-300"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-muted transition hover:text-foreground"
             >
               <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
@@ -576,7 +566,7 @@ function HomePageInner() {
         </header>
 
         {(loadingLists || listError) && (
-          <div className="mb-3 rounded-xl border border-stone-200/70 bg-white/70 px-3 py-2 text-xs text-stone-500 dark:border-stone-800 dark:bg-stone-900/70 dark:text-stone-400">
+          <div className="mb-4 rounded-lg bg-surface px-4 py-2 text-xs text-muted shadow-sm">
             {loadingLists ? 'Loading chats and mentors...' : listError}
           </div>
         )}
