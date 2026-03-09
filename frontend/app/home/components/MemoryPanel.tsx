@@ -1,0 +1,203 @@
+'use client';
+
+import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useMemory } from './useMemory';
+import MemoryEntryComponent from './MemoryEntry';
+
+type ScopeFilter = 'all' | 'global' | 'mentor';
+type StabilityFilter = 'all' | 'stable' | 'episodic';
+
+interface Props {
+  isOpen: boolean;
+  onClose: () => void;
+}
+
+export default function MemoryPanel({ isOpen, onClose }: Props) {
+  const [scopeFilter, setScopeFilter] = useState<ScopeFilter>('all');
+  const [stabilityFilter, setStabilityFilter] = useState<StabilityFilter>('all');
+  const [typeFilter, setTypeFilter] = useState<string>('all');
+
+  const { entries, loading, load, updateEntry, deleteEntry } = useMemory();
+
+  useEffect(() => {
+    if (isOpen) {
+      void load({ scope: 'all', status: 'active' });
+    }
+  }, [isOpen, load]);
+
+  const handleEscape = useCallback(
+    (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    },
+    [onClose]
+  );
+
+  useEffect(() => {
+    if (isOpen) {
+      document.addEventListener('keydown', handleEscape);
+      return () => document.removeEventListener('keydown', handleEscape);
+    }
+  }, [isOpen, handleEscape]);
+
+  const availableTypes = useMemo(() => {
+    return Array.from(new Set(entries.map((entry) => entry.type))).sort((a, b) =>
+      a.localeCompare(b)
+    );
+  }, [entries]);
+
+  const filtered = useMemo(() => {
+    return entries.filter((entry) => {
+      if (scopeFilter !== 'all' && entry.owner_type !== scopeFilter) return false;
+      if (stabilityFilter !== 'all' && entry.stability !== stabilityFilter) return false;
+      if (typeFilter !== 'all' && entry.type !== typeFilter) return false;
+      return true;
+    });
+  }, [entries, scopeFilter, stabilityFilter, typeFilter]);
+
+  const hasEntries = filtered.length > 0;
+
+  return (
+    <div
+      className={`fixed inset-0 z-50 transition-all duration-300 ${
+        isOpen ? 'pointer-events-auto' : 'pointer-events-none'
+      }`}
+    >
+      <div
+        className={`absolute inset-0 bg-black/20 backdrop-blur-sm transition-opacity duration-300 dark:bg-black/40 ${
+          isOpen ? 'opacity-100' : 'opacity-0'
+        }`}
+        onClick={onClose}
+      />
+
+      <div
+        className={`absolute right-0 top-0 h-full w-[420px] max-w-[90vw] transform transition-transform duration-300 ease-out ${
+          isOpen ? 'translate-x-0' : 'translate-x-full'
+        }`}
+      >
+        <div className="flex h-full flex-col border-l border-stone-200/50 bg-white/90 backdrop-blur-2xl dark:border-stone-800/50 dark:bg-[#111111]/95">
+          <div className="flex items-center justify-between border-b border-stone-100 px-5 py-4 dark:border-stone-800/50">
+            <div>
+              <h2 className="text-sm font-medium text-stone-800 dark:text-stone-100">
+                Memory
+              </h2>
+              <p className="mt-0.5 text-xs text-stone-400 dark:text-stone-500">
+                Item-based memory view
+              </p>
+            </div>
+            <button
+              onClick={onClose}
+              className="rounded-lg p-1.5 text-stone-400 transition hover:bg-stone-100 hover:text-stone-600 dark:text-stone-500 dark:hover:bg-stone-800 dark:hover:text-stone-300"
+              aria-label="Close"
+            >
+              <svg
+                className="h-4 w-4"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          <div className="border-b border-stone-100 px-4 py-3 dark:border-stone-800/50">
+            <div className="mb-2 flex flex-wrap gap-1">
+              <FilterChip
+                active={scopeFilter === 'all'}
+                label="All"
+                onClick={() => setScopeFilter('all')}
+              />
+              <FilterChip
+                active={scopeFilter === 'global'}
+                label="Global"
+                onClick={() => setScopeFilter('global')}
+              />
+              <FilterChip
+                active={scopeFilter === 'mentor'}
+                label="Mentor"
+                onClick={() => setScopeFilter('mentor')}
+              />
+              <FilterChip
+                active={stabilityFilter === 'stable'}
+                label="Stable"
+                onClick={() =>
+                  setStabilityFilter(stabilityFilter === 'stable' ? 'all' : 'stable')
+                }
+              />
+              <FilterChip
+                active={stabilityFilter === 'episodic'}
+                label="Episodic"
+                onClick={() =>
+                  setStabilityFilter(stabilityFilter === 'episodic' ? 'all' : 'episodic')
+                }
+              />
+            </div>
+
+            <select
+              value={typeFilter}
+              onChange={(event) => setTypeFilter(event.target.value)}
+              className="w-full rounded-md border border-stone-200 bg-white px-2 py-1 text-xs text-stone-600 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-300"
+            >
+              <option value="all">All Types</option>
+              {availableTypes.map((type) => (
+                <option key={type} value={type}>
+                  {type}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex-1 overflow-y-auto">
+            {loading ? (
+              <div className="flex items-center justify-center py-16">
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-stone-200 border-t-stone-500 dark:border-stone-700 dark:border-t-stone-400" />
+              </div>
+            ) : !hasEntries ? (
+              <div className="flex flex-col items-center justify-center px-8 py-16 text-center">
+                <p className="text-sm text-stone-500 dark:text-stone-400">
+                  No memories match the current filters.
+                </p>
+              </div>
+            ) : (
+              <div className="pb-8">
+                {filtered.map((entry) => (
+                  <MemoryEntryComponent
+                    key={entry.id}
+                    entry={entry}
+                    onUpdate={updateEntry}
+                    onDelete={deleteEntry}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FilterChip({
+  active,
+  label,
+  onClick,
+}: {
+  active: boolean;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wide transition ${
+        active
+          ? 'bg-stone-800 text-white dark:bg-stone-200 dark:text-stone-900'
+          : 'bg-stone-100 text-stone-500 hover:bg-stone-200 dark:bg-stone-800 dark:text-stone-400 dark:hover:bg-stone-700'
+      }`}
+    >
+      {label}
+    </button>
+  );
+}

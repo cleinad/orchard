@@ -2,8 +2,8 @@
 
 import { Suspense, useState, useCallback, useRef, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import ThemeToggle from '@/app/components/ThemeToggle';
 import HomeBackground from '@/app/home/components/HomeBackground';
+import HomeHeader from '@/app/home/components/HomeHeader';
 import { useTTS } from '@/app/home/components/useTTS';
 import { useMicrophone } from '@/app/home/components/useMicrophone';
 import { useAudioVisualization } from '@/app/home/components/useAudioVisualization';
@@ -491,126 +491,94 @@ function HomePageInner() {
 
   const hasTranscript = transcription.finalTranscript.length > 0 || transcription.interimTranscript.length > 0;
   const activeName = activeMentor?.name || 'Novus';
-  const activeAccent = activeMentor?.accent_color || '#64748B';
 
   return (
     <div className="relative h-screen overflow-hidden bg-background text-foreground">
       <HomeBackground />
 
-      <main className="relative mx-auto flex h-screen w-full max-w-2xl flex-col px-6">
-        {/* Header */}
-        <header className="flex h-16 items-center justify-between">
-          <div className="flex min-w-0 items-center gap-3">
-            <button
-              type="button"
-              onClick={() => setSidePanelOpen(true)}
-              aria-label="Open conversations"
-              className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-muted transition hover:text-foreground"
-            >
-              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5M3.75 17.25h16.5" />
-              </svg>
-            </button>
-            <div className="min-w-0">
-              <p className="text-xs font-medium uppercase tracking-widest text-muted">
-                Talking With
-              </p>
-              <div className="mt-1 flex items-center gap-2">
-                <span
-                  className="h-2 w-2 rounded-full"
-                  style={{ backgroundColor: activeAccent }}
-                />
-                <span className="truncate font-heading text-xl text-foreground">
-                  {activeName}
-                </span>
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => router.push('/mentors')}
-              aria-label="Browse mentors"
-              title="Browse mentors"
-              className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-muted transition hover:text-foreground"
-            >
-              <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
-              </svg>
-            </button>
-            <ThemeToggle />
-          </div>
-        </header>
-
-        {(loadingLists || listError) && (
-          <div className="mb-4 rounded-lg bg-surface px-4 py-2 text-xs text-muted shadow-sm">
-            {loadingLists ? 'Loading chats and mentors...' : listError}
-          </div>
-        )}
-
-        {/* Conversation area */}
-        <div
-          ref={containerRef}
-          onScroll={handleScroll}
-          className="flex-1 overflow-y-auto pb-4 pr-2"
-          style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(0,0,0,0.08) transparent' }}
-        >
-          {messages.length === 0 ? (
-            <div className="flex h-full min-h-[50vh] flex-col items-center justify-center px-4">
-              <div className="text-center">
-                <h1 className="font-heading text-3xl text-foreground sm:text-4xl">
-                  {activeMentor ? `Talk to ${activeMentor.name}` : "What's on your mind?"}
-                </h1>
-                <p className="mt-4 max-w-md text-sm leading-relaxed text-muted">
-                  {activeMentor
-                    ? activeMentor.tagline
-                    : "Speak or type. I'm listening."}
-                </p>
-              </div>
-            </div>
-          ) : (
-            <div className="py-8">
-              {messages.map((message) => (
-                <div key={message.id} className="py-4">
-                  <div className="flex items-baseline justify-between">
-                    <span className="text-xs font-medium uppercase tracking-wider text-muted">
-                      {message.role === 'user' ? 'You' : activeName}
-                    </span>
-                    <span className="text-xs text-muted/60">
-                      {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                  </div>
-                  <div className="mt-2 text-base leading-relaxed text-foreground [&_p]:mb-4 [&_p:last-child]:mb-0 [&_ul]:mb-4 [&_ul]:ml-5 [&_ul]:list-disc [&_ol]:mb-4 [&_ol]:ml-5 [&_ol]:list-decimal [&_li]:mb-1 [&_code]:rounded [&_code]:bg-stone-100 [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:text-sm [&_code]:text-stone-700 dark:[&_code]:bg-stone-800 dark:[&_code]:text-stone-300 [&_pre]:my-4 [&_pre]:rounded-lg [&_pre]:bg-stone-100 [&_pre]:p-4 dark:[&_pre]:bg-stone-800">
-                    <ReactMarkdown>{message.content}</ReactMarkdown>
-                  </div>
-                </div>
-              ))}
-
-              {/* Loading indicator */}
-              {isLoading && (
-                <div className="py-4">
-                  <span className="text-xs font-medium uppercase tracking-wider text-muted">
-                    {activeName}
-                  </span>
-                  <div className="mt-2 flex items-center gap-1.5">
-                    <span className="h-2 w-2 animate-bounce rounded-full bg-muted/40" style={{ animationDelay: '0ms' }} />
-                    <span className="h-2 w-2 animate-bounce rounded-full bg-muted/40" style={{ animationDelay: '150ms' }} />
-                    <span className="h-2 w-2 animate-bounce rounded-full bg-muted/40" style={{ animationDelay: '300ms' }} />
-                  </div>
-                </div>
-              )}
-
-              <div ref={messagesEndRef} />
-            </div>
-          )}
+      <main
+        className={`relative flex h-screen flex-col transition-[padding] duration-300 ease-out ${
+          // Desktop: when the left sidebar is open, push the chat area right (ChatGPT-style).
+          sidePanelOpen ? 'lg:pl-[380px]' : ''
+        }`}
+      >
+        {/* Full-width header: stretches left/right on desktop while content stays constrained below. */}
+        <div className="w-full px-6">
+          <HomeHeader
+            activeName={activeName}
+            onOpenSidePanel={() => setSidePanelOpen(true)}
+            onBrowseMentors={() => router.push('/mentors')}
+          />
         </div>
 
-        {/* Input area */}
-        <div className="sticky bottom-0 pb-6 pt-2">
+        {/* Constrained content: keeps the chat UI at max width. */}
+        <div className="relative mx-auto flex w-full max-w-2xl flex-1 flex-col px-6">
+
+          {(loadingLists || listError) && (
+            <div className="mb-4 rounded-lg bg-surface px-4 py-2 text-xs text-muted shadow-sm">
+              {loadingLists ? 'Loading chats and mentors...' : listError}
+            </div>
+          )}
+
+          {/* Conversation area */}
+          <div
+            ref={containerRef}
+            onScroll={handleScroll}
+            className="flex-1 overflow-y-auto pb-4 pr-2"
+            style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(0,0,0,0.08) transparent' }}
+          >
+            {messages.length === 0 ? (
+              <div className="flex h-full min-h-[50vh] flex-col items-center justify-center px-4">
+                <div className="text-center">
+                  <h1 className="font-heading text-3xl text-foreground sm:text-4xl">
+                    {activeMentor ? `Talk to ${activeMentor.name}` : "What's on your mind?"}
+                  </h1>
+                  <p className="mt-4 max-w-md text-md font-medium leading-relaxed text-muted">
+                    {activeMentor ? activeMentor.tagline : "I'm Listening"}
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="py-8">
+                {messages.map((message) => (
+                  <div key={message.id} className="py-4">
+                    <div className="flex items-baseline justify-between">
+                      <span className="text-xs font-medium tracking-wider text-muted">
+                        {message.role === 'user' ? 'You' : activeName}
+                      </span>
+                      <span className="text-xs text-muted/60">
+                        {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    </div>
+                    <div className="mt-2 text-base leading-relaxed text-foreground [&_p]:mb-4 [&_p:last-child]:mb-0 [&_ul]:mb-4 [&_ul]:ml-5 [&_ul]:list-disc [&_ol]:mb-4 [&_ol]:ml-5 [&_ol]:list-decimal [&_li]:mb-1 [&_code]:rounded [&_code]:bg-stone-100 [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:text-sm [&_code]:text-stone-700 dark:[&_code]:bg-stone-800 dark:[&_code]:text-stone-300 [&_pre]:my-4 [&_pre]:rounded-lg [&_pre]:bg-stone-100 [&_pre]:p-4 dark:[&_pre]:bg-stone-800">
+                      <ReactMarkdown>{message.content}</ReactMarkdown>
+                    </div>
+                  </div>
+                ))}
+
+                {/* Loading indicator */}
+                {isLoading && (
+                  <div className="py-4">
+                    <span className="text-xs font-medium tracking-wider text-muted">{activeName}</span>
+                    <div className="mt-2 flex items-center gap-1.5">
+                      <span className="h-2 w-2 animate-bounce rounded-full bg-muted/40" style={{ animationDelay: '0ms' }} />
+                      <span className="h-2 w-2 animate-bounce rounded-full bg-muted/40" style={{ animationDelay: '150ms' }} />
+                      <span className="h-2 w-2 animate-bounce rounded-full bg-muted/40" style={{ animationDelay: '300ms' }} />
+                    </div>
+                  </div>
+                )}
+
+                <div ref={messagesEndRef} />
+              </div>
+            )}
+          </div>
+
+          {/* Input area */}
+          <div className="sticky bottom-0 pb-6 pt-2">
           {/* Live transcript preview */}
           {hasTranscript && !isLoading && (
             <div className="mb-3 rounded-lg bg-surface px-4 py-2 text-sm text-muted shadow-sm">
-              <span className="text-xs font-medium uppercase tracking-wider text-muted/60">Listening</span>
+              <span className="text-xs font-medium tracking-wider text-muted/60">Listening</span>
               <p className="mt-1">
                 {transcription.finalTranscript}
                 {transcription.interimTranscript && (
@@ -732,6 +700,7 @@ function HomePageInner() {
           {microphone.status === 'error' && microphone.errorMessage && (
             <p className="mt-2 text-center text-xs text-rose-500">{microphone.errorMessage}</p>
           )}
+          </div>
         </div>
       </main>
 
