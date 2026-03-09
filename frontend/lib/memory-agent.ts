@@ -1,175 +1,367 @@
-import { generateText, tool, stepCountIs } from 'ai';
+import { generateObject } from 'ai';
 import { z } from 'zod';
-import { createSupabaseServiceClient } from './supabase-service';
-import { MEMORY_CATEGORIES, dailyFilePath } from './memory-types';
 import { MEMORY_MODEL } from './models';
+import {
+  clampConfidence,
+  clampSalience,
+  jaccardSimilarity,
+  normalizeMemoryText,
+  type MemoryItem,
+  type MemoryOwnerType,
+} from './memory-items';
+import {
+  upsertMemoryItemEmbeddings,
+} from './memory-items-server';
+import { createSupabaseServiceClient } from './supabase-service';
 
-const MEMORY_AGENT_SYSTEM_PROMPT = `You are a memory management agent for Novus, a voice AI assistant. Your job is to analyze conversation exchanges and update the user's memory files when noteworthy information is revealed.
+const MEMORY_V2_AGENT_PROMPT = `You are the Novus memory extraction agent.
 
-## Memory Structure
+Goal: extract atomic memory candidates from a conversation transcript.
 
-There are two types of memory files:
+Rules:
+1. Output only genuinely useful memory candidates.
+2. Each candidate must be atomic and standalone.
+3. Avoid trivia, conversation mechanics, and one-off politeness.
+4. Prefer specific facts, preferences, commitments, constraints, recurring context, and meaningful events.
+5. If no candidate is useful, return an empty list.
+6. Use action=update when the user refined or corrected a previous idea.
+7. Use action=ignore for noisy or uncertain candidates.
 
-### Daily files (daily/YYYY-MM-DD.md)
-Append-only journal capturing key points from each conversation. Use bullet points:
-\`\`\`
-- discussed X with Y context
-- decided to Z
-- mentioned feeling frustrated about W
-\`\`\`
+Keep text concise (1 sentence).`;
 
-### Long-term files (long-term/<category>.md)
-Curated facts about the user. Use pipe-delimited format:
-\`\`\`
-- topic | details and context | YYYY-MM-DD
-\`\`\`
+const CandidateSchema = z.object({
+  type: z.string().min(1).max(48),
+  text: z.string().min(1).max(500),
+  stability: z.enum(['stable', 'episodic']),
+  sensitivity: z.enum(['normal', 'private', 'sensitive']),
+  salience: z.number().min(0).max(100),
+  confidence: z.number().min(0).max(1),
+  action: z.enum(['insert', 'update', 'ignore']),
+});
 
-Available categories: ${MEMORY_CATEGORIES.join(', ')}
+const MemoryExtractionSchema = z.object({
+  candidates: z.array(CandidateSchema).max(16),
+});
 
-Category descriptions:
-- meta: name, age, location, basic biographical facts
-- interests: hobbies, passions, things they enjoy or are curious about
-- projects: ongoing projects, side projects, what they're building
-- work: job, role, company, colleagues, work-related context
-- beliefs: values, opinions, worldviews, principles they hold
-- dislikes: things they dislike, avoid, or are frustrated by
-- people: family members, friends, colleagues, relationships
-
-## Rules
-
-1. Only update memory when genuinely NEW, noteworthy information is revealed. Not every exchange needs a memory update.
-2. Do NOT store conversation mechanics, pleasantries, or meta-discussion about the AI itself.
-3. Store facts, preferences, decisions, commitments, and emotional states.
-4. Always READ a file before WRITING to it — never clobber existing content.
-5. For long-term files: merge new entries with existing ones. Update entries if information changed, add new ones if new topics arise.
-6. For daily files: append new bullet points to the existing content.
-7. Be concise. Each entry should be a single line.
-8. If nothing noteworthy was said, do nothing — just respond that no updates are needed.`;
-
-function categoryFromPath(filePath: string): string {
-  if (filePath.startsWith('daily/')) return 'daily';
-  return filePath.replace('long-term/', '').replace('.md', '');
+interface ConversationMessage {
+  role: string;
+  content: string;
 }
 
-function createMemoryTools(
-  supabase: ReturnType<typeof createSupabaseServiceClient>,
-  userId: string
-) {
-  return {
-    read_memory_file: tool({
-      description:
-        'Read the current content of a memory file. Always read before writing to avoid losing data.',
-      inputSchema: z.object({
-        file_path: z
-          .string()
-          .describe('Path like "daily/2026-02-12.md" or "long-term/interests.md"'),
-      }),
-      execute: async ({ file_path }) => {
-        const { data } = await supabase
-          .from('memory_files')
-          .select('content')
-          .eq('user_id', userId)
-          .eq('file_path', file_path)
-          .single();
-        return data?.content || '(file does not exist yet — it will be created on first write)';
-      },
-    }),
+interface ProcessMemoryV2Context {
+  conversationId?: string | null;
+  mentorId?: string | null;
+  sourceMessageId?: string | null;
+  sourceRole?: 'user' | 'assistant';
+}
 
-    write_memory_file: tool({
-      description:
-        'Overwrite a memory file with new content. Use for long-term files when updating/merging entries. Always read first.',
-      inputSchema: z.object({
-        file_path: z.string().describe('Path like "long-term/interests.md"'),
-        content: z.string().describe('The full new content for the file'),
-      }),
-      execute: async ({ file_path, content }) => {
-        const category = categoryFromPath(file_path);
-        const { error } = await supabase.from('memory_files').upsert(
-          {
-            user_id: userId,
-            file_path,
-            category,
-            content,
-          },
-          { onConflict: 'user_id,file_path' }
-        );
-        if (error) return `Error writing file: ${error.message}`;
-        return 'File written successfully.';
-      },
-    }),
+interface MergeStats {
+  extracted: number;
+  inserted: number;
+  merged: number;
+  superseded: number;
+  ignored: number;
+  invalid: number;
+  embedded: number;
+}
 
-    append_to_memory_file: tool({
-      description:
-        'Append content to the end of a memory file. Use for daily journal files.',
-      inputSchema: z.object({
-        file_path: z.string().describe('Path like "daily/2026-02-12.md"'),
-        content: z.string().describe('Content to append (will be added on a new line)'),
-      }),
-      execute: async ({ file_path, content }) => {
-        const { data: existing } = await supabase
-          .from('memory_files')
-          .select('content')
-          .eq('user_id', userId)
-          .eq('file_path', file_path)
-          .single();
+export async function processMemoryV2(
+  userId: string,
+  conversationMessages: ConversationMessage[],
+  latestResponse: string,
+  context: ProcessMemoryV2Context = {}
+): Promise<void> {
+  const supabase = createSupabaseServiceClient();
 
-        const newContent = existing?.content
-          ? `${existing.content}\n${content}`
-          : content;
+  const ownerType: MemoryOwnerType = context.mentorId ? 'mentor' : 'global';
+  const ownerId = context.mentorId ?? null;
 
-        const category = categoryFromPath(file_path);
-        const { error } = await supabase.from('memory_files').upsert(
-          {
-            user_id: userId,
-            file_path,
-            category,
-            content: newContent,
-          },
-          { onConflict: 'user_id,file_path' }
-        );
-        if (error) return `Error appending to file: ${error.message}`;
-        return 'Content appended successfully.';
-      },
-    }),
+  const fullExchange = [
+    ...conversationMessages.slice(-8),
+    { role: 'assistant', content: latestResponse },
+  ];
+
+  const transcript = fullExchange
+    .map((message) => `${message.role}: ${message.content}`)
+    .join('\n\n');
+
+  const { object } = await generateObject({
+    model: MEMORY_MODEL,
+    system: MEMORY_V2_AGENT_PROMPT,
+    prompt: `Date: ${new Date().toISOString().slice(0, 10)}\nScope owner_type=${ownerType}${
+      ownerId ? ` owner_id=${ownerId}` : ''
+    }\n\nConversation transcript:\n${transcript}`,
+    schema: MemoryExtractionSchema,
+  });
+
+  const candidates = object.candidates || [];
+
+  const stats: MergeStats = {
+    extracted: candidates.length,
+    inserted: 0,
+    merged: 0,
+    superseded: 0,
+    ignored: 0,
+    invalid: 0,
+    embedded: 0,
   };
+
+  if (candidates.length === 0) {
+    console.log('[Memory V2] no candidates extracted');
+    return;
+  }
+
+  let scopeQuery = supabase
+    .from('memory_items')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('status', 'active')
+    .eq('owner_type', ownerType)
+    .order('updated_at', { ascending: false })
+    .limit(300);
+
+  if (ownerType === 'mentor') {
+    scopeQuery = scopeQuery.eq('owner_id', ownerId);
+  } else {
+    scopeQuery = scopeQuery.is('owner_id', null);
+  }
+
+  const { data: existingRows, error: existingError } = await scopeQuery;
+  if (existingError) {
+    console.error('[Memory V2] failed to load existing scope items:', existingError.message);
+    return;
+  }
+
+  const activeItems = [...((existingRows || []) as MemoryItem[])];
+  const embeddingUpserts = new Map<string, { memoryItemId: string; text: string }>();
+
+  for (const candidate of candidates) {
+    const normalizedCandidateText = normalizeMemoryText(candidate.text);
+    const sanitizedType = sanitizeType(candidate.type);
+
+    if (candidate.action === 'ignore') {
+      stats.ignored += 1;
+      continue;
+    }
+
+    if (!normalizedCandidateText || candidate.text.trim().length < 6) {
+      stats.invalid += 1;
+      continue;
+    }
+
+    const byType = activeItems.filter((item) => item.type === sanitizedType);
+    const exactMatch = byType.find(
+      (item) => item.normalized_text === normalizedCandidateText
+    );
+
+    const baseUpdate = {
+      type: sanitizedType,
+      text: candidate.text.trim(),
+      normalized_text: normalizedCandidateText,
+      stability: candidate.stability,
+      sensitivity: candidate.sensitivity,
+      salience: clampSalience(candidate.salience),
+      confidence: clampConfidence(candidate.confidence),
+      source_conversation_id: context.conversationId ?? null,
+      source_message_id: context.sourceMessageId ?? null,
+      source_role: context.sourceRole ?? 'user',
+      owner_type: ownerType,
+      owner_id: ownerId,
+    };
+
+    if (exactMatch) {
+      const mergedPayload = {
+        ...baseUpdate,
+        text: choosePreferredText(exactMatch.text, baseUpdate.text),
+        normalized_text: normalizeMemoryText(
+          choosePreferredText(exactMatch.text, baseUpdate.text)
+        ),
+        salience: Math.max(exactMatch.salience, baseUpdate.salience),
+        confidence: Math.max(exactMatch.confidence, baseUpdate.confidence),
+      };
+
+      const { data: updatedRow, error: updateError } = await supabase
+        .from('memory_items')
+        .update(mergedPayload)
+        .eq('id', exactMatch.id)
+        .eq('user_id', userId)
+        .select('*')
+        .single();
+
+      if (updateError || !updatedRow) {
+        stats.invalid += 1;
+        continue;
+      }
+
+      replaceActiveItem(activeItems, updatedRow as MemoryItem);
+      embeddingUpserts.set(updatedRow.id, {
+        memoryItemId: updatedRow.id,
+        text: updatedRow.text,
+      });
+      stats.merged += 1;
+      continue;
+    }
+
+    const nearDuplicate = findNearDuplicate(byType, normalizedCandidateText);
+
+    if (nearDuplicate && nearDuplicate.score >= 0.86) {
+      const mergedPayload = {
+        ...baseUpdate,
+        text: choosePreferredText(nearDuplicate.item.text, baseUpdate.text),
+        normalized_text: normalizeMemoryText(
+          choosePreferredText(nearDuplicate.item.text, baseUpdate.text)
+        ),
+        salience: Math.max(nearDuplicate.item.salience, baseUpdate.salience),
+        confidence: Math.max(nearDuplicate.item.confidence, baseUpdate.confidence),
+      };
+
+      const { data: mergedRow, error: mergeError } = await supabase
+        .from('memory_items')
+        .update(mergedPayload)
+        .eq('id', nearDuplicate.item.id)
+        .eq('user_id', userId)
+        .select('*')
+        .single();
+
+      if (mergeError || !mergedRow) {
+        stats.invalid += 1;
+        continue;
+      }
+
+      replaceActiveItem(activeItems, mergedRow as MemoryItem);
+      embeddingUpserts.set(mergedRow.id, {
+        memoryItemId: mergedRow.id,
+        text: mergedRow.text,
+      });
+      stats.merged += 1;
+      continue;
+    }
+
+    if (candidate.action === 'update' && nearDuplicate && nearDuplicate.score >= 0.45) {
+      const { error: supersedeError } = await supabase
+        .from('memory_items')
+        .update({ status: 'superseded' })
+        .eq('id', nearDuplicate.item.id)
+        .eq('user_id', userId);
+
+      if (!supersedeError) {
+        removeActiveItem(activeItems, nearDuplicate.item.id);
+        stats.superseded += 1;
+      }
+    }
+
+    const { data: insertedRow, error: insertError } = await supabase
+      .from('memory_items')
+      .insert({
+        ...baseUpdate,
+        user_id: userId,
+        status: 'active',
+      })
+      .select('*')
+      .single();
+
+    if (insertError || !insertedRow) {
+      stats.invalid += 1;
+      continue;
+    }
+
+    activeItems.unshift(insertedRow as MemoryItem);
+    embeddingUpserts.set(insertedRow.id, {
+      memoryItemId: insertedRow.id,
+      text: insertedRow.text,
+    });
+    stats.inserted += 1;
+  }
+
+  stats.embedded = await upsertMemoryItemEmbeddings(
+    supabase,
+    userId,
+    Array.from(embeddingUpserts.values())
+  );
+
+  console.log('[Memory V2] merge stats', {
+    userId,
+    ownerType,
+    ownerId,
+    ...stats,
+  });
 }
 
 export async function processMemory(
   userId: string,
-  conversationMessages: { role: string; content: string }[],
-  latestResponse: string
+  conversationMessages: ConversationMessage[],
+  latestResponse: string,
+  context: ProcessMemoryV2Context = {}
 ): Promise<void> {
-  const supabase = createSupabaseServiceClient();
-  const today = dailyFilePath(new Date());
+  await processMemoryV2(userId, conversationMessages, latestResponse, context);
+}
 
-  // Build context: last few exchanges + the latest response
-  const fullExchange = [
-    ...conversationMessages.slice(-5),
-    { role: 'assistant', content: latestResponse },
-  ];
-  const conversationSummary = fullExchange
-    .map((m) => `${m.role}: ${m.content}`)
-    .join('\n\n');
+function sanitizeType(value: string): string {
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '');
 
-  const memoryTools = createMemoryTools(supabase, userId);
+  return normalized || 'general';
+}
 
-  const result = await generateText({
-    model: MEMORY_MODEL,
-    system: MEMORY_AGENT_SYSTEM_PROMPT,
-    messages: [
-      {
-        role: 'user',
-        content: `Analyze this conversation exchange and update memory files as needed. Today's date is ${new Date().toISOString().split('T')[0]}. Today's daily file path is "${today}".\n\n---\n\n${conversationSummary}`,
-      },
-    ],
-    tools: memoryTools,
-    stopWhen: stepCountIs(10),
-    onStepFinish({ toolResults }) {
-      for (const tr of toolResults) {
-        console.log(`[Memory Agent] Tool: ${tr.toolName}(${JSON.stringify(tr.input)})`);
-      }
-    },
-  });
+function choosePreferredText(existingText: string, candidateText: string): string {
+  const existing = existingText.trim();
+  const next = candidateText.trim();
+  if (!existing) return next;
+  if (!next) return existing;
 
-  console.log('[Memory Agent] Done:', result.text || 'no message');
+  // Prefer the richer sentence while avoiding abrupt replacement with shorter fragments.
+  if (next.length >= existing.length * 0.8) return next;
+  return existing;
+}
+
+function findNearDuplicate(
+  rows: MemoryItem[],
+  normalizedCandidateText: string
+): { item: MemoryItem; score: number } | null {
+  let best: { item: MemoryItem; score: number } | null = null;
+
+  for (const row of rows) {
+    const score = Math.max(
+      jaccardSimilarity(normalizedCandidateText, row.normalized_text),
+      containmentScore(normalizedCandidateText, row.normalized_text)
+    );
+
+    if (!best || score > best.score) {
+      best = { item: row, score };
+    }
+  }
+
+  return best;
+}
+
+function containmentScore(a: string, b: string): number {
+  if (!a || !b) return 0;
+  if (a === b) return 1;
+  if (a.includes(b) || b.includes(a)) {
+    const shortest = Math.min(a.length, b.length);
+    const longest = Math.max(a.length, b.length);
+    return shortest / longest;
+  }
+  return 0;
+}
+
+function replaceActiveItem(items: MemoryItem[], replacement: MemoryItem): void {
+  const index = items.findIndex((item) => item.id === replacement.id);
+  if (index === -1) {
+    items.unshift(replacement);
+    return;
+  }
+
+  items[index] = replacement;
+}
+
+function removeActiveItem(items: MemoryItem[], id: string): void {
+  const index = items.findIndex((item) => item.id === id);
+  if (index !== -1) {
+    items.splice(index, 1);
+  }
 }
