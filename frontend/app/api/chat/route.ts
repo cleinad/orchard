@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { after } from 'next/server';
 import { generateText } from 'ai';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
-import { loadMemoryContext } from '@/lib/memory-reader';
-import { processMemory } from '@/lib/memory-agent';
+import { loadMemoryContextV2 } from '@/lib/memory-reader';
+import { processMemoryV2 } from '@/lib/memory-agent';
 import { CHAT_MODEL } from '@/lib/models';
 import { buildMentorPrompt } from '@/lib/mentors/prompts';
 
@@ -31,6 +31,18 @@ function buildSystemPrompt(memoryContext: string): string {
   return `${BASE_SYSTEM_PROMPT}
 
 You have memory about this user from previous conversations. Use it naturally — reference what you know as if you simply remember. Never announce that you are reading from memory or mention your memory system.
+
+<user_memory>
+${memoryContext}
+</user_memory>`;
+}
+
+function buildMentorSystemPrompt(basePrompt: string, memoryContext: string): string {
+  if (!memoryContext.trim()) return basePrompt;
+
+  return `${basePrompt}
+
+Use the user's memory naturally. Keep it implicit and never mention a memory system.
 
 <user_memory>
 ${memoryContext}
@@ -205,16 +217,22 @@ export async function POST(request: NextRequest) {
     }
 
     // Save user message
-    const { error: userMsgError } = await supabase.from('messages').insert({
-      conversation_id: activeConversationId,
-      user_id: user.id,
-      role: 'user',
-      content: message,
-    });
+    const { data: userMessageRow, error: userMsgError } = await supabase
+      .from('messages')
+      .insert({
+        conversation_id: activeConversationId,
+        user_id: user.id,
+        role: 'user',
+        content: message,
+      })
+      .select('id')
+      .single();
 
     if (userMsgError) {
       console.error('Error saving user message:', userMsgError);
     }
+
+    const latestUserMessageId = userMessageRow?.id ?? null;
 
     // Fetch conversation history for context
     const { data: history } = await supabase
@@ -228,10 +246,21 @@ export async function POST(request: NextRequest) {
 
     const isMentorConversation = !!mentor;
 
+    const memoryContext = await loadMemoryContextV2(supabase, user.id, {
+      actor: isMentorConversation ? 'mentor' : 'novus',
+      mentorId: mentor?.id ?? null,
+      query: message,
+      tokenBudget: isMentorConversation ? 900 : 1100,
+      maxItems: isMentorConversation ? 24 : 30,
+    });
+
     // Build Novus or mentor system prompt.
     const systemPrompt = isMentorConversation
-      ? buildMentorPrompt(mentor!, profile?.full_name || '')
-      : buildSystemPrompt(await loadMemoryContext(supabase, user.id));
+      ? buildMentorSystemPrompt(
+          buildMentorPrompt(mentor!, profile?.full_name || ''),
+          memoryContext
+        )
+      : buildSystemPrompt(memoryContext);
 
     // Call LLM via Vercel AI SDK
     const { text: assistantResponse } = await generateText({
@@ -255,16 +284,18 @@ export async function POST(request: NextRequest) {
       console.error('Error saving assistant message:', assistantMsgError);
     }
 
-    // Novus conversations update memory. Mentor conversations skip memory in v1.
-    if (!isMentorConversation) {
-      after(async () => {
-        try {
-          await processMemory(user.id, messages, assistantResponse);
-        } catch (err) {
-          console.error('[Memory Agent] Error:', err);
-        }
-      });
-    }
+    after(async () => {
+      try {
+        await processMemoryV2(user.id, messages, assistantResponse, {
+          conversationId: activeConversationId,
+          mentorId: mentor?.id ?? null,
+          sourceMessageId: latestUserMessageId,
+          sourceRole: 'user',
+        });
+      } catch (err) {
+        console.error('[Memory V2] Error:', err);
+      }
+    });
 
     return NextResponse.json({
       message: assistantResponse,

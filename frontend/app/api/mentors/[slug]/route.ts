@@ -46,10 +46,10 @@ async function getAuthenticatedUser(
 
 export async function GET(
   _request: NextRequest,
-  { params }: { params: { slug: string } }
+  { params }: { params: Promise<{ slug: string }> }
 ) {
   try {
-    const { slug } = params;
+    const { slug } = await params;
     const supabase = await createSupabaseServerClient();
     const user = await getAuthenticatedUser(supabase);
 
@@ -90,10 +90,10 @@ export async function GET(
 
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { slug: string } }
+  { params }: { params: Promise<{ slug: string }> }
 ) {
   try {
-    const { slug } = params;
+    const { slug } = await params;
     const supabase = await createSupabaseServerClient();
     const user = await getAuthenticatedUser(supabase);
 
@@ -233,10 +233,10 @@ export async function PATCH(
 
 export async function DELETE(
   _request: NextRequest,
-  { params }: { params: { slug: string } }
+  { params }: { params: Promise<{ slug: string }> }
 ) {
   try {
-    const { slug } = params;
+    const { slug } = await params;
     const supabase = await createSupabaseServerClient();
     const user = await getAuthenticatedUser(supabase);
 
