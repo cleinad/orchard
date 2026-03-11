@@ -8,13 +8,16 @@ import { useTTS } from '@/app/home/components/useTTS';
 import { useMicrophone } from '@/app/home/components/useMicrophone';
 import { useAudioVisualization } from '@/app/home/components/useAudioVisualization';
 import { useTranscription } from '@/app/home/components/useTranscription';
-import ReactMarkdown from 'react-markdown';
 import { supabase } from '@/lib/supabase';
 import type { MentorListItem } from '@/lib/mentors/types';
 import { type ConversationListItem } from '@/app/home/components/ConversationsPanel';
 import SidePanel from '@/app/home/components/SidePanel';
 import MentorDetailPanel from '@/app/home/components/MentorDetailPanel';
 import CreateMentorPanel from '@/app/home/components/CreateMentorPanel';
+import { LearningModeProvider, useLearningMode } from '@/app/home/components/LearningModeContext';
+import TextSelectionPopover, { type PopoverState } from '@/app/home/components/TextSelectionPopover';
+import ThreadPanel from '@/app/home/components/ThreadPanel';
+import MarkdownWithThreads, { type ThreadMeta } from '@/app/home/components/MarkdownWithThreads';
 
 export interface Message {
   id: string;
@@ -37,7 +40,9 @@ interface ConversationRow {
 export default function HomePage() {
   return (
     <Suspense>
-      <HomePageInner />
+      <LearningModeProvider>
+        <HomePageInner />
+      </LearningModeProvider>
     </Suspense>
   );
 }
@@ -60,6 +65,14 @@ function HomePageInner() {
   const [detailPanelOpen, setDetailPanelOpen] = useState(false);
   const [createPanelOpen, setCreatePanelOpen] = useState(false);
 
+  // Learning mode state
+  const { learningMode } = useLearningMode();
+  const [popoverState, setPopoverState] = useState<PopoverState | null>(null);
+  const [threadsMap, setThreadsMap] = useState<Map<string, ThreadMeta[]>>(new Map());
+  const [activeThread, setActiveThread] = useState<{ id: string; highlightedText: string; sourceMessageId: string } | null>(null);
+  const [threadPanelOpen, setThreadPanelOpen] = useState(false);
+  const [pendingThreadMessage, setPendingThreadMessage] = useState<string | null>(null);
+
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -75,6 +88,13 @@ function HomePageInner() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [userHasScrolled, setUserHasScrolled] = useState(false);
+
+  const resetThreadUi = useCallback(() => {
+    setPopoverState(null);
+    setActiveThread(null);
+    setThreadPanelOpen(false);
+    setPendingThreadMessage(null);
+  }, []);
 
   const loadMentors = useCallback(async (): Promise<MentorListItem[]> => {
     const response = await fetch('/api/mentors', { cache: 'no-store' });
@@ -161,6 +181,7 @@ function HomePageInner() {
       .from('messages')
       .select('id, role, content, created_at')
       .eq('conversation_id', nextConversationId)
+      .is('thread_id', null)
       .order('created_at', { ascending: true })
       .limit(200);
 
@@ -183,6 +204,29 @@ function HomePageInner() {
     setMessages(nextMessages);
     setConversationId(nextConversationId);
     setUserHasScrolled(false);
+
+    // Load threads for this conversation
+    const { data: threadRows, error: threadsError } = await supabase
+      .from('threads')
+      .select('id, source_message_id, highlighted_text')
+      .eq('conversation_id', nextConversationId);
+
+    if (threadsError) {
+      console.error('Failed to load threads:', threadsError);
+    }
+
+    const nextThreadsMap = new Map<string, ThreadMeta[]>();
+    for (const t of threadRows || []) {
+      const key = t.source_message_id;
+      const existing = nextThreadsMap.get(key) || [];
+      existing.push({
+        threadId: t.id,
+        highlightedText: t.highlighted_text,
+        sourceMessageId: t.source_message_id,
+      });
+      nextThreadsMap.set(key, existing);
+    }
+    setThreadsMap(nextThreadsMap);
   }, []);
 
   // Auto-scroll to bottom
@@ -270,16 +314,19 @@ function HomePageInner() {
 
   const handleSelectNovus = useCallback(() => {
     tts.stop();
+    resetThreadUi();
     setActiveMentor(null);
     setConversationId(null);
     setMessages([]);
     setInput('');
+    setThreadsMap(new Map());
     setUserHasScrolled(false);
-  }, [tts]);
+  }, [resetThreadUi, tts]);
 
   const handleSelectMentor = useCallback(
     async (mentor: MentorListItem) => {
       tts.stop();
+      resetThreadUi();
       setActiveMentor(mentor);
       setInput('');
       setUserHasScrolled(false);
@@ -293,9 +340,10 @@ function HomePageInner() {
       } else {
         setConversationId(null);
         setMessages([]);
+        setThreadsMap(new Map());
       }
     },
-    [loadConversationMessages, tts]
+    [loadConversationMessages, resetThreadUi, tts]
   );
 
   // Handle ?mentor=<slug> search param from /mentors page
@@ -317,6 +365,7 @@ function HomePageInner() {
   const handleSelectConversation = useCallback(
     async (conversation: ConversationListItem) => {
       tts.stop();
+      resetThreadUi();
       setInput('');
       setUserHasScrolled(false);
 
@@ -331,7 +380,7 @@ function HomePageInner() {
         setListError(err instanceof Error ? err.message : 'Failed to load conversation');
       }
     },
-    [mentors, loadConversationMessages, tts]
+    [mentors, loadConversationMessages, resetThreadUi, tts]
   );
 
   // Send message (from text or voice)
@@ -387,13 +436,19 @@ function HomePageInner() {
 
       const responseText = data.message || 'No response received.';
       const assistantMessage: Message = {
-        id: (Date.now() + 1).toString(),
+        id: data.assistantMessageId || (Date.now() + 1).toString(),
         role: 'assistant',
         content: responseText,
         timestamp: new Date(),
       };
 
-      setMessages((prev) => [...prev, assistantMessage]);
+      // Update user message with real DB ID and add assistant message
+      setMessages((prev) => {
+        const updated = data.userMessageId
+          ? prev.map((m) => m.id === userMessage.id ? { ...m, id: data.userMessageId } : m)
+          : prev;
+        return [...updated, assistantMessage];
+      });
 
       await refreshSidebarData();
 
@@ -474,6 +529,63 @@ function HomePageInner() {
     };
   }, [transcription.finalTranscript, transcription.interimTranscript, micActive, isLoading, sendMessage]);
 
+  // Learning mode: text selection handler
+  const handlePointerUp = useCallback(() => {
+    if (!learningMode) return;
+
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed || !selection.toString().trim()) return;
+
+    const selectedText = selection.toString().trim();
+    if (selectedText.length < 2 || selectedText.length > 500) return;
+
+    const range = selection.getRangeAt(0);
+    const messageEl = (range.startContainer as HTMLElement).closest?.('[data-message-id]')
+      || (range.startContainer.parentElement as HTMLElement)?.closest?.('[data-message-id]');
+
+    if (!messageEl) return;
+
+    // Guard against cross-message selections
+    const endMessageEl = (range.endContainer as HTMLElement).closest?.('[data-message-id]')
+      || (range.endContainer.parentElement as HTMLElement)?.closest?.('[data-message-id]');
+    if (!endMessageEl || endMessageEl !== messageEl) return;
+
+    const messageId = messageEl.getAttribute('data-message-id');
+    const messageRole = messageEl.getAttribute('data-message-role');
+
+    if (!messageId || messageRole !== 'assistant') return;
+
+    const rect = range.getBoundingClientRect();
+    setPopoverState({
+      x: rect.left + rect.width / 2,
+      y: rect.top - 8,
+      selectedText,
+      sourceMessageId: messageId,
+    });
+  }, [learningMode]);
+
+  const handleThreadCreated = useCallback((threadId: string, sourceMessageId: string, highlightedText: string) => {
+    setThreadsMap((prev) => {
+      const next = new Map(prev);
+      const existing = next.get(sourceMessageId) || [];
+      existing.push({ threadId, highlightedText, sourceMessageId });
+      next.set(sourceMessageId, existing);
+      return next;
+    });
+  }, []);
+
+  const handleGraduateToThread = useCallback((threadId: string, sourceMessageId: string, highlightedText: string, pendingMessage?: string) => {
+    setActiveThread({ id: threadId, highlightedText, sourceMessageId });
+    setPendingThreadMessage(pendingMessage || null);
+    setThreadPanelOpen(true);
+    setPopoverState(null);
+  }, []);
+
+  const handleThreadClick = useCallback((thread: ThreadMeta) => {
+    setActiveThread({ id: thread.threadId, highlightedText: thread.highlightedText, sourceMessageId: thread.sourceMessageId });
+    setThreadPanelOpen(true);
+  }, []);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const textToSend = input.trim();
@@ -500,7 +612,7 @@ function HomePageInner() {
         className={`relative flex h-screen flex-col transition-[padding] duration-300 ease-out ${
           // Desktop: when the left sidebar is open, push the chat area right (ChatGPT-style).
           sidePanelOpen ? 'lg:pl-[380px]' : ''
-        }`}
+        } ${threadPanelOpen ? 'lg:pr-[460px]' : ''}`}
       >
         {/* Full-width header: stretches left/right on desktop while content stays constrained below. */}
         <div className="w-full px-6">
@@ -541,7 +653,7 @@ function HomePageInner() {
             ) : (
               <div className="py-8">
                 {messages.map((message) => (
-                  <div key={message.id} className="py-4">
+                  <div key={message.id} className="py-4" data-message-id={message.id} data-message-role={message.role} onPointerUp={message.role === 'assistant' ? handlePointerUp : undefined}>
                     <div className="flex items-baseline justify-between">
                       <span className="text-xs font-medium tracking-wider text-muted">
                         {message.role === 'user' ? 'You' : activeName}
@@ -551,7 +663,11 @@ function HomePageInner() {
                       </span>
                     </div>
                     <div className="mt-2 text-base leading-relaxed text-foreground [&_p]:mb-4 [&_p:last-child]:mb-0 [&_ul]:mb-4 [&_ul]:ml-5 [&_ul]:list-disc [&_ol]:mb-4 [&_ol]:ml-5 [&_ol]:list-decimal [&_li]:mb-1 [&_code]:rounded [&_code]:bg-stone-100 [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:text-sm [&_code]:text-stone-700 dark:[&_code]:bg-stone-800 dark:[&_code]:text-stone-300 [&_pre]:my-4 [&_pre]:rounded-lg [&_pre]:bg-stone-100 [&_pre]:p-4 dark:[&_pre]:bg-stone-800">
-                      <ReactMarkdown>{message.content}</ReactMarkdown>
+                      <MarkdownWithThreads
+                        content={message.content}
+                        threads={threadsMap.get(message.id) || []}
+                        onThreadClick={handleThreadClick}
+                      />
                     </div>
                   </div>
                 ))}
@@ -732,11 +848,33 @@ function HomePageInner() {
         isOpen={createPanelOpen}
         onClose={() => setCreatePanelOpen(false)}
         onCreated={(mentor) => {
+          resetThreadUi();
           setActiveMentor(mentor);
           setConversationId(null);
           setMessages([]);
+          setThreadsMap(new Map());
           setUserHasScrolled(false);
           void refreshSidebarData();
+        }}
+      />
+
+      <TextSelectionPopover
+        popoverState={popoverState}
+        conversationId={conversationId}
+        onDismiss={() => setPopoverState(null)}
+        onThreadCreated={handleThreadCreated}
+        onGraduateToThread={handleGraduateToThread}
+      />
+      <ThreadPanel
+        isOpen={threadPanelOpen}
+        thread={activeThread}
+        conversationId={conversationId}
+        pendingMessage={pendingThreadMessage}
+        onPendingMessageConsumed={() => setPendingThreadMessage(null)}
+        onClose={() => {
+          setThreadPanelOpen(false);
+          setActiveThread(null);
+          setPendingThreadMessage(null);
         }}
       />
 
