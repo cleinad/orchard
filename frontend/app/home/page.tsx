@@ -403,7 +403,8 @@ function HomePageInner() {
 
       setLastSearchState(data.search ?? null);
 
-      const responseText = data.message || 'No response received.';
+      const responseText =
+        data.message?.trim() || 'Something went wrong. The assistant returned an empty response.';
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',

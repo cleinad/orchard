@@ -105,6 +105,94 @@ function sanitizeResults(results: TavilyResult[]) {
     .filter((result): result is NonNullable<typeof result> => result !== null);
 }
 
+export async function runWebSearch(query: string): Promise<WebSearchToolOutput> {
+  const sanitizedQuery = sanitizeQuery(query);
+  const apiKey = process.env.TAVILY_API_KEY;
+  if (!apiKey) {
+    console.warn('[webSearch] missing_config', { query: sanitizedQuery });
+    return {
+      status: 'missing_config',
+      query: sanitizedQuery,
+      results: [],
+      error: 'TAVILY_API_KEY is not configured',
+    };
+  }
+
+  try {
+    const res = await fetch('https://api.tavily.com/search', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        query: sanitizedQuery,
+        max_results: MAX_RESULTS,
+        include_answer: false,
+      }),
+      signal: AbortSignal.timeout(10_000),
+    });
+
+    if (!res.ok) {
+      const responseBody = await res.text().catch(() => '');
+      console.error('[webSearch] upstream_error', {
+        query: sanitizedQuery,
+        status: res.status,
+        body: sanitizeText(responseBody, 200),
+      });
+      return {
+        status: 'upstream_error',
+        query: sanitizedQuery,
+        results: [],
+        error: `Search failed (${res.status})`,
+      };
+    }
+
+    const data = await res.json();
+    const results = sanitizeResults((data.results as TavilyResult[]) ?? []);
+
+    if (results.length === 0) {
+      console.warn('[webSearch] no_results', { query: sanitizedQuery });
+      return {
+        status: 'no_results',
+        query: sanitizedQuery,
+        results: [],
+        error: 'Search returned no useful results',
+      };
+    }
+
+    return {
+      status: 'success',
+      query: sanitizedQuery,
+      results,
+    };
+  } catch (error) {
+    const errorName = error instanceof Error ? error.name : 'UnknownError';
+    const errorMessage =
+      error instanceof Error ? sanitizeText(error.message, 200) : 'Unknown error';
+    const status =
+      errorName === 'TimeoutError' || errorName === 'AbortError'
+        ? 'timeout'
+        : 'upstream_error';
+
+    console.error(`[webSearch] ${status}`, {
+      query: sanitizedQuery,
+      name: errorName,
+      message: errorMessage,
+    });
+
+    return {
+      status,
+      query: sanitizedQuery,
+      results: [],
+      error:
+        status === 'timeout'
+          ? 'Search timed out'
+          : 'Web search unavailable',
+    };
+  }
+}
+
 export const webSearch = tool({
   description:
     'Search the web for current information. Use when you need up-to-date facts, recent events, or information you are unsure about.',
@@ -112,91 +200,5 @@ export const webSearch = tool({
     query: z.string().describe('The search query'),
   }),
   outputSchema: webSearchOutputSchema,
-  execute: async ({ query }) => {
-    const sanitizedQuery = sanitizeQuery(query);
-    const apiKey = process.env.TAVILY_API_KEY;
-    if (!apiKey) {
-      console.warn('[webSearch] missing_config', { query: sanitizedQuery });
-      return {
-        status: 'missing_config',
-        query: sanitizedQuery,
-        results: [],
-        error: 'TAVILY_API_KEY is not configured',
-      };
-    }
-
-    try {
-      const res = await fetch('https://api.tavily.com/search', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          query: sanitizedQuery,
-          max_results: MAX_RESULTS,
-          include_answer: false,
-        }),
-        signal: AbortSignal.timeout(10_000),
-      });
-
-      if (!res.ok) {
-        const responseBody = await res.text().catch(() => '');
-        console.error('[webSearch] upstream_error', {
-          query: sanitizedQuery,
-          status: res.status,
-          body: sanitizeText(responseBody, 200),
-        });
-        return {
-          status: 'upstream_error',
-          query: sanitizedQuery,
-          results: [],
-          error: `Search failed (${res.status})`,
-        };
-      }
-
-      const data = await res.json();
-      const results = sanitizeResults((data.results as TavilyResult[]) ?? []);
-
-      if (results.length === 0) {
-        console.warn('[webSearch] no_results', { query: sanitizedQuery });
-        return {
-          status: 'no_results',
-          query: sanitizedQuery,
-          results: [],
-          error: 'Search returned no useful results',
-        };
-      }
-
-      return {
-        status: 'success',
-        query: sanitizedQuery,
-        results,
-      };
-    } catch (error) {
-      const errorName = error instanceof Error ? error.name : 'UnknownError';
-      const errorMessage =
-        error instanceof Error ? sanitizeText(error.message, 200) : 'Unknown error';
-      const status =
-        errorName === 'TimeoutError' || errorName === 'AbortError'
-          ? 'timeout'
-          : 'upstream_error';
-
-      console.error(`[webSearch] ${status}`, {
-        query: sanitizedQuery,
-        name: errorName,
-        message: errorMessage,
-      });
-
-      return {
-        status,
-        query: sanitizedQuery,
-        results: [],
-        error:
-          status === 'timeout'
-            ? 'Search timed out'
-            : 'Web search unavailable',
-      };
-    }
-  },
+  execute: async ({ query }) => runWebSearch(query),
 });
