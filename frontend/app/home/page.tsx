@@ -9,6 +9,7 @@ import { useMicrophone } from '@/app/home/components/useMicrophone';
 import { useAudioVisualization } from '@/app/home/components/useAudioVisualization';
 import { useTranscription } from '@/app/home/components/useTranscription';
 import ReactMarkdown from 'react-markdown';
+import type { SearchMetadata } from '@/lib/chat-search';
 import { supabase } from '@/lib/supabase';
 import type { MentorListItem } from '@/lib/mentors/types';
 import { type ConversationListItem } from '@/app/home/components/ConversationsPanel';
@@ -21,6 +22,14 @@ export interface Message {
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
+}
+
+interface ChatResponse {
+  message?: string;
+  conversationId?: string;
+  mentorId?: string | null;
+  search?: SearchMetadata;
+  error?: string;
 }
 
 interface ConversationRow {
@@ -46,6 +55,8 @@ function HomePageInner() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [searchEnabled, setSearchEnabled] = useState(false);
+  const [lastSearchState, setLastSearchState] = useState<SearchMetadata | null>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [activeMentor, setActiveMentor] = useState<MentorListItem | null>(null);
   const [mentors, setMentors] = useState<MentorListItem[]>([]);
@@ -273,6 +284,7 @@ function HomePageInner() {
     setActiveMentor(null);
     setConversationId(null);
     setMessages([]);
+    setLastSearchState(null);
     setInput('');
     setUserHasScrolled(false);
   }, [tts]);
@@ -282,6 +294,7 @@ function HomePageInner() {
       tts.stop();
       setActiveMentor(mentor);
       setInput('');
+      setLastSearchState(null);
       setUserHasScrolled(false);
 
       if (mentor.conversation_id) {
@@ -318,6 +331,7 @@ function HomePageInner() {
     async (conversation: ConversationListItem) => {
       tts.stop();
       setInput('');
+      setLastSearchState(null);
       setUserHasScrolled(false);
 
       const nextMentor = conversation.mentor_id
@@ -355,6 +369,7 @@ function HomePageInner() {
     setMessages((prev) => [...prev, userMessage]);
     setInput('');
     setIsLoading(true);
+    setLastSearchState(null);
     setUserHasScrolled(false);
 
     try {
@@ -365,10 +380,11 @@ function HomePageInner() {
           message: userMessage.content,
           conversationId,
           mentorId: activeMentor?.id ?? undefined,
+          searchEnabled,
         }),
       });
 
-      const data = await response.json();
+      const data = (await response.json()) as ChatResponse;
 
       if (!response.ok || data.error) {
         const errorMessage: Message = {
@@ -384,6 +400,8 @@ function HomePageInner() {
       if (data.conversationId && data.conversationId !== conversationId) {
         setConversationId(data.conversationId);
       }
+
+      setLastSearchState(data.search ?? null);
 
       const responseText = data.message || 'No response received.';
       const assistantMessage: Message = {
@@ -416,6 +434,7 @@ function HomePageInner() {
     conversationId,
     isLoading,
     refreshSidebarData,
+    searchEnabled,
     ttsEnabled,
     tts,
     transcription.clearTranscript,
@@ -491,6 +510,15 @@ function HomePageInner() {
 
   const hasTranscript = transcription.finalTranscript.length > 0 || transcription.interimTranscript.length > 0;
   const activeName = activeMentor?.name || 'Novus';
+  const searchModeHelper = searchEnabled
+    ? 'Always grounds replies with current web results'
+    : 'Lets the model decide when live search is needed';
+  const lastSearchSuccessMessage =
+    lastSearchState?.attempted && lastSearchState.status === 'success'
+      ? `Last reply grounded with ${lastSearchState.resultCount} live ${
+          lastSearchState.resultCount === 1 ? 'source' : 'sources'
+        }`
+      : null;
 
   return (
     <div className="relative h-screen overflow-hidden bg-background text-foreground">
@@ -670,6 +698,62 @@ function HomePageInner() {
                 </svg>
               </button>
             </div>
+
+            <div className="mt-3 flex items-center justify-between gap-3 px-1">
+              <button
+                type="button"
+                aria-pressed={searchEnabled}
+                onClick={() => setSearchEnabled((prev) => !prev)}
+                disabled={isLoading}
+                className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-all ${
+                  searchEnabled
+                    ? 'border-transparent bg-foreground text-background shadow-[0_14px_28px_-20px_rgba(15,23,42,0.9)]'
+                    : 'border-black/[0.08] bg-surface text-muted hover:border-black/[0.12] hover:text-foreground dark:border-white/[0.08] dark:hover:border-white/[0.14]'
+                } disabled:cursor-not-allowed disabled:opacity-50`}
+              >
+                <span
+                  className={`flex h-5 w-5 items-center justify-center rounded-full ${
+                    searchEnabled
+                      ? 'bg-background/15 text-background'
+                      : 'bg-black/[0.04] text-muted dark:bg-white/[0.06]'
+                  }`}
+                >
+                  <svg
+                    className="h-3.5 w-3.5"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M21 21l-4.35-4.35m1.85-5.15a7 7 0 11-14 0 7 7 0 0114 0z"
+                    />
+                  </svg>
+                </span>
+                <span>Live search</span>
+                <span className={`text-[11px] ${searchEnabled ? 'text-background/70' : 'text-muted/70'}`}>
+                  {searchEnabled ? 'Always on' : 'Auto'}
+                </span>
+              </button>
+
+              <span className="hidden text-[11px] text-muted/60 sm:inline">
+                {searchModeHelper}
+              </span>
+            </div>
+
+            {lastSearchState?.warning && (
+              <div className="mt-2 rounded-lg border border-amber-300/70 bg-amber-50 px-3 py-2 text-xs text-amber-900 shadow-sm dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100">
+                {lastSearchState.warning}
+              </div>
+            )}
+
+            {!lastSearchState?.warning && lastSearchSuccessMessage && (
+              <div className="mt-2 px-1 text-[11px] text-muted/70">
+                {lastSearchSuccessMessage}
+              </div>
+            )}
           </form>
 
           {/* Status line */}
@@ -735,6 +819,7 @@ function HomePageInner() {
           setActiveMentor(mentor);
           setConversationId(null);
           setMessages([]);
+          setLastSearchState(null);
           setUserHasScrolled(false);
           void refreshSidebarData();
         }}
