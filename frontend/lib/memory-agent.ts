@@ -26,21 +26,24 @@ Rules:
 5. If no candidate is useful, return an empty list.
 6. Use action=update when the user refined or corrected a previous idea.
 7. Use action=ignore for noisy or uncertain candidates.
+8. Return at most 16 candidates.
+9. Use salience as a number from 0 to 100.
+10. Use confidence as a number from 0 to 1.
 
 Keep text concise (1 sentence).`;
 
 const CandidateSchema = z.object({
-  type: z.string().min(1).max(48),
-  text: z.string().min(1).max(500),
+  type: z.string(),
+  text: z.string(),
   stability: z.enum(['stable', 'episodic']),
   sensitivity: z.enum(['normal', 'private', 'sensitive']),
-  salience: z.number().min(0).max(100),
-  confidence: z.number().min(0).max(1),
+  salience: z.number(),
+  confidence: z.number(),
   action: z.enum(['insert', 'update', 'ignore']),
 });
 
 const MemoryExtractionSchema = z.object({
-  candidates: z.array(CandidateSchema).max(16),
+  candidates: z.array(CandidateSchema),
 });
 
 interface ConversationMessage {
@@ -64,6 +67,9 @@ interface MergeStats {
   invalid: number;
   embedded: number;
 }
+
+const MAX_MEMORY_TYPE_LENGTH = 48;
+const MAX_MEMORY_TEXT_LENGTH = 500;
 
 export async function processMemoryV2(
   userId: string,
@@ -94,7 +100,7 @@ export async function processMemoryV2(
     schema: MemoryExtractionSchema,
   });
 
-  const candidates = object.candidates || [];
+  const candidates = (object.candidates || []).slice(0, 16);
 
   const stats: MergeStats = {
     extracted: candidates.length,
@@ -136,7 +142,8 @@ export async function processMemoryV2(
   const embeddingUpserts = new Map<string, { memoryItemId: string; text: string }>();
 
   for (const candidate of candidates) {
-    const normalizedCandidateText = normalizeMemoryText(candidate.text);
+    const candidateText = sanitizeCandidateText(candidate.text);
+    const normalizedCandidateText = normalizeMemoryText(candidateText);
     const sanitizedType = sanitizeType(candidate.type);
 
     if (candidate.action === 'ignore') {
@@ -144,7 +151,7 @@ export async function processMemoryV2(
       continue;
     }
 
-    if (!normalizedCandidateText || candidate.text.trim().length < 6) {
+    if (!normalizedCandidateText || candidateText.length < 6) {
       stats.invalid += 1;
       continue;
     }
@@ -156,7 +163,7 @@ export async function processMemoryV2(
 
     const baseUpdate = {
       type: sanitizedType,
-      text: candidate.text.trim(),
+      text: candidateText,
       normalized_text: normalizedCandidateText,
       stability: candidate.stability,
       sensitivity: candidate.sensitivity,
@@ -304,7 +311,14 @@ function sanitizeType(value: string): string {
     .replace(/-+/g, '-')
     .replace(/^-+|-+$/g, '');
 
-  return normalized || 'general';
+  return (normalized || 'general').slice(0, MAX_MEMORY_TYPE_LENGTH);
+}
+
+function sanitizeCandidateText(value: string): string {
+  return value
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, MAX_MEMORY_TEXT_LENGTH);
 }
 
 function choosePreferredText(existingText: string, candidateText: string): string {
