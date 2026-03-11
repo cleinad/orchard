@@ -1,10 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { after } from 'next/server';
-import { generateText } from 'ai';
+import { generateText, stepCountIs } from 'ai';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
 import { loadMemoryContextV2 } from '@/lib/memory-reader';
 import { processMemoryV2 } from '@/lib/memory-agent';
 import { CHAT_MODEL } from '@/lib/models';
+import {
+  addSearchInstructions,
+  applySearchDisclosure,
+  extractSearchMetadata,
+  type SearchMode,
+} from '@/lib/chat-search';
+import { webSearch } from '@/lib/tools';
 import { buildMentorPrompt } from '@/lib/mentors/prompts';
 
 const BASE_SYSTEM_PROMPT = `You are Novus, a voice-native thinking partner. You help the user think through problems with depth, capture their thoughts, and stay on top of their commitments.
@@ -53,6 +60,7 @@ interface ChatRequest {
   message: string;
   conversationId?: string;
   mentorId?: string;
+  searchEnabled?: boolean;
 }
 
 export async function POST(request: NextRequest) {
@@ -70,7 +78,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body: ChatRequest = await request.json();
-    const { message, conversationId, mentorId } = body;
+    const { message, conversationId, mentorId, searchEnabled = false } = body;
 
     if (!message?.trim()) {
       return NextResponse.json(
@@ -254,23 +262,34 @@ export async function POST(request: NextRequest) {
       maxItems: isMentorConversation ? 24 : 30,
     });
 
+    const searchMode: SearchMode = searchEnabled ? 'required' : 'auto';
+
     // Build Novus or mentor system prompt.
-    const systemPrompt = isMentorConversation
+    const baseSystemPrompt = isMentorConversation
       ? buildMentorSystemPrompt(
           buildMentorPrompt(mentor!, profile?.full_name || ''),
           memoryContext
         )
       : buildSystemPrompt(memoryContext);
+    const systemPrompt = addSearchInstructions(baseSystemPrompt, searchMode);
 
-    // Call LLM via Vercel AI SDK
-    const { text: assistantResponse } = await generateText({
+    // Call LLM via Vercel AI SDK (agentic loop with tools)
+    const generation = await generateText({
       model: CHAT_MODEL,
       system: systemPrompt,
       messages: messages.map((m) => ({
         role: m.role as 'user' | 'assistant',
         content: m.content,
       })),
+      tools: { webSearch },
+      toolChoice:
+        searchMode === 'required'
+          ? { type: 'tool' as const, toolName: 'webSearch' }
+          : 'auto',
+      stopWhen: stepCountIs(5),
     });
+    const search = extractSearchMetadata(generation, searchMode);
+    const assistantResponse = applySearchDisclosure(generation.text, search);
 
     // Save assistant message
     const { error: assistantMsgError } = await supabase.from('messages').insert({
@@ -301,6 +320,7 @@ export async function POST(request: NextRequest) {
       message: assistantResponse,
       conversationId: activeConversationId,
       mentorId: mentor?.id ?? null,
+      search,
     });
   } catch (error) {
     console.error('Chat API error:', error);
