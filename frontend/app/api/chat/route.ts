@@ -94,6 +94,10 @@ interface ChatRequest {
   message: string;
   conversationId?: string;
   mentorId?: string;
+  threadId?: string;
+  sourceMessageId?: string;
+  highlightedText?: string;
+  concise?: boolean;
   searchEnabled?: boolean;
 }
 
@@ -112,7 +116,16 @@ export async function POST(request: NextRequest) {
     }
 
     const body: ChatRequest = await request.json();
-    const { message, conversationId, mentorId, searchEnabled = false } = body;
+    const {
+      message,
+      conversationId,
+      mentorId,
+      threadId,
+      sourceMessageId,
+      highlightedText,
+      concise,
+      searchEnabled = false,
+    } = body;
 
     if (!message?.trim()) {
       return NextResponse.json(
@@ -258,6 +271,45 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Thread handling
+    let activeThreadId = threadId || null;
+
+    // Validate thread ownership and prefetch highlighted text in one query
+    let existingThreadHighlightedText: string | null = null;
+    if (activeThreadId) {
+      const { data: existingThread, error: threadCheckError } = await supabase
+        .from('threads')
+        .select('id, highlighted_text')
+        .eq('id', activeThreadId)
+        .eq('user_id', user.id)
+        .single();
+
+      if (threadCheckError || !existingThread) {
+        return NextResponse.json({ error: 'Thread not found' }, { status: 404 });
+      }
+      existingThreadHighlightedText = existingThread.highlighted_text || null;
+    }
+
+    if (!activeThreadId && sourceMessageId && highlightedText) {
+      const { data: threadRow, error: threadError } = await supabase
+        .from('threads')
+        .insert({
+          conversation_id: activeConversationId,
+          source_message_id: sourceMessageId,
+          highlighted_text: highlightedText,
+          user_id: user.id,
+        })
+        .select('id')
+        .single();
+
+      if (threadError || !threadRow) {
+        console.error('Error creating thread:', threadError);
+        return NextResponse.json({ error: 'Failed to create thread' }, { status: 500 });
+      }
+
+      activeThreadId = threadRow.id;
+    }
+
     // Save user message
     const { data: userMessageRow, error: userMsgError } = await supabase
       .from('messages')
@@ -266,6 +318,7 @@ export async function POST(request: NextRequest) {
         user_id: user.id,
         role: 'user',
         content: message,
+        ...(activeThreadId ? { thread_id: activeThreadId, parent_message_id: sourceMessageId || null } : {}),
       })
       .select('id')
       .single();
@@ -277,14 +330,38 @@ export async function POST(request: NextRequest) {
     const latestUserMessageId = userMessageRow?.id ?? null;
 
     // Fetch conversation history for context
-    const { data: history } = await supabase
-      .from('messages')
-      .select('role, content')
-      .eq('conversation_id', activeConversationId)
-      .order('created_at', { ascending: true })
-      .limit(50);
+    let messages;
+    if (activeThreadId) {
+      const { data: mainHistory } = await supabase
+        .from('messages')
+        .select('role, content')
+        .eq('conversation_id', activeConversationId)
+        .is('thread_id', null)
+        .order('created_at', { ascending: true })
+        .limit(50);
 
-    const messages = history || [{ role: 'user', content: message }];
+      const { data: threadHistory } = await supabase
+        .from('messages')
+        .select('role, content')
+        .eq('thread_id', activeThreadId)
+        .order('created_at', { ascending: true })
+        .limit(30);
+
+      messages = [...(mainHistory || []), ...(threadHistory || [])];
+      if (messages.length === 0) {
+        messages = [{ role: 'user', content: message }];
+      }
+    } else {
+      const { data: history } = await supabase
+        .from('messages')
+        .select('role, content')
+        .eq('conversation_id', activeConversationId)
+        .is('thread_id', null)
+        .order('created_at', { ascending: true })
+        .limit(50);
+
+      messages = history || [{ role: 'user', content: message }];
+    }
 
     const isMentorConversation = !!mentor;
 
@@ -300,12 +377,24 @@ export async function POST(request: NextRequest) {
     const searchAvailable = Boolean(process.env.TAVILY_API_KEY);
 
     // Build Novus or mentor system prompt.
-    const baseSystemPrompt = isMentorConversation
+    let baseSystemPrompt = isMentorConversation
       ? buildMentorSystemPrompt(
           buildMentorPrompt(mentor!, profile?.full_name || ''),
           memoryContext
         )
       : buildSystemPrompt(memoryContext);
+
+    // Use highlighted text from request, or from the ownership check prefetch.
+    const threadHighlightedText = highlightedText || existingThreadHighlightedText;
+    if (activeThreadId && threadHighlightedText) {
+      const sanitizedText = threadHighlightedText.slice(0, 300).replace(/"/g, "'");
+      if (concise) {
+        baseSystemPrompt += `\n\nThe user has highlighted the phrase "${sanitizedText}" from the conversation and is asking about it. Respond in 2-3 sentences. Be direct and definitional.`;
+      } else {
+        baseSystemPrompt += `\n\nThe user is exploring a concept from the main conversation. The highlighted phrase was: "${sanitizedText}". Respond conversationally.`;
+      }
+    }
+
     const modelMessages = messages.map((m) => ({
       role: m.role as 'user' | 'assistant',
       content: m.content,
@@ -404,12 +493,13 @@ Live web search is unavailable in this environment. If the question depends on f
     const assistantResponse = applySearchDisclosure(assistantText, search);
 
     // Save assistant message
-    const { error: assistantMsgError } = await supabase.from('messages').insert({
+    const { data: assistantMessageRow, error: assistantMsgError } = await supabase.from('messages').insert({
       conversation_id: activeConversationId,
       user_id: user.id,
       role: 'assistant',
       content: assistantResponse,
-    });
+      ...(activeThreadId ? { thread_id: activeThreadId, parent_message_id: sourceMessageId || null } : {}),
+    }).select('id').single();
 
     if (assistantMsgError) {
       console.error('Error saving assistant message:', assistantMsgError);
@@ -432,6 +522,9 @@ Live web search is unavailable in this environment. If the question depends on f
       message: assistantResponse,
       conversationId: activeConversationId,
       mentorId: mentor?.id ?? null,
+      threadId: activeThreadId,
+      userMessageId: latestUserMessageId,
+      assistantMessageId: assistantMessageRow?.id ?? null,
       search,
     });
   } catch (error) {
