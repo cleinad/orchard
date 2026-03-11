@@ -605,17 +605,17 @@ function HomePageInner() {
   const activeName = activeMentor?.name || 'Novus';
 
   return (
-    <div className="relative h-screen overflow-hidden bg-background text-foreground">
+    <div className="relative flex h-dvh min-h-0 flex-col overflow-hidden bg-background text-foreground">
       <HomeBackground />
 
       <main
-        className={`relative flex h-screen flex-col transition-[padding] duration-300 ease-out ${
+        className={`relative flex min-h-0 flex-1 flex-col transition-[padding] duration-300 ease-out ${
           // Desktop: when the left sidebar is open, push the chat area right (ChatGPT-style).
           sidePanelOpen ? 'lg:pl-[380px]' : ''
         } ${threadPanelOpen ? 'lg:pr-[460px]' : ''}`}
       >
         {/* Full-width header: stretches left/right on desktop while content stays constrained below. */}
-        <div className="w-full px-6">
+        <div className="w-full shrink-0 px-6">
           <HomeHeader
             activeName={activeName}
             onOpenSidePanel={() => setSidePanelOpen(true)}
@@ -623,22 +623,20 @@ function HomePageInner() {
           />
         </div>
 
-        {/* Constrained content: keeps the chat UI at max width. */}
-        <div className="relative mx-auto flex w-full max-w-2xl flex-1 flex-col px-6">
+        {/* Conversation area — scrollbar sits at the right edge of main */}
+        <div
+          ref={containerRef}
+          onScroll={handleScroll}
+          className="relative min-h-0 flex-1 overflow-y-auto"
+          style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(0,0,0,0.08) transparent' }}
+        >
+          <div className="mx-auto max-w-2xl px-6 pb-4">
 
           {(loadingLists || listError) && (
             <div className="mb-4 rounded-lg bg-surface px-4 py-2 text-xs text-muted shadow-sm">
               {loadingLists ? 'Loading chats and mentors...' : listError}
             </div>
           )}
-
-          {/* Conversation area */}
-          <div
-            ref={containerRef}
-            onScroll={handleScroll}
-            className="flex-1 overflow-y-auto pb-4 pr-2"
-            style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(0,0,0,0.08) transparent' }}
-          >
             {messages.length === 0 ? (
               <div className="flex h-full min-h-[50vh] flex-col items-center justify-center px-4">
                 <div className="text-center">
@@ -688,9 +686,11 @@ function HomePageInner() {
               </div>
             )}
           </div>
+        </div>
 
-          {/* Input area */}
-          <div className="sticky bottom-0 pb-6 pt-2">
+        {/* Input area */}
+        <div className="mx-auto w-full max-w-2xl px-6">
+          <div className="shrink-0 pb-6 pt-2">
           {/* Live transcript preview */}
           {hasTranscript && !isLoading && (
             <div className="mb-3 rounded-lg bg-surface px-4 py-2 text-sm text-muted shadow-sm">
