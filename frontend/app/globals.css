@@ -2,6 +2,14 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+@font-face {
+  font-family: "Satoshi";
+  src: url("./fonts/Satoshi-Variable.woff2") format("woff2");
+  font-weight: 300 900;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   --background: #f8f8f6;
   --foreground: #1c1917;
@@ -9,6 +17,7 @@
   --muted: #78716c;
   --accent: #64748B;
   --border-subtle: rgba(0, 0, 0, 0.04);
+  --font-body: "Satoshi", system-ui, sans-serif;
 }
 
 .dark {
@@ -32,7 +41,7 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-body), system-ui, sans-serif;
+  font-family: var(--font-body);
 }
 
 .font-heading {
