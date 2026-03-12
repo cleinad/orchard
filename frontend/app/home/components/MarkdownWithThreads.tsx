@@ -5,10 +5,17 @@ import {
   Fragment,
   cloneElement,
   isValidElement,
+  useEffect,
+  useRef,
+  useState,
   type ComponentPropsWithoutRef,
   type ReactElement,
   type ReactNode,
 } from "react";
+import {
+  markdownRehypePlugins,
+  markdownRemarkPlugins,
+} from "@/lib/markdown";
 
 export interface ThreadMeta {
   threadId: string;
@@ -20,6 +27,146 @@ interface MarkdownWithThreadsProps {
   content: string;
   threads: ThreadMeta[];
   onThreadClick: (thread: ThreadMeta) => void;
+}
+
+type PreProps = ComponentPropsWithoutRef<"pre"> & { node?: unknown };
+
+const LANGUAGE_LABELS: Record<string, string> = {
+  bash: "Bash",
+  css: "CSS",
+  html: "HTML",
+  javascript: "JavaScript",
+  js: "JavaScript",
+  json: "JSON",
+  jsx: "JSX",
+  markdown: "Markdown",
+  md: "Markdown",
+  plaintext: "Plain text",
+  py: "Python",
+  python: "Python",
+  shell: "Shell",
+  sh: "Shell",
+  sql: "SQL",
+  text: "Plain text",
+  ts: "TypeScript",
+  tsx: "TSX",
+  typescript: "TypeScript",
+  yaml: "YAML",
+  yml: "YAML",
+};
+
+function formatLanguageLabel(language: string | null) {
+  if (!language) return "Plain text";
+
+  const normalized = language.toLowerCase();
+  const knownLabel = LANGUAGE_LABELS[normalized];
+  if (knownLabel) return knownLabel;
+
+  return normalized
+    .replace(/[-_]/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function extractCodeText(children: ReactNode): string {
+  if (typeof children === "string") return children;
+  if (typeof children === "number") return String(children);
+
+  if (Array.isArray(children)) {
+    return children.map(extractCodeText).join("");
+  }
+
+  if (isValidElement(children)) {
+    const element = children as ReactElement<{ children?: ReactNode }>;
+    return extractCodeText(element.props.children);
+  }
+
+  return "";
+}
+
+function findCodeElement(children: ReactNode): ReactElement<{ className?: string; children?: ReactNode }> | null {
+  if (isValidElement(children)) {
+    return children as ReactElement<{ className?: string; children?: ReactNode }>;
+  }
+
+  if (!Array.isArray(children)) return null;
+
+  for (const child of children) {
+    if (isValidElement(child)) {
+      return child as ReactElement<{ className?: string; children?: ReactNode }>;
+    }
+  }
+
+  return null;
+}
+
+function extractLanguage(children: ReactNode): string | null {
+  const codeElement = findCodeElement(children);
+  if (!codeElement) return null;
+
+  const className = codeElement.props.className || "";
+  const match = /language-([\w-]+)/.exec(className);
+  return match?.[1] ?? null;
+}
+
+function CodeBlock({ children, className, ...props }: PreProps) {
+  const [copied, setCopied] = useState(false);
+  const resetTimerRef = useRef<number | null>(null);
+  const codeText = extractCodeText(children).replace(/\n$/, "");
+  const language = extractLanguage(children);
+  const languageLabel = formatLanguageLabel(language);
+
+  useEffect(() => {
+    return () => {
+      if (resetTimerRef.current) {
+        window.clearTimeout(resetTimerRef.current);
+      }
+    };
+  }, []);
+
+  const handleCopy = async () => {
+    if (!codeText) return;
+
+    try {
+      await navigator.clipboard.writeText(codeText);
+      setCopied(true);
+
+      if (resetTimerRef.current) {
+        window.clearTimeout(resetTimerRef.current);
+      }
+
+      resetTimerRef.current = window.setTimeout(() => {
+        setCopied(false);
+      }, 1800);
+    } catch {
+      setCopied(false);
+    }
+  };
+
+  return (
+    <div className="code-block">
+      <div className="code-block__header">
+        <div className="code-block__meta">
+          <span className="code-block__traffic" aria-hidden="true">
+            <span className="code-block__traffic-dot code-block__traffic-dot--love" />
+            <span className="code-block__traffic-dot code-block__traffic-dot--gold" />
+            <span className="code-block__traffic-dot code-block__traffic-dot--foam" />
+          </span>
+          <span className="code-block__language">{languageLabel}</span>
+        </div>
+        <button
+          type="button"
+          className="code-block__copy"
+          onClick={handleCopy}
+          aria-label={copied ? "Code copied" : `Copy ${languageLabel} code`}
+        >
+          {copied ? "Copied" : "Copy"}
+        </button>
+      </div>
+      <pre {...props} className={className}>
+        {children}
+      </pre>
+    </div>
+  );
 }
 
 function ThreadIndicator({
@@ -124,21 +271,24 @@ export default function MarkdownWithThreads({
   threads,
   onThreadClick,
 }: MarkdownWithThreadsProps) {
-  if (threads.length === 0) {
-    return <ReactMarkdown>{content}</ReactMarkdown>;
-  }
-
   return (
     <ReactMarkdown
+      remarkPlugins={markdownRemarkPlugins}
+      rehypePlugins={markdownRehypePlugins}
       components={{
-        p: ({ children, ...props }: ComponentPropsWithoutRef<"p">) => {
-          const processed = processChildren(children, threads, onThreadClick, "p");
-          return <p {...props}>{processed}</p>;
-        },
-        li: ({ children, ...props }: ComponentPropsWithoutRef<"li">) => {
-          const processed = processChildren(children, threads, onThreadClick, "li");
-          return <li {...props}>{processed}</li>;
-        },
+        pre: CodeBlock,
+        ...(threads.length > 0
+          ? {
+              p: ({ children, ...props }: ComponentPropsWithoutRef<"p">) => {
+                const processed = processChildren(children, threads, onThreadClick, "p");
+                return <p {...props}>{processed}</p>;
+              },
+              li: ({ children, ...props }: ComponentPropsWithoutRef<"li">) => {
+                const processed = processChildren(children, threads, onThreadClick, "li");
+                return <li {...props}>{processed}</li>;
+              },
+            }
+          : undefined),
       }}
     >
       {content}
@@ -174,10 +324,19 @@ function processChildren(
   }
 
   if (isValidElement(children)) {
-    const element = children as ReactElement<{ children?: ReactNode }>;
+    const element = children as ReactElement<{ children?: ReactNode; className?: string }>;
     const elementType = typeof element.type === "string" ? element.type : null;
+    const classNames =
+      typeof element.props.className === "string" ? element.props.className.split(/\s+/) : [];
 
-    if (elementType === "code" || elementType === "pre") {
+    if (
+      elementType === "code" ||
+      elementType === "pre" ||
+      elementType === "math" ||
+      elementType === "annotation" ||
+      classNames.includes("hljs") ||
+      classNames.some((className) => className.startsWith("katex"))
+    ) {
       return children;
     }
 

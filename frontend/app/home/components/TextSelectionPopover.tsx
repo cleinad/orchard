@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import ReactMarkdown from "react-markdown";
+import MarkdownWithThreads from "@/app/home/components/MarkdownWithThreads";
+import { markdownContentClassName } from "@/lib/markdown";
 
 export interface PopoverState {
   x: number;
@@ -180,8 +181,12 @@ export default function TextSelectionPopover({
 
       {response && !isLoading && (
         <>
-          <div className="text-sm leading-relaxed text-foreground [&_p]:mb-2 [&_p:last-child]:mb-0 [&_ul]:mb-2 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:mb-2 [&_ol]:ml-4 [&_ol]:list-decimal [&_li]:mb-0.5 [&_code]:rounded [&_code]:bg-stone-100 [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-xs [&_code]:text-stone-700 dark:[&_code]:bg-stone-800 dark:[&_code]:text-stone-300">
-            <ReactMarkdown>{response}</ReactMarkdown>
+          <div className={`${markdownContentClassName} text-sm leading-relaxed text-foreground`}>
+            <MarkdownWithThreads
+              content={response}
+              threads={[]}
+              onThreadClick={() => {}}
+            />
           </div>
 
           <form onSubmit={handleFollowUp} className="mt-3">

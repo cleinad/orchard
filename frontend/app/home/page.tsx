@@ -19,6 +19,7 @@ import { LearningModeProvider, useLearningMode } from '@/app/home/components/Lea
 import TextSelectionPopover, { type PopoverState } from '@/app/home/components/TextSelectionPopover';
 import ThreadPanel from '@/app/home/components/ThreadPanel';
 import MarkdownWithThreads, { type ThreadMeta } from '@/app/home/components/MarkdownWithThreads';
+import { markdownContentClassName } from '@/lib/markdown';
 
 export interface Message {
   id: string;
@@ -694,7 +695,7 @@ function HomePageInner() {
                         {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </span>
                     </div>
-                    <div className="mt-2 text-base leading-relaxed text-foreground [&_p]:mb-4 [&_p:last-child]:mb-0 [&_ul]:mb-4 [&_ul]:ml-5 [&_ul]:list-disc [&_ol]:mb-4 [&_ol]:ml-5 [&_ol]:list-decimal [&_li]:mb-1 [&_code]:rounded [&_code]:bg-stone-100 [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:text-sm [&_code]:text-stone-700 dark:[&_code]:bg-stone-800 dark:[&_code]:text-stone-300 [&_pre]:my-4 [&_pre]:rounded-lg [&_pre]:bg-stone-100 [&_pre]:p-4 dark:[&_pre]:bg-stone-800">
+                    <div className={`${markdownContentClassName} mt-2 text-base leading-relaxed text-foreground`}>
                       <MarkdownWithThreads
                         content={message.content}
                         threads={threadsMap.get(message.id) || []}

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import MarkdownWithThreads from "@/app/home/components/MarkdownWithThreads";
+import { markdownContentClassName } from "@/lib/markdown";
 
 interface ThreadMessage {
   id: string;
@@ -270,7 +271,7 @@ export default function ThreadPanel({
               <span className="text-xs font-medium tracking-wider text-muted">
                 {message.role === "user" ? "You" : "Thread"}
               </span>
-              <div className="mt-1 text-sm leading-relaxed text-foreground [&_p]:mb-3 [&_p:last-child]:mb-0 [&_ul]:mb-3 [&_ul]:ml-5 [&_ul]:list-disc [&_ol]:mb-3 [&_ol]:ml-5 [&_ol]:list-decimal [&_li]:mb-1 [&_code]:rounded [&_code]:bg-stone-100 [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:text-xs [&_code]:text-stone-700 dark:[&_code]:bg-stone-800 dark:[&_code]:text-stone-300">
+              <div className={`${markdownContentClassName} mt-1 text-sm leading-relaxed text-foreground`}>
                 <MarkdownWithThreads
                   content={message.content}
                   threads={[]}
