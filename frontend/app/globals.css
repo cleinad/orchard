@@ -348,6 +348,8 @@ body {
   animation: shimmer 2s linear infinite;
 }
 
+/* ::highlight() styles moved to runtime injection in useHomeThreads (Turbopack parser doesn't support this pseudo-element) */
+
 .text-selection-popover-anchor {
   anchor-name: --text-selection-popover-anchor;
 }

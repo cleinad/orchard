@@ -1,12 +1,48 @@
-import { useCallback, useState, type RefObject } from 'react';
+import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 import type { PopoverState } from '@/app/home/components/TextSelectionPopover';
 import type { ThreadMeta } from '@/app/home/components/MarkdownWithThreads';
 import type { ThreadMessage } from '@/app/home/components/ThreadPanel';
+
+const ACTIVE_SELECTION_HIGHLIGHT = 'novus-active-selection';
+
+const HIGHLIGHT_STYLE_ID = 'novus-active-selection-styles';
+
+/** Inject ::highlight() CSS at runtime; build CSS parser (Turbopack) doesn't support this pseudo-element. */
+function ensureHighlightStylesInjected() {
+  if (typeof document === 'undefined' || document.getElementById(HIGHLIGHT_STYLE_ID)) return;
+  const style = document.createElement('style');
+  style.id = HIGHLIGHT_STYLE_ID;
+  style.textContent = `
+::highlight(${ACTIVE_SELECTION_HIGHLIGHT}) {
+  background-color: color-mix(in srgb, var(--accent) 28%, transparent);
+}
+.dark::highlight(${ACTIVE_SELECTION_HIGHLIGHT}) {
+  background-color: color-mix(in srgb, var(--accent) 36%, transparent);
+}`;
+  document.head.appendChild(style);
+}
 
 interface ActiveThread {
   id: string;
   highlightedText: string;
   sourceMessageId: string;
+}
+
+function getHighlightRegistry() {
+  if (
+    typeof CSS === 'undefined'
+    || typeof Highlight === 'undefined'
+    || !('highlights' in CSS)
+  ) {
+    return null;
+  }
+
+  return (CSS as typeof CSS & {
+    highlights?: {
+      set: (name: string, highlight: Highlight) => void;
+      delete: (name: string) => void;
+    };
+  }).highlights ?? null;
 }
 
 export function useHomeThreads(
@@ -19,18 +55,49 @@ export function useHomeThreads(
   const [threadPanelInitialMessages, setThreadPanelInitialMessages] =
     useState<ThreadMessage[] | null>(null);
   const [pendingThreadMessage, setPendingThreadMessage] = useState<string | null>(null);
+  const highlightedRangeRef = useRef<Range | null>(null);
+
+  const clearPersistentHighlight = useCallback(() => {
+    highlightedRangeRef.current = null;
+    getHighlightRegistry()?.delete(ACTIVE_SELECTION_HIGHLIGHT);
+  }, []);
+
+  const setPersistentHighlight = useCallback((range: Range) => {
+    const nextRange = range.cloneRange();
+    highlightedRangeRef.current = nextRange;
+
+    const highlightRegistry = getHighlightRegistry();
+    if (!highlightRegistry) {
+      return;
+    }
+
+    highlightRegistry.set(ACTIVE_SELECTION_HIGHLIGHT, new Highlight(nextRange));
+  }, []);
+
+  // Inject ::highlight() styles at runtime (not parsed by build)
+  useEffect(() => {
+    ensureHighlightStylesInjected();
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      clearPersistentHighlight();
+    };
+  }, [clearPersistentHighlight]);
 
   const resetThreadUi = useCallback(() => {
+    clearPersistentHighlight();
     setPopoverState(null);
     setActiveThread(null);
     setThreadPanelOpen(false);
     setThreadPanelInitialMessages(null);
     setPendingThreadMessage(null);
-  }, []);
+  }, [clearPersistentHighlight]);
 
   const dismissPopover = useCallback(() => {
+    clearPersistentHighlight();
     setPopoverState(null);
-  }, []);
+  }, [clearPersistentHighlight]);
 
   const handlePointerUp = useCallback(() => {
     if (!learningMode) {
@@ -85,6 +152,7 @@ export function useHomeThreads(
     );
     const rect = clientRects[0] ?? range.getBoundingClientRect();
     const containerRect = scrollContainer.getBoundingClientRect();
+    setPersistentHighlight(range);
 
     setPopoverState({
       anchorRect: {
@@ -96,7 +164,7 @@ export function useHomeThreads(
       selectedText,
       sourceMessageId: messageId,
     });
-  }, [learningMode, scrollContainerRef]);
+  }, [learningMode, scrollContainerRef, setPersistentHighlight]);
 
   const handleGraduateToThread = useCallback(
     (
@@ -108,13 +176,14 @@ export function useHomeThreads(
         initialMessages?: ThreadMessage[];
       }
     ) => {
+      clearPersistentHighlight();
       setActiveThread({ id: threadId, highlightedText, sourceMessageId });
       setThreadPanelInitialMessages(options?.initialMessages || null);
       setPendingThreadMessage(options?.pendingMessage || null);
       setThreadPanelOpen(true);
       setPopoverState(null);
     },
-    []
+    [clearPersistentHighlight]
   );
 
   const handleThreadClick = useCallback((thread: ThreadMeta) => {
