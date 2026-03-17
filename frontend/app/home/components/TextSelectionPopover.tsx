@@ -1,12 +1,22 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useLayoutEffect } from "react";
 import MarkdownWithThreads from "@/app/home/components/MarkdownWithThreads";
 import { markdownContentClassName } from "@/lib/markdown";
+import type { ThreadMessage } from "@/app/home/components/ThreadPanel";
+
+const LARGE_RESPONSE_CHAR_LIMIT = 350;
+const LARGE_RESPONSE_MAX_HEIGHT = 240;
+const LARGE_RESPONSE_MAX_VIEWPORT_RATIO = 0.4;
+const COMPLEX_MARKDOWN_PATTERN = /```|(?:^|\n)#{1,6}\s|(?:^|\n)\|.+\|/m;
 
 export interface PopoverState {
-  x: number;
-  y: number;
+  anchorRect: {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  };
   selectedText: string;
   sourceMessageId: string;
 }
@@ -16,7 +26,44 @@ interface TextSelectionPopoverProps {
   conversationId: string | null;
   onDismiss: () => void;
   onThreadCreated: (threadId: string, sourceMessageId: string, highlightedText: string) => void;
-  onGraduateToThread: (threadId: string, sourceMessageId: string, highlightedText: string, pendingMessage?: string) => void;
+  onGraduateToThread: (
+    threadId: string,
+    sourceMessageId: string,
+    highlightedText: string,
+    options?: {
+      pendingMessage?: string;
+      initialMessages?: ThreadMessage[];
+    }
+  ) => void;
+}
+
+function shouldAutoGraduateImmediately(content: string) {
+  const normalized = content.trim();
+  return normalized.length > LARGE_RESPONSE_CHAR_LIMIT || COMPLEX_MARKDOWN_PATTERN.test(normalized);
+}
+
+function buildInitialMessages(
+  question: string,
+  response: string,
+  userMessageId?: string | null,
+  assistantMessageId?: string | null
+): ThreadMessage[] {
+  const now = Date.now();
+
+  return [
+    {
+      id: userMessageId || now.toString(),
+      role: "user",
+      content: question,
+      timestamp: new Date(now),
+    },
+    {
+      id: assistantMessageId || (now + 1).toString(),
+      role: "assistant",
+      content: response,
+      timestamp: new Date(now + 1),
+    },
+  ];
 }
 
 export default function TextSelectionPopover({
@@ -31,8 +78,26 @@ export default function TextSelectionPopover({
   const [threadId, setThreadId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [followUpInput, setFollowUpInput] = useState("");
+  const [responseSeedMessages, setResponseSeedMessages] = useState<ThreadMessage[] | null>(null);
+  const [responseThreadId, setResponseThreadId] = useState<string | null>(null);
+  const [fallbackPlacement, setFallbackPlacement] = useState<"top" | "bottom">("top");
+  const [supportsNativePopover, setSupportsNativePopover] = useState(false);
+  const [supportsAnchorPositioning, setSupportsAnchorPositioning] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
+  const anchorRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const responseBodyRef = useRef<HTMLDivElement>(null);
+  const useNativePopover = supportsNativePopover && supportsAnchorPositioning;
+
+  useEffect(() => {
+    setSupportsNativePopover(typeof HTMLDivElement !== "undefined" && "showPopover" in HTMLDivElement.prototype);
+    setSupportsAnchorPositioning(
+      typeof CSS !== "undefined"
+      && CSS.supports("position-anchor: --text-selection-popover-anchor")
+      && CSS.supports("position-area: top")
+      && CSS.supports("position-try-order: most-height")
+    );
+  }, []);
 
   // Reset state when popover closes or selection changes
   const prevSelectionKey = useRef<string | null>(null);
@@ -47,13 +112,15 @@ export default function TextSelectionPopover({
       setThreadId(null);
       setIsLoading(false);
       setFollowUpInput("");
+      setResponseSeedMessages(null);
+      setResponseThreadId(null);
+      setFallbackPlacement("top");
     }
     prevSelectionKey.current = key;
   }, [popoverState]);
 
-  // Click outside to dismiss
   useEffect(() => {
-    if (!popoverState) return;
+    if (!popoverState || useNativePopover) return;
 
     const handleClickOutside = (e: MouseEvent) => {
       if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
@@ -65,22 +132,64 @@ export default function TextSelectionPopover({
       if (e.key === "Escape") onDismiss();
     };
 
-    const timer = setTimeout(() => {
+    const timer = window.setTimeout(() => {
       document.addEventListener("mousedown", handleClickOutside);
       document.addEventListener("keydown", handleEscape);
     }, 100);
 
     return () => {
-      clearTimeout(timer);
+      window.clearTimeout(timer);
       document.removeEventListener("mousedown", handleClickOutside);
       document.removeEventListener("keydown", handleEscape);
     };
-  }, [popoverState, onDismiss]);
+  }, [popoverState, useNativePopover, onDismiss]);
 
-  if (!popoverState) return null;
+  useEffect(() => {
+    if (!popoverState || !useNativePopover || !popoverRef.current) return;
+
+    const popoverEl = popoverRef.current;
+    const handleToggle = (event: Event) => {
+      const toggleEvent = event as ToggleEvent;
+      if (toggleEvent.newState === "closed") {
+        onDismiss();
+      }
+    };
+
+    popoverEl.addEventListener("toggle", handleToggle);
+
+    return () => {
+      popoverEl.removeEventListener("toggle", handleToggle);
+    };
+  }, [popoverState, useNativePopover, onDismiss]);
+
+  useEffect(() => {
+    if (!popoverState || !useNativePopover || !popoverRef.current) return;
+
+    const popoverEl = popoverRef.current as HTMLDivElement & {
+      showPopover?: (options?: { source?: HTMLElement }) => void;
+    };
+    const anchorEl = anchorRef.current ?? undefined;
+
+    if (!popoverEl.matches(":popover-open")) {
+      popoverEl.showPopover?.(anchorEl ? { source: anchorEl } : undefined);
+    }
+  }, [popoverState, useNativePopover]);
+
+  useEffect(() => {
+    if (!popoverState || response || isLoading) return;
+
+    const timer = window.setTimeout(() => {
+      inputRef.current?.focus();
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [popoverState, response, isLoading]);
 
   const sendQuestion = async (question: string) => {
-    if (!conversationId || isLoading) return;
+    const activePopoverState = popoverState;
+    if (!conversationId || !activePopoverState || isLoading) return;
 
     setIsLoading(true);
     try {
@@ -90,8 +199,8 @@ export default function TextSelectionPopover({
         body: JSON.stringify({
           message: question,
           conversationId,
-          sourceMessageId: popoverState.sourceMessageId,
-          highlightedText: popoverState.selectedText,
+          sourceMessageId: activePopoverState.sourceMessageId,
+          highlightedText: activePopoverState.selectedText,
           concise: true,
           ...(threadId ? { threadId } : {}),
         }),
@@ -99,11 +208,38 @@ export default function TextSelectionPopover({
 
       const data = await res.json();
       if (res.ok && data.message) {
-        setResponse(data.message);
+        const nextThreadId = data.threadId || threadId || null;
+        const initialMessages = buildInitialMessages(
+          question,
+          data.message,
+          data.userMessageId,
+          data.assistantMessageId
+        );
+
         if (data.threadId && !threadId) {
           setThreadId(data.threadId);
-          onThreadCreated(data.threadId, popoverState.sourceMessageId, popoverState.selectedText);
+          onThreadCreated(
+            data.threadId,
+            activePopoverState.sourceMessageId,
+            activePopoverState.selectedText
+          );
         }
+
+        if (nextThreadId && shouldAutoGraduateImmediately(data.message)) {
+          onGraduateToThread(
+            nextThreadId,
+            activePopoverState.sourceMessageId,
+            activePopoverState.selectedText,
+            {
+              initialMessages,
+            }
+          );
+          return;
+        }
+
+        setResponse(data.message);
+        setResponseSeedMessages(nextThreadId ? initialMessages : null);
+        setResponseThreadId(nextThreadId);
       } else {
         setResponse(data.error || "Something went wrong.");
       }
@@ -115,6 +251,7 @@ export default function TextSelectionPopover({
   };
 
   const handleDefine = () => {
+    if (!popoverState) return;
     sendQuestion(`What is "${popoverState.selectedText}"?`);
   };
 
@@ -127,79 +264,170 @@ export default function TextSelectionPopover({
 
   const handleFollowUp = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!popoverState) return;
     if (followUpInput.trim() && threadId) {
-      const pendingText = followUpInput.trim();
-      onDismiss();
-      onGraduateToThread(threadId, popoverState.sourceMessageId, popoverState.selectedText, pendingText);
+      onGraduateToThread(
+        threadId,
+        popoverState.sourceMessageId,
+        popoverState.selectedText,
+        {
+          pendingMessage: followUpInput.trim(),
+          initialMessages: responseSeedMessages || undefined,
+        }
+      );
     }
   };
 
-  const style: React.CSSProperties = {
-    position: "fixed",
-    left: popoverState.x,
-    top: popoverState.y,
-    transform: "translate(-50%, -100%)",
-    zIndex: 60,
+  useLayoutEffect(() => {
+    if (!popoverState || supportsAnchorPositioning) return;
+
+    const popoverEl = popoverRef.current;
+    if (!popoverEl) return;
+    const scrollContainer =
+      popoverEl.offsetParent instanceof HTMLElement ? popoverEl.offsetParent : null;
+    const visibleTop = scrollContainer?.scrollTop ?? 0;
+    const visibleBottom = visibleTop + (scrollContainer?.clientHeight ?? window.innerHeight);
+
+    const gap = 12;
+    const popoverHeight = popoverEl.getBoundingClientRect().height;
+    const availableAbove = popoverState.anchorRect.top - visibleTop;
+    const anchorBottom = popoverState.anchorRect.top + popoverState.anchorRect.height;
+    const availableBelow = visibleBottom - anchorBottom;
+    const canFitAbove = availableAbove >= popoverHeight + gap;
+    const canFitBelow = availableBelow >= popoverHeight + gap;
+
+    setFallbackPlacement(!canFitAbove && (canFitBelow || availableBelow > availableAbove) ? "bottom" : "top");
+  }, [popoverState, response, isLoading, supportsAnchorPositioning]);
+
+  useLayoutEffect(() => {
+    if (!popoverState || !response || isLoading || !responseThreadId || !responseSeedMessages) return;
+
+    const answerEl = responseBodyRef.current;
+    const popoverEl = popoverRef.current;
+    if (!answerEl || !popoverEl) return;
+    const scrollContainer =
+      popoverEl.offsetParent instanceof HTMLElement ? popoverEl.offsetParent : null;
+    const viewportHeight = scrollContainer?.clientHeight ?? window.innerHeight;
+
+    const maxAnswerHeight = Math.min(
+      LARGE_RESPONSE_MAX_HEIGHT,
+      Math.round(viewportHeight * LARGE_RESPONSE_MAX_VIEWPORT_RATIO)
+    );
+    const maxPopoverHeight = Math.round(viewportHeight * 0.45);
+
+    if (
+      answerEl.scrollHeight > maxAnswerHeight
+      || popoverEl.getBoundingClientRect().height > maxPopoverHeight
+    ) {
+      onGraduateToThread(
+        responseThreadId,
+        popoverState.sourceMessageId,
+        popoverState.selectedText,
+        {
+          initialMessages: responseSeedMessages,
+        }
+      );
+    }
+  }, [response, isLoading, responseThreadId, responseSeedMessages, onGraduateToThread, popoverState]);
+
+  if (!popoverState) return null;
+
+  const fallbackStyle: React.CSSProperties | undefined = supportsAnchorPositioning
+    ? undefined
+    : {
+        position: "absolute",
+        left: popoverState.anchorRect.left + popoverState.anchorRect.width / 2,
+        top: fallbackPlacement === "top"
+          ? popoverState.anchorRect.top
+          : popoverState.anchorRect.top + popoverState.anchorRect.height,
+        transform: fallbackPlacement === "top"
+          ? "translate(-50%, calc(-100% - 12px))"
+          : "translate(-50%, 12px)",
+        zIndex: 60,
+      };
+
+  const anchorStyle: React.CSSProperties = {
+    position: "absolute",
+    left: popoverState.anchorRect.left,
+    top: popoverState.anchorRect.top,
+    width: Math.max(popoverState.anchorRect.width, 1),
+    height: Math.max(popoverState.anchorRect.height, 1),
   };
 
   return (
-    <div ref={popoverRef} style={style} className="w-80 rounded-xl bg-surface p-4 shadow-lg ring-1 ring-black/[0.08] dark:ring-white/[0.08]">
-      <p className="mb-3 text-xs text-muted/60 line-clamp-2">
-        &ldquo;{popoverState.selectedText}&rdquo;
-      </p>
+    <>
+      <div
+        ref={anchorRef}
+        aria-hidden="true"
+        style={anchorStyle}
+        className="text-selection-popover-anchor pointer-events-none"
+      />
+      <div
+        ref={popoverRef}
+        popover={useNativePopover ? "auto" : undefined}
+        style={fallbackStyle}
+        className="text-selection-popover w-[min(20rem,calc(100vw-1rem))] rounded-xl border-none bg-surface p-4 text-foreground shadow-lg ring-1 ring-black/[0.08] outline-none dark:ring-white/[0.08]"
+      >
+        <p className="mb-3 line-clamp-2 text-xs text-muted/60">
+          &ldquo;{popoverState.selectedText}&rdquo;
+        </p>
 
-      {!response && !isLoading && (
-        <>
-          <button
-            type="button"
-            onClick={handleDefine}
-            className="mb-2 w-full rounded-lg bg-foreground/5 px-3 py-2 text-left text-sm font-medium text-foreground transition hover:bg-foreground/10"
-          >
-            Define
-          </button>
+        {!response && !isLoading && (
+          <>
+            <button
+              type="button"
+              onClick={handleDefine}
+              className="mb-2 w-full rounded-lg bg-foreground/5 px-3 py-2 text-left text-sm font-medium text-foreground transition hover:bg-foreground/10"
+            >
+              Define
+            </button>
 
-          <form onSubmit={handleCustomSubmit}>
-            <input
-              ref={inputRef}
-              type="text"
-              value={customQuestion}
-              onChange={(e) => setCustomQuestion(e.target.value)}
-              placeholder="Ask something about this..."
-              className="w-full rounded-lg bg-foreground/5 px-3 py-2 text-sm text-foreground placeholder-muted/50 outline-none focus:ring-1 focus:ring-foreground/10"
-            />
-          </form>
-        </>
-      )}
+            <form onSubmit={handleCustomSubmit}>
+              <input
+                ref={inputRef}
+                type="text"
+                value={customQuestion}
+                onChange={(e) => setCustomQuestion(e.target.value)}
+                placeholder="Ask something about this..."
+                className="w-full rounded-lg bg-foreground/5 px-3 py-2 text-sm text-foreground placeholder-muted/50 outline-none focus:ring-1 focus:ring-foreground/10"
+              />
+            </form>
+          </>
+        )}
 
-      {isLoading && (
-        <div className="flex items-center gap-1.5 py-2">
-          <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted/40" style={{ animationDelay: "0ms" }} />
-          <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted/40" style={{ animationDelay: "150ms" }} />
-          <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted/40" style={{ animationDelay: "300ms" }} />
-        </div>
-      )}
-
-      {response && !isLoading && (
-        <>
-          <div className={`${markdownContentClassName} text-sm leading-relaxed text-foreground`}>
-            <MarkdownWithThreads
-              content={response}
-              threads={[]}
-              onThreadClick={() => {}}
-            />
+        {isLoading && (
+          <div className="flex items-center gap-1.5 py-2">
+            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted/40" style={{ animationDelay: "0ms" }} />
+            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted/40" style={{ animationDelay: "150ms" }} />
+            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted/40" style={{ animationDelay: "300ms" }} />
           </div>
+        )}
 
-          <form onSubmit={handleFollowUp} className="mt-3">
-            <input
-              type="text"
-              value={followUpInput}
-              onChange={(e) => setFollowUpInput(e.target.value)}
-              placeholder="Ask a follow-up..."
-              className="w-full rounded-lg bg-foreground/5 px-3 py-2 text-sm text-foreground placeholder-muted/50 outline-none focus:ring-1 focus:ring-foreground/10"
-            />
-          </form>
-        </>
-      )}
-    </div>
+        {response && !isLoading && (
+          <>
+            <div
+              ref={responseBodyRef}
+              className={`${markdownContentClassName} text-sm leading-relaxed text-foreground`}
+            >
+              <MarkdownWithThreads
+                content={response}
+                threads={[]}
+                onThreadClick={() => {}}
+              />
+            </div>
+
+            <form onSubmit={handleFollowUp} className="mt-3">
+              <input
+                type="text"
+                value={followUpInput}
+                onChange={(e) => setFollowUpInput(e.target.value)}
+                placeholder="Ask a follow-up..."
+                className="w-full rounded-lg bg-foreground/5 px-3 py-2 text-sm text-foreground placeholder-muted/50 outline-none focus:ring-1 focus:ring-foreground/10"
+              />
+            </form>
+          </>
+        )}
+      </div>
+    </>
   );
 }

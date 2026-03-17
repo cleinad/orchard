@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import MarkdownWithThreads from "@/app/home/components/MarkdownWithThreads";
 import { markdownContentClassName } from "@/lib/markdown";
 
-interface ThreadMessage {
+export interface ThreadMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
@@ -28,6 +28,7 @@ interface ThreadPanelProps {
   isOpen: boolean;
   thread: ThreadInfo | null;
   conversationId: string | null;
+  initialMessages?: ThreadMessage[] | null;
   pendingMessage?: string | null;
   onPendingMessageConsumed?: () => void;
   onClose: () => void;
@@ -79,6 +80,7 @@ export default function ThreadPanel({
   isOpen,
   thread,
   conversationId,
+  initialMessages,
   pendingMessage,
   onPendingMessageConsumed,
   onClose,
@@ -100,7 +102,7 @@ export default function ThreadPanel({
       return;
     }
 
-    setMessages([]);
+    setMessages(initialMessages || []);
     let cancelled = false;
 
     const loadMessages = async () => {
@@ -123,7 +125,7 @@ export default function ThreadPanel({
     return () => {
       cancelled = true;
     };
-  }, [thread, isOpen]);
+  }, [thread, isOpen, initialMessages]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
