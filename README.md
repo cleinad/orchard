@@ -74,9 +74,3 @@ uv run uvicorn main:app --reload --ws wsproto
 ```
 
 Runs at [http://localhost:8000](http://localhost:8000).
-
-### general roadmap
-- theme customization like monkeytype
-- trace the tree exactly to provide exact context
-- output prompt for development at the end
-- choose your model
