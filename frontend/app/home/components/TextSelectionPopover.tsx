@@ -175,18 +175,6 @@ export default function TextSelectionPopover({
     }
   }, [popoverState, useNativePopover]);
 
-  useEffect(() => {
-    if (!popoverState || response || isLoading) return;
-
-    const timer = window.setTimeout(() => {
-      inputRef.current?.focus();
-    }, 0);
-
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [popoverState, response, isLoading]);
-
   const sendQuestion = async (question: string) => {
     const activePopoverState = popoverState;
     if (!conversationId || !activePopoverState || isLoading) return;
@@ -332,6 +320,15 @@ export default function TextSelectionPopover({
 
   if (!popoverState) return null;
 
+  const handleMouseDownCapture = (e: React.MouseEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement;
+    if (target.closest("input, textarea, [contenteditable='true'], .markdown-content")) {
+      return;
+    }
+
+    e.preventDefault();
+  };
+
   const fallbackStyle: React.CSSProperties | undefined = supportsAnchorPositioning
     ? undefined
     : {
@@ -365,6 +362,7 @@ export default function TextSelectionPopover({
       <div
         ref={popoverRef}
         popover={useNativePopover ? "auto" : undefined}
+        onMouseDownCapture={handleMouseDownCapture}
         style={fallbackStyle}
         className="text-selection-popover w-[min(20rem,calc(100vw-1rem))] rounded-xl border-none bg-surface p-4 text-foreground shadow-lg ring-1 ring-black/[0.08] outline-none dark:ring-white/[0.08]"
       >
