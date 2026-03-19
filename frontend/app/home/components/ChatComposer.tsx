@@ -135,31 +135,6 @@ export default function ChatComposer({
 
         <form onSubmit={onSubmit} className="relative">
           <div className="flex items-end gap-0 rounded-lg bg-surface px-3 py-1.5 shadow-sm ring-1 ring-black/[0.04] dark:ring-white/[0.06]">
-            <button
-              type="button"
-              onClick={onToggleMic}
-              disabled={isLoading}
-              className={`mr-3 flex-shrink-0 rounded-lg p-2 transition-colors ${
-                micActive
-                  ? 'text-foreground'
-                  : 'text-muted/50 hover:text-muted'
-              } disabled:cursor-not-allowed disabled:opacity-50`}
-            >
-              <svg
-                className="h-5 w-5"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z"
-                />
-              </svg>
-            </button>
-
             <textarea
               ref={textareaRef}
               value={input}
@@ -172,25 +147,53 @@ export default function ChatComposer({
               style={{ maxHeight: '200px' }}
             />
 
-            <button
-              type="submit"
-              disabled={!input.trim() || isLoading}
-              className="ml-2 flex-shrink-0 rounded-lg bg-foreground p-2 text-background transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-20"
-            >
-              <svg
-                className="h-4 w-4"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                viewBox="0 0 24 24"
+            <div className="flex flex-shrink-0 items-center gap-1.5">
+              <button
+                type="button"
+                onClick={onToggleMic}
+                disabled={isLoading}
+                aria-label={micActive ? 'Stop microphone' : 'Start microphone'}
+                className={`rounded-md p-1.5 transition-colors ${
+                  micActive
+                    ? 'text-foreground'
+                    : 'text-muted/50 hover:text-muted'
+                } disabled:cursor-not-allowed disabled:opacity-50`}
               >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M5 10l7-7m0 0l7 7m-7-7v18"
-                />
-              </svg>
-            </button>
+                <svg
+                  className="h-4 w-4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z"
+                  />
+                </svg>
+              </button>
+
+              <button
+                type="submit"
+                disabled={!input.trim() || isLoading}
+                className="rounded-md bg-foreground p-1.5 text-background transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-20"
+              >
+                <svg
+                  className="h-4 w-4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M5 10l7-7m0 0l7 7m-7-7v18"
+                  />
+                </svg>
+              </button>
+            </div>
           </div>
 
           <div className="mt-3 flex items-center justify-between gap-3 px-1">
