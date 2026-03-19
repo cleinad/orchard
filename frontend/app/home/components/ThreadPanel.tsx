@@ -1,8 +1,15 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import type { Message } from "@/app/home/types";
 import MarkdownWithThreads from "@/app/home/components/MarkdownWithThreads";
 import { markdownContentClassName } from "@/lib/markdown";
+import {
+  createTemporaryId,
+  toChatHistory,
+  type ChatMode,
+  type TemporaryMemoryMode,
+} from "@/lib/chat-session";
 
 export interface ThreadMessage {
   id: string;
@@ -27,9 +34,16 @@ interface ThreadInfo {
 interface ThreadPanelProps {
   isOpen: boolean;
   thread: ThreadInfo | null;
+  chatMode: ChatMode;
   conversationId: string | null;
+  mentorId?: string | null;
+  memoryMode: TemporaryMemoryMode;
+  conversationMessages: Message[];
   initialMessages?: ThreadMessage[] | null;
+  temporaryMessages?: ThreadMessage[] | null;
+  temporaryChatEnabled: boolean;
   pendingMessage?: string | null;
+  onTemporaryMessagesChange?: (threadId: string, messages: ThreadMessage[]) => void;
   onPendingMessageConsumed?: () => void;
   onClose: () => void;
 }
@@ -79,9 +93,16 @@ function toSnippet(text: string, maxLength = 88): string {
 export default function ThreadPanel({
   isOpen,
   thread,
+  chatMode,
   conversationId,
+  mentorId,
+  memoryMode,
+  conversationMessages,
   initialMessages,
+  temporaryMessages,
+  temporaryChatEnabled,
   pendingMessage,
+  onTemporaryMessagesChange,
   onPendingMessageConsumed,
   onClose,
 }: ThreadPanelProps) {
@@ -99,6 +120,11 @@ export default function ThreadPanel({
     if (!thread || !isOpen) {
       setMessages([]);
       setInput("");
+      return;
+    }
+
+    if (chatMode === "temporary") {
+      setMessages(temporaryMessages || initialMessages || []);
       return;
     }
 
@@ -125,7 +151,7 @@ export default function ThreadPanel({
     return () => {
       cancelled = true;
     };
-  }, [thread, isOpen, initialMessages]);
+  }, [thread, isOpen, initialMessages, chatMode, temporaryMessages]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -139,15 +165,22 @@ export default function ThreadPanel({
 
   const sendMessage = useCallback(async (overrideContent?: string) => {
     const content = overrideContent?.trim() || input.trim();
-    if (!content || !thread || !conversationId || isLoading) return;
+    const canUsePersistentThread = chatMode === "persistent" && conversationId;
+    const canSend = chatMode === "temporary" || canUsePersistentThread;
+    if (!content || !thread || !canSend || isLoading) return;
+
     const userMessage: ThreadMessage = {
-      id: Date.now().toString(),
+      id: chatMode === "temporary" ? createTemporaryId("message") : Date.now().toString(),
       role: "user",
       content,
       timestamp: new Date(),
     };
+    const optimisticMessages = [...messages, userMessage];
 
-    setMessages((prev) => [...prev, userMessage]);
+    setMessages(optimisticMessages);
+    if (chatMode === "temporary") {
+      onTemporaryMessagesChange?.(thread.id, optimisticMessages);
+    }
     setInput("");
     setIsLoading(true);
 
@@ -157,15 +190,29 @@ export default function ThreadPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: content,
-          conversationId,
+          conversationId: chatMode === "persistent" ? conversationId : undefined,
+          mentorId: mentorId ?? undefined,
           threadId: thread.id,
+          sourceMessageId: thread.sourceMessageId,
+          highlightedText: thread.highlightedText,
+          chatMode,
+          ...(chatMode === "temporary"
+            ? {
+                memoryMode,
+                history: toChatHistory(conversationMessages),
+                threadHistory: toChatHistory(messages),
+              }
+            : {}),
         }),
       });
 
       const data = await res.json();
       if (res.ok && data.message) {
         const assistantMessage: ThreadMessage = {
-          id: data.assistantMessageId || (Date.now() + 1).toString(),
+          id:
+            chatMode === "temporary"
+              ? createTemporaryId("message")
+              : data.assistantMessageId || (Date.now() + 1).toString(),
           role: "assistant",
           content: data.message,
           timestamp: new Date(),
@@ -176,34 +223,68 @@ export default function ThreadPanel({
                 message.id === userMessage.id ? { ...message, id: data.userMessageId } : message
               )
             : prev;
-          return [...updated, assistantMessage];
+          const nextMessages = [...updated, assistantMessage];
+          if (chatMode === "temporary") {
+            onTemporaryMessagesChange?.(thread.id, nextMessages);
+          }
+          return nextMessages;
         });
       } else {
         const errMessage: ThreadMessage = {
-          id: (Date.now() + 1).toString(),
+          id:
+            chatMode === "temporary"
+              ? createTemporaryId("message")
+              : (Date.now() + 1).toString(),
           role: "assistant",
           content: data.error || "Something went wrong.",
           timestamp: new Date(),
         };
-        setMessages((prev) => [...prev, errMessage]);
+        setMessages((prev) => {
+          const nextMessages = [...prev, errMessage];
+          if (chatMode === "temporary") {
+            onTemporaryMessagesChange?.(thread.id, nextMessages);
+          }
+          return nextMessages;
+        });
       }
     } catch {
       const errorMessage: ThreadMessage = {
-        id: (Date.now() + 1).toString(),
+        id:
+          chatMode === "temporary"
+            ? createTemporaryId("message")
+            : (Date.now() + 1).toString(),
         role: "assistant",
         content: "Something went wrong.",
         timestamp: new Date(),
       };
-      setMessages((prev) => [...prev, errorMessage]);
+      setMessages((prev) => {
+        const nextMessages = [...prev, errorMessage];
+        if (chatMode === "temporary") {
+          onTemporaryMessagesChange?.(thread.id, nextMessages);
+        }
+        return nextMessages;
+      });
     } finally {
       setIsLoading(false);
     }
-  }, [input, thread, conversationId, isLoading]);
+  }, [
+    chatMode,
+    conversationId,
+    conversationMessages,
+    input,
+    isLoading,
+    memoryMode,
+    mentorId,
+    messages,
+    onTemporaryMessagesChange,
+    thread,
+  ]);
 
   // Auto-send pending message from popover graduation
   const pendingHandled = useRef(false);
   useEffect(() => {
-    if (pendingMessage && isOpen && thread && conversationId && !pendingHandled.current) {
+    const canUseChat = chatMode === "temporary" || conversationId;
+    if (pendingMessage && isOpen && thread && canUseChat && !pendingHandled.current) {
       pendingHandled.current = true;
       sendMessage(pendingMessage);
       onPendingMessageConsumed?.();
@@ -211,7 +292,7 @@ export default function ThreadPanel({
     if (!pendingMessage) {
       pendingHandled.current = false;
     }
-  }, [pendingMessage, isOpen, thread, conversationId, sendMessage, onPendingMessageConsumed]);
+  }, [pendingMessage, isOpen, thread, conversationId, chatMode, sendMessage, onPendingMessageConsumed]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -238,9 +319,16 @@ export default function ThreadPanel({
       >
         <div className="flex items-start justify-between border-b border-black/[0.06] px-6 py-4 dark:border-white/[0.06]">
           <div className="min-w-0 flex-1">
-            <p className="text-xs font-medium tracking-wider text-muted/60">
-              {activeQuestion ? "FOLLOW-UP" : "THREAD"}
-            </p>
+            <div className="flex items-center gap-2">
+              <p className="text-xs font-medium tracking-wider text-muted/60">
+                {activeQuestion ? "FOLLOW-UP" : "THREAD"}
+              </p>
+              {temporaryChatEnabled && (
+                <span className="inline-flex items-center rounded-full border border-slate-500/20 bg-[#C9CDD3] px-2 py-0.5 text-[10px] font-medium text-slate-900 dark:border-white/10 dark:bg-stone-800 dark:text-stone-100">
+                  Temporary
+                </span>
+              )}
+            </div>
             {headerTitle && (
               <p className="mt-1 text-sm text-foreground line-clamp-2">
                 &ldquo;{headerTitle}&rdquo;

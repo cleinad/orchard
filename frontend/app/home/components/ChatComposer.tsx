@@ -5,6 +5,7 @@ FormEventHandler,
 } from 'react';
 import type { MicStatus } from '@/app/home/components/useMicrophone';
 import type { TranscriptStatus } from '@/app/home/components/useTranscription';
+import type { TemporaryMemoryMode } from '@/lib/chat-session';
 
 interface ChatComposerProps {
   activeName: string;
@@ -13,6 +14,9 @@ interface ChatComposerProps {
   micActive: boolean;
   ttsEnabled: boolean;
   searchEnabled: boolean;
+  temporaryChatEnabled: boolean;
+  showTemporaryIntro: boolean;
+  temporaryMemoryMode: TemporaryMemoryMode;
   finalTranscript: string;
   interimTranscript: string;
   transcriptionStatus: TranscriptStatus;
@@ -31,6 +35,7 @@ interface ChatComposerProps {
   onToggleMic: () => void;
   onToggleTts: () => void;
   onToggleSearch: () => void;
+  onTemporaryMemoryModeChange: (mode: TemporaryMemoryMode) => void;
   onSubmit: FormEventHandler<HTMLFormElement>;
   onKeyDown: KeyboardEventHandler<HTMLTextAreaElement>;
 }
@@ -53,6 +58,9 @@ export default function ChatComposer({
   micActive,
   ttsEnabled,
   searchEnabled,
+  temporaryChatEnabled,
+  showTemporaryIntro,
+  temporaryMemoryMode,
   finalTranscript,
   interimTranscript,
   transcriptionStatus,
@@ -71,14 +79,64 @@ export default function ChatComposer({
   onToggleMic,
   onToggleTts,
   onToggleSearch,
+  onTemporaryMemoryModeChange,
   onSubmit,
   onKeyDown,
 }: ChatComposerProps) {
   const hasTranscript = finalTranscript.length > 0 || interimTranscript.length > 0;
+  const temporaryModeHelperText =
+    temporaryMemoryMode === 'use_existing'
+      ? 'Novus can use saved memories for context, but nothing from this chat is retained.'
+      : 'Novus will not read or save any memory for this chat.';
 
   return (
     <div className="mx-auto w-full max-w-2xl px-6">
       <div className="shrink-0 pb-6 pt-2">
+        {temporaryChatEnabled && showTemporaryIntro && (
+          <div className="mb-3 rounded-2xl border border-black/[0.05] bg-[#FAF7F3] px-4 py-4 text-stone-800 shadow-sm dark:border-white/10 dark:bg-stone-900 dark:text-stone-100">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium">Temporary chat is on.</p>
+                <p className="mt-1 text-xs text-stone-600 dark:text-stone-300">
+                  This conversation won&apos;t be saved.
+                </p>
+              </div>
+              <span className="inline-flex items-center rounded-full border border-black/[0.05] bg-white px-2.5 py-1 text-[11px] font-medium text-stone-700 dark:border-white/10 dark:bg-white/10 dark:text-stone-100">
+                Temporary
+              </span>
+            </div>
+
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => onTemporaryMemoryModeChange('use_existing')}
+                className={`inline-flex items-center rounded-full px-3 py-1.5 text-xs font-medium transition ${
+                  temporaryMemoryMode === 'use_existing'
+                    ? 'bg-white text-stone-800 shadow-sm ring-1 ring-black/[0.06] dark:bg-[#D9DCE1] dark:text-stone-900 dark:ring-0'
+                    : 'bg-[#F4EEE7] text-stone-700 hover:bg-white dark:bg-white/10 dark:text-stone-300 dark:hover:bg-white/15'
+                }`}
+              >
+                Use memories
+              </button>
+              <button
+                type="button"
+                onClick={() => onTemporaryMemoryModeChange('off')}
+                className={`inline-flex items-center rounded-full px-3 py-1.5 text-xs font-medium transition ${
+                  temporaryMemoryMode === 'off'
+                    ? 'bg-white text-stone-800 shadow-sm ring-1 ring-black/[0.06] dark:bg-[#D9DCE1] dark:text-stone-900 dark:ring-0'
+                    : 'bg-[#F4EEE7] text-stone-700 hover:bg-white dark:bg-white/10 dark:text-stone-300 dark:hover:bg-white/15'
+                }`}
+              >
+                No memory
+              </button>
+            </div>
+
+            <p className="mt-3 text-xs leading-relaxed text-stone-600 dark:text-stone-300">
+              {temporaryModeHelperText}
+            </p>
+          </div>
+        )}
+
         {hasTranscript && !isLoading && (
           <div className="mb-3 rounded-lg bg-surface px-4 py-2 text-sm text-muted shadow-sm">
             <span className="text-xs font-medium tracking-wider text-muted/60">

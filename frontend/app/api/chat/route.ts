@@ -15,6 +15,11 @@ import {
 } from '@/lib/chat-search';
 import { runWebSearch, webSearch, type WebSearchToolOutput } from '@/lib/tools';
 import { buildMentorPrompt } from '@/lib/mentors/prompts';
+import type {
+  ChatHistoryMessage,
+  ChatMode,
+  TemporaryMemoryMode,
+} from '@/lib/chat-session';
 
 const BASE_SYSTEM_PROMPT = `You are Novus, a voice-native thinking partner. You help the user think through problems with depth, capture their thoughts, and stay on top of their commitments.
 
@@ -90,6 +95,24 @@ ${formatSearchResultsForPrompt(output)}
 </web_search_results>`;
 }
 
+function sanitizeHistoryMessages(input: unknown, maxItems: number): ChatHistoryMessage[] {
+  if (!Array.isArray(input)) return [];
+
+  return input
+    .filter((item): item is ChatHistoryMessage => {
+      if (!item || typeof item !== 'object') return false;
+      const role = (item as { role?: unknown }).role;
+      const content = (item as { content?: unknown }).content;
+      return (role === 'user' || role === 'assistant') && typeof content === 'string';
+    })
+    .map((item) => ({
+      role: item.role,
+      content: item.content.trim().slice(0, 8_000),
+    }))
+    .filter((item) => item.content.length > 0)
+    .slice(-maxItems);
+}
+
 interface ChatRequest {
   message: string;
   conversationId?: string;
@@ -99,6 +122,10 @@ interface ChatRequest {
   highlightedText?: string;
   concise?: boolean;
   searchEnabled?: boolean;
+  chatMode?: ChatMode;
+  memoryMode?: TemporaryMemoryMode;
+  history?: ChatHistoryMessage[];
+  threadHistory?: ChatHistoryMessage[];
 }
 
 export async function POST(request: NextRequest) {
@@ -125,7 +152,14 @@ export async function POST(request: NextRequest) {
       highlightedText,
       concise,
       searchEnabled = false,
+      chatMode = 'persistent',
+      memoryMode = 'use_existing',
+      history,
+      threadHistory,
     } = body;
+    const isTemporaryChat = chatMode === 'temporary';
+    const sanitizedHistory = sanitizeHistoryMessages(history, 50);
+    const sanitizedThreadHistory = sanitizeHistoryMessages(threadHistory, 30);
 
     if (!message?.trim()) {
       return NextResponse.json(
@@ -134,7 +168,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    let activeConversationId = conversationId;
+    let activeConversationId = isTemporaryChat ? null : conversationId ?? null;
 
     const { data: profile } = await supabase
       .from('profiles')
@@ -164,110 +198,112 @@ export async function POST(request: NextRequest) {
       mentor = mentorRow;
     }
 
-    // Validate an existing conversation, and infer mentor context when possible.
-    if (activeConversationId) {
-      const { data: existingConversation, error: conversationError } = await supabase
-        .from('conversations')
-        .select('id, mentor_id')
-        .eq('id', activeConversationId)
-        .eq('user_id', user.id)
-        .single();
-
-      if (conversationError || !existingConversation) {
-        return NextResponse.json(
-          { error: 'Conversation not found' },
-          { status: 404 }
-        );
-      }
-
-      if (mentor && existingConversation.mentor_id !== mentor.id) {
-        return NextResponse.json(
-          { error: 'Conversation does not match the selected mentor' },
-          { status: 400 }
-        );
-      }
-
-      if (!mentor && existingConversation.mentor_id) {
-        const { data: mentorFromConversation } = await supabase
-          .from('mentors')
-          .select('id, base_system_prompt, user_instructions, model_id')
-          .eq('id', existingConversation.mentor_id)
+    if (!isTemporaryChat) {
+      // Validate an existing conversation, and infer mentor context when possible.
+      if (activeConversationId) {
+        const { data: existingConversation, error: conversationError } = await supabase
+          .from('conversations')
+          .select('id, mentor_id')
+          .eq('id', activeConversationId)
           .eq('user_id', user.id)
-          .maybeSingle();
+          .single();
 
-        if (mentorFromConversation) {
-          mentor = mentorFromConversation;
+        if (conversationError || !existingConversation) {
+          return NextResponse.json(
+            { error: 'Conversation not found' },
+            { status: 404 }
+          );
+        }
+
+        if (mentor && existingConversation.mentor_id !== mentor.id) {
+          return NextResponse.json(
+            { error: 'Conversation does not match the selected mentor' },
+            { status: 400 }
+          );
+        }
+
+        if (!mentor && existingConversation.mentor_id) {
+          const { data: mentorFromConversation } = await supabase
+            .from('mentors')
+            .select('id, base_system_prompt, user_instructions, model_id')
+            .eq('id', existingConversation.mentor_id)
+            .eq('user_id', user.id)
+            .maybeSingle();
+
+          if (mentorFromConversation) {
+            mentor = mentorFromConversation;
+          }
         }
       }
-    }
 
-    // Create or reuse conversation when none is provided.
-    if (!activeConversationId) {
-      if (mentor) {
-        const { data: existingMentorConversation } = await supabase
-          .from('conversations')
-          .select('id')
-          .eq('user_id', user.id)
-          .eq('mentor_id', mentor.id)
-          .maybeSingle();
+      // Create or reuse conversation when none is provided.
+      if (!activeConversationId) {
+        if (mentor) {
+          const { data: existingMentorConversation } = await supabase
+            .from('conversations')
+            .select('id')
+            .eq('user_id', user.id)
+            .eq('mentor_id', mentor.id)
+            .maybeSingle();
 
-        if (existingMentorConversation) {
-          activeConversationId = existingMentorConversation.id;
+          if (existingMentorConversation) {
+            activeConversationId = existingMentorConversation.id;
+          } else {
+            const { data: conversation, error: convError } = await supabase
+              .from('conversations')
+              .insert({
+                user_id: user.id,
+                title: message.slice(0, 100),
+                mentor_id: mentor.id,
+              })
+              .select('id')
+              .single();
+
+            if (convError || !conversation) {
+              // Another request may have created it first (unique index on user_id + mentor_id).
+              if (convError?.code === '23505') {
+                const { data: retriedConversation } = await supabase
+                  .from('conversations')
+                  .select('id')
+                  .eq('user_id', user.id)
+                  .eq('mentor_id', mentor.id)
+                  .maybeSingle();
+
+                if (retriedConversation) {
+                  activeConversationId = retriedConversation.id;
+                }
+              }
+
+              if (!activeConversationId) {
+                console.error('Error creating mentor conversation:', convError);
+                return NextResponse.json(
+                  { error: 'Failed to create conversation' },
+                  { status: 500 }
+                );
+              }
+            }
+
+            if (conversation?.id) {
+              activeConversationId = conversation.id;
+            }
+          }
         } else {
           const { data: conversation, error: convError } = await supabase
             .from('conversations')
-            .insert({
-              user_id: user.id,
-              title: message.slice(0, 100),
-              mentor_id: mentor.id,
-            })
+            .insert({ user_id: user.id, title: message.slice(0, 100) })
             .select('id')
             .single();
 
           if (convError || !conversation) {
-            // Another request may have created it first (unique index on user_id + mentor_id).
-            if (convError?.code === '23505') {
-              const { data: retriedConversation } = await supabase
-                .from('conversations')
-                .select('id')
-                .eq('user_id', user.id)
-                .eq('mentor_id', mentor.id)
-                .maybeSingle();
-
-              if (retriedConversation) {
-                activeConversationId = retriedConversation.id;
-              }
-            }
-
-            if (!activeConversationId) {
-              console.error('Error creating mentor conversation:', convError);
-              return NextResponse.json(
-                { error: 'Failed to create conversation' },
-                { status: 500 }
-              );
-            }
+            console.error('Error creating conversation:', convError);
+            return NextResponse.json(
+              { error: 'Failed to create conversation' },
+              { status: 500 }
+            );
           }
 
-          if (conversation?.id) {
-            activeConversationId = conversation.id;
-          }
+          activeConversationId = conversation.id;
         }
-      } else {
-        const { data: conversation, error: convError } = await supabase
-          .from('conversations')
-          .insert({ user_id: user.id, title: message.slice(0, 100) })
-          .select('id')
-          .single();
-
-        if (convError || !conversation) {
-          console.error('Error creating conversation:', convError);
-          return NextResponse.json(
-            { error: 'Failed to create conversation' },
-            { status: 500 }
-          );
-        }
-
-        activeConversationId = conversation.id;
       }
     }
 
@@ -276,62 +312,80 @@ export async function POST(request: NextRequest) {
 
     // Validate thread ownership and prefetch highlighted text in one query
     let existingThreadHighlightedText: string | null = null;
-    if (activeThreadId) {
-      const { data: existingThread, error: threadCheckError } = await supabase
-        .from('threads')
-        .select('id, highlighted_text')
-        .eq('id', activeThreadId)
-        .eq('user_id', user.id)
-        .single();
+    if (!isTemporaryChat) {
+      if (activeThreadId) {
+        const { data: existingThread, error: threadCheckError } = await supabase
+          .from('threads')
+          .select('id, highlighted_text')
+          .eq('id', activeThreadId)
+          .eq('user_id', user.id)
+          .single();
 
-      if (threadCheckError || !existingThread) {
-        return NextResponse.json({ error: 'Thread not found' }, { status: 404 });
+        if (threadCheckError || !existingThread) {
+          return NextResponse.json({ error: 'Thread not found' }, { status: 404 });
+        }
+        existingThreadHighlightedText = existingThread.highlighted_text || null;
       }
-      existingThreadHighlightedText = existingThread.highlighted_text || null;
+
+      if (!activeThreadId && sourceMessageId && highlightedText) {
+        const { data: threadRow, error: threadError } = await supabase
+          .from('threads')
+          .insert({
+            conversation_id: activeConversationId,
+            source_message_id: sourceMessageId,
+            highlighted_text: highlightedText,
+            user_id: user.id,
+          })
+          .select('id')
+          .single();
+
+        if (threadError || !threadRow) {
+          console.error('Error creating thread:', threadError);
+          return NextResponse.json({ error: 'Failed to create thread' }, { status: 500 });
+        }
+
+        activeThreadId = threadRow.id;
+      }
+    } else {
+      existingThreadHighlightedText = highlightedText || null;
     }
 
-    if (!activeThreadId && sourceMessageId && highlightedText) {
-      const { data: threadRow, error: threadError } = await supabase
-        .from('threads')
+    let latestUserMessageId: string | null = null;
+
+    if (!isTemporaryChat) {
+      // Save user message
+      const { data: userMessageRow, error: userMsgError } = await supabase
+        .from('messages')
         .insert({
           conversation_id: activeConversationId,
-          source_message_id: sourceMessageId,
-          highlighted_text: highlightedText,
           user_id: user.id,
+          role: 'user',
+          content: message,
+          ...(activeThreadId
+            ? { thread_id: activeThreadId, parent_message_id: sourceMessageId || null }
+            : {}),
         })
         .select('id')
         .single();
 
-      if (threadError || !threadRow) {
-        console.error('Error creating thread:', threadError);
-        return NextResponse.json({ error: 'Failed to create thread' }, { status: 500 });
+      if (userMsgError) {
+        console.error('Error saving user message:', userMsgError);
       }
 
-      activeThreadId = threadRow.id;
+      latestUserMessageId = userMessageRow?.id ?? null;
     }
-
-    // Save user message
-    const { data: userMessageRow, error: userMsgError } = await supabase
-      .from('messages')
-      .insert({
-        conversation_id: activeConversationId,
-        user_id: user.id,
-        role: 'user',
-        content: message,
-        ...(activeThreadId ? { thread_id: activeThreadId, parent_message_id: sourceMessageId || null } : {}),
-      })
-      .select('id')
-      .single();
-
-    if (userMsgError) {
-      console.error('Error saving user message:', userMsgError);
-    }
-
-    const latestUserMessageId = userMessageRow?.id ?? null;
 
     // Fetch conversation history for context
-    let messages;
-    if (activeThreadId) {
+    let messages: Array<{ role: string; content: string }>;
+    if (isTemporaryChat) {
+      messages = activeThreadId
+        ? [
+            ...sanitizedHistory,
+            ...sanitizedThreadHistory,
+            { role: 'user', content: message },
+          ]
+        : [...sanitizedHistory, { role: 'user', content: message }];
+    } else if (activeThreadId) {
       const { data: mainHistory } = await supabase
         .from('messages')
         .select('role, content')
@@ -340,14 +394,14 @@ export async function POST(request: NextRequest) {
         .order('created_at', { ascending: true })
         .limit(50);
 
-      const { data: threadHistory } = await supabase
+      const { data: persistedThreadHistory } = await supabase
         .from('messages')
         .select('role, content')
         .eq('thread_id', activeThreadId)
         .order('created_at', { ascending: true })
         .limit(30);
 
-      messages = [...(mainHistory || []), ...(threadHistory || [])];
+      messages = [...(mainHistory || []), ...(persistedThreadHistory || [])];
       if (messages.length === 0) {
         messages = [{ role: 'user', content: message }];
       }
@@ -365,13 +419,16 @@ export async function POST(request: NextRequest) {
 
     const isMentorConversation = !!mentor;
 
-    const memoryContext = await loadMemoryContextV2(supabase, user.id, {
-      actor: isMentorConversation ? 'mentor' : 'novus',
-      mentorId: mentor?.id ?? null,
-      query: message,
-      tokenBudget: isMentorConversation ? 900 : 1100,
-      maxItems: isMentorConversation ? 24 : 30,
-    });
+    const shouldLoadMemory = !isTemporaryChat || memoryMode === 'use_existing';
+    const memoryContext = shouldLoadMemory
+      ? await loadMemoryContextV2(supabase, user.id, {
+          actor: isMentorConversation ? 'mentor' : 'novus',
+          mentorId: mentor?.id ?? null,
+          query: message,
+          tokenBudget: isMentorConversation ? 900 : 1100,
+          maxItems: isMentorConversation ? 24 : 30,
+        })
+      : '';
 
     const searchMode: SearchMode = searchEnabled ? 'required' : 'auto';
     const searchAvailable = Boolean(process.env.TAVILY_API_KEY);
@@ -492,31 +549,44 @@ Live web search is unavailable in this environment. If the question depends on f
 
     const assistantResponse = applySearchDisclosure(assistantText, search);
 
-    // Save assistant message
-    const { data: assistantMessageRow, error: assistantMsgError } = await supabase.from('messages').insert({
-      conversation_id: activeConversationId,
-      user_id: user.id,
-      role: 'assistant',
-      content: assistantResponse,
-      ...(activeThreadId ? { thread_id: activeThreadId, parent_message_id: sourceMessageId || null } : {}),
-    }).select('id').single();
+    let assistantMessageId: string | null = null;
+    if (!isTemporaryChat) {
+      // Save assistant message
+      const { data: assistantMessageRow, error: assistantMsgError } = await supabase
+        .from('messages')
+        .insert({
+          conversation_id: activeConversationId,
+          user_id: user.id,
+          role: 'assistant',
+          content: assistantResponse,
+          ...(activeThreadId
+            ? { thread_id: activeThreadId, parent_message_id: sourceMessageId || null }
+            : {}),
+        })
+        .select('id')
+        .single();
 
-    if (assistantMsgError) {
-      console.error('Error saving assistant message:', assistantMsgError);
+      if (assistantMsgError) {
+        console.error('Error saving assistant message:', assistantMsgError);
+      }
+
+      assistantMessageId = assistantMessageRow?.id ?? null;
     }
 
-    after(async () => {
-      try {
-        await processMemoryV2(user.id, messages, assistantResponse, {
-          conversationId: activeConversationId,
-          mentorId: mentor?.id ?? null,
-          sourceMessageId: latestUserMessageId,
-          sourceRole: 'user',
-        });
-      } catch (err) {
-        console.error('[Memory V2] Error:', err);
-      }
-    });
+    if (!isTemporaryChat) {
+      after(async () => {
+        try {
+          await processMemoryV2(user.id, messages, assistantResponse, {
+            conversationId: activeConversationId,
+            mentorId: mentor?.id ?? null,
+            sourceMessageId: latestUserMessageId,
+            sourceRole: 'user',
+          });
+        } catch (err) {
+          console.error('[Memory V2] Error:', err);
+        }
+      });
+    }
 
     return NextResponse.json({
       message: assistantResponse,
@@ -524,7 +594,7 @@ Live web search is unavailable in this environment. If the question depends on f
       mentorId: mentor?.id ?? null,
       threadId: activeThreadId,
       userMessageId: latestUserMessageId,
-      assistantMessageId: assistantMessageRow?.id ?? null,
+      assistantMessageId,
       search,
     });
   } catch (error) {

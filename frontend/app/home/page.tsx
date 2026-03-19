@@ -9,6 +9,7 @@ import ConversationView from '@/app/home/components/ConversationView';
 import { useHomeData } from '@/app/home/components/useHomeData';
 import { useHomeThreads } from '@/app/home/components/useHomeThreads';
 import { useHomeVoice } from '@/app/home/components/useHomeVoice';
+import type { ThreadMeta } from '@/app/home/components/MarkdownWithThreads';
 import type { SearchMetadata } from '@/lib/chat-search';
 import type { MentorListItem } from '@/lib/mentors/types';
 import { type ConversationListItem } from '@/app/home/components/ConversationsPanel';
@@ -17,8 +18,14 @@ import MentorDetailPanel from '@/app/home/components/MentorDetailPanel';
 import CreateMentorPanel from '@/app/home/components/CreateMentorPanel';
 import { LearningModeProvider, useLearningMode } from '@/app/home/components/LearningModeContext';
 import TextSelectionPopover from '@/app/home/components/TextSelectionPopover';
-import ThreadPanel from '@/app/home/components/ThreadPanel';
+import ThreadPanel, { type ThreadMessage } from '@/app/home/components/ThreadPanel';
 import type { Message } from '@/app/home/types';
+import {
+  createTemporaryId,
+  toChatHistory,
+  type ChatMode,
+  type TemporaryMemoryMode,
+} from '@/lib/chat-session';
 
 interface ChatResponse {
   message?: string;
@@ -51,6 +58,16 @@ function HomePageInner() {
   const [isLoading, setIsLoading] = useState(false);
   const [searchEnabled, setSearchEnabled] = useState(false);
   const [lastSearchState, setLastSearchState] = useState<SearchMetadata | null>(null);
+  const [chatMode, setChatMode] = useState<ChatMode>('persistent');
+  const [temporaryMemoryMode, setTemporaryMemoryMode] =
+    useState<TemporaryMemoryMode>('use_existing');
+  const [temporaryMessages, setTemporaryMessages] = useState<Message[]>([]);
+  const [temporaryThreadsMap, setTemporaryThreadsMap] = useState<Map<string, ThreadMeta[]>>(
+    new Map()
+  );
+  const [temporaryThreadMessages, setTemporaryThreadMessages] = useState<
+    Map<string, ThreadMessage[]>
+  >(new Map());
 
   const [sidePanelOpen, setSidePanelOpen] = useState(false);
   const [detailMentorSlug, setDetailMentorSlug] = useState<string | null>(null);
@@ -80,6 +97,10 @@ function HomePageInner() {
     refreshSidebarData,
     loadConversationMessages,
   } = useHomeData();
+  const isTemporaryChat = chatMode === 'temporary';
+  const activeMessages = isTemporaryChat ? temporaryMessages : messages;
+  const activeThreadsMap = isTemporaryChat ? temporaryThreadsMap : threadsMap;
+  const activeConversationId = isTemporaryChat ? null : conversationId;
 
   const {
     micActive,
@@ -110,6 +131,51 @@ function HomePageInner() {
     closeThreadPanel,
   } = useHomeThreads(learningMode, containerRef);
   const [userHasScrolled, setUserHasScrolled] = useState(false);
+  const clearTemporaryConversationState = useCallback(() => {
+    setTemporaryMessages([]);
+    setTemporaryThreadsMap(new Map());
+    setTemporaryThreadMessages(new Map());
+  }, []);
+
+  const setTemporaryThreadMessagesForThread = useCallback(
+    (threadId: string, nextMessages: ThreadMessage[]) => {
+      setTemporaryThreadMessages((prev) => {
+        const next = new Map(prev);
+        if (nextMessages.length === 0) {
+          next.delete(threadId);
+        } else {
+          next.set(threadId, nextMessages);
+        }
+        return next;
+      });
+    },
+    []
+  );
+
+  const addThreadMeta = useCallback(
+    (threadId: string, sourceMessageId: string, highlightedText: string) => {
+      const updateMap = (prev: Map<string, ThreadMeta[]>) => {
+        const next = new Map(prev);
+        const existing = next.get(sourceMessageId) || [];
+        if (existing.some((thread) => thread.threadId === threadId)) {
+          return next;
+        }
+
+        next.set(sourceMessageId, [
+          ...existing,
+          { threadId, highlightedText, sourceMessageId },
+        ]);
+        return next;
+      };
+
+      if (isTemporaryChat) {
+        setTemporaryThreadsMap(updateMap);
+      } else {
+        setThreadsMap(updateMap);
+      }
+    },
+    [isTemporaryChat, setThreadsMap]
+  );
 
   // Auto-scroll to bottom
   const scrollToBottom = useCallback(() => {
@@ -120,7 +186,7 @@ function HomePageInner() {
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, scrollToBottom]);
+  }, [activeMessages, scrollToBottom]);
 
   useEffect(() => {
     void refreshSidebarData();
@@ -172,20 +238,33 @@ function HomePageInner() {
     tts.stop();
     resetThreadUi();
     setActiveMentor(null);
+    clearTemporaryConversationState();
     clearConversationState();
     setLastSearchState(null);
     setInput('');
     setUserHasScrolled(false);
-  }, [clearConversationState, resetThreadUi, setActiveMentor, tts]);
+  }, [
+    clearConversationState,
+    clearTemporaryConversationState,
+    resetThreadUi,
+    setActiveMentor,
+    tts,
+  ]);
 
   const handleSelectMentor = useCallback(
     async (mentor: MentorListItem) => {
       tts.stop();
       resetThreadUi();
       setActiveMentor(mentor);
+      clearTemporaryConversationState();
       setInput('');
       setLastSearchState(null);
       setUserHasScrolled(false);
+
+      if (isTemporaryChat) {
+        clearConversationState();
+        return;
+      }
 
       if (mentor.conversation_id) {
         try {
@@ -197,7 +276,16 @@ function HomePageInner() {
         clearConversationState();
       }
     },
-    [clearConversationState, loadConversationMessages, resetThreadUi, setActiveMentor, setListError, tts]
+    [
+      clearConversationState,
+      clearTemporaryConversationState,
+      isTemporaryChat,
+      loadConversationMessages,
+      resetThreadUi,
+      setActiveMentor,
+      setListError,
+      tts,
+    ]
   );
 
   // Handle ?mentor=<slug> search param from /mentors page
@@ -220,6 +308,8 @@ function HomePageInner() {
     async (conversation: ConversationListItem) => {
       tts.stop();
       resetThreadUi();
+      setChatMode('persistent');
+      clearTemporaryConversationState();
       setInput('');
       setLastSearchState(null);
       setUserHasScrolled(false);
@@ -235,8 +325,45 @@ function HomePageInner() {
         setListError(err instanceof Error ? err.message : 'Failed to load conversation');
       }
     },
-    [mentors, loadConversationMessages, resetThreadUi, tts]
+    [clearTemporaryConversationState, mentors, loadConversationMessages, resetThreadUi, tts]
   );
+
+  const handleToggleTemporaryChat = useCallback(async () => {
+    const nextMode: ChatMode = isTemporaryChat ? 'persistent' : 'temporary';
+
+    tts.stop();
+    stopMic();
+    resetThreadUi();
+    setInput('');
+    setLastSearchState(null);
+    setUserHasScrolled(false);
+    clearTemporaryConversationState();
+    clearConversationState();
+
+    if (nextMode === 'persistent') {
+      setChatMode('persistent');
+      if (activeMentor?.conversation_id) {
+        try {
+          await loadConversationMessages(activeMentor.conversation_id);
+        } catch (err) {
+          setListError(err instanceof Error ? err.message : 'Failed to load conversation');
+        }
+      }
+      return;
+    }
+
+    setChatMode('temporary');
+  }, [
+    activeMentor?.conversation_id,
+    clearConversationState,
+    clearTemporaryConversationState,
+    isTemporaryChat,
+    loadConversationMessages,
+    resetThreadUi,
+    setListError,
+    stopMic,
+    tts,
+  ]);
 
   // Send message (from text or voice)
   const sendMessage = useCallback(async (content: string) => {
@@ -250,13 +377,17 @@ function HomePageInner() {
     transcription.clearTranscript();
 
     const userMessage: Message = {
-      id: Date.now().toString(),
+      id: isTemporaryChat ? createTemporaryId('message') : Date.now().toString(),
       role: 'user',
       content: content.trim(),
       timestamp: new Date(),
     };
 
-    setMessages((prev) => [...prev, userMessage]);
+    if (isTemporaryChat) {
+      setTemporaryMessages((prev) => [...prev, userMessage]);
+    } else {
+      setMessages((prev) => [...prev, userMessage]);
+    }
     setInput('');
     setIsLoading(true);
     setLastSearchState(null);
@@ -268,9 +399,16 @@ function HomePageInner() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: userMessage.content,
-          conversationId,
+          conversationId: isTemporaryChat ? undefined : conversationId,
           mentorId: activeMentor?.id ?? undefined,
           searchEnabled,
+          chatMode,
+          ...(isTemporaryChat
+            ? {
+                memoryMode: temporaryMemoryMode,
+                history: toChatHistory(activeMessages),
+              }
+            : {}),
         }),
       });
 
@@ -278,16 +416,20 @@ function HomePageInner() {
 
       if (!response.ok || data.error) {
         const errorMessage: Message = {
-          id: (Date.now() + 1).toString(),
+          id: isTemporaryChat ? createTemporaryId('message') : (Date.now() + 1).toString(),
           role: 'assistant',
           content: `Something went wrong. ${data.error || ''}`,
           timestamp: new Date(),
         };
-        setMessages((prev) => [...prev, errorMessage]);
+        if (isTemporaryChat) {
+          setTemporaryMessages((prev) => [...prev, errorMessage]);
+        } else {
+          setMessages((prev) => [...prev, errorMessage]);
+        }
         return;
       }
 
-      if (data.conversationId && data.conversationId !== conversationId) {
+      if (!isTemporaryChat && data.conversationId && data.conversationId !== conversationId) {
         setConversationId(data.conversationId);
       }
 
@@ -296,44 +438,59 @@ function HomePageInner() {
       const responseText =
         data.message?.trim() || 'Something went wrong. The assistant returned an empty response.';
       const assistantMessage: Message = {
-        id: data.assistantMessageId || (Date.now() + 1).toString(),
+        id:
+          isTemporaryChat
+            ? createTemporaryId('message')
+            : data.assistantMessageId || (Date.now() + 1).toString(),
         role: 'assistant',
         content: responseText,
         timestamp: new Date(),
       };
 
-      // Update user message with real DB ID and add assistant message
-      setMessages((prev) => {
-        const persistedUserMessageId =
-          typeof data.userMessageId === 'string' ? data.userMessageId : null;
-        const updated = persistedUserMessageId
-          ? prev.map((m) => m.id === userMessage.id ? { ...m, id: persistedUserMessageId } : m)
-          : prev;
-        return [...updated, assistantMessage];
-      });
+      if (isTemporaryChat) {
+        setTemporaryMessages((prev) => [...prev, assistantMessage]);
+      } else {
+        // Update user message with real DB ID and add assistant message
+        setMessages((prev) => {
+          const persistedUserMessageId =
+            typeof data.userMessageId === 'string' ? data.userMessageId : null;
+          const updated = persistedUserMessageId
+            ? prev.map((m) => m.id === userMessage.id ? { ...m, id: persistedUserMessageId } : m)
+            : prev;
+          return [...updated, assistantMessage];
+        });
 
-      await refreshSidebarData();
+        await refreshSidebarData();
+      }
 
       if (ttsEnabled && responseText && !responseText.startsWith('Something went wrong')) {
         tts.speak(responseText);
       }
     } catch {
       const errorMessage: Message = {
-        id: (Date.now() + 1).toString(),
+        id: isTemporaryChat ? createTemporaryId('message') : (Date.now() + 1).toString(),
         role: 'assistant',
         content: 'Sorry, there was an error processing your message.',
         timestamp: new Date(),
       };
-      setMessages((prev) => [...prev, errorMessage]);
+      if (isTemporaryChat) {
+        setTemporaryMessages((prev) => [...prev, errorMessage]);
+      } else {
+        setMessages((prev) => [...prev, errorMessage]);
+      }
     } finally {
       setIsLoading(false);
     }
   }, [
+    activeMessages,
     activeMentor?.id,
+    chatMode,
     conversationId,
     isLoading,
+    isTemporaryChat,
     refreshSidebarData,
     searchEnabled,
+    temporaryMemoryMode,
     ttsEnabled,
     tts,
     transcription.clearTranscript,
@@ -385,15 +542,12 @@ function HomePageInner() {
     };
   }, [transcription.finalTranscript, transcription.interimTranscript, micActive, isLoading, sendMessage]);
 
-  const handleThreadCreated = useCallback((threadId: string, sourceMessageId: string, highlightedText: string) => {
-    setThreadsMap((prev) => {
-      const next = new Map(prev);
-      const existing = next.get(sourceMessageId) || [];
-      existing.push({ threadId, highlightedText, sourceMessageId });
-      next.set(sourceMessageId, existing);
-      return next;
-    });
-  }, [setThreadsMap]);
+  const handleThreadCreated = useCallback(
+    (threadId: string, sourceMessageId: string, highlightedText: string) => {
+      addThreadMeta(threadId, sourceMessageId, highlightedText);
+    },
+    [addThreadMeta]
+  );
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -411,6 +565,9 @@ function HomePageInner() {
   };
 
   const activeName = activeMentor?.name || 'Novus';
+  const activeTemporaryThreadMessages = activeThread
+    ? temporaryThreadMessages.get(activeThread.id) ?? null
+    : null;
   const searchModeHelper = searchEnabled
     ? 'Always grounds replies with current web results'
     : 'Lets the model decide when live search is needed';
@@ -420,6 +577,16 @@ function HomePageInner() {
           lastSearchState.resultCount === 1 ? 'source' : 'sources'
         }`
       : null;
+  const emptyTitle = isTemporaryChat
+    ? 'Temporary chat'
+    : activeMentor
+      ? `Talk to ${activeMentor.name}`
+      : "What's on your mind?";
+  const emptySubtitle = isTemporaryChat
+    ? 'Nothing from this conversation will be saved.'
+    : activeMentor
+      ? activeMentor.tagline
+      : "I'm Listening";
 
   return (
     <div className="relative flex h-dvh min-h-0 flex-col overflow-hidden bg-background text-foreground">
@@ -435,8 +602,13 @@ function HomePageInner() {
         <div className="w-full shrink-0 px-6">
           <HomeHeader
             activeName={activeName}
+            temporaryChatEnabled={isTemporaryChat}
+            temporaryMemoryMode={temporaryMemoryMode}
             onOpenSidePanel={() => setSidePanelOpen(true)}
             onBrowseMentors={() => router.push('/mentors')}
+            onToggleTemporaryChat={() => {
+              void handleToggleTemporaryChat();
+            }}
           />
         </div>
 
@@ -450,19 +622,25 @@ function HomePageInner() {
           <ConversationView
             loadingLists={loadingLists}
             listError={listError}
-            messages={messages}
+            messages={activeMessages}
             activeName={activeName}
-            emptyTitle={activeMentor ? `Talk to ${activeMentor.name}` : "What's on your mind?"}
-            emptySubtitle={activeMentor ? activeMentor.tagline : "I'm Listening"}
+            emptyTitle={emptyTitle}
+            emptySubtitle={emptySubtitle}
             isLoading={isLoading}
-            threadsMap={threadsMap}
+            threadsMap={activeThreadsMap}
             messagesEndRef={messagesEndRef}
             onThreadClick={handleThreadClick}
             onAssistantPointerUp={handlePointerUp}
           />
           <TextSelectionPopover
             popoverState={popoverState}
-            conversationId={conversationId}
+            chatMode={chatMode}
+            conversationId={activeConversationId}
+            mentorId={activeMentor?.id ?? null}
+            memoryMode={temporaryMemoryMode}
+            history={activeMessages}
+            temporaryThreadMessages={temporaryThreadMessages}
+            onTemporaryThreadMessagesChange={setTemporaryThreadMessagesForThread}
             onDismiss={dismissPopover}
             onThreadCreated={handleThreadCreated}
             onGraduateToThread={handleGraduateToThread}
@@ -476,6 +654,9 @@ function HomePageInner() {
           micActive={micActive}
           ttsEnabled={ttsEnabled}
           searchEnabled={searchEnabled}
+          temporaryChatEnabled={isTemporaryChat}
+          showTemporaryIntro={activeMessages.length === 0}
+          temporaryMemoryMode={temporaryMemoryMode}
           finalTranscript={transcription.finalTranscript}
           interimTranscript={transcription.interimTranscript}
           transcriptionStatus={transcription.status}
@@ -494,6 +675,7 @@ function HomePageInner() {
           onToggleMic={toggleMic}
           onToggleTts={toggleTtsEnabled}
           onToggleSearch={() => setSearchEnabled((prev) => !prev)}
+          onTemporaryMemoryModeChange={setTemporaryMemoryMode}
           onSubmit={handleSubmit}
           onKeyDown={handleKeyDown}
         />
@@ -503,7 +685,7 @@ function HomePageInner() {
         isOpen={sidePanelOpen}
         onClose={() => setSidePanelOpen(false)}
         conversations={conversations}
-        activeConversationId={conversationId}
+        activeConversationId={activeConversationId}
         onSelectConversation={(conversation) => {
           void handleSelectConversation(conversation);
         }}
@@ -529,6 +711,7 @@ function HomePageInner() {
         onCreated={(mentor) => {
           resetThreadUi();
           setActiveMentor(mentor);
+          clearTemporaryConversationState();
           clearConversationState();
           setLastSearchState(null);
           setUserHasScrolled(false);
@@ -539,9 +722,16 @@ function HomePageInner() {
       <ThreadPanel
         isOpen={threadPanelOpen}
         thread={activeThread}
-        conversationId={conversationId}
+        chatMode={chatMode}
+        conversationId={activeConversationId}
+        mentorId={activeMentor?.id ?? null}
+        memoryMode={temporaryMemoryMode}
+        conversationMessages={activeMessages}
         initialMessages={threadPanelInitialMessages}
+        temporaryMessages={activeTemporaryThreadMessages}
+        temporaryChatEnabled={isTemporaryChat}
         pendingMessage={pendingThreadMessage}
+        onTemporaryMessagesChange={setTemporaryThreadMessagesForThread}
         onPendingMessageConsumed={clearPendingThreadMessage}
         onClose={closeThreadPanel}
       />

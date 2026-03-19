@@ -2,7 +2,14 @@
 
 import { useState, useRef, useEffect, useLayoutEffect } from "react";
 import MarkdownWithThreads from "@/app/home/components/MarkdownWithThreads";
+import type { Message } from "@/app/home/types";
 import { markdownContentClassName } from "@/lib/markdown";
+import {
+  createTemporaryId,
+  toChatHistory,
+  type ChatMode,
+  type TemporaryMemoryMode,
+} from "@/lib/chat-session";
 import type { ThreadMessage } from "@/app/home/components/ThreadPanel";
 
 const LARGE_RESPONSE_CHAR_LIMIT = 350;
@@ -23,7 +30,13 @@ export interface PopoverState {
 
 interface TextSelectionPopoverProps {
   popoverState: PopoverState | null;
+  chatMode: ChatMode;
   conversationId: string | null;
+  mentorId?: string | null;
+  memoryMode: TemporaryMemoryMode;
+  history: Message[];
+  temporaryThreadMessages: Map<string, ThreadMessage[]>;
+  onTemporaryThreadMessagesChange: (threadId: string, messages: ThreadMessage[]) => void;
   onDismiss: () => void;
   onThreadCreated: (threadId: string, sourceMessageId: string, highlightedText: string) => void;
   onGraduateToThread: (
@@ -68,7 +81,13 @@ function buildInitialMessages(
 
 export default function TextSelectionPopover({
   popoverState,
+  chatMode,
   conversationId,
+  mentorId,
+  memoryMode,
+  history,
+  temporaryThreadMessages,
+  onTemporaryThreadMessagesChange,
   onDismiss,
   onThreadCreated,
   onGraduateToThread,
@@ -177,26 +196,43 @@ export default function TextSelectionPopover({
 
   const sendQuestion = async (question: string) => {
     const activePopoverState = popoverState;
-    if (!conversationId || !activePopoverState || isLoading) return;
+    const canUseChat =
+      chatMode === "temporary" || (chatMode === "persistent" && conversationId);
+    if (!canUseChat || !activePopoverState || isLoading) return;
 
     setIsLoading(true);
     try {
+      const requestedThreadId =
+        threadId ?? (chatMode === "temporary" ? createTemporaryId("thread") : null);
+      const existingTemporaryMessages = requestedThreadId
+        ? temporaryThreadMessages.get(requestedThreadId) || []
+        : [];
+
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: question,
-          conversationId,
+          conversationId: chatMode === "persistent" ? conversationId : undefined,
+          mentorId: mentorId ?? undefined,
           sourceMessageId: activePopoverState.sourceMessageId,
           highlightedText: activePopoverState.selectedText,
           concise: true,
-          ...(threadId ? { threadId } : {}),
+          ...(requestedThreadId ? { threadId: requestedThreadId } : {}),
+          chatMode,
+          ...(chatMode === "temporary"
+            ? {
+                memoryMode,
+                history: toChatHistory(history),
+                threadHistory: toChatHistory(existingTemporaryMessages),
+              }
+            : {}),
         }),
       });
 
       const data = await res.json();
       if (res.ok && data.message) {
-        const nextThreadId = data.threadId || threadId || null;
+        const nextThreadId = data.threadId || requestedThreadId || threadId || null;
         const initialMessages = buildInitialMessages(
           question,
           data.message,
@@ -204,10 +240,14 @@ export default function TextSelectionPopover({
           data.assistantMessageId
         );
 
-        if (data.threadId && !threadId) {
-          setThreadId(data.threadId);
+        if (nextThreadId && chatMode === "temporary") {
+          onTemporaryThreadMessagesChange(nextThreadId, initialMessages);
+        }
+
+        if (nextThreadId && !threadId) {
+          setThreadId(nextThreadId);
           onThreadCreated(
-            data.threadId,
+            nextThreadId,
             activePopoverState.sourceMessageId,
             activePopoverState.selectedText
           );
