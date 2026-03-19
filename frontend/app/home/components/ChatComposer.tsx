@@ -96,7 +96,11 @@ export default function ChatComposer({
 
         <div
           ref={waveformContainerRef}
-          className="relative mx-auto mb-1 h-0.5 max-w-[90%] overflow-hidden rounded-full"
+          className={`relative mx-auto mb-1 h-0.5 max-w-[90%] overflow-hidden rounded-full transition-[opacity,max-height] duration-300 ${
+            micActive
+              ? 'max-h-4 opacity-100'
+              : 'max-h-0 opacity-0'
+          }`}
         >
           <svg
             viewBox="0 0 240 4"
@@ -109,9 +113,7 @@ export default function ChatComposer({
               stroke="currentColor"
               strokeWidth="4"
               points="0,2 240,2"
-              className={`transition-colors duration-300 ${
-                micActive ? 'text-muted' : 'text-muted/30'
-              }`}
+              className="text-muted transition-colors duration-300"
             />
             <polyline
               ref={waveformGlowRef}
@@ -119,18 +121,10 @@ export default function ChatComposer({
               stroke="currentColor"
               strokeWidth="4"
               points="0,2 240,2"
-              className={`transition-opacity duration-300 ${
-                micActive ? 'text-muted/40 opacity-50' : 'opacity-0'
-              }`}
+              className="text-muted/40 opacity-50 transition-opacity duration-300"
               style={{ filter: 'blur(2px)' }}
             />
           </svg>
-          {!micActive && isLoading && (
-            <div
-              className="absolute inset-0 animate-shimmer bg-gradient-to-r from-stone-200 via-stone-300 to-stone-200 dark:from-stone-700 dark:via-stone-500 dark:to-stone-700"
-              style={{ backgroundSize: '200% 100%' }}
-            />
-          )}
         </div>
 
         <form onSubmit={onSubmit} className="relative">
