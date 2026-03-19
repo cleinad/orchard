@@ -75,7 +75,7 @@ export default function ChatComposer({
 
   return (
     <div className="mx-auto w-full max-w-2xl px-4">
-      <div className="shrink-0 pb-4 pt-2">
+      <div className="shrink-0 pb-2 pt-2">
         {hasTranscript && !isLoading && (
           <div className="mb-3 rounded-lg bg-surface px-4 py-2 text-sm text-muted shadow-sm">
             <span className="text-xs font-medium tracking-wider text-muted/60">
@@ -125,7 +125,7 @@ export default function ChatComposer({
         </div>
 
         <form onSubmit={onSubmit} className="relative">
-          <div className="flex items-end gap-0 rounded-lg bg-surface px-3 py-1.5 shadow-sm ring-1 ring-black/[0.04] dark:ring-white/[0.06]">
+          <div className="flex items-end gap-2 rounded-lg bg-surface px-3 py-1.5 shadow-sm ring-1 ring-black/[0.04] dark:ring-white/[0.06]">
             <textarea
               ref={textareaRef}
               value={input}
@@ -134,27 +134,29 @@ export default function ChatComposer({
               placeholder={micActive ? 'Listening...' : `Message ${activeName}...`}
               disabled={isLoading}
               rows={1}
-              className="w-full min-w-0 resize-none bg-transparent py-1.5 text-sm leading-relaxed text-foreground placeholder-muted/50 outline-none disabled:cursor-not-allowed disabled:opacity-50"
+              // `items-end` on the parent flex row bottom-aligns by default; this keeps the textarea
+              // visually centered alongside the fixed-size mic/submit buttons.
+              className="self-center min-h-10 flex-1 min-w-0 resize-none bg-transparent py-1.5 text-sm leading-relaxed text-foreground placeholder-muted/50 outline-none disabled:cursor-not-allowed disabled:opacity-50"
               style={{ maxHeight: '200px' }}
             />
 
-            <div className="flex flex-shrink-0 items-center gap-1.5">
+            <div className="flex flex-none items-center gap-2 self-end pb-0.5">
               <button
                 type="button"
                 onClick={onToggleMic}
                 disabled={isLoading}
                 aria-label={micActive ? 'Stop microphone' : 'Start microphone'}
-                className={`rounded-md p-1.5 transition-colors ${
+                className={`flex h-9 w-9 items-center justify-center rounded-md border p-0 transition-colors ${
                   micActive
-                    ? 'text-foreground'
-                    : 'text-muted/50 hover:text-muted'
+                    ? 'border-black/[0.08] bg-black/[0.04] text-foreground dark:border-white/[0.10] dark:bg-white/[0.06]'
+                    : 'border-transparent text-muted hover:border-black/[0.06] hover:bg-black/[0.03] hover:text-foreground/70 dark:hover:border-white/[0.10] dark:hover:bg-white/[0.05]'
                 } disabled:cursor-not-allowed disabled:opacity-50`}
               >
                 <svg
                   className="h-4 w-4"
                   fill="none"
                   stroke="currentColor"
-                  strokeWidth="1.5"
+                  strokeWidth="2"
                   viewBox="0 0 24 24"
                 >
                   <path
@@ -168,13 +170,14 @@ export default function ChatComposer({
               <button
                 type="submit"
                 disabled={!input.trim() || isLoading}
-                className="rounded-md bg-foreground p-1.5 text-background transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-20"
+                // Submit button: slightly smaller to reduce visual weight.
+                className="flex h-7 w-7 items-center justify-center rounded-md bg-foreground p-0 text-background transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-20"
               >
                 <svg
-                  className="h-4 w-4"
+                  className="h-3 w-3"
                   fill="none"
                   stroke="currentColor"
-                  strokeWidth="2.5"
+                  strokeWidth="2"
                   viewBox="0 0 24 24"
                 >
                   <path
@@ -187,7 +190,7 @@ export default function ChatComposer({
             </div>
           </div>
 
-          <div className="mt-2 flex items-center gap-1.5 px-1">
+          <div className="mt-1.5 flex items-center gap-1.5 px-1">
             <Tooltip
               content={
                 ttsEnabled
@@ -201,17 +204,17 @@ export default function ChatComposer({
                 aria-pressed={ttsEnabled}
                 aria-label={ttsEnabled ? 'Voice on' : 'Voice off'}
                 onClick={onToggleTts}
-                className={`flex h-7 w-7 items-center justify-center rounded-md transition-colors ${
+                className={`flex h-7 w-7 items-center justify-center rounded-md border transition-colors ${
                   ttsEnabled
-                    ? 'bg-black/[0.04] text-foreground dark:bg-white/[0.06]'
-                    : 'text-muted/50 hover:text-muted'
+                    ? 'border-black/[0.08] bg-black/[0.04] text-foreground dark:border-white/[0.10] dark:bg-white/[0.06]'
+                    : 'border-black/[0.06] text-muted hover:text-foreground/70 dark:border-white/[0.10]'
                 }`}
               >
                 <svg
                   className="h-3.5 w-3.5"
                   fill={ttsEnabled ? 'currentColor' : 'none'}
                   stroke="currentColor"
-                  strokeWidth="1.8"
+                  strokeWidth="2"
                   viewBox="0 0 24 24"
                 >
                   {ttsEnabled ? (
@@ -252,17 +255,17 @@ export default function ChatComposer({
                 aria-label={searchEnabled ? 'Live search always on' : 'Live search auto'}
                 onClick={onToggleSearch}
                 disabled={isLoading}
-                className={`flex h-7 w-7 items-center justify-center rounded-md transition-colors ${
+                className={`flex h-7 w-7 items-center justify-center rounded-md border transition-colors ${
                   searchEnabled
-                    ? 'bg-black/[0.04] text-foreground dark:bg-white/[0.06]'
-                    : 'text-muted/50 hover:text-muted'
+                    ? 'border-black/[0.08] bg-black/[0.04] text-foreground dark:border-white/[0.10] dark:bg-white/[0.06]'
+                    : 'border-black/[0.06] text-muted hover:text-foreground/70 dark:border-white/[0.10]'
                 } disabled:cursor-not-allowed disabled:opacity-50`}
               >
                 <svg
                   className="h-3.5 w-3.5"
                   fill={searchEnabled ? 'currentColor' : 'none'}
                   stroke="currentColor"
-                  strokeWidth="2"
+                  strokeWidth="2.2"
                   viewBox="0 0 24 24"
                 >
                   <path

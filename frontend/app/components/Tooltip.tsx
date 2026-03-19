@@ -44,8 +44,8 @@ function composeHandlers(
 export default function Tooltip({
   content,
   side = "bottom",
-  delayShow = 100,
-  delayHide = 100,
+  delayShow = 0,
+  delayHide = 0,
   children,
 }: TooltipProps) {
   const triggerRef = useRef<HTMLElement>(null);
