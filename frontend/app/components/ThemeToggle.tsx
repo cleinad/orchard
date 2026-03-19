@@ -9,7 +9,10 @@ function applyTheme(isDark: boolean) {
   document.documentElement.classList.toggle('dark', isDark);
 }
 
-export default function ThemeToggle() {
+export default function ThemeToggle({
+  ref,
+  ...rest
+}: { ref?: React.Ref<HTMLButtonElement> } & React.ButtonHTMLAttributes<HTMLButtonElement>) {
   const [isDark, setIsDark] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -43,11 +46,12 @@ export default function ThemeToggle() {
 
   return (
     <button
+      ref={ref}
       type="button"
       onClick={toggleTheme}
       aria-label={label}
-      title={label}
       className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-muted transition hover:text-foreground"
+      {...rest}
     >
       {isDark ? (
         <svg
