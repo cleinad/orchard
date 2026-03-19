@@ -5,6 +5,7 @@ FormEventHandler,
 } from 'react';
 import type { MicStatus } from '@/app/home/components/useMicrophone';
 import type { TranscriptStatus } from '@/app/home/components/useTranscription';
+import Tooltip from '@/app/components/Tooltip';
 
 interface ChatComposerProps {
   activeName: string;
@@ -190,117 +191,97 @@ export default function ChatComposer({
             </div>
           </div>
 
-          <div className="mt-3 flex items-center justify-between gap-3 px-1">
-            <div className="flex items-center gap-2">
+          <div className="mt-2 flex items-center gap-1.5 px-1">
+            <Tooltip
+              content={
+                ttsEnabled
+                  ? 'Voice — Text-to-speech for responses'
+                  : 'Voice — Currently off'
+              }
+              side="bottom"
+            >
               <button
                 type="button"
                 aria-pressed={ttsEnabled}
+                aria-label={ttsEnabled ? 'Voice on' : 'Voice off'}
                 onClick={onToggleTts}
-                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[11px] font-medium transition-all ${
+                className={`flex h-7 w-7 items-center justify-center rounded-md transition-colors ${
                   ttsEnabled
-                    ? 'border-transparent bg-foreground text-background shadow-[0_14px_28px_-20px_rgba(15,23,42,0.9)]'
-                    : 'border-black/[0.08] bg-surface text-muted hover:border-black/[0.12] hover:text-foreground dark:border-white/[0.08] dark:hover:border-white/[0.14]'
+                    ? 'bg-black/[0.04] text-foreground dark:bg-white/[0.06]'
+                    : 'text-muted/50 hover:text-muted'
                 }`}
               >
-                <span
-                  className={`flex h-4 w-4 items-center justify-center rounded-full ${
-                    ttsEnabled
-                      ? 'bg-background/15 text-background'
-                      : 'bg-black/[0.04] text-muted dark:bg-white/[0.06]'
-                  }`}
+                <svg
+                  className="h-3.5 w-3.5"
+                  fill={ttsEnabled ? 'currentColor' : 'none'}
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  viewBox="0 0 24 24"
                 >
-                  <svg
-                    className="h-3 w-3"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    viewBox="0 0 24 24"
-                  >
-                    {ttsEnabled ? (
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M11.25 5.25L6.75 9H4.5v6h2.25l4.5 3.75V5.25zm4.5 4.5a4.5 4.5 0 010 4.5m2.25-6.75a7.5 7.5 0 010 9"
-                      />
-                    ) : (
-                      <>
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M11.25 5.25L6.75 9H4.5v6h2.25l4.5 3.75V5.25z"
-                        />
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M15.75 9.75l4.5 4.5m0-4.5l-4.5 4.5"
-                        />
-                      </>
-                    )}
-                  </svg>
-                </span>
-                <span>Voice</span>
-                <span className={ttsEnabled ? 'text-background/70' : 'text-muted/70'}>
-                  {ttsEnabled ? 'On' : 'Off'}
-                </span>
-              </button>
-
-              <button
-                type="button"
-                aria-pressed={searchEnabled}
-                onClick={onToggleSearch}
-                disabled={isLoading}
-                className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-all ${
-                  searchEnabled
-                    ? 'border-transparent bg-foreground text-background shadow-[0_14px_28px_-20px_rgba(15,23,42,0.9)]'
-                    : 'border-black/[0.08] bg-surface text-muted hover:border-black/[0.12] hover:text-foreground dark:border-white/[0.08] dark:hover:border-white/[0.14]'
-                } disabled:cursor-not-allowed disabled:opacity-50`}
-              >
-                <span
-                  className={`flex h-5 w-5 items-center justify-center rounded-full ${
-                    searchEnabled
-                      ? 'bg-background/15 text-background'
-                      : 'bg-black/[0.04] text-muted dark:bg-white/[0.06]'
-                  }`}
-                >
-                  <svg
-                    className="h-3.5 w-3.5"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    viewBox="0 0 24 24"
-                  >
+                  {ttsEnabled ? (
                     <path
                       strokeLinecap="round"
                       strokeLinejoin="round"
-                      d="M21 21l-4.35-4.35m1.85-5.15a7 7 0 11-14 0 7 7 0 0114 0z"
+                      d="M11.25 5.25L6.75 9H4.5v6h2.25l4.5 3.75V5.25zm4.5 4.5a4.5 4.5 0 010 4.5m2.25-6.75a7.5 7.5 0 010 9"
                     />
-                  </svg>
-                </span>
-                <span>Live search</span>
-                <span
-                  className={`text-[11px] ${
-                    searchEnabled ? 'text-background/70' : 'text-muted/70'
-                  }`}
-                >
-                  {searchEnabled ? 'Always on' : 'Auto'}
-                </span>
+                  ) : (
+                    <>
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M11.25 5.25L6.75 9H4.5v6h2.25l4.5 3.75V5.25z"
+                      />
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M15.75 9.75l4.5 4.5m0-4.5l-4.5 4.5"
+                      />
+                    </>
+                  )}
+                </svg>
               </button>
-            </div>
+            </Tooltip>
 
-            <span className="hidden text-[11px] text-muted/60 sm:inline">
-              {searchHelperText}
-            </span>
+            <Tooltip
+              content={
+                searchEnabled
+                  ? 'Live Search — Always grounds replies with live web results'
+                  : 'Live Search — Lets the model decide when search is needed'
+              }
+              side="bottom"
+            >
+              <button
+                type="button"
+                aria-pressed={searchEnabled}
+                aria-label={searchEnabled ? 'Live search always on' : 'Live search auto'}
+                onClick={onToggleSearch}
+                disabled={isLoading}
+                className={`flex h-7 w-7 items-center justify-center rounded-md transition-colors ${
+                  searchEnabled
+                    ? 'bg-black/[0.04] text-foreground dark:bg-white/[0.06]'
+                    : 'text-muted/50 hover:text-muted'
+                } disabled:cursor-not-allowed disabled:opacity-50`}
+              >
+                <svg
+                  className="h-3.5 w-3.5"
+                  fill={searchEnabled ? 'currentColor' : 'none'}
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M21 21l-4.35-4.35m1.85-5.15a7 7 0 11-14 0 7 7 0 0114 0z"
+                  />
+                </svg>
+              </button>
+            </Tooltip>
           </div>
 
           {searchWarning && (
             <div className="mt-2 rounded-lg border border-amber-300/70 bg-amber-50 px-3 py-2 text-xs text-amber-900 shadow-sm dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100">
               {searchWarning}
-            </div>
-          )}
-
-          {!searchWarning && searchSuccessMessage && (
-            <div className="mt-2 px-1 text-[11px] text-muted/70">
-              {searchSuccessMessage}
             </div>
           )}
         </form>
