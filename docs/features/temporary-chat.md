@@ -15,8 +15,9 @@ This is intentionally a true no-persistence mode. It does **not** create rows an
 
 ## User-Facing Behavior
 
-- Header shows a dedicated temporary-chat toggle, a `Temporary` badge, and a second badge for the active temporary memory mode while the mode is active.
-- A fresh temporary session shows a larger onboarding card in the composer explaining that the conversation will not be saved.
+- Header shows a dedicated temporary-chat toggle with an incognito-style icon.
+- While temporary mode is active, the header shows soft inline metadata beside the active name: `Temporary / Uses memories` or `Temporary / No memory`.
+- A fresh temporary session shows a light onboarding card above the composer explaining that the conversation will not be saved.
 - The user chooses the memory mode at the start of the temporary session.
 - After the first submitted message, the temporary intro card disappears entirely and the chosen memory mode remains fixed for that session.
 - Switching between persistent and temporary mode clears the current session.
@@ -87,14 +88,15 @@ Important behavior in this file:
 Header:
 
 - adds the temporary toggle beside the marketplace button
-- shows a `Temporary` badge near the active name
-- shows a second badge for the active temporary memory mode (`Uses memories` or `No memory`)
+- keeps `Temporary / {memory mode}` as soft inline text beside the active name instead of persistent pills
+- uses the merged tooltip-based header controls from `main`
 
 Composer:
 
-- shows the larger temporary intro card for a brand-new temporary session
-- does not show persistent per-message memory controls after the first submitted message
-- exposes the `use_existing` / `off` toggle
+- keeps the compact chatbar layout from `main`
+- shows the temporary intro card only for a brand-new temporary session
+- exposes the `use_existing` / `off` toggle only inside that intro card
+- removes all temporary memory controls after the first submitted message
 
 ### Temporary Threads
 
@@ -171,8 +173,8 @@ Generation still uses the same prompt/search stack, so the model behavior remain
 |------|------|
 | `frontend/lib/chat-session.ts` | Shared temporary chat/session types and helpers |
 | `frontend/app/home/page.tsx` | Main mode switch, temporary state, request payload construction |
-| `frontend/app/home/components/HomeHeader.tsx` | Header toggle + `Temporary` badge |
-| `frontend/app/home/components/ChatComposer.tsx` | Temporary intro card, compact post-first-message controls |
+| `frontend/app/home/components/HomeHeader.tsx` | Header toggle + inline temporary mode metadata |
+| `frontend/app/home/components/ChatComposer.tsx` | Temporary intro card layered onto the compact merged chatbar UI |
 | `frontend/app/home/components/TextSelectionPopover.tsx` | Temporary thread creation via local ids + temporary history payloads |
 | `frontend/app/home/components/ThreadPanel.tsx` | Temporary thread message handling and compact `Temporary` indicator |
 | `frontend/app/api/chat/route.ts` | Persistent vs temporary branching, optional memory read, zero-write temporary path |

@@ -102,25 +102,20 @@ export default function HomeHeader({
                 : "border-transparent text-muted hover:text-foreground"
             }`}
           >
-            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 28 28" aria-hidden="true">
+              {/* Hat crown */}
               <path
+                d="M8 12V7c0-3.31 2.69-6 6-6s6 2.69 6 6v5"
                 fill="currentColor"
-                d="M7.216 9.25 8.3 5.609a1 1 0 01.958-.719h5.484a1 1 0 01.958.72l1.084 3.64h.466A1.75 1.75 0 0119 11a.75.75 0 01-.75.75h-12.5A.75.75 0 015 11c0-.966.784-1.75 1.75-1.75h.466z"
               />
-              <path
-                fill="currentColor"
-                d="M8.125 16.182c.705-.863 1.868-1.432 3.057-1.432h1.636c1.189 0 2.352.569 3.057 1.432.41.501.625 1.024.625 1.568a.75.75 0 01-.75.75h-7.5a.75.75 0 01-.75-.75c0-.544.215-1.067.625-1.568z"
-              />
-              <path
-                fill="currentColor"
-                d="M7.75 12.5A1.25 1.25 0 019 11.25h1.25a1.25 1.25 0 011.25 1.25v.25A1.25 1.25 0 0110.25 14H9a1.25 1.25 0 01-1.25-1.25v-.25zm4.75 0a1.25 1.25 0 011.25-1.25H15a1.25 1.25 0 011.25 1.25v.25A1.25 1.25 0 0115 14h-1.25a1.25 1.25 0 01-1.25-1.25v-.25z"
-              />
-              <path
-                d="M11.5 12.625h1"
-                stroke="currentColor"
-                strokeWidth="1.25"
-                strokeLinecap="round"
-              />
+              {/* Hat brim */}
+              <rect x="1" y="10.5" width="26" height="3" rx="1.5" fill="currentColor" />
+              {/* Left lens */}
+              <circle cx="9" cy="20.5" r="4" stroke="currentColor" strokeWidth="2.25" />
+              {/* Right lens */}
+              <circle cx="19" cy="20.5" r="4" stroke="currentColor" strokeWidth="2.25" />
+              {/* Nose bridge */}
+              <path d="M13 20.5h2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
             </svg>
           </button>
         </Tooltip>
