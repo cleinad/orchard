@@ -19,9 +19,7 @@ interface ChatComposerProps {
   transcriptionStatus: TranscriptStatus;
   microphoneStatus: MicStatus;
   microphoneErrorMessage: string | null;
-  searchHelperText: string;
   searchWarning: string | null;
-  searchSuccessMessage: string | null;
   isTtsLoading: boolean;
   isTtsPlaying: boolean;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
@@ -59,9 +57,7 @@ export default function ChatComposer({
   transcriptionStatus,
   microphoneStatus,
   microphoneErrorMessage,
-  searchHelperText,
   searchWarning,
-  searchSuccessMessage,
   isTtsLoading,
   isTtsPlaying,
   textareaRef,
