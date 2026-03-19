@@ -1,0 +1,61 @@
+.tooltip-popover {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  border: none;
+  padding: 5px 10px;
+  border-radius: 6px;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  width: max-content;
+  max-width: 240px;
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--foreground) 12%, var(--background));
+  pointer-events: auto;
+
+  opacity: 0;
+  transition:
+    opacity 150ms,
+    display 150ms allow-discrete,
+    overlay 150ms allow-discrete;
+}
+
+.tooltip-popover:popover-open {
+  opacity: 1;
+}
+
+@starting-style {
+  .tooltip-popover:popover-open {
+    opacity: 0;
+  }
+}
+
+/* Side-specific positioning */
+
+.tooltip-popover[data-side="bottom"] {
+  position-area: bottom;
+  justify-self: anchor-center;
+  position-try-fallbacks: flip-block;
+  margin-top: 6px;
+}
+
+.tooltip-popover[data-side="top"] {
+  position-area: top;
+  justify-self: anchor-center;
+  position-try-fallbacks: flip-block;
+  margin-bottom: 6px;
+}
+
+.tooltip-popover[data-side="left"] {
+  position-area: left;
+  align-self: anchor-center;
+  position-try-fallbacks: flip-inline;
+  margin-right: 6px;
+}
+
+.tooltip-popover[data-side="right"] {
+  position-area: right;
+  align-self: anchor-center;
+  position-try-fallbacks: flip-inline;
+  margin-left: 6px;
+}

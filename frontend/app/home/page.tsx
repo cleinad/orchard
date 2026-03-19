@@ -568,15 +568,6 @@ function HomePageInner() {
   const activeTemporaryThreadMessages = activeThread
     ? temporaryThreadMessages.get(activeThread.id) ?? null
     : null;
-  const searchModeHelper = searchEnabled
-    ? 'Always grounds replies with current web results'
-    : 'Lets the model decide when live search is needed';
-  const lastSearchSuccessMessage =
-    lastSearchState?.attempted && lastSearchState.status === 'success'
-      ? `Last reply grounded with ${lastSearchState.resultCount} live ${
-          lastSearchState.resultCount === 1 ? 'source' : 'sources'
-        }`
-      : null;
   const emptyTitle = isTemporaryChat
     ? 'Temporary chat'
     : activeMentor
@@ -662,9 +653,7 @@ function HomePageInner() {
           transcriptionStatus={transcription.status}
           microphoneStatus={microphone.status}
           microphoneErrorMessage={microphone.errorMessage}
-          searchHelperText={searchModeHelper}
           searchWarning={lastSearchState?.warning ?? null}
-          searchSuccessMessage={lastSearchSuccessMessage}
           isTtsLoading={tts.isLoading}
           isTtsPlaying={tts.isPlaying}
           textareaRef={textareaRef}

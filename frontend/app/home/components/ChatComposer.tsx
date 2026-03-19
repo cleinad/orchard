@@ -1,8 +1,5 @@
-import type {
-FormEventHandler,
-  KeyboardEventHandler,
-  RefObject,
-} from 'react';
+import type { FormEventHandler, KeyboardEventHandler, RefObject } from 'react';
+import Tooltip from '@/app/components/Tooltip';
 import type { MicStatus } from '@/app/home/components/useMicrophone';
 import type { TranscriptStatus } from '@/app/home/components/useTranscription';
 import type { TemporaryMemoryMode } from '@/lib/chat-session';
@@ -22,9 +19,7 @@ interface ChatComposerProps {
   transcriptionStatus: TranscriptStatus;
   microphoneStatus: MicStatus;
   microphoneErrorMessage: string | null;
-  searchHelperText: string;
   searchWarning: string | null;
-  searchSuccessMessage: string | null;
   isTtsLoading: boolean;
   isTtsPlaying: boolean;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
@@ -66,9 +61,7 @@ export default function ChatComposer({
   transcriptionStatus,
   microphoneStatus,
   microphoneErrorMessage,
-  searchHelperText,
   searchWarning,
-  searchSuccessMessage,
   isTtsLoading,
   isTtsPlaying,
   textareaRef,
@@ -90,8 +83,8 @@ export default function ChatComposer({
       : 'Novus will not read or save any memory for this chat.';
 
   return (
-    <div className="mx-auto w-full max-w-2xl px-6">
-      <div className="shrink-0 pb-6 pt-2">
+    <div className="mx-auto w-full max-w-2xl px-4">
+      <div className="shrink-0 pb-2 pt-2">
         {temporaryChatEnabled && showTemporaryIntro && (
           <div className="mb-3 rounded-2xl border border-black/[0.05] bg-[#FAF7F3] px-4 py-4 text-stone-800 shadow-sm dark:border-white/10 dark:bg-stone-900 dark:text-stone-100">
             <div className="flex items-center justify-between gap-3">
@@ -154,7 +147,9 @@ export default function ChatComposer({
 
         <div
           ref={waveformContainerRef}
-          className="relative mx-auto mb-1 h-0.5 max-w-[90%] overflow-hidden rounded-full"
+          className={`relative mx-auto mb-1 h-0.5 max-w-[90%] overflow-hidden rounded-full transition-[opacity,max-height] duration-300 ${
+            micActive ? 'max-h-4 opacity-100' : 'max-h-0 opacity-0'
+          }`}
         >
           <svg
             viewBox="0 0 240 4"
@@ -167,9 +162,7 @@ export default function ChatComposer({
               stroke="currentColor"
               strokeWidth="4"
               points="0,2 240,2"
-              className={`transition-colors duration-300 ${
-                micActive ? 'text-muted' : 'text-muted/30'
-              }`}
+              className="text-muted transition-colors duration-300"
             />
             <polyline
               ref={waveformGlowRef}
@@ -177,47 +170,14 @@ export default function ChatComposer({
               stroke="currentColor"
               strokeWidth="4"
               points="0,2 240,2"
-              className={`transition-opacity duration-300 ${
-                micActive ? 'text-muted/40 opacity-50' : 'opacity-0'
-              }`}
+              className="text-muted/40 opacity-50 transition-opacity duration-300"
               style={{ filter: 'blur(2px)' }}
             />
           </svg>
-          {!micActive && isLoading && (
-            <div
-              className="absolute inset-0 animate-shimmer bg-gradient-to-r from-stone-200 via-stone-300 to-stone-200 dark:from-stone-700 dark:via-stone-500 dark:to-stone-700"
-              style={{ backgroundSize: '200% 100%' }}
-            />
-          )}
         </div>
 
         <form onSubmit={onSubmit} className="relative">
-          <div className="flex items-end gap-0 rounded-xl bg-surface px-4 py-2 shadow-sm ring-1 ring-black/[0.04] dark:ring-white/[0.06]">
-            <button
-              type="button"
-              onClick={onToggleMic}
-              disabled={isLoading}
-              className={`mr-3 flex-shrink-0 rounded-lg p-2 transition-colors ${
-                micActive
-                  ? 'text-foreground'
-                  : 'text-muted/50 hover:text-muted'
-              } disabled:cursor-not-allowed disabled:opacity-50`}
-            >
-              <svg
-                className="h-5 w-5"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z"
-                />
-              </svg>
-            </button>
-
+          <div className="flex items-end gap-2 rounded-lg bg-surface px-3 py-1.5 shadow-sm ring-1 ring-black/[0.04] dark:ring-white/[0.06]">
             <textarea
               ref={textareaRef}
               value={input}
@@ -226,142 +186,150 @@ export default function ChatComposer({
               placeholder={micActive ? 'Listening...' : `Message ${activeName}...`}
               disabled={isLoading}
               rows={1}
-              className="w-full min-w-0 resize-none bg-transparent py-1.5 text-sm leading-relaxed text-foreground placeholder-muted/50 outline-none disabled:cursor-not-allowed disabled:opacity-50"
+              className="self-center min-h-10 flex-1 min-w-0 resize-none bg-transparent py-1.5 text-sm leading-relaxed text-foreground placeholder-muted/50 outline-none disabled:cursor-not-allowed disabled:opacity-50"
               style={{ maxHeight: '200px' }}
             />
 
-            <button
-              type="submit"
-              disabled={!input.trim() || isLoading}
-              className="ml-2 flex-shrink-0 rounded-lg bg-foreground p-2 text-background transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-20"
-            >
-              <svg
-                className="h-4 w-4"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                viewBox="0 0 24 24"
+            <div className="flex flex-none items-center gap-2 self-end pb-0.5">
+              <button
+                type="button"
+                onClick={onToggleMic}
+                disabled={isLoading}
+                aria-label={micActive ? 'Stop microphone' : 'Start microphone'}
+                className={`flex h-9 w-9 items-center justify-center rounded-md border p-0 transition-colors ${
+                  micActive
+                    ? 'border-black/[0.08] bg-black/[0.04] text-foreground dark:border-white/[0.10] dark:bg-white/[0.06]'
+                    : 'border-transparent text-muted hover:border-black/[0.06] hover:bg-black/[0.03] hover:text-foreground/70 dark:hover:border-white/[0.10] dark:hover:bg-white/[0.05]'
+                } disabled:cursor-not-allowed disabled:opacity-50`}
               >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M5 10l7-7m0 0l7 7m-7-7v18"
-                />
-              </svg>
-            </button>
+                <svg
+                  className="h-4 w-4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z"
+                  />
+                </svg>
+              </button>
+
+              <button
+                type="submit"
+                disabled={!input.trim() || isLoading}
+                className="flex h-7 w-7 items-center justify-center rounded-md bg-foreground p-0 text-background transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-20"
+              >
+                <svg
+                  className="h-3 w-3"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M5 10l7-7m0 0l7 7m-7-7v18"
+                  />
+                </svg>
+              </button>
+            </div>
           </div>
 
-          <div className="mt-3 flex items-center justify-between gap-3 px-1">
-            <div className="flex items-center gap-2">
+          <div className="mt-1.5 flex items-center gap-1.5 px-1">
+            <Tooltip
+              content={
+                ttsEnabled
+                  ? 'Voice — Text-to-speech for responses'
+                  : 'Voice — Currently off'
+              }
+              side="bottom"
+            >
               <button
                 type="button"
                 aria-pressed={ttsEnabled}
+                aria-label={ttsEnabled ? 'Voice on' : 'Voice off'}
                 onClick={onToggleTts}
-                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[11px] font-medium transition-all ${
+                className={`flex h-7 w-7 items-center justify-center rounded-md border transition-colors ${
                   ttsEnabled
-                    ? 'border-transparent bg-foreground text-background shadow-[0_14px_28px_-20px_rgba(15,23,42,0.9)]'
-                    : 'border-black/[0.08] bg-surface text-muted hover:border-black/[0.12] hover:text-foreground dark:border-white/[0.08] dark:hover:border-white/[0.14]'
+                    ? 'border-black/[0.08] bg-black/[0.04] text-foreground dark:border-white/[0.10] dark:bg-white/[0.06]'
+                    : 'border-black/[0.06] text-muted hover:text-foreground/70 dark:border-white/[0.10]'
                 }`}
               >
-                <span
-                  className={`flex h-4 w-4 items-center justify-center rounded-full ${
-                    ttsEnabled
-                      ? 'bg-background/15 text-background'
-                      : 'bg-black/[0.04] text-muted dark:bg-white/[0.06]'
-                  }`}
+                <svg
+                  className="h-3.5 w-3.5"
+                  fill={ttsEnabled ? 'currentColor' : 'none'}
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  viewBox="0 0 24 24"
                 >
-                  <svg
-                    className="h-3 w-3"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    viewBox="0 0 24 24"
-                  >
-                    {ttsEnabled ? (
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M11.25 5.25L6.75 9H4.5v6h2.25l4.5 3.75V5.25zm4.5 4.5a4.5 4.5 0 010 4.5m2.25-6.75a7.5 7.5 0 010 9"
-                      />
-                    ) : (
-                      <>
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M11.25 5.25L6.75 9H4.5v6h2.25l4.5 3.75V5.25z"
-                        />
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M15.75 9.75l4.5 4.5m0-4.5l-4.5 4.5"
-                        />
-                      </>
-                    )}
-                  </svg>
-                </span>
-                <span>Voice</span>
-                <span className={ttsEnabled ? 'text-background/70' : 'text-muted/70'}>
-                  {ttsEnabled ? 'On' : 'Off'}
-                </span>
-              </button>
-
-              <button
-                type="button"
-                aria-pressed={searchEnabled}
-                onClick={onToggleSearch}
-                disabled={isLoading}
-                className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-all ${
-                  searchEnabled
-                    ? 'border-transparent bg-foreground text-background shadow-[0_14px_28px_-20px_rgba(15,23,42,0.9)]'
-                    : 'border-black/[0.08] bg-surface text-muted hover:border-black/[0.12] hover:text-foreground dark:border-white/[0.08] dark:hover:border-white/[0.14]'
-                } disabled:cursor-not-allowed disabled:opacity-50`}
-              >
-                <span
-                  className={`flex h-5 w-5 items-center justify-center rounded-full ${
-                    searchEnabled
-                      ? 'bg-background/15 text-background'
-                      : 'bg-black/[0.04] text-muted dark:bg-white/[0.06]'
-                  }`}
-                >
-                  <svg
-                    className="h-3.5 w-3.5"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    viewBox="0 0 24 24"
-                  >
+                  {ttsEnabled ? (
                     <path
                       strokeLinecap="round"
                       strokeLinejoin="round"
-                      d="M21 21l-4.35-4.35m1.85-5.15a7 7 0 11-14 0 7 7 0 0114 0z"
+                      d="M11.25 5.25L6.75 9H4.5v6h2.25l4.5 3.75V5.25zm4.5 4.5a4.5 4.5 0 010 4.5m2.25-6.75a7.5 7.5 0 010 9"
                     />
-                  </svg>
-                </span>
-                <span>Live search</span>
-                <span
-                  className={`text-[11px] ${
-                    searchEnabled ? 'text-background/70' : 'text-muted/70'
-                  }`}
-                >
-                  {searchEnabled ? 'Always on' : 'Auto'}
-                </span>
+                  ) : (
+                    <>
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M11.25 5.25L6.75 9H4.5v6h2.25l4.5 3.75V5.25z"
+                      />
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M15.75 9.75l4.5 4.5m0-4.5l-4.5 4.5"
+                      />
+                    </>
+                  )}
+                </svg>
               </button>
-            </div>
+            </Tooltip>
 
-            <span className="hidden text-[11px] text-muted/60 sm:inline">
-              {searchHelperText}
-            </span>
+            <Tooltip
+              content={
+                searchEnabled
+                  ? 'Live Search — Always grounds replies with live web results'
+                  : 'Live Search — Lets the model decide when search is needed'
+              }
+              side="bottom"
+            >
+              <button
+                type="button"
+                aria-pressed={searchEnabled}
+                aria-label={searchEnabled ? 'Live search always on' : 'Live search auto'}
+                onClick={onToggleSearch}
+                disabled={isLoading}
+                className={`flex h-7 w-7 items-center justify-center rounded-md border transition-colors ${
+                  searchEnabled
+                    ? 'border-black/[0.08] bg-black/[0.04] text-foreground dark:border-white/[0.10] dark:bg-white/[0.06]'
+                    : 'border-black/[0.06] text-muted hover:text-foreground/70 dark:border-white/[0.10]'
+                } disabled:cursor-not-allowed disabled:opacity-50`}
+              >
+                <svg
+                  className="h-3.5 w-3.5"
+                  fill={searchEnabled ? 'currentColor' : 'none'}
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M21 21l-4.35-4.35m1.85-5.15a7 7 0 11-14 0 7 7 0 0114 0z"
+                  />
+                </svg>
+              </button>
+            </Tooltip>
           </div>
 
           {searchWarning && (
             <div className="mt-2 rounded-lg border border-amber-300/70 bg-amber-50 px-3 py-2 text-xs text-amber-900 shadow-sm dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100">
               {searchWarning}
-            </div>
-          )}
-
-          {!searchWarning && searchSuccessMessage && (
-            <div className="mt-2 px-1 text-[11px] text-muted/70">
-              {searchSuccessMessage}
             </div>
           )}
         </form>
