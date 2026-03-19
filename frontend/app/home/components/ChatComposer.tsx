@@ -77,8 +77,8 @@ export default function ChatComposer({
   const hasTranscript = finalTranscript.length > 0 || interimTranscript.length > 0;
 
   return (
-    <div className="mx-auto w-full max-w-2xl px-6">
-      <div className="shrink-0 pb-6 pt-2">
+    <div className="mx-auto w-full max-w-2xl px-4">
+      <div className="shrink-0 pb-4 pt-2">
         {hasTranscript && !isLoading && (
           <div className="mb-3 rounded-lg bg-surface px-4 py-2 text-sm text-muted shadow-sm">
             <span className="text-xs font-medium tracking-wider text-muted/60">
@@ -134,7 +134,7 @@ export default function ChatComposer({
         </div>
 
         <form onSubmit={onSubmit} className="relative">
-          <div className="flex items-end gap-0 rounded-xl bg-surface px-4 py-2 shadow-sm ring-1 ring-black/[0.04] dark:ring-white/[0.06]">
+          <div className="flex items-end gap-0 rounded-lg bg-surface px-3 py-1.5 shadow-sm ring-1 ring-black/[0.04] dark:ring-white/[0.06]">
             <button
               type="button"
               onClick={onToggleMic}
