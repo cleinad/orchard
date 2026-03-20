@@ -7,7 +7,6 @@ import {
   THEME_MODE_BY_ID,
   THEME_OPTIONS,
   type ThemeId,
-  isThemeId,
   normalizeStoredThemeId,
   resolveThemeId,
 } from "@/lib/theme";
@@ -71,11 +70,8 @@ export default function ThemePicker() {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<ThemePopoverElement | null>(null);
   const popoverId = `theme-picker-${useId()}`;
-  const [themeId, setThemeId] = useState<ThemeId>(() => {
-    if (typeof document === "undefined") return DEFAULT_LIGHT_THEME_ID;
-    const currentThemeId = document.documentElement.dataset.theme;
-    return isThemeId(currentThemeId) ? currentThemeId : DEFAULT_LIGHT_THEME_ID;
-  });
+  const [themeId, setThemeId] = useState<ThemeId>(DEFAULT_LIGHT_THEME_ID);
+  const [isHydrated, setIsHydrated] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
 
   useEffect(() => {
@@ -98,6 +94,7 @@ export default function ThemePicker() {
     };
 
     window.addEventListener("storage", handleStorage);
+    setIsHydrated(true);
     return () => {
       window.removeEventListener("storage", handleStorage);
     };
@@ -105,6 +102,7 @@ export default function ThemePicker() {
 
   const currentTheme =
     THEME_OPTIONS.find((option) => option.id === themeId) || THEME_OPTIONS[0];
+  const currentThemeLabel = isHydrated ? currentTheme.label : "Theme";
 
   const togglePopover = () => {
     const popover = popoverRef.current;
@@ -138,7 +136,7 @@ export default function ThemePicker() {
       <button
         ref={triggerRef}
         type="button"
-        aria-label={`Theme: ${currentTheme.label}`}
+        aria-label={isHydrated ? `Theme: ${currentTheme.label}` : "Theme"}
         aria-controls={popoverId}
         aria-expanded={isOpen}
         aria-haspopup="dialog"
@@ -149,8 +147,15 @@ export default function ThemePicker() {
             : "border-black/[0.06] bg-surface hover:bg-foreground/[0.03] dark:border-white/[0.08]"
         }`}
       >
-        <ThemeAccent themeId={currentTheme.id} />
-        <span className="whitespace-nowrap text-sm">{currentTheme.label}</span>
+        {isHydrated ? (
+          <ThemeAccent themeId={currentTheme.id} />
+        ) : (
+          <span
+            aria-hidden="true"
+            className="h-2.5 w-2.5 flex-shrink-0 rounded-full bg-muted/45"
+          />
+        )}
+        <span className="whitespace-nowrap text-sm">{currentThemeLabel}</span>
       </button>
 
       <div
