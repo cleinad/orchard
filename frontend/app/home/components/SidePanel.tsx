@@ -56,7 +56,7 @@ export default function SidePanel({
     >
       <div
         // The backdrop is only for the mobile overlay variant.
-        className={`absolute inset-0 bg-stone-500/8 backdrop-blur-sm transition-opacity duration-300 dark:bg-black/40 lg:hidden ${
+        className={`absolute inset-0 bg-foreground/[0.06] backdrop-blur-sm transition-opacity duration-300 dark:bg-black/40 lg:hidden ${
           isOpen ? 'opacity-100' : 'opacity-0'
         }`}
         onClick={onClose}
@@ -67,15 +67,21 @@ export default function SidePanel({
           isOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        <div className="side-panel flex h-full flex-col bg-[#faf9f6]/97 backdrop-blur-2xl dark:bg-[#111110]/97">
+        <div
+          className="side-panel flex h-full flex-col backdrop-blur-2xl"
+          style={{
+            background: 'color-mix(in srgb, var(--surface) 94%, transparent)',
+            borderRight: '1px solid var(--border-subtle)',
+          }}
+        >
           <div className="px-6 pb-3 pt-6">
             <div className="flex items-center justify-between">
-              <h2 className="font-heading text-lg text-stone-800 dark:text-stone-100">
+              <h2 className="font-heading text-lg text-foreground">
                 Conversations
               </h2>
               <button
                 onClick={onClose}
-                className="rounded-full p-1.5 text-stone-300 transition-colors hover:text-stone-500 dark:text-stone-600 dark:hover:text-stone-400"
+                className="rounded-full p-1.5 text-muted/55 transition-colors hover:text-foreground"
                 aria-label="Close"
               >
                 <svg
@@ -102,7 +108,7 @@ export default function SidePanel({
                 onNewNovusChat();
                 onClose();
               }}
-              className="flex w-full items-center justify-center gap-2 rounded-xl border border-stone-200/60 px-4 py-2.5 text-[12px] font-medium text-stone-400 transition-colors duration-150 hover:border-stone-300/70 hover:text-stone-600 dark:border-stone-800/50 dark:text-stone-500 dark:hover:border-stone-700/60 dark:hover:text-stone-300"
+              className="flex w-full items-center justify-center gap-2 rounded-xl border border-border-subtle px-4 py-2.5 text-[12px] font-medium text-muted transition-colors duration-150 hover:border-foreground/[0.12] hover:text-foreground"
             >
               <svg
                 className="h-3.5 w-3.5"
@@ -128,12 +134,12 @@ export default function SidePanel({
                 router.push('/memory');
                 onClose();
               }}
-              className="flex w-full items-center gap-2 rounded-xl px-4 py-2.5 text-[12px] font-semibold text-stone-700 transition-colors hover:bg-stone-100/60 hover:text-stone-900 dark:text-stone-200 dark:hover:bg-stone-800/30 dark:hover:text-white"
+              className="flex w-full items-center gap-2 rounded-xl px-4 py-2.5 text-[12px] font-semibold text-foreground/84 transition-colors hover:bg-foreground/[0.04] hover:text-foreground"
               aria-label="Open memories"
               title="Open memories"
             >
               <svg
-                className="h-4 w-4 text-stone-500 dark:text-stone-400"
+                className="h-4 w-4 text-muted"
                 fill="none"
                 stroke="currentColor"
                 strokeWidth="1.75"
@@ -149,12 +155,12 @@ export default function SidePanel({
             </button>
           </div>
 
-          <div className="mx-6 h-px bg-stone-200/50 dark:bg-stone-800/50" />
+          <div className="mx-6 h-px bg-border-subtle" />
 
           <div className="side-panel-scroll-area relative min-h-0 flex-1">
             <div className="side-panel-scroll h-full overflow-y-auto px-3 py-2">
               {conversations.length === 0 ? (
-                <div className="px-3 py-10 text-center text-sm text-stone-400 dark:text-stone-500">
+                <div className="px-3 py-10 text-center text-sm text-muted">
                   No conversations yet.
                 </div>
               ) : (
@@ -172,8 +178,8 @@ export default function SidePanel({
                         }}
                         className={`group w-full rounded-xl px-3 py-2.5 text-left transition-colors duration-150 ${
                           isActive
-                            ? 'bg-stone-200/50 dark:bg-stone-800/40'
-                            : 'hover:bg-stone-100/60 dark:hover:bg-stone-800/25'
+                            ? 'bg-foreground/[0.06]'
+                            : 'hover:bg-foreground/[0.04]'
                         }`}
                       >
                         <div className="flex items-center justify-between gap-2">
@@ -182,15 +188,15 @@ export default function SidePanel({
                               className="h-2 w-2 flex-shrink-0 rounded-full"
                               style={{ backgroundColor: accent }}
                             />
-                            <span className="truncate font-heading text-[13px] text-stone-800 dark:text-stone-100">
+                            <span className="truncate font-heading text-[13px] text-foreground">
                               {conversation.mentor_name}
                             </span>
                           </div>
-                          <span className="flex-shrink-0 text-[11px] text-stone-400 dark:text-stone-500">
+                          <span className="flex-shrink-0 text-[11px] text-muted">
                             {formatDate(conversation.updated_at)}
                           </span>
                         </div>
-                        <p className="mt-0.5 line-clamp-2 pl-4 text-[11px] leading-snug text-stone-400 dark:text-stone-500">
+                        <p className="mt-0.5 line-clamp-2 pl-4 text-[11px] leading-snug text-muted">
                           {conversation.preview || conversation.title || 'No messages yet'}
                         </p>
                       </button>
@@ -200,7 +206,13 @@ export default function SidePanel({
               )}
             </div>
 
-            <div className="pointer-events-none absolute inset-x-0 top-0 h-3 bg-gradient-to-b from-[#faf9f6]/97 to-transparent dark:from-[#111110]/97" />
+            <div
+              className="pointer-events-none absolute inset-x-0 top-0 h-3"
+              style={{
+                background:
+                  'linear-gradient(to bottom, color-mix(in srgb, var(--surface) 94%, transparent), transparent)',
+              }}
+            />
           </div>
         </div>
       </aside>
@@ -208,14 +220,8 @@ export default function SidePanel({
       <style jsx>{`
         .side-panel {
           box-shadow:
-            6px 0 32px rgba(0, 0, 0, 0.04),
-            1px 0 8px rgba(0, 0, 0, 0.02);
-        }
-
-        :global(.dark) .side-panel {
-          box-shadow:
-            6px 0 32px rgba(0, 0, 0, 0.3),
-            1px 0 8px rgba(0, 0, 0, 0.15);
+            6px 0 32px color-mix(in srgb, var(--foreground) 10%, transparent),
+            1px 0 8px color-mix(in srgb, var(--foreground) 5%, transparent);
         }
 
         .side-panel-scroll {

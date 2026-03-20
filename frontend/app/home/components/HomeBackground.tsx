@@ -44,30 +44,22 @@ export default function HomeBackground() {
 
   return (
     <div ref={cursorGlowRef} className="pointer-events-none fixed inset-0">
-      {/* Cursor glow - light */}
       <div
-        className="absolute inset-0 opacity-100 transition duration-500 ease-out dark:opacity-0"
+        className="absolute inset-0 transition duration-500 ease-out"
         style={{
           background:
-            'radial-gradient(200px circle at var(--cursor-x, 50%) var(--cursor-y, 35%), rgba(120, 113, 108, 0.06), transparent 60%)',
-        }}
-      />
-      {/* Cursor glow - dark */}
-      <div
-        className="absolute inset-0 opacity-0 transition duration-500 ease-out dark:opacity-100"
-        style={{
-          background:
-            'radial-gradient(200px circle at var(--cursor-x, 50%) var(--cursor-y, 35%), rgba(120, 113, 108, 0.05), transparent 60%)',
+            "radial-gradient(200px circle at var(--cursor-x, 50%) var(--cursor-y, 35%), var(--ambient-cursor-glow), transparent 60%)",
         }}
       />
 
-      {/* Ambient blobs - light */}
-      <div className="absolute -left-40 -top-40 h-96 w-96 rounded-full bg-stone-200/20 blur-3xl dark:opacity-0" />
-      <div className="absolute -bottom-32 -right-32 h-80 w-80 rounded-full bg-stone-100/30 blur-3xl dark:opacity-0" />
-
-      {/* Ambient blobs - dark */}
-      <div className="absolute -left-40 -top-40 h-96 w-96 rounded-full bg-stone-800/20 opacity-0 blur-3xl dark:opacity-100" />
-      <div className="absolute -bottom-32 -right-32 h-80 w-80 rounded-full bg-stone-800/15 opacity-0 blur-3xl dark:opacity-100" />
+      <div
+        className="absolute -left-40 -top-40 h-96 w-96 rounded-full blur-3xl"
+        style={{ background: "var(--ambient-blob-a)" }}
+      />
+      <div
+        className="absolute -bottom-32 -right-32 h-80 w-80 rounded-full blur-3xl"
+        style={{ background: "var(--ambient-blob-b)" }}
+      />
     </div>
   );
 }

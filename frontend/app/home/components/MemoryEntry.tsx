@@ -40,13 +40,13 @@ export default function MemoryEntry({ entry, onUpdate, onDelete }: Props) {
 
   if (editing) {
     return (
-      <div className="border-b border-stone-100 px-4 py-3 dark:border-stone-800/50">
+      <div className="border-b border-border-subtle px-4 py-3">
         <div className="space-y-2">
           <textarea
             value={text}
             onChange={(event) => setText(event.target.value)}
             rows={3}
-            className="w-full resize-none rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-700 outline-none focus:border-stone-400 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-200 dark:focus:border-stone-500"
+            className="w-full resize-none rounded-lg border border-border-subtle bg-surface px-3 py-2 text-sm text-foreground outline-none focus:border-foreground/[0.14]"
           />
 
           <div className="grid grid-cols-2 gap-2">
@@ -54,7 +54,7 @@ export default function MemoryEntry({ entry, onUpdate, onDelete }: Props) {
               type="text"
               value={type}
               onChange={(event) => setType(event.target.value)}
-              className="w-full rounded-lg border border-stone-200 bg-white px-3 py-1.5 text-sm text-stone-700 outline-none focus:border-stone-400 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-200 dark:focus:border-stone-500"
+              className="w-full rounded-lg border border-border-subtle bg-surface px-3 py-1.5 text-sm text-foreground outline-none focus:border-foreground/[0.14]"
               placeholder="Type"
             />
 
@@ -63,7 +63,7 @@ export default function MemoryEntry({ entry, onUpdate, onDelete }: Props) {
               onChange={(event) =>
                 setStability(event.target.value as MemoryItem['stability'])
               }
-              className="w-full rounded-lg border border-stone-200 bg-white px-3 py-1.5 text-sm text-stone-700 outline-none focus:border-stone-400 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-200 dark:focus:border-stone-500"
+              className="w-full rounded-lg border border-border-subtle bg-surface px-3 py-1.5 text-sm text-foreground outline-none focus:border-foreground/[0.14]"
             >
               <option value="stable">Stable</option>
               <option value="episodic">Episodic</option>
@@ -71,7 +71,7 @@ export default function MemoryEntry({ entry, onUpdate, onDelete }: Props) {
           </div>
 
           <div className="space-y-1">
-            <label className="text-[11px] text-stone-500 dark:text-stone-400">
+            <label className="text-[11px] text-muted">
               Salience: {salience}
             </label>
             <input
@@ -88,14 +88,14 @@ export default function MemoryEntry({ entry, onUpdate, onDelete }: Props) {
         <div className="mt-2 flex gap-2">
           <button
             onClick={handleSave}
-            className="rounded-md bg-stone-800 px-3 py-1 text-xs text-white transition hover:bg-stone-700 dark:bg-stone-200 dark:text-stone-900 dark:hover:bg-stone-300"
+            className="rounded-md bg-foreground px-3 py-1 text-xs text-background transition hover:opacity-80"
             disabled={!text.trim() || !type.trim()}
           >
             Save
           </button>
           <button
             onClick={handleCancel}
-            className="rounded-md px-3 py-1 text-xs text-stone-500 transition hover:text-stone-700 dark:text-stone-400 dark:hover:text-stone-200"
+            className="rounded-md px-3 py-1 text-xs text-muted transition hover:text-foreground"
           >
             Cancel
           </button>
@@ -106,8 +106,8 @@ export default function MemoryEntry({ entry, onUpdate, onDelete }: Props) {
 
   if (confirmDelete) {
     return (
-      <div className="flex items-center justify-between border-b border-stone-100 px-4 py-3 dark:border-stone-800/50">
-        <span className="text-sm text-stone-500 dark:text-stone-400">Delete this memory?</span>
+      <div className="flex items-center justify-between border-b border-border-subtle px-4 py-3">
+        <span className="text-sm text-muted">Delete this memory?</span>
         <div className="flex gap-2">
           <button
             onClick={() => {
@@ -120,7 +120,7 @@ export default function MemoryEntry({ entry, onUpdate, onDelete }: Props) {
           </button>
           <button
             onClick={() => setConfirmDelete(false)}
-            className="rounded-md px-3 py-1 text-xs text-stone-500 transition hover:text-stone-700 dark:text-stone-400 dark:hover:text-stone-200"
+            className="rounded-md px-3 py-1 text-xs text-muted transition hover:text-foreground"
           >
             Cancel
           </button>
@@ -130,23 +130,23 @@ export default function MemoryEntry({ entry, onUpdate, onDelete }: Props) {
   }
 
   return (
-    <div className="group border-b border-stone-100 px-4 py-3 transition-colors hover:bg-stone-50/50 dark:border-stone-800/50 dark:hover:bg-stone-800/30">
-      <p className="text-sm text-stone-700 dark:text-stone-200">{entry.text}</p>
+    <div className="group border-b border-border-subtle px-4 py-3 transition-colors hover:bg-foreground/[0.03]">
+      <p className="text-sm text-foreground/88">{entry.text}</p>
 
       <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] uppercase tracking-wide">
-        <span className="rounded-full bg-stone-100 px-2 py-0.5 text-stone-500 dark:bg-stone-800 dark:text-stone-400">
+        <span className="rounded-full bg-foreground/[0.05] px-2 py-0.5 text-muted">
           {entry.owner_type}
         </span>
-        <span className="rounded-full bg-stone-100 px-2 py-0.5 text-stone-500 dark:bg-stone-800 dark:text-stone-400">
+        <span className="rounded-full bg-foreground/[0.05] px-2 py-0.5 text-muted">
           {entry.type}
         </span>
-        <span className="rounded-full bg-stone-100 px-2 py-0.5 text-stone-500 dark:bg-stone-800 dark:text-stone-400">
+        <span className="rounded-full bg-foreground/[0.05] px-2 py-0.5 text-muted">
           {entry.stability}
         </span>
-        <span className="rounded-full bg-stone-100 px-2 py-0.5 text-stone-500 dark:bg-stone-800 dark:text-stone-400">
+        <span className="rounded-full bg-foreground/[0.05] px-2 py-0.5 text-muted">
           salience {entry.salience}
         </span>
-        <span className="rounded-full bg-stone-100 px-2 py-0.5 text-stone-500 dark:bg-stone-800 dark:text-stone-400">
+        <span className="rounded-full bg-foreground/[0.05] px-2 py-0.5 text-muted">
           confidence {entry.confidence.toFixed(2)}
         </span>
       </div>
@@ -154,7 +154,7 @@ export default function MemoryEntry({ entry, onUpdate, onDelete }: Props) {
       <div className="mt-2 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
         <button
           onClick={() => setEditing(true)}
-          className="rounded-md p-1.5 text-stone-400 transition hover:bg-stone-100 hover:text-stone-600 dark:text-stone-500 dark:hover:bg-stone-800 dark:hover:text-stone-300"
+          className="rounded-md p-1.5 text-muted transition hover:bg-foreground/[0.05] hover:text-foreground"
           aria-label="Edit"
         >
           <svg
@@ -173,7 +173,7 @@ export default function MemoryEntry({ entry, onUpdate, onDelete }: Props) {
         </button>
         <button
           onClick={() => setConfirmDelete(true)}
-          className="rounded-md p-1.5 text-stone-400 transition hover:bg-red-50 hover:text-red-500 dark:text-stone-500 dark:hover:bg-red-950/30 dark:hover:text-red-400"
+          className="rounded-md p-1.5 text-muted transition hover:bg-red-500/10 hover:text-red-500 dark:hover:text-red-400"
           aria-label="Delete"
         >
           <svg

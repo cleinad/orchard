@@ -63,7 +63,7 @@ export default function MemoryPanel({ isOpen, onClose }: Props) {
       }`}
     >
       <div
-        className={`absolute inset-0 bg-black/20 backdrop-blur-sm transition-opacity duration-300 dark:bg-black/40 ${
+        className={`absolute inset-0 bg-foreground/[0.06] backdrop-blur-sm transition-opacity duration-300 dark:bg-black/40 ${
           isOpen ? 'opacity-100' : 'opacity-0'
         }`}
         onClick={onClose}
@@ -74,19 +74,25 @@ export default function MemoryPanel({ isOpen, onClose }: Props) {
           isOpen ? 'translate-x-0' : 'translate-x-full'
         }`}
       >
-        <div className="flex h-full flex-col border-l border-stone-200/50 bg-white/90 backdrop-blur-2xl dark:border-stone-800/50 dark:bg-[#111111]/95">
-          <div className="flex items-center justify-between border-b border-stone-100 px-5 py-4 dark:border-stone-800/50">
+        <div
+          className="flex h-full flex-col backdrop-blur-2xl"
+          style={{
+            background: 'color-mix(in srgb, var(--surface) 94%, transparent)',
+            borderLeft: '1px solid var(--border-subtle)',
+          }}
+        >
+          <div className="flex items-center justify-between border-b border-border-subtle px-5 py-4">
             <div>
-              <h2 className="text-sm font-medium text-stone-800 dark:text-stone-100">
+              <h2 className="text-sm font-medium text-foreground">
                 Memory
               </h2>
-              <p className="mt-0.5 text-xs text-stone-400 dark:text-stone-500">
+              <p className="mt-0.5 text-xs text-muted">
                 Item-based memory view
               </p>
             </div>
             <button
               onClick={onClose}
-              className="rounded-lg p-1.5 text-stone-400 transition hover:bg-stone-100 hover:text-stone-600 dark:text-stone-500 dark:hover:bg-stone-800 dark:hover:text-stone-300"
+              className="rounded-lg p-1.5 text-muted transition hover:bg-foreground/[0.04] hover:text-foreground"
               aria-label="Close"
             >
               <svg
@@ -101,7 +107,7 @@ export default function MemoryPanel({ isOpen, onClose }: Props) {
             </button>
           </div>
 
-          <div className="border-b border-stone-100 px-4 py-3 dark:border-stone-800/50">
+          <div className="border-b border-border-subtle px-4 py-3">
             <div className="mb-2 flex flex-wrap gap-1">
               <FilterChip
                 active={scopeFilter === 'all'}
@@ -137,7 +143,7 @@ export default function MemoryPanel({ isOpen, onClose }: Props) {
             <select
               value={typeFilter}
               onChange={(event) => setTypeFilter(event.target.value)}
-              className="w-full rounded-md border border-stone-200 bg-white px-2 py-1 text-xs text-stone-600 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-300"
+              className="w-full rounded-md border border-border-subtle bg-surface px-2 py-1 text-xs text-muted outline-none focus:border-foreground/[0.14]"
             >
               <option value="all">All Types</option>
               {availableTypes.map((type) => (
@@ -151,11 +157,11 @@ export default function MemoryPanel({ isOpen, onClose }: Props) {
           <div className="flex-1 overflow-y-auto">
             {loading ? (
               <div className="flex items-center justify-center py-16">
-                <div className="h-5 w-5 animate-spin rounded-full border-2 border-stone-200 border-t-stone-500 dark:border-stone-700 dark:border-t-stone-400" />
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-foreground/[0.12] border-t-foreground/60" />
               </div>
             ) : !hasEntries ? (
               <div className="flex flex-col items-center justify-center px-8 py-16 text-center">
-                <p className="text-sm text-stone-500 dark:text-stone-400">
+                <p className="text-sm text-muted">
                   No memories match the current filters.
                 </p>
               </div>
@@ -193,8 +199,8 @@ function FilterChip({
       onClick={onClick}
       className={`rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wide transition ${
         active
-          ? 'bg-stone-800 text-white dark:bg-stone-200 dark:text-stone-900'
-          : 'bg-stone-100 text-stone-500 hover:bg-stone-200 dark:bg-stone-800 dark:text-stone-400 dark:hover:bg-stone-700'
+          ? 'bg-foreground text-background'
+          : 'bg-foreground/[0.05] text-muted hover:bg-foreground/[0.08] hover:text-foreground'
       }`}
     >
       {label}

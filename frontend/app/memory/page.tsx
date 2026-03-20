@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import ThemeToggle from '@/app/components/ThemeToggle';
+import ThemePicker from '@/app/components/ThemePicker';
 import HomeBackground from '@/app/home/components/HomeBackground';
 import MemoryEntryComponent from '@/app/home/components/MemoryEntry';
 import { useMemory } from '@/app/home/components/useMemory';
@@ -84,7 +84,7 @@ export default function MemoryPage() {
             </button>
             <h1 className="font-heading text-2xl text-foreground">Memories</h1>
           </div>
-          <ThemeToggle />
+          <ThemePicker />
         </header>
 
         <div className="mb-4 rounded-xl border border-stone-200/70 bg-white/70 p-3 backdrop-blur-sm dark:border-stone-800/60 dark:bg-[#171716]/70">

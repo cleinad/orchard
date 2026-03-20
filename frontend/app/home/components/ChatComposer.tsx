@@ -86,15 +86,15 @@ export default function ChatComposer({
     <div className="mx-auto w-full max-w-2xl px-4">
       <div className="shrink-0 pb-2 pt-2">
         {temporaryChatEnabled && showTemporaryIntro && (
-          <div className="mb-3 rounded-2xl border border-black/[0.05] bg-[#FAF7F3] px-4 py-4 text-stone-800 shadow-sm dark:border-white/10 dark:bg-stone-900 dark:text-stone-100">
+          <div className="mb-3 rounded-2xl border border-border-subtle bg-foreground/[0.04] px-4 py-4 text-foreground shadow-sm">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-sm font-medium">Temporary chat is on.</p>
-                <p className="mt-1 text-xs text-stone-600 dark:text-stone-300">
+                <p className="mt-1 text-xs text-muted">
                   This conversation won&apos;t be saved.
                 </p>
               </div>
-              <span className="inline-flex items-center rounded-full border border-black/[0.05] bg-white px-2.5 py-1 text-[11px] font-medium text-stone-700 dark:border-white/10 dark:bg-white/10 dark:text-stone-100">
+              <span className="inline-flex items-center rounded-full border border-border-subtle bg-surface px-2.5 py-1 text-[11px] font-medium text-foreground">
                 Temporary
               </span>
             </div>
@@ -105,8 +105,8 @@ export default function ChatComposer({
                 onClick={() => onTemporaryMemoryModeChange('use_existing')}
                 className={`inline-flex items-center rounded-full px-3 py-1.5 text-xs font-medium transition ${
                   temporaryMemoryMode === 'use_existing'
-                    ? 'bg-white text-stone-800 shadow-sm ring-1 ring-black/[0.06] dark:bg-[#D9DCE1] dark:text-stone-900 dark:ring-0'
-                    : 'bg-[#F4EEE7] text-stone-700 hover:bg-white dark:bg-white/10 dark:text-stone-300 dark:hover:bg-white/15'
+                    ? 'bg-surface text-foreground shadow-sm ring-1 ring-border-subtle'
+                    : 'bg-foreground/[0.05] text-muted hover:bg-foreground/[0.08] hover:text-foreground'
                 }`}
               >
                 Use memories
@@ -116,15 +116,15 @@ export default function ChatComposer({
                 onClick={() => onTemporaryMemoryModeChange('off')}
                 className={`inline-flex items-center rounded-full px-3 py-1.5 text-xs font-medium transition ${
                   temporaryMemoryMode === 'off'
-                    ? 'bg-white text-stone-800 shadow-sm ring-1 ring-black/[0.06] dark:bg-[#D9DCE1] dark:text-stone-900 dark:ring-0'
-                    : 'bg-[#F4EEE7] text-stone-700 hover:bg-white dark:bg-white/10 dark:text-stone-300 dark:hover:bg-white/15'
+                    ? 'bg-surface text-foreground shadow-sm ring-1 ring-border-subtle'
+                    : 'bg-foreground/[0.05] text-muted hover:bg-foreground/[0.08] hover:text-foreground'
                 }`}
               >
                 No memory
               </button>
             </div>
 
-            <p className="mt-3 text-xs leading-relaxed text-stone-600 dark:text-stone-300">
+            <p className="mt-3 text-xs leading-relaxed text-muted">
               {temporaryModeHelperText}
             </p>
           </div>
@@ -177,7 +177,7 @@ export default function ChatComposer({
         </div>
 
         <form onSubmit={onSubmit} className="relative">
-          <div className="flex items-end gap-2 rounded-lg bg-surface px-3 py-1.5 shadow-sm ring-1 ring-black/[0.04] dark:ring-white/[0.06]">
+          <div className="flex items-end gap-2 rounded-lg bg-surface px-3 py-1.5 shadow-sm ring-1 ring-border-subtle">
             <textarea
               ref={textareaRef}
               value={input}
@@ -198,8 +198,8 @@ export default function ChatComposer({
                 aria-label={micActive ? 'Stop microphone' : 'Start microphone'}
                 className={`flex h-9 w-9 items-center justify-center rounded-md border p-0 transition-colors ${
                   micActive
-                    ? 'border-black/[0.08] bg-black/[0.04] text-foreground dark:border-white/[0.10] dark:bg-white/[0.06]'
-                    : 'border-transparent text-muted hover:border-black/[0.06] hover:bg-black/[0.03] hover:text-foreground/70 dark:hover:border-white/[0.10] dark:hover:bg-white/[0.05]'
+                    ? 'border-foreground/[0.10] bg-foreground/[0.05] text-foreground'
+                    : 'border-transparent text-muted hover:border-foreground/[0.08] hover:bg-foreground/[0.04] hover:text-foreground/70'
                 } disabled:cursor-not-allowed disabled:opacity-50`}
               >
                 <svg
@@ -255,8 +255,8 @@ export default function ChatComposer({
                 onClick={onToggleTts}
                 className={`flex h-7 w-7 items-center justify-center rounded-md border transition-colors ${
                   ttsEnabled
-                    ? 'border-black/[0.08] bg-black/[0.04] text-foreground dark:border-white/[0.10] dark:bg-white/[0.06]'
-                    : 'border-black/[0.06] text-muted hover:text-foreground/70 dark:border-white/[0.10]'
+                    ? 'border-foreground/[0.10] bg-foreground/[0.05] text-foreground'
+                    : 'border-border-subtle text-muted hover:bg-foreground/[0.04] hover:text-foreground/70'
                 }`}
               >
                 <svg
@@ -306,8 +306,8 @@ export default function ChatComposer({
                 disabled={isLoading}
                 className={`flex h-7 w-7 items-center justify-center rounded-md border transition-colors ${
                   searchEnabled
-                    ? 'border-black/[0.08] bg-black/[0.04] text-foreground dark:border-white/[0.10] dark:bg-white/[0.06]'
-                    : 'border-black/[0.06] text-muted hover:text-foreground/70 dark:border-white/[0.10]'
+                    ? 'border-foreground/[0.10] bg-foreground/[0.05] text-foreground'
+                    : 'border-border-subtle text-muted hover:bg-foreground/[0.04] hover:text-foreground/70'
                 } disabled:cursor-not-allowed disabled:opacity-50`}
               >
                 <svg

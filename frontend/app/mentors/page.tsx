@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import ThemeToggle from '@/app/components/ThemeToggle';
+import ThemePicker from '@/app/components/ThemePicker';
 import HomeBackground from '@/app/home/components/HomeBackground';
 import MentorDetailPanel from '@/app/home/components/MentorDetailPanel';
 import CreateMentorPanel from '@/app/home/components/CreateMentorPanel';
@@ -76,7 +76,7 @@ export default function MentorsPage() {
               Mentors
             </h1>
           </div>
-          <ThemeToggle />
+          <ThemePicker />
         </header>
 
         {/* Content */}

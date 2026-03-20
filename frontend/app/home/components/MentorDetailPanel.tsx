@@ -224,7 +224,7 @@ export default function MentorDetailPanel({
       }`}
     >
       <div
-        className={`absolute inset-0 bg-black/10 transition-opacity duration-300 dark:bg-black/40 ${
+        className={`absolute inset-0 bg-foreground/[0.06] transition-opacity duration-300 dark:bg-black/40 ${
           isOpen ? 'opacity-100' : 'opacity-0'
         }`}
         onClick={onClose}
@@ -235,8 +235,11 @@ export default function MentorDetailPanel({
           isOpen ? 'translate-x-0' : 'translate-x-full'
         }`}
       >
-        <div className="flex h-full flex-col border-l border-black/[0.06] bg-background shadow-xl dark:border-white/[0.06] dark:bg-[#131312]">
-          <div className="flex items-center justify-between border-b border-black/[0.06] px-5 py-4 dark:border-white/[0.06]">
+        <div
+          className="flex h-full flex-col bg-background shadow-xl"
+          style={{ borderLeft: '1px solid var(--border-subtle)' }}
+        >
+          <div className="flex items-center justify-between border-b border-border-subtle px-5 py-4">
             <div>
               <h2 className="text-sm font-medium text-foreground">
                 {panelTitle}
@@ -281,7 +284,7 @@ export default function MentorDetailPanel({
                       <input
                         value={name}
                         onChange={(event) => setName(event.target.value)}
-                        className="w-full rounded-lg bg-surface px-3 py-2 text-sm text-foreground outline-none ring-1 ring-black/[0.06] focus:ring-black/[0.12] dark:ring-white/[0.06] dark:focus:ring-white/[0.12]"
+                        className="w-full rounded-lg bg-surface px-3 py-2 text-sm text-foreground outline-none ring-1 ring-border-subtle focus:ring-foreground/[0.12]"
                       />
                     </Field>
 
@@ -289,7 +292,7 @@ export default function MentorDetailPanel({
                       <input
                         value={tagline}
                         onChange={(event) => setTagline(event.target.value)}
-                        className="w-full rounded-lg bg-surface px-3 py-2 text-sm text-foreground outline-none ring-1 ring-black/[0.06] focus:ring-black/[0.12] dark:ring-white/[0.06] dark:focus:ring-white/[0.12]"
+                        className="w-full rounded-lg bg-surface px-3 py-2 text-sm text-foreground outline-none ring-1 ring-border-subtle focus:ring-foreground/[0.12]"
                       />
                     </Field>
 
@@ -298,7 +301,7 @@ export default function MentorDetailPanel({
                         value={description}
                         onChange={(event) => setDescription(event.target.value)}
                         rows={4}
-                        className="w-full rounded-lg bg-surface px-3 py-2 text-sm text-foreground outline-none ring-1 ring-black/[0.06] focus:ring-black/[0.12] dark:ring-white/[0.06] dark:focus:ring-white/[0.12]"
+                        className="w-full rounded-lg bg-surface px-3 py-2 text-sm text-foreground outline-none ring-1 ring-border-subtle focus:ring-foreground/[0.12]"
                       />
                     </Field>
                   </>
@@ -307,16 +310,16 @@ export default function MentorDetailPanel({
                 <Field label="Accent color">
                   <div className="flex items-center gap-3">
                     <input
-                      type="color"
-                      value={accentColor || DEFAULT_ACCENT}
-                      onChange={(event) => setAccentColor(event.target.value.toUpperCase())}
-                      className="h-10 w-14 cursor-pointer rounded-lg bg-surface p-1 ring-1 ring-black/[0.06] dark:ring-white/[0.06]"
-                    />
-                    <input
-                      value={accentColor}
-                      onChange={(event) => setAccentColor(event.target.value.toUpperCase())}
-                      className="w-full rounded-lg bg-surface px-3 py-2 text-sm text-foreground outline-none ring-1 ring-black/[0.06] focus:ring-black/[0.12] dark:ring-white/[0.06] dark:focus:ring-white/[0.12]"
-                    />
+                    type="color"
+                    value={accentColor || DEFAULT_ACCENT}
+                    onChange={(event) => setAccentColor(event.target.value.toUpperCase())}
+                    className="h-10 w-14 cursor-pointer rounded-lg bg-surface p-1 ring-1 ring-border-subtle"
+                  />
+                  <input
+                    value={accentColor}
+                    onChange={(event) => setAccentColor(event.target.value.toUpperCase())}
+                    className="w-full rounded-lg bg-surface px-3 py-2 text-sm text-foreground outline-none ring-1 ring-border-subtle focus:ring-foreground/[0.12]"
+                  />
                   </div>
                 </Field>
 
@@ -365,7 +368,7 @@ export default function MentorDetailPanel({
                     onChange={(event) => setUserInstructions(event.target.value)}
                     rows={5}
                     placeholder="Preferences, boundaries, constraints..."
-                    className="w-full rounded-lg bg-surface px-3 py-2 text-sm text-foreground outline-none ring-1 ring-black/[0.06] focus:ring-black/[0.12] dark:ring-white/[0.06] dark:focus:ring-white/[0.12]"
+                    className="w-full rounded-lg bg-surface px-3 py-2 text-sm text-foreground outline-none ring-1 ring-border-subtle focus:ring-foreground/[0.12]"
                   />
                 </Field>
 
@@ -375,7 +378,7 @@ export default function MentorDetailPanel({
                       value={basePrompt}
                       onChange={(event) => setBasePrompt(event.target.value)}
                       rows={12}
-                      className="w-full rounded-xl border border-stone-300 bg-white px-3 py-2 font-mono text-xs text-stone-900 outline-none focus:border-stone-400 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100 dark:focus:border-stone-600"
+                      className="w-full rounded-xl border border-border-subtle bg-surface px-3 py-2 font-mono text-xs text-foreground outline-none focus:border-foreground/[0.14]"
                     />
                   </Field>
                 )}
@@ -389,14 +392,14 @@ export default function MentorDetailPanel({
             )}
           </div>
 
-          <div className="flex items-center justify-between border-t border-black/[0.06] px-5 py-3 dark:border-white/[0.06]">
+          <div className="flex items-center justify-between border-t border-border-subtle px-5 py-3">
             <div>
               {mentor && !mentor.is_builtin && (
                 <button
                   type="button"
                   onClick={handleDelete}
                   disabled={saving}
-                  className="rounded-lg px-3 py-2 text-xs font-semibold text-rose-600 transition hover:bg-rose-50/50 disabled:opacity-50 dark:text-rose-400 dark:hover:bg-rose-900/20"
+                  className="rounded-lg px-3 py-2 text-xs font-semibold text-rose-600 transition hover:bg-rose-500/10 disabled:opacity-50 dark:text-rose-400"
                 >
                   Delete Mentor
                 </button>

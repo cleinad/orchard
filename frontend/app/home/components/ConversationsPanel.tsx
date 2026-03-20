@@ -45,7 +45,7 @@ export default function ConversationsPanel({
       }`}
     >
       <div
-        className={`absolute inset-0 bg-black/20 backdrop-blur-sm transition-opacity duration-300 dark:bg-black/40 ${
+        className={`absolute inset-0 bg-foreground/[0.06] backdrop-blur-sm transition-opacity duration-300 dark:bg-black/40 ${
           isOpen ? 'opacity-100' : 'opacity-0'
         }`}
         onClick={onClose}
@@ -56,19 +56,25 @@ export default function ConversationsPanel({
           isOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        <div className="flex h-full flex-col border-r border-stone-200/50 bg-white/90 backdrop-blur-2xl dark:border-stone-800/50 dark:bg-[#111111]/95">
-          <div className="flex items-center justify-between border-b border-stone-100 px-5 py-4 dark:border-stone-800/50">
+        <div
+          className="flex h-full flex-col backdrop-blur-2xl"
+          style={{
+            background: 'color-mix(in srgb, var(--surface) 94%, transparent)',
+            borderRight: '1px solid var(--border-subtle)',
+          }}
+        >
+          <div className="flex items-center justify-between border-b border-border-subtle px-5 py-4">
             <div>
-              <h2 className="text-sm font-medium text-stone-800 dark:text-stone-100">
+              <h2 className="text-sm font-medium text-foreground">
                 Conversations
               </h2>
-              <p className="mt-0.5 text-xs text-stone-400 dark:text-stone-500">
+              <p className="mt-0.5 text-xs text-muted">
                 Unified history across Novus and mentors
               </p>
             </div>
             <button
               onClick={onClose}
-              className="rounded-lg p-1.5 text-stone-400 transition hover:bg-stone-100 hover:text-stone-600 dark:text-stone-500 dark:hover:bg-stone-800 dark:hover:text-stone-300"
+              className="rounded-lg p-1.5 text-muted transition hover:bg-foreground/[0.04] hover:text-foreground"
               aria-label="Close"
             >
               <svg
@@ -83,14 +89,14 @@ export default function ConversationsPanel({
             </button>
           </div>
 
-          <div className="border-b border-stone-100 px-4 py-3 dark:border-stone-800/50">
+          <div className="border-b border-border-subtle px-4 py-3">
             <button
               type="button"
               onClick={() => {
                 onNewNovusChat();
                 onClose();
               }}
-              className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2.5 text-left text-sm font-semibold text-stone-700 transition hover:border-stone-300 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-200 dark:hover:border-stone-600"
+              className="w-full rounded-xl border border-border-subtle bg-surface px-3 py-2.5 text-left text-sm font-semibold text-foreground/84 transition hover:border-foreground/[0.12] hover:bg-foreground/[0.03] hover:text-foreground"
             >
               New Novus Chat
             </button>
@@ -98,7 +104,7 @@ export default function ConversationsPanel({
 
           <div className="flex-1 overflow-y-auto px-3 py-3">
             {conversations.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-stone-300 p-4 text-sm text-stone-500 dark:border-stone-700 dark:text-stone-400">
+              <div className="rounded-xl border border-dashed border-border-subtle p-4 text-sm text-muted">
                 No conversations yet.
               </div>
             ) : (
@@ -115,8 +121,8 @@ export default function ConversationsPanel({
                       }}
                       className={`w-full rounded-xl border px-3 py-3 text-left transition ${
                         isActive
-                          ? 'border-stone-900 bg-stone-50 dark:border-stone-300 dark:bg-stone-900/70'
-                          : 'border-stone-200 bg-white hover:border-stone-300 dark:border-stone-800 dark:bg-stone-900/40 dark:hover:border-stone-700'
+                          ? 'border-foreground/[0.16] bg-foreground/[0.05]'
+                          : 'border-border-subtle bg-surface hover:border-foreground/[0.10] hover:bg-foreground/[0.03]'
                       }`}
                     >
                       <div className="flex items-center justify-between gap-2">
@@ -128,7 +134,7 @@ export default function ConversationsPanel({
                                 conversation.mentor_accent_color || '#94A3B8',
                             }}
                           />
-                          <span className="truncate text-sm font-semibold text-stone-800 dark:text-stone-100">
+                          <span className="truncate text-sm font-semibold text-foreground">
                             {conversation.mentor_name}
                           </span>
                         </div>
@@ -136,7 +142,7 @@ export default function ConversationsPanel({
                           {formatDate(conversation.updated_at)}
                         </span>
                       </div>
-                      <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-stone-500 dark:text-stone-400">
+                      <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted">
                         {conversation.preview || conversation.title || 'No messages yet'}
                       </p>
                     </button>

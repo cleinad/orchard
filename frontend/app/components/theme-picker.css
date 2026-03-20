@@ -1,0 +1,32 @@
+.theme-picker-popover {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  border: none;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  position-area: bottom;
+  justify-self: anchor-end;
+  position-try-fallbacks: flip-block flip-inline;
+  margin-top: 10px;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition:
+    opacity 160ms ease,
+    transform 160ms ease,
+    display 160ms allow-discrete,
+    overlay 160ms allow-discrete;
+}
+
+.theme-picker-popover:popover-open {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@starting-style {
+  .theme-picker-popover:popover-open {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}

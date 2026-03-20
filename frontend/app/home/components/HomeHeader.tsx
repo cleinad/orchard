@@ -1,6 +1,6 @@
 "use client";
 
-import ThemeToggle from "@/app/components/ThemeToggle";
+import ThemePicker from "@/app/components/ThemePicker";
 import Tooltip from "@/app/components/Tooltip";
 import type { TemporaryMemoryMode } from "@/lib/chat-session";
 import { useLearningMode } from "./LearningModeContext";
@@ -54,9 +54,9 @@ export default function HomeHeader({
           <div className="mt-1 flex items-center gap-2">
             <span className="truncate font-heading text-xl text-foreground">{activeName}</span>
             {temporaryChatEnabled && (
-              <div className="flex items-center gap-1.5 text-[11px] font-medium text-stone-500 dark:text-stone-400">
+              <div className="flex items-center gap-1.5 text-[11px] font-medium text-muted">
                 <span className="whitespace-nowrap">Temporary</span>
-                <span aria-hidden="true" className="text-stone-400 dark:text-stone-500">
+                <span aria-hidden="true" className="text-muted/70">
                   /
                 </span>
                 <span className="whitespace-nowrap">{temporaryMemoryModeLabel}</span>
@@ -98,7 +98,7 @@ export default function HomeHeader({
             aria-pressed={temporaryChatEnabled}
             className={`inline-flex h-10 w-10 items-center justify-center rounded-lg border transition ${
               temporaryChatEnabled
-                ? "border-black/[0.05] bg-[#FBF8F4] text-stone-700 shadow-sm dark:border-white/10 dark:bg-stone-800 dark:text-stone-100"
+                ? "border-foreground/[0.08] bg-foreground/[0.05] text-foreground shadow-sm"
                 : "border-transparent text-muted hover:text-foreground"
             }`}
           >
@@ -145,9 +145,7 @@ export default function HomeHeader({
           </button>
         </Tooltip>
 
-        <Tooltip content="Toggle theme">
-          <ThemeToggle />
-        </Tooltip>
+        <ThemePicker />
       </div>
     </header>
   );

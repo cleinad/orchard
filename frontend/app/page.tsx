@@ -1,6 +1,6 @@
 'use client';
 
-import ThemeToggle from '@/app/components/ThemeToggle';
+import ThemePicker from '@/app/components/ThemePicker';
 import { useEffect, useState } from 'react';
 
 function TypingText({ text, delay = 0 }: { text: string; delay?: number }) {
@@ -60,7 +60,7 @@ export default function Home() {
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <ThemeToggle />
+            <ThemePicker />
             <a
               href="/login"
               className="rounded-lg px-4 py-2 text-sm text-muted transition hover:text-foreground"

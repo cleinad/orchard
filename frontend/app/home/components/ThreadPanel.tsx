@@ -306,7 +306,7 @@ export default function ThreadPanel({
       className="pointer-events-none fixed inset-0 z-50 flex justify-end transition-all duration-300"
     >
       <div
-        className={`absolute inset-0 bg-black/20 transition-opacity duration-300 lg:hidden ${
+        className={`absolute inset-0 bg-foreground/[0.06] transition-opacity duration-300 lg:hidden ${
           isOpen ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
         }`}
         onClick={onClose}
@@ -317,14 +317,14 @@ export default function ThreadPanel({
           isOpen ? "translate-x-0" : "translate-x-full"
         }`}
       >
-        <div className="flex items-start justify-between border-b border-black/[0.06] px-6 py-4 dark:border-white/[0.06]">
+        <div className="flex items-start justify-between border-b border-border-subtle px-6 py-4">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <p className="text-xs font-medium tracking-wider text-muted/60">
                 {activeQuestion ? "FOLLOW-UP" : "THREAD"}
               </p>
               {temporaryChatEnabled && (
-                <span className="inline-flex items-center rounded-full border border-slate-500/20 bg-[#C9CDD3] px-2 py-0.5 text-[10px] font-medium text-slate-900 dark:border-white/10 dark:bg-stone-800 dark:text-stone-100">
+                <span className="inline-flex items-center rounded-full border border-border-subtle bg-foreground/[0.05] px-2 py-0.5 text-[10px] font-medium text-foreground">
                   Temporary
                 </span>
               )}
@@ -354,7 +354,11 @@ export default function ThreadPanel({
 
         <div
           className="flex-1 overflow-y-auto px-6 py-4"
-          style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(0,0,0,0.08) transparent" }}
+          style={{
+            scrollbarWidth: "thin",
+            scrollbarColor:
+              "color-mix(in srgb, var(--foreground) 18%, transparent) transparent",
+          }}
         >
           {messages.map((message) => (
             <div key={message.id} className="py-3">
@@ -385,8 +389,8 @@ export default function ThreadPanel({
           <div ref={messagesEndRef} />
         </div>
 
-        <div className="border-t border-black/[0.06] px-6 py-4 dark:border-white/[0.06]">
-          <div className="flex items-center gap-2 rounded-xl bg-surface px-4 py-2 shadow-sm ring-1 ring-black/[0.04] dark:ring-white/[0.06]">
+        <div className="border-t border-border-subtle px-6 py-4">
+          <div className="flex items-center gap-2 rounded-xl bg-surface px-4 py-2 shadow-sm ring-1 ring-border-subtle">
             <input
               ref={inputRef}
               type="text"
