@@ -16,7 +16,7 @@ export async function loadMemoryContextV2(
 export async function loadMemoryContext(
   supabase: SupabaseClient,
   userId: string,
-  actor: MemoryActor = 'novus',
+  actor: MemoryActor = 'default',
   mentorId?: string | null,
   query?: string
 ): Promise<string> {

@@ -14,7 +14,7 @@ import {
 } from './memory-items-server';
 import { createSupabaseServiceClient } from './supabase-service';
 
-const MEMORY_V2_AGENT_PROMPT = `You are the Novus memory extraction agent.
+const MEMORY_V2_AGENT_PROMPT = `You are the Keen memory extraction agent.
 
 Goal: extract atomic memory candidates from a conversation transcript.
 

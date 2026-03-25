@@ -369,7 +369,7 @@ describe('loadMemoryContextV2 — read path', () => {
 
     const { loadMemoryContextV2 } = await import('@/lib/memory-items-server');
     const result = await loadMemoryContextV2(client as any, 'user-1', {
-      actor: 'novus',
+      actor: 'default',
     });
 
     expect(result).toBe('');
@@ -393,7 +393,7 @@ describe('loadMemoryContextV2 — read path', () => {
 
     const { loadMemoryContextV2 } = await import('@/lib/memory-items-server');
     const result = await loadMemoryContextV2(client as any, 'user-1', {
-      actor: 'novus',
+      actor: 'default',
     });
 
     expect(result).toContain('## Core Profile');
@@ -433,10 +433,10 @@ describe('loadMemoryContextV2 — read path', () => {
 
     const { loadMemoryContextV2 } = await import('@/lib/memory-items-server');
     const result = await loadMemoryContextV2(client as any, 'user-1', {
-      actor: 'novus',
+      actor: 'default',
     });
 
-    // Core profile should have at least 3 items (novus minimum)
+    // Core profile should have at least 3 items (default minimum)
     const coreSection = result.split('## Relevant Recall')[0] || result;
     const coreLines = coreSection.split('\n').filter((l) => l.startsWith('- ['));
     expect(coreLines.length).toBeGreaterThanOrEqual(3);
