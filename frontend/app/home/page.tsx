@@ -678,7 +678,7 @@ function HomePageInner() {
         onSelectConversation={(conversation) => {
           void handleSelectConversation(conversation);
         }}
-        onNewNovusChat={handleSelectDefault}
+        onNewDefaultChat={handleSelectDefault}
       />
       <MentorDetailPanel
         isOpen={detailPanelOpen}

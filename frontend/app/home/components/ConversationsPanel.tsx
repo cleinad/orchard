@@ -17,7 +17,7 @@ interface Props {
   conversations: ConversationListItem[];
   activeConversationId: string | null;
   onSelectConversation: (conversation: ConversationListItem) => void;
-  onNewNovusChat: () => void;
+  onNewDefaultChat: () => void;
 }
 
 function formatDate(input: string): string {
@@ -36,7 +36,7 @@ export default function ConversationsPanel({
   conversations,
   activeConversationId,
   onSelectConversation,
-  onNewNovusChat,
+  onNewDefaultChat,
 }: Props) {
   return (
     <div
@@ -69,7 +69,7 @@ export default function ConversationsPanel({
                 Conversations
               </h2>
               <p className="mt-0.5 text-xs text-muted">
-                Unified history across Novus and mentors
+                Unified history across Keen and mentors
               </p>
             </div>
             <button
@@ -93,12 +93,12 @@ export default function ConversationsPanel({
             <button
               type="button"
               onClick={() => {
-                onNewNovusChat();
+                onNewDefaultChat();
                 onClose();
               }}
               className="w-full rounded-xl border border-border-subtle bg-surface px-3 py-2.5 text-left text-sm font-semibold text-foreground/84 transition hover:border-foreground/[0.12] hover:bg-foreground/[0.03] hover:text-foreground"
             >
-              New Novus Chat
+              New Chat
             </button>
           </div>
 
