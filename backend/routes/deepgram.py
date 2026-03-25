@@ -22,7 +22,7 @@ def create_deepgram_token():
     scopes = [scope.strip() for scope in scopes_env.split(",") if scope.strip()]
 
     payload = {
-        "comment": "Novus browser token",
+        "comment": "Keen browser token",
         "time_to_live": ttl_seconds,
         "scopes": scopes,
     }
