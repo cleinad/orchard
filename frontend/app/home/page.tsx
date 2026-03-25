@@ -38,7 +38,7 @@ interface ChatResponse {
   error?: string;
 }
 
-const TTS_STORAGE_KEY = 'novus-tts-enabled';
+const TTS_STORAGE_KEY = 'keen-tts-enabled';
 
 /**
  * Home page - editorial voice + text conversation interface

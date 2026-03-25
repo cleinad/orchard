@@ -9,7 +9,7 @@ export type ThemeOption = {
   palette: [string, string, string];
 };
 
-export const STORAGE_KEY = "novus-theme";
+export const STORAGE_KEY = "keen-theme";
 export const DEFAULT_LIGHT_THEME_ID: ThemeId = "blizzard";
 export const DEFAULT_DARK_THEME_ID: ThemeId = "stellar";
 
