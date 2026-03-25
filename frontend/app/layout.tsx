@@ -17,7 +17,7 @@ const fraunces = Fraunces({
 });
 
 export const metadata: Metadata = {
-  title: "Novus",
+  title: "Keen",
   description: "Hands Off AI",
 };
 

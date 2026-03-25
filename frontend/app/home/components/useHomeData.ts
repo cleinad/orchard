@@ -112,7 +112,7 @@ export function useHomeData() {
         updated_at: row.updated_at,
         created_at: row.created_at,
         preview: mapConversationPreview(preview),
-        mentor_name: mentor?.name || 'Novus',
+        mentor_name: mentor?.name || 'Keen',
         mentor_accent_color: mentor?.accent_color || null,
       };
     });

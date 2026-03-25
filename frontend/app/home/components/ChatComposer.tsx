@@ -79,8 +79,8 @@ export default function ChatComposer({
   const hasTranscript = finalTranscript.length > 0 || interimTranscript.length > 0;
   const temporaryModeHelperText =
     temporaryMemoryMode === 'use_existing'
-      ? 'Novus can use saved memories for context, but nothing from this chat is retained.'
-      : 'Novus will not read or save any memory for this chat.';
+      ? 'Keen can use saved memories for context, but nothing from this chat is retained.'
+      : 'Keen will not read or save any memory for this chat.';
 
   return (
     <div className="mx-auto w-full max-w-2xl px-4">

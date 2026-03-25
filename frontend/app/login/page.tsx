@@ -101,8 +101,8 @@ export default function LoginPage() {
             </h1>
             <p className="mt-2 text-sm text-muted">
               {isSignUp
-                ? 'Sign up to start using Novus'
-                : 'Sign in to your Novus account'}
+                ? 'Sign up to start using Keen'
+                : 'Sign in to your Keen account'}
             </p>
           </div>
 

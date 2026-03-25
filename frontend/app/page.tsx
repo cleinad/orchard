@@ -56,7 +56,7 @@ export default function Home() {
         <header className="flex h-16 items-center justify-between">
           <div className="flex items-center gap-2.5">
             <span className="font-heading text-lg text-foreground">
-              Novus
+              Keen
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -100,7 +100,7 @@ export default function Home() {
               className={`mt-6 max-w-md text-base leading-relaxed text-muted transition-all duration-600 ${mounted ? 'translate-y-0 opacity-100' : 'translate-y-3 opacity-0'}`}
               style={{ transitionDelay: '350ms' }}
             >
-              Speak naturally. Novus listens, organizes your thoughts into
+              Speak naturally. Keen listens, organizes your thoughts into
               threads, routes actions to your tools — and commits nothing
               without your word.
             </p>
@@ -230,7 +230,7 @@ export default function Home() {
 
         {/* Footer */}
         <footer className="flex flex-col items-start justify-between gap-3 border-t border-black/[0.06] pt-6 text-xs text-muted dark:border-white/[0.06] sm:flex-row sm:items-center">
-          <span>&copy; 2026 Novus</span>
+          <span>&copy; 2026 Keen</span>
           <span>Deliberate, voice-led work</span>
         </footer>
       </main>
