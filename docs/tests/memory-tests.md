@@ -55,5 +55,5 @@ Integration tests for the write path (`processMemoryV2`) and read path (`loadMem
 |------|----------|
 | Empty DB | Returns empty string |
 | Core profile selection | Stable high-salience items appear under `## Core Profile`, profile/goal/preference types ranked higher |
-| Token budget trimming | Episodic items dropped first, core items preserved (min 3 for novus actor) |
+| Token budget trimming | Episodic items dropped first, core items preserved (min 3 for default actor) |
 | Mentor scoping | Mentor actor sees `## Global Profile` header, only mentor-owned items in relevant recall, other mentors excluded |

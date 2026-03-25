@@ -2,9 +2,9 @@
 
 ## Overview
 
-Mentors are specialized AI personas available in Novus that carry deep domain knowledge and tailored behavior. Each mentor acts like having a knowledgeable person in your network — someone you can talk to naturally (including by voice) and get real, domain-specific advice without crafting a single prompt.
+Mentors are specialized AI personas available in Keen that carry deep domain knowledge and tailored behavior. Each mentor acts like having a knowledgeable person in your network — someone you can talk to naturally (including by voice) and get real, domain-specific advice without crafting a single prompt.
 
-Novus itself is the default — your personal assistant, the mentor on *you*. When you need specialized help, you open your contacts and reach out to a mentor who knows that domain deeply.
+Keen itself is the default — your personal assistant, the mentor on *you*. When you need specialized help, you open your contacts and reach out to a mentor who knows that domain deeply.
 
 ### What Makes Mentors Different
 
@@ -18,7 +18,7 @@ The interactive back-and-forth is what separates this from reading an article. M
 
 ### Built-in Mentors
 
-Novus ships with 12 curated built-in mentors. Users get their own copy of each on signup so they can customize without affecting others. Built-in mentors have `is_builtin=true` and their `base_system_prompt` is read-only in the UI.
+Keen ships with 12 curated built-in mentors. Users get their own copy of each on signup so they can customize without affecting others. Built-in mentors have `is_builtin=true` and their `base_system_prompt` is read-only in the UI.
 
 The 12 built-in mentors: The Interviewer, The Chef, The Trainer, The Mentor, The Editor, The Accountant, The Handyman, The Guide, The Tutor, The Strategist, The Diplomat, The Creative.
 
@@ -37,14 +37,14 @@ Users can create entirely new mentors with AI-assisted generation:
 
 Each mentor has exactly one persistent conversation thread per user (v1). Re-opening a mentor resumes that same thread. This is enforced by a unique index on `(user_id, mentor_id)` in the `conversations` table.
 
-Novus is **not** a row in the `mentors` table — when `mentor_id` is null on a conversation, the existing Novus system prompt + full memory system is used.
+Keen is **not** a row in the `mentors` table — when `mentor_id` is null on a conversation, the existing Keen system prompt + full memory system is used.
 
 ## Roadmap
 
 - **v1 (current)**: Built-in mentors, custom mentor creation with AI-assisted generation, one conversation per mentor, voice-enabled, per-mentor accent colors and avatar upload
 - **v2**: Attach knowledge bases and reference documents to mentors, AI-generated mentor photos
-- **v3**: User-controlled context sharing between Novus and mentors, Novus can brief a mentor before you talk to them
-- **v4**: Cross-mentor conversations, Novus can route questions to or consult other mentors mid-conversation
+- **v3**: User-controlled context sharing between Keen and mentors, Keen can brief a mentor before you talk to them
+- **v4**: Cross-mentor conversations, Keen can route questions to or consult other mentors mid-conversation
 - **v5**: User-customizable themes for mentors and the overall app
 - **v6**: Mentor marketplace — publish, browse, install, rate community-created mentors
 - **v7**: Technical configurations — model selection per mentor, thinking/reasoning toggles
@@ -76,7 +76,7 @@ RLS: users can only access their own mentors. Built-in mentors cannot be deleted
 
 ### System Prompt Construction
 
-**Novus** (`mentor_id = null`): `buildSystemPrompt(memoryContext)` — full memory system.
+**Keen** (`mentor_id = null`): `buildSystemPrompt(memoryContext)` — full memory system.
 
 **Mentor**: `buildMentorPrompt(mentor, userName)` in `frontend/lib/mentors/prompts.ts`:
 ```

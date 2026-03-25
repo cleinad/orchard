@@ -1,4 +1,4 @@
-# Novus Architecture
+# Keen Architecture
 
 ## Tech Stack
 
@@ -126,7 +126,7 @@ create index on context_chunks using ivfflat (embedding vector_cosine_ops);
 
 ## Voice Pipeline
 
-### Input (User → Novus)
+### Input (User → Keen)
 ```
 Mic capture (browser MediaRecorder)
     ↓
@@ -139,7 +139,7 @@ Transcript returned to frontend
 Full utterance sent to /chat
 ```
 
-### Output (Novus → User)
+### Output (Keen → User)
 ```
 LLM response text
     ↓

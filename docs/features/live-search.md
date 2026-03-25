@@ -2,7 +2,7 @@
 
 ## Overview
 
-Live search gives Novus access to real-time web results so responses can be grounded in current information. Users control this via a toggle below the chat input.
+Live search gives Keen access to real-time web results so responses can be grounded in current information. Users control this via a toggle below the chat input.
 
 **Two modes:**
 

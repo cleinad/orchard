@@ -8,7 +8,7 @@
 
 ## Problem
 
-The current Novus UI looks like a generic AI chat wrapper. It needs a distinct identity that reflects what Novus actually is: a voice-first thinking partner that knows you deeply, with calm confidence and quiet authority.
+The current Keen UI looks like a generic AI chat wrapper. It needs a distinct identity that reflects what Keen actually is: a voice-first thinking partner that knows you deeply, with calm confidence and quiet authority.
 
 ## Design Direction
 
@@ -44,7 +44,7 @@ Load via `next/font`. No Rubik. No Inter.
 | Surface | `#ffffff` | Cards, panels, inputs |
 | Text | `#1c1917` | Primary text (stone-900) |
 | Muted | `#78716c` | Secondary text (stone-500) |
-| Accent (Novus) | `#64748B` | Default accent, calm slate |
+| Accent (Keen) | `#64748B` | Default accent, calm slate |
 | Border | shadow-only | No visible borders except where functionally needed |
 
 **Dark mode:**
@@ -105,18 +105,18 @@ No chat bubbles. No background colors on messages. Editorial typographic separat
 - **Role label:** Left-aligned. 12px uppercase tracking, muted color. Timestamp right-aligned on same line, even more muted.
 - **Message body:** 16px Satoshi, `leading-relaxed` (1.625). Dark text. No background, no borders.
 - **Message gap:** 32px vertical spacing between messages.
-- **Memory references:** When Novus references something it remembers, that phrase gets a subtle underline or slightly different color.
+- **Memory references:** When Keen references something it remembers, that phrase gets a subtle underline or slightly different color.
 - **Markdown rendering:** Current ReactMarkdown approach, updated with new typography.
 
 ### Empty State
 
-- Fraunces heading, 32px: "What's on your mind?" (Novus) or "Talk to {mentor name}" (mentor)
+- Fraunces heading, 32px: "What's on your mind?" (Keen) or "Talk to {mentor name}" (mentor)
 - Satoshi body, 14px, muted: tagline or "Speak or type. I'm listening."
 - Vertically centered in conversation area.
 
 ### Loading State
 
-"Novus" role label, then three subtle bouncing dots at body text position. No separate container.
+"Keen" role label, then three subtle bouncing dots at body text position. No separate container.
 
 ---
 
@@ -148,7 +148,7 @@ The bottom of the screen has a single cohesive input area.
 
 - "Speaking..." label below input
 - Voice line does gentle slow pulse (smooth sine, different from listening waveform)
-- Speaking while Novus talks interrupts (current behavior)
+- Speaking while Keen talks interrupts (current behavior)
 
 ---
 
