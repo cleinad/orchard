@@ -1,0 +1,136 @@
+#!/usr/bin/env bash
+#
+# wt-add
+# Create a new git worktree and initialize its local env files.
+#
+# Usage:
+#   ./scripts/wt-add <branch-name>
+#   ./scripts/wt-add <branch-name> <path>
+#   ./scripts/wt-add --base <branch> <branch-name> [path]
+#   ./scripts/wt-add --force <branch-name> [path]
+#
+# What it does:
+#   - creates a new worktree for the given branch
+#   - defaults the path to ../<branch-name-with-slashes-replaced>
+#   - creates the branch from main when it does not exist yet
+#   - runs ./scripts/wt-init for the new worktree
+
+set -euo pipefail
+
+script_name=$(basename "$0")
+base_branch="main"
+force=0
+branch_name=""
+target_path=""
+
+usage() {
+  cat <<'EOF'
+Usage:
+  ./scripts/wt-add <branch-name>
+  ./scripts/wt-add <branch-name> <path>
+  ./scripts/wt-add --base <branch> <branch-name> [path]
+  ./scripts/wt-add --force <branch-name> [path]
+
+Create a new Git worktree and initialize frontend/.env.local and backend/.env
+from the main worktree.
+
+Behavior:
+  - If <branch-name> exists locally, it is checked out in the new worktree.
+  - If only a remote branch exists, a local tracking branch is created.
+  - If the branch does not exist, it is created from --base (default: main).
+  - If [path] is omitted, the worktree is created next to the current worktree root.
+
+Options:
+  --base <branch>         Base branch to use when creating a new branch.
+  --force                 Overwrite destination env files during initialization.
+  -h, --help              Show this help text.
+EOF
+}
+
+log() {
+  printf '%s: %s\n' "$script_name" "$*"
+}
+
+die() {
+  printf '%s: %s\n' "$script_name" "$*" >&2
+  exit 1
+}
+
+while (($# > 0)); do
+  case "$1" in
+    --base)
+      shift
+      (($# > 0)) || die "Missing value for --base"
+      base_branch="$1"
+      shift
+      ;;
+    --force)
+      force=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    -*)
+      die "Unknown option: $1"
+      ;;
+    *)
+      if [[ -z "$branch_name" ]]; then
+        branch_name="$1"
+      elif [[ -z "$target_path" ]]; then
+        target_path="$1"
+      else
+        die "Too many arguments"
+      fi
+      shift
+      ;;
+  esac
+done
+
+[[ -n "$branch_name" ]] || {
+  usage >&2
+  exit 1
+}
+
+git check-ref-format --branch "$branch_name" >/dev/null 2>&1 || die "Invalid branch name: $branch_name"
+
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || die "Run this from a Git worktree in this repository"
+repo_root=$(cd "$repo_root" && pwd -P)
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+
+if [[ -z "$target_path" ]]; then
+  repo_parent=$(cd "$repo_root/.." && pwd -P)
+  default_dir_name=${branch_name//\//-}
+  target_path="$repo_parent/$default_dir_name"
+fi
+
+[[ ! -e "$target_path" ]] || die "Target path already exists: $target_path"
+
+init_args=()
+if [[ $force -eq 1 ]]; then
+  init_args+=(--force)
+fi
+
+if git show-ref --verify --quiet "refs/heads/$branch_name"; then
+  log "Creating worktree at $target_path for existing local branch '$branch_name'"
+  git worktree add "$target_path" "$branch_name"
+else
+  remote_ref=$(git for-each-ref --format='%(refname:short)' "refs/remotes/*/$branch_name" | head -n 1)
+
+  if [[ -n "$remote_ref" ]]; then
+    log "Creating worktree at $target_path for remote branch '$remote_ref'"
+    git worktree add --track -b "$branch_name" "$target_path" "$remote_ref"
+  else
+    git rev-parse --verify --quiet "$base_branch^{commit}" >/dev/null || die "Base branch not found: $base_branch"
+    log "Creating worktree at $target_path with new branch '$branch_name' from '$base_branch'"
+    git worktree add -b "$branch_name" "$target_path" "$base_branch"
+  fi
+fi
+
+target_root=$(git -C "$target_path" rev-parse --show-toplevel 2>/dev/null) || die "Failed to resolve the new worktree root: $target_path"
+target_root=$(cd "$target_root" && pwd -P)
+
+"$script_dir/wt-init" --target "$target_root" "${init_args[@]}"
+
+log "Ready: $target_root"
