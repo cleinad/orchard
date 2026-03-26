@@ -1,0 +1,149 @@
+#!/usr/bin/env bash
+#
+# wt-init
+# Copy local env files from the main worktree into the current worktree.
+#
+# Usage:
+#   ./scripts/wt-init
+#   ./scripts/wt-init --force
+#   ./scripts/wt-init --target <worktree-path>
+#
+# What it does:
+#   - copies frontend/.env.local from the main worktree
+#   - copies backend/.env from the main worktree
+#   - refuses to overwrite existing files unless --force is passed
+
+set -euo pipefail
+
+script_name=$(basename "$0")
+main_branch="main"
+force=0
+target_root=""
+
+usage() {
+  cat <<'EOF'
+Usage:
+  ./scripts/wt-init
+  ./scripts/wt-init --force
+  ./scripts/wt-init --target <worktree-path>
+
+Copy frontend/.env.local and backend/.env from the main worktree into a
+target worktree.
+
+Options:
+  --force                 Overwrite destination env files if they already exist.
+  --target <worktree>     Initialize a specific worktree instead of the current one.
+  -h, --help              Show this help text.
+EOF
+}
+
+log() {
+  printf '%s: %s\n' "$script_name" "$*"
+}
+
+die() {
+  printf '%s: %s\n' "$script_name" "$*" >&2
+  exit 1
+}
+
+resolve_existing_path() {
+  local path="$1"
+  local base_dir="$2"
+
+  if [[ "$path" = /* ]]; then
+    (cd "$path" && pwd -P)
+  else
+    (cd "$base_dir/$path" && pwd -P)
+  fi
+}
+
+while (($# > 0)); do
+  case "$1" in
+    --force)
+      force=1
+      shift
+      ;;
+    --target)
+      shift
+      (($# > 0)) || die "Missing value for --target"
+      target_root="$1"
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      die "Unknown argument: $1"
+      ;;
+  esac
+done
+
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || die "Run this from a Git worktree in this repository"
+repo_root=$(cd "$repo_root" && pwd -P)
+current_common_dir_raw=$(git rev-parse --git-common-dir)
+current_common_dir=$(resolve_existing_path "$current_common_dir_raw" "$repo_root")
+
+if [[ -n "$target_root" ]]; then
+  [[ -d "$target_root" ]] || die "Target worktree does not exist: $target_root"
+  target_root=$(cd "$target_root" && pwd -P)
+else
+  target_root="$repo_root"
+fi
+
+target_repo_root=$(git -C "$target_root" rev-parse --show-toplevel 2>/dev/null) || die "Target is not a Git worktree: $target_root"
+target_repo_root=$(cd "$target_repo_root" && pwd -P)
+target_common_dir_raw=$(git -C "$target_repo_root" rev-parse --git-common-dir)
+target_common_dir=$(resolve_existing_path "$target_common_dir_raw" "$target_repo_root")
+
+[[ "$current_common_dir" == "$target_common_dir" ]] || die "Target worktree belongs to a different Git repository"
+target_root="$target_repo_root"
+
+main_worktree=""
+listed_worktree=""
+while IFS= read -r line; do
+  case "$line" in
+    worktree\ *)
+      listed_worktree=${line#worktree }
+      ;;
+    "branch refs/heads/$main_branch")
+      main_worktree="$listed_worktree"
+      break
+      ;;
+  esac
+done < <(git worktree list --porcelain)
+
+[[ -n "$main_worktree" ]] || die "Could not find a worktree with branch '$main_branch' checked out"
+main_worktree=$(cd "$main_worktree" && pwd -P)
+
+if [[ "$target_root" == "$main_worktree" ]]; then
+  log "Target worktree is '$main_branch'; nothing to copy."
+  exit 0
+fi
+
+env_files=(
+  "frontend/.env.local"
+  "backend/.env"
+)
+
+for relative_path in "${env_files[@]}"; do
+  source_path="$main_worktree/$relative_path"
+  destination_path="$target_root/$relative_path"
+  destination_dir=$(dirname "$destination_path")
+
+  [[ -f "$source_path" ]] || die "Source file not found: $source_path"
+  [[ -d "$destination_dir" ]] || die "Expected directory not found in target worktree: $destination_dir"
+
+  if [[ -e "$destination_path" && $force -ne 1 ]]; then
+    die "Destination file already exists: $destination_path (rerun with --force to overwrite)"
+  fi
+done
+
+for relative_path in "${env_files[@]}"; do
+  source_path="$main_worktree/$relative_path"
+  destination_path="$target_root/$relative_path"
+  cp -f "$source_path" "$destination_path"
+  log "Copied $relative_path"
+done
+
+log "Initialized env files in $target_root"
