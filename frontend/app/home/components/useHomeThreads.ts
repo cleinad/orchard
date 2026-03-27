@@ -3,9 +3,9 @@ import type { PopoverState } from '@/app/home/components/TextSelectionPopover';
 import type { ThreadMeta } from '@/app/home/components/MarkdownWithThreads';
 import type { ThreadMessage } from '@/app/home/components/ThreadPanel';
 
-const ACTIVE_SELECTION_HIGHLIGHT = 'novus-active-selection';
+const ACTIVE_SELECTION_HIGHLIGHT = 'keen-active-selection';
 
-const HIGHLIGHT_STYLE_ID = 'novus-active-selection-styles';
+const HIGHLIGHT_STYLE_ID = 'keen-active-selection-styles';
 
 /** Inject ::highlight() CSS at runtime; build CSS parser (Turbopack) doesn't support this pseudo-element. */
 function ensureHighlightStylesInjected() {

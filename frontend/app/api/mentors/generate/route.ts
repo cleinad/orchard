@@ -21,7 +21,7 @@ const GeneratedMentorSchema = z.object({
   base_system_prompt: z.string().min(200).max(12000),
 });
 
-const MENTOR_GENERATOR_SYSTEM_PROMPT = `You are a mentor persona designer for Novus.
+const MENTOR_GENERATOR_SYSTEM_PROMPT = `You are a mentor persona designer for Keen.
 You convert a user's natural-language request into a high-quality, production-ready mentor definition.
 
 Output must include:

@@ -1,4 +1,4 @@
-# Novus
+# Keen
 
 ## Vision
 
@@ -29,7 +29,7 @@ Current tools fail:
 
 ### Layer 1: Second Brain (Memory)
 
-The foundation. Novus knows your context, history, commitments, and how you think.
+The foundation. Keen knows your context, history, commitments, and how you think.
 
 - Stores and retrieves your knowledge across Threads (topics, projects, areas of life)
 - Remembers what you said you'd do
@@ -38,7 +38,7 @@ The foundation. Novus knows your context, history, commitments, and how you thin
 
 ### Layer 2: Chief of Staff (Agency)
 
-Built on the memory layer. Novus uses what it knows to proactively help you.
+Built on the memory layer. Keen uses what it knows to proactively help you.
 
 - Proposes priorities and next actions
 - Follows up on commitments
@@ -59,13 +59,13 @@ Deep discussion. Get to the bottom of things. Socratic dialogue.
 - Push back, ask why, challenge assumptions
 
 ### 2. Capture
-You're dumping thoughts. Novus structures and remembers.
+You're dumping thoughts. Keen structures and remembers.
 - "Just had a call with the client, here's what happened..."
 - "Random idea for the club event..."
 - Auto-routes to the right Thread, extracts key points
 
 ### 3. Manage
-Chief of staff mode. Novus proposes, you decide.
+Chief of staff mode. Keen proposes, you decide.
 - "Here's what's on your plate today"
 - "You said you'd email Prof X by Friday - draft ready?"
 - "Your contract deadline is tomorrow, should I block focus time?"
@@ -89,17 +89,17 @@ Each Thread maintains:
 
 ### Intent Routing
 
-Novus automatically determines:
+Keen automatically determines:
 - Which Thread the conversation belongs to
 - Whether you're exploring, capturing, or managing
 - If ambiguous, asks: "Which Thread is this for?"
 
 ### Commit Gating
 
-Novus proposes actions but never executes without explicit approval.
+Keen proposes actions but never executes without explicit approval.
 - Builds trust gradually
 - You maintain control and agency
-- Novus learns your preferences through approval/rejection patterns
+- Keen learns your preferences through approval/rejection patterns
 
 ---
 

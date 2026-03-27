@@ -10,7 +10,7 @@ export type MemorySensitivity = (typeof MEMORY_SENSITIVITIES)[number];
 export const MEMORY_STATUSES = ['active', 'superseded', 'deleted'] as const;
 export type MemoryStatus = (typeof MEMORY_STATUSES)[number];
 
-export type MemoryActor = 'novus' | 'mentor';
+export type MemoryActor = 'default' | 'mentor';
 
 export interface MemoryItem {
   id: string;

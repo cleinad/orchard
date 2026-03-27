@@ -38,7 +38,7 @@ interface ChatResponse {
   error?: string;
 }
 
-const TTS_STORAGE_KEY = 'novus-tts-enabled';
+const TTS_STORAGE_KEY = 'keen-tts-enabled';
 
 /**
  * Home page - editorial voice + text conversation interface
@@ -234,7 +234,7 @@ function HomePageInner() {
     }
   }, [micActive, startMic, stopMic]);
 
-  const handleSelectNovus = useCallback(() => {
+  const handleSelectDefault = useCallback(() => {
     tts.stop();
     resetThreadUi();
     setActiveMentor(null);
@@ -564,7 +564,7 @@ function HomePageInner() {
     }
   };
 
-  const activeName = activeMentor?.name || 'Novus';
+  const activeName = activeMentor?.name || 'Keen';
   const activeTemporaryThreadMessages = activeThread
     ? temporaryThreadMessages.get(activeThread.id) ?? null
     : null;
@@ -678,7 +678,7 @@ function HomePageInner() {
         onSelectConversation={(conversation) => {
           void handleSelectConversation(conversation);
         }}
-        onNewNovusChat={handleSelectNovus}
+        onNewDefaultChat={handleSelectDefault}
       />
       <MentorDetailPanel
         isOpen={detailPanelOpen}
@@ -689,7 +689,7 @@ function HomePageInner() {
         }}
         onDeleted={(deletedSlug) => {
           if (activeMentor?.slug === deletedSlug) {
-            handleSelectNovus();
+            handleSelectDefault();
           }
           void refreshSidebarData();
         }}

@@ -2,7 +2,7 @@
 
 ## Overview
 
-Novus has a persistent memory system that remembers facts about the user across conversations. Memory is stored as atomic rows in a `memory_items` table in Supabase, extracted by an LLM-powered agent after each conversation, and injected into the system prompt at chat time.
+Keen has a persistent memory system that remembers facts about the user across conversations. Memory is stored as atomic rows in a `memory_items` table in Supabase, extracted by an LLM-powered agent after each conversation, and injected into the system prompt at chat time.
 
 Users can view, edit, and delete their memories through a slide-out panel in the home page.
 
@@ -16,7 +16,7 @@ The system never blocks the chat response — memory extraction is fully async.
 
 ### Memory Scoping
 
-- **Novus conversations**: read all active memory items (global + all mentor-owned), write global items
+- **Keen conversations**: read all active memory items (global + all mentor-owned), write global items
 - **Mentor conversations**: read mentor-owned items + compact global profile card, write mentor-owned items
 
 ## Roadmap
@@ -97,13 +97,13 @@ Stores `text-embedding-3-small` (1536-dim) vectors for semantic retrieval. One e
 
 `loadMemoryContextV2()` in `memory-items-server.ts` assembles memory context in three ranked blocks:
 
-1. **Core Profile** — stable, high-salience items (up to 9 for Novus, 6 for mentors). Scored by salience (52%), confidence (20%), recency (16%), plus bonuses for global ownership and core profile types.
+1. **Core Profile** — stable, high-salience items (up to 9 for Keen, 6 for mentors). Scored by salience (52%), confidence (20%), recency (16%), plus bonuses for global ownership and core profile types.
 
-2. **Relevant Recall** — items matching the current query via semantic + lexical similarity (up to 16 for Novus, 12 for mentors). Scored by semantic similarity (50%), lexical overlap (20%), salience (15%), recency (7%), confidence (8%).
+2. **Relevant Recall** — items matching the current query via semantic + lexical similarity (up to 16 for Keen, 12 for mentors). Scored by semantic similarity (50%), lexical overlap (20%), salience (15%), recency (7%), confidence (8%).
 
 3. **Recent Episodic** — recent episodic items not already selected (up to 8). Scored by salience (40%), recency (40%), confidence (20%).
 
-All three blocks are trimmed to a token budget (800-1200 tokens, default 1000) and item cap (20-35 items, default 28). Trimming drops episodic first, then relevant, then core (keeping a minimum of 3 core items for Novus, 2 for mentors).
+All three blocks are trimmed to a token budget (800-1200 tokens, default 1000) and item cap (20-35 items, default 28). Trimming drops episodic first, then relevant, then core (keeping a minimum of 3 core items for Keen, 2 for mentors).
 
 Semantic scoring uses OpenAI `text-embedding-3-small` embeddings. The system first tries an RPC call (`match_memory_items`), falling back to loading embedding rows in chunks and computing cosine similarity client-side.
 
@@ -121,7 +121,7 @@ Semantic scoring uses OpenAI `text-embedding-3-small` embeddings. The system fir
    - Otherwise inserts as new item
 5. Generates embeddings for all new/updated items via `upsertMemoryItemEmbeddings()`
 
-Mentor conversations write to `owner_type='mentor'` scoped items. Novus conversations write to `owner_type='global'`.
+Mentor conversations write to `owner_type='mentor'` scoped items. Keen conversations write to `owner_type='global'`.
 
 ### API
 

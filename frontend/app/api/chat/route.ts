@@ -21,7 +21,7 @@ import type {
   TemporaryMemoryMode,
 } from '@/lib/chat-session';
 
-const BASE_SYSTEM_PROMPT = `You are Novus, a voice-native thinking partner. You help the user think through problems with depth, capture their thoughts, and stay on top of their commitments.
+const BASE_SYSTEM_PROMPT = `You are Keen, a voice-native thinking partner. You help the user think through problems with depth, capture their thoughts, and stay on top of their commitments.
 
 Core traits:
 - You think WITH the user, not just respond to them. Ask probing questions, challenge assumptions, help them get to the bottom of things.
@@ -422,7 +422,7 @@ export async function POST(request: NextRequest) {
     const shouldLoadMemory = !isTemporaryChat || memoryMode === 'use_existing';
     const memoryContext = shouldLoadMemory
       ? await loadMemoryContextV2(supabase, user.id, {
-          actor: isMentorConversation ? 'mentor' : 'novus',
+          actor: isMentorConversation ? 'mentor' : 'default',
           mentorId: mentor?.id ?? null,
           query: message,
           tokenBudget: isMentorConversation ? 900 : 1100,
@@ -433,7 +433,7 @@ export async function POST(request: NextRequest) {
     const searchMode: SearchMode = searchEnabled ? 'required' : 'auto';
     const searchAvailable = Boolean(process.env.TAVILY_API_KEY);
 
-    // Build Novus or mentor system prompt.
+    // Build Keen or mentor system prompt.
     let baseSystemPrompt = isMentorConversation
       ? buildMentorSystemPrompt(
           buildMentorPrompt(mentor!, profile?.full_name || ''),

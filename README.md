@@ -1,4 +1,4 @@
-# Novus
+# Keen
 
 A voice-native AI thinking partner with specialized mentors, persistent memory, and live web search.
 

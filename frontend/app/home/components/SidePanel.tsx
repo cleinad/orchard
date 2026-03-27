@@ -10,7 +10,7 @@ interface Props {
   conversations: ConversationListItem[];
   activeConversationId: string | null;
   onSelectConversation: (conversation: ConversationListItem) => void;
-  onNewNovusChat: () => void;
+  onNewDefaultChat: () => void;
 }
 
 function formatDate(input: string): string {
@@ -29,7 +29,7 @@ export default function SidePanel({
   conversations,
   activeConversationId,
   onSelectConversation,
-  onNewNovusChat,
+  onNewDefaultChat,
 }: Props) {
   const router = useRouter();
 
@@ -105,7 +105,7 @@ export default function SidePanel({
             <button
               type="button"
               onClick={() => {
-                onNewNovusChat();
+                onNewDefaultChat();
                 onClose();
               }}
               className="flex w-full items-center justify-center gap-2 rounded-xl border border-border-subtle px-4 py-2.5 text-[12px] font-medium text-muted transition-colors duration-150 hover:border-foreground/[0.12] hover:text-foreground"

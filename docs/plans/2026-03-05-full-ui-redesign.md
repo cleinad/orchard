@@ -2,7 +2,7 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Redesign all Novus frontend pages with editorial typography (Fraunces + Satoshi), strict spacing grid, shadow-defined hierarchy, unified voice+text input, and a new /memory page.
+**Goal:** Redesign all Keen frontend pages with editorial typography (Fraunces + Satoshi), strict spacing grid, shadow-defined hierarchy, unified voice+text input, and a new /memory page.
 
 **Architecture:** Replace Libre Baskerville + Rubik fonts with Fraunces + Satoshi. Update globals.css with new color tokens and spacing scale. Rewrite all component Tailwind classes to use strict 4px grid and modular type scale (12/14/16/20/24/32px). Remove glass/blur effects from interactive elements. Create new /memory page.
 
@@ -60,7 +60,7 @@ const satoshi = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "Novus",
+  title: "Keen",
   description: "Hands Off AI",
 };
 
@@ -74,7 +74,7 @@ export default function RootLayout({
       <body className={`${fraunces.variable} ${satoshi.variable} antialiased`}>
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var stored=localStorage.getItem('novus-theme');var prefers=window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches;var isDark=stored==='dark'||(stored!=='light'&&prefers);document.documentElement.classList.toggle('dark',isDark);}catch(e){}})();`,
+            __html: `(function(){try{var stored=localStorage.getItem('keen-theme');var prefers=window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches;var isDark=stored==='dark'||(stored!=='light'&&prefers);document.documentElement.classList.toggle('dark',isDark);}catch(e){}})();`,
           }}
         />
         {children}
@@ -669,7 +669,7 @@ interface Props {
   conversations: ConversationListItem[];
   activeConversationId: string | null;
   onSelectConversation: (conversation: ConversationListItem) => void;
-  onNewNovusChat: () => void;
+  onNewDefaultChat: () => void;
 }
 
 function formatDate(input: string): string {
@@ -687,7 +687,7 @@ export default function SidePanel({
   conversations,
   activeConversationId,
   onSelectConversation,
-  onNewNovusChat,
+  onNewDefaultChat,
 }: Props) {
   const router = useRouter();
 
@@ -747,7 +747,7 @@ export default function SidePanel({
             <button
               type="button"
               onClick={() => {
-                onNewNovusChat();
+                onNewDefaultChat();
                 onClose();
               }}
               className="flex h-10 w-full items-center justify-center gap-2 rounded-lg text-sm font-medium text-muted ring-1 ring-black/[0.06] transition-colors hover:text-foreground dark:ring-white/[0.08]"
@@ -946,7 +946,7 @@ export default function MemoryPage() {
         ) : entries.length === 0 ? (
           <div className="py-20 text-center">
             <p className="text-sm text-muted">
-              No memories yet. Novus will remember things as you chat.
+              No memories yet. Keen will remember things as you chat.
             </p>
           </div>
         ) : (
