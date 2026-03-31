@@ -163,6 +163,23 @@ export default function ThreadPanel({
     }
   }, [isOpen]);
 
+  const handleCloseShortcut = useCallback(
+    (event: KeyboardEvent) => {
+      if (event.ctrlKey && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "l") {
+        event.preventDefault();
+        onClose();
+      }
+    },
+    [onClose]
+  );
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    document.addEventListener("keydown", handleCloseShortcut);
+    return () => document.removeEventListener("keydown", handleCloseShortcut);
+  }, [isOpen, handleCloseShortcut]);
+
   const sendMessage = useCallback(async (overrideContent?: string) => {
     const content = overrideContent?.trim() || input.trim();
     const canUsePersistentThread = chatMode === "persistent" && conversationId;
