@@ -40,11 +40,12 @@ interface TextSelectionPopoverProps {
   onDismiss: () => void;
   onThreadCreated: (threadId: string, sourceMessageId: string, highlightedText: string) => void;
   onGraduateToThread: (
-    threadId: string,
+    threadId: string | null,
     sourceMessageId: string,
     highlightedText: string,
     options?: {
       pendingMessage?: string;
+      draftInput?: string;
       initialMessages?: ThreadMessage[];
     }
   ) => void;
@@ -120,10 +121,12 @@ export default function TextSelectionPopover({
 
   // Reset state when popover closes or selection changes
   const prevSelectionKey = useRef<string | null>(null);
+  const activeSelectionKeyRef = useRef<string | null>(null);
   useEffect(() => {
     const key = popoverState
       ? `${popoverState.sourceMessageId}:${popoverState.selectedText}`
       : null;
+    activeSelectionKeyRef.current = key;
 
     if (!popoverState || key !== prevSelectionKey.current) {
       setCustomQuestion("");
@@ -196,6 +199,11 @@ export default function TextSelectionPopover({
 
   const sendQuestion = async (question: string) => {
     const activePopoverState = popoverState;
+    const requestSelectionKey = activePopoverState
+      ? `${activePopoverState.sourceMessageId}:${activePopoverState.selectedText}`
+      : null;
+    const isStaleRequest = () =>
+      !requestSelectionKey || activeSelectionKeyRef.current !== requestSelectionKey;
     const canUseChat =
       chatMode === "temporary" || (chatMode === "persistent" && conversationId);
     if (!canUseChat || !activePopoverState || isLoading) return;
@@ -231,6 +239,10 @@ export default function TextSelectionPopover({
       });
 
       const data = await res.json();
+      if (isStaleRequest()) {
+        return;
+      }
+
       if (res.ok && data.message) {
         const nextThreadId = data.threadId || requestedThreadId || threadId || null;
         const initialMessages = buildInitialMessages(
@@ -272,9 +284,14 @@ export default function TextSelectionPopover({
         setResponse(data.error || "Something went wrong.");
       }
     } catch {
+      if (isStaleRequest()) {
+        return;
+      }
       setResponse("Something went wrong.");
     } finally {
-      setIsLoading(false);
+      if (!isStaleRequest()) {
+        setIsLoading(false);
+      }
     }
   };
 
@@ -305,6 +322,54 @@ export default function TextSelectionPopover({
       );
     }
   };
+
+  useEffect(() => {
+    if (!popoverState) return;
+
+    const handleOpenThreadShortcut = (event: KeyboardEvent) => {
+      if (
+        !event.ctrlKey
+        || event.metaKey
+        || event.shiftKey
+        || event.altKey
+        || event.key.toLowerCase() !== "l"
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      const nextThreadId =
+        responseThreadId
+        || threadId
+        || (chatMode === "temporary" ? createTemporaryId("thread") : null);
+      const draftInput = response ? followUpInput : customQuestion;
+
+      onGraduateToThread(
+        nextThreadId,
+        popoverState.sourceMessageId,
+        popoverState.selectedText,
+        {
+          draftInput,
+          initialMessages: responseSeedMessages || undefined,
+        }
+      );
+    };
+
+    document.addEventListener("keydown", handleOpenThreadShortcut, true);
+    return () => document.removeEventListener("keydown", handleOpenThreadShortcut, true);
+  }, [
+    chatMode,
+    customQuestion,
+    followUpInput,
+    onGraduateToThread,
+    popoverState,
+    response,
+    responseSeedMessages,
+    responseThreadId,
+    threadId,
+  ]);
 
   useLayoutEffect(() => {
     if (!popoverState || supportsAnchorPositioning) return;

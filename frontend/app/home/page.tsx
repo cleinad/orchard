@@ -121,6 +121,7 @@ function HomePageInner() {
     activeThread,
     threadPanelOpen,
     threadPanelInitialMessages,
+    threadPanelDraftInput,
     pendingThreadMessage,
     resetThreadUi,
     dismissPopover,
@@ -565,7 +566,7 @@ function HomePageInner() {
   };
 
   const activeName = activeMentor?.name || 'Keen';
-  const activeTemporaryThreadMessages = activeThread
+  const activeTemporaryThreadMessages = activeThread?.id
     ? temporaryThreadMessages.get(activeThread.id) ?? null
     : null;
   const emptyTitle = isTemporaryChat
@@ -719,9 +720,12 @@ function HomePageInner() {
         initialMessages={threadPanelInitialMessages}
         temporaryMessages={activeTemporaryThreadMessages}
         temporaryChatEnabled={isTemporaryChat}
+        draftInput={threadPanelDraftInput}
         pendingMessage={pendingThreadMessage}
         onTemporaryMessagesChange={setTemporaryThreadMessagesForThread}
         onPendingMessageConsumed={clearPendingThreadMessage}
+        onThreadCreated={handleThreadCreated}
+        suspendCloseShortcut={Boolean(popoverState)}
         onClose={closeThreadPanel}
       />
 

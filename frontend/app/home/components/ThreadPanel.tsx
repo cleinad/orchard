@@ -26,7 +26,7 @@ interface ThreadMessageRow {
 }
 
 interface ThreadInfo {
-  id: string;
+  id: string | null;
   highlightedText: string;
   sourceMessageId: string;
 }
@@ -42,9 +42,12 @@ interface ThreadPanelProps {
   initialMessages?: ThreadMessage[] | null;
   temporaryMessages?: ThreadMessage[] | null;
   temporaryChatEnabled: boolean;
+  draftInput?: string | null;
   pendingMessage?: string | null;
   onTemporaryMessagesChange?: (threadId: string, messages: ThreadMessage[]) => void;
   onPendingMessageConsumed?: () => void;
+  onThreadCreated?: (threadId: string, sourceMessageId: string, highlightedText: string) => void;
+  suspendCloseShortcut?: boolean;
   onClose: () => void;
 }
 
@@ -101,14 +104,18 @@ export default function ThreadPanel({
   initialMessages,
   temporaryMessages,
   temporaryChatEnabled,
+  draftInput,
   pendingMessage,
   onTemporaryMessagesChange,
   onPendingMessageConsumed,
+  onThreadCreated,
+  suspendCloseShortcut = false,
   onClose,
 }: ThreadPanelProps) {
   const [messages, setMessages] = useState<ThreadMessage[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const activeQuestion = isLoading
@@ -118,8 +125,18 @@ export default function ThreadPanel({
 
   useEffect(() => {
     if (!thread || !isOpen) {
-      setMessages([]);
+      setActiveThreadId(null);
       setInput("");
+      return;
+    }
+
+    setActiveThreadId(thread.id ?? null);
+    setInput(draftInput ?? "");
+  }, [thread, isOpen, draftInput]);
+
+  useEffect(() => {
+    if (!thread || !isOpen) {
+      setMessages([]);
       return;
     }
 
@@ -129,11 +146,18 @@ export default function ThreadPanel({
     }
 
     setMessages(initialMessages || []);
+  }, [thread, isOpen, initialMessages, chatMode, temporaryMessages]);
+
+  useEffect(() => {
+    if (!thread || !isOpen || chatMode === "temporary" || !activeThreadId) {
+      return;
+    }
+
     let cancelled = false;
 
     const loadMessages = async () => {
       try {
-        const res = await fetch(`/api/threads/${thread.id}/messages`);
+        const res = await fetch(`/api/threads/${activeThreadId}/messages`);
         if (res.ok) {
           const data = await res.json();
           const nextMessages = mapThreadMessages((data.messages || []) as ThreadMessageRow[]);
@@ -151,26 +175,35 @@ export default function ThreadPanel({
     return () => {
       cancelled = true;
     };
-  }, [thread, isOpen, initialMessages, chatMode, temporaryMessages]);
+  }, [thread, isOpen, chatMode, activeThreadId]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
   useEffect(() => {
-    if (isOpen) {
-      setTimeout(() => inputRef.current?.focus(), 300);
-    }
-  }, [isOpen]);
+    if (!isOpen || !thread) return;
+
+    const timer = window.setTimeout(() => inputRef.current?.focus(), 300);
+    return () => window.clearTimeout(timer);
+  }, [isOpen, thread, draftInput]);
 
   const handleCloseShortcut = useCallback(
     (event: KeyboardEvent) => {
-      if (event.ctrlKey && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "l") {
+      if (suspendCloseShortcut) return;
+
+      if (
+        event.ctrlKey
+        && !event.metaKey
+        && !event.shiftKey
+        && !event.altKey
+        && event.key.toLowerCase() === "l"
+      ) {
         event.preventDefault();
         onClose();
       }
     },
-    [onClose]
+    [onClose, suspendCloseShortcut]
   );
 
   useEffect(() => {
@@ -186,6 +219,16 @@ export default function ThreadPanel({
     const canSend = chatMode === "temporary" || canUsePersistentThread;
     if (!content || !thread || !canSend || isLoading) return;
 
+    const temporaryThreadId =
+      chatMode === "temporary"
+        ? activeThreadId ?? thread.id ?? createTemporaryId("thread")
+        : null;
+    const requestThreadId = temporaryThreadId ?? activeThreadId;
+
+    if (temporaryThreadId && temporaryThreadId !== activeThreadId) {
+      setActiveThreadId(temporaryThreadId);
+    }
+
     const userMessage: ThreadMessage = {
       id: chatMode === "temporary" ? createTemporaryId("message") : Date.now().toString(),
       role: "user",
@@ -195,8 +238,8 @@ export default function ThreadPanel({
     const optimisticMessages = [...messages, userMessage];
 
     setMessages(optimisticMessages);
-    if (chatMode === "temporary") {
-      onTemporaryMessagesChange?.(thread.id, optimisticMessages);
+    if (chatMode === "temporary" && temporaryThreadId) {
+      onTemporaryMessagesChange?.(temporaryThreadId, optimisticMessages);
     }
     setInput("");
     setIsLoading(true);
@@ -209,9 +252,9 @@ export default function ThreadPanel({
           message: content,
           conversationId: chatMode === "persistent" ? conversationId : undefined,
           mentorId: mentorId ?? undefined,
-          threadId: thread.id,
           sourceMessageId: thread.sourceMessageId,
           highlightedText: thread.highlightedText,
+          ...(requestThreadId ? { threadId: requestThreadId } : {}),
           chatMode,
           ...(chatMode === "temporary"
             ? {
@@ -225,6 +268,16 @@ export default function ThreadPanel({
 
       const data = await res.json();
       if (res.ok && data.message) {
+        const resolvedThreadId =
+          typeof data.threadId === "string" && data.threadId.length > 0
+            ? data.threadId
+            : requestThreadId;
+
+        if (resolvedThreadId) {
+          setActiveThreadId(resolvedThreadId);
+          onThreadCreated?.(resolvedThreadId, thread.sourceMessageId, thread.highlightedText);
+        }
+
         const assistantMessage: ThreadMessage = {
           id:
             chatMode === "temporary"
@@ -241,8 +294,8 @@ export default function ThreadPanel({
               )
             : prev;
           const nextMessages = [...updated, assistantMessage];
-          if (chatMode === "temporary") {
-            onTemporaryMessagesChange?.(thread.id, nextMessages);
+          if (chatMode === "temporary" && temporaryThreadId) {
+            onTemporaryMessagesChange?.(temporaryThreadId, nextMessages);
           }
           return nextMessages;
         });
@@ -258,8 +311,8 @@ export default function ThreadPanel({
         };
         setMessages((prev) => {
           const nextMessages = [...prev, errMessage];
-          if (chatMode === "temporary") {
-            onTemporaryMessagesChange?.(thread.id, nextMessages);
+          if (chatMode === "temporary" && temporaryThreadId) {
+            onTemporaryMessagesChange?.(temporaryThreadId, nextMessages);
           }
           return nextMessages;
         });
@@ -276,8 +329,8 @@ export default function ThreadPanel({
       };
       setMessages((prev) => {
         const nextMessages = [...prev, errorMessage];
-        if (chatMode === "temporary") {
-          onTemporaryMessagesChange?.(thread.id, nextMessages);
+        if (chatMode === "temporary" && temporaryThreadId) {
+          onTemporaryMessagesChange?.(temporaryThreadId, nextMessages);
         }
         return nextMessages;
       });
@@ -285,6 +338,7 @@ export default function ThreadPanel({
       setIsLoading(false);
     }
   }, [
+    activeThreadId,
     chatMode,
     conversationId,
     conversationMessages,
@@ -293,21 +347,29 @@ export default function ThreadPanel({
     memoryMode,
     mentorId,
     messages,
+    onThreadCreated,
     onTemporaryMessagesChange,
     thread,
   ]);
 
   // Auto-send pending message from popover graduation
-  const pendingHandled = useRef(false);
+  const lastPendingSignatureRef = useRef<string | null>(null);
   useEffect(() => {
-    const canUseChat = chatMode === "temporary" || conversationId;
-    if (pendingMessage && isOpen && thread && canUseChat && !pendingHandled.current) {
-      pendingHandled.current = true;
-      sendMessage(pendingMessage);
-      onPendingMessageConsumed?.();
+    const pendingSignature =
+      pendingMessage && thread
+        ? `${thread.id ?? "draft"}:${thread.sourceMessageId}:${thread.highlightedText}:${pendingMessage}`
+        : null;
+
+    if (!pendingSignature) {
+      lastPendingSignatureRef.current = null;
+      return;
     }
-    if (!pendingMessage) {
-      pendingHandled.current = false;
+
+    const canUseChat = chatMode === "temporary" || conversationId;
+    if (isOpen && thread && canUseChat && lastPendingSignatureRef.current !== pendingSignature) {
+      lastPendingSignatureRef.current = pendingSignature;
+      void sendMessage(pendingMessage ?? undefined);
+      onPendingMessageConsumed?.();
     }
   }, [pendingMessage, isOpen, thread, conversationId, chatMode, sendMessage, onPendingMessageConsumed]);
 

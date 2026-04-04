@@ -23,7 +23,7 @@ function ensureHighlightStylesInjected() {
 }
 
 interface ActiveThread {
-  id: string;
+  id: string | null;
   highlightedText: string;
   sourceMessageId: string;
 }
@@ -54,6 +54,7 @@ export function useHomeThreads(
   const [threadPanelOpen, setThreadPanelOpen] = useState(false);
   const [threadPanelInitialMessages, setThreadPanelInitialMessages] =
     useState<ThreadMessage[] | null>(null);
+  const [threadPanelDraftInput, setThreadPanelDraftInput] = useState<string | null>(null);
   const [pendingThreadMessage, setPendingThreadMessage] = useState<string | null>(null);
   const highlightedRangeRef = useRef<Range | null>(null);
 
@@ -91,6 +92,7 @@ export function useHomeThreads(
     setActiveThread(null);
     setThreadPanelOpen(false);
     setThreadPanelInitialMessages(null);
+    setThreadPanelDraftInput(null);
     setPendingThreadMessage(null);
   }, [clearPersistentHighlight]);
 
@@ -168,51 +170,60 @@ export function useHomeThreads(
 
   const handleGraduateToThread = useCallback(
     (
-      threadId: string,
+      threadId: string | null,
       sourceMessageId: string,
       highlightedText: string,
       options?: {
         pendingMessage?: string;
+        draftInput?: string;
         initialMessages?: ThreadMessage[];
       }
     ) => {
-      clearPersistentHighlight();
       setActiveThread({ id: threadId, highlightedText, sourceMessageId });
       setThreadPanelInitialMessages(options?.initialMessages || null);
+      setThreadPanelDraftInput(options?.draftInput ?? null);
       setPendingThreadMessage(options?.pendingMessage || null);
       setThreadPanelOpen(true);
       setPopoverState(null);
     },
-    [clearPersistentHighlight]
+    []
   );
 
   const handleThreadClick = useCallback((thread: ThreadMeta) => {
+    clearPersistentHighlight();
+    setPopoverState(null);
     setActiveThread({
       id: thread.threadId,
       highlightedText: thread.highlightedText,
       sourceMessageId: thread.sourceMessageId,
     });
     setThreadPanelInitialMessages(null);
+    setThreadPanelDraftInput(null);
     setPendingThreadMessage(null);
     setThreadPanelOpen(true);
-  }, []);
+  }, [clearPersistentHighlight]);
 
   const clearPendingThreadMessage = useCallback(() => {
     setPendingThreadMessage(null);
   }, []);
 
   const closeThreadPanel = useCallback(() => {
+    if (!popoverState) {
+      clearPersistentHighlight();
+    }
     setThreadPanelOpen(false);
     setActiveThread(null);
     setThreadPanelInitialMessages(null);
+    setThreadPanelDraftInput(null);
     setPendingThreadMessage(null);
-  }, []);
+  }, [clearPersistentHighlight, popoverState]);
 
   return {
     popoverState,
     activeThread,
     threadPanelOpen,
     threadPanelInitialMessages,
+    threadPanelDraftInput,
     pendingThreadMessage,
     resetThreadUi,
     dismissPopover,
