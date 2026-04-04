@@ -4,13 +4,6 @@ import type { MemoryItem } from '@/lib/memory-items';
 
 // ── Mocks ────────────────────────────────────────────────────
 
-// Mock createSupabaseServiceClient — used by processMemoryV2 internally
-const mockSupabaseHolder: { client: ReturnType<typeof createMockSupabase>['client'] | null } = { client: null };
-
-vi.mock('@/lib/supabase-service', () => ({
-  createSupabaseServiceClient: () => mockSupabaseHolder.client,
-}));
-
 // Mock generateObject — replaces the LLM call
 const mockGenerateObject = vi.fn();
 vi.mock('ai', async (importOriginal) => {
@@ -95,8 +88,9 @@ describe('processMemoryV2 — write path', () => {
         memory_item_embeddings: { rows: [] },
       },
     });
-    mockSupabaseHolder.client = mock.client as any;
+    const client = mock.client as any;
     tracker = mock.tracker;
+    return client;
   }
 
   it('inserts a novel fact into the database', async () => {
@@ -106,10 +100,10 @@ describe('processMemoryV2 — write path', () => {
     });
 
     const insertedRow = { id: 'new-1', ...candidate, user_id: 'user-1', status: 'active' };
-    setup([], [insertedRow]);
+    const client = setup([], [insertedRow]);
 
     const { processMemoryV2 } = await import('@/lib/memory-agent');
-    await processMemoryV2('user-1', dummyMessages, dummyResponse);
+    await processMemoryV2(client, 'user-1', dummyMessages, dummyResponse);
 
     const inserts = tracker.inserts('memory_items');
     expect(inserts).toHaveLength(1);
@@ -134,10 +128,10 @@ describe('processMemoryV2 — write path', () => {
       object: { candidates },
     });
 
-    setup([], candidates.map((c, i) => ({ id: `new-${i}`, ...c, user_id: 'user-1', status: 'active' })));
+    const client = setup([], candidates.map((c, i) => ({ id: `new-${i}`, ...c, user_id: 'user-1', status: 'active' })));
 
     const { processMemoryV2 } = await import('@/lib/memory-agent');
-    await processMemoryV2('user-1', dummyMessages, dummyResponse);
+    await processMemoryV2(client, 'user-1', dummyMessages, dummyResponse);
 
     expect(tracker.inserts('memory_items')).toHaveLength(3);
   });
@@ -163,10 +157,10 @@ describe('processMemoryV2 — write path', () => {
     });
 
     const mergedRow = { ...existing, salience: 70, confidence: 0.85 };
-    setup([existing], [mergedRow]);
+    const client = setup([existing], [mergedRow]);
 
     const { processMemoryV2 } = await import('@/lib/memory-agent');
-    await processMemoryV2('user-1', dummyMessages, dummyResponse);
+    await processMemoryV2(client, 'user-1', dummyMessages, dummyResponse);
 
     expect(tracker.inserts('memory_items')).toHaveLength(0);
 
@@ -199,10 +193,10 @@ describe('processMemoryV2 — write path', () => {
       normalized_text: 'user studies computer science stanford',
     });
 
-    setup([existing], [{ ...existing, text: candidate.text }]);
+    const client = setup([existing], [{ ...existing, text: candidate.text }]);
 
     const { processMemoryV2 } = await import('@/lib/memory-agent');
-    await processMemoryV2('user-1', dummyMessages, dummyResponse);
+    await processMemoryV2(client, 'user-1', dummyMessages, dummyResponse);
 
     expect(tracker.inserts('memory_items')).toHaveLength(0);
     expect(tracker.updates('memory_items')).toHaveLength(1);
@@ -226,13 +220,13 @@ describe('processMemoryV2 — write path', () => {
     });
 
     // First returnOnMutate is for the supersede update, second is for the insert
-    setup([existing], [
+    const client = setup([existing], [
       { ...existing, status: 'superseded' },
       { id: 'new-superseded', ...candidate, user_id: 'user-1', status: 'active' },
     ]);
 
     const { processMemoryV2 } = await import('@/lib/memory-agent');
-    await processMemoryV2('user-1', dummyMessages, dummyResponse);
+    await processMemoryV2(client, 'user-1', dummyMessages, dummyResponse);
 
     // Should have 2 updates: one to supersede, one... wait.
     // Actually: supersede is an update (status=superseded), then insert for the new row
@@ -260,10 +254,10 @@ describe('processMemoryV2 — write path', () => {
       },
     });
 
-    setup([]);
+    const client = setup([]);
 
     const { processMemoryV2 } = await import('@/lib/memory-agent');
-    await processMemoryV2('user-1', dummyMessages, dummyResponse);
+    await processMemoryV2(client, 'user-1', dummyMessages, dummyResponse);
 
     expect(tracker.inserts('memory_items')).toHaveLength(0);
     expect(tracker.updates('memory_items')).toHaveLength(0);
@@ -276,10 +270,10 @@ describe('processMemoryV2 — write path', () => {
       },
     });
 
-    setup([]);
+    const client = setup([]);
 
     const { processMemoryV2 } = await import('@/lib/memory-agent');
-    await processMemoryV2('user-1', dummyMessages, dummyResponse);
+    await processMemoryV2(client, 'user-1', dummyMessages, dummyResponse);
 
     expect(tracker.inserts('memory_items')).toHaveLength(0);
     expect(tracker.updates('memory_items')).toHaveLength(0);
@@ -307,7 +301,7 @@ describe('processMemoryV2 — write path', () => {
       object: { candidates },
     });
 
-    setup(
+    const client = setup(
       [existingItem],
       [
         // merge return for the exact dup
@@ -319,7 +313,7 @@ describe('processMemoryV2 — write path', () => {
     );
 
     const { processMemoryV2 } = await import('@/lib/memory-agent');
-    await processMemoryV2('user-1', dummyMessages, dummyResponse);
+    await processMemoryV2(client, 'user-1', dummyMessages, dummyResponse);
 
     expect(tracker.inserts('memory_items')).toHaveLength(2);
     expect(tracker.updates('memory_items')).toHaveLength(1); // the merge
@@ -343,10 +337,10 @@ describe('processMemoryV2 — write path', () => {
       owner_type: 'mentor',
       owner_id: 'mentor-abc',
     };
-    setup([], [insertedRow]);
+    const client = setup([], [insertedRow]);
 
     const { processMemoryV2 } = await import('@/lib/memory-agent');
-    await processMemoryV2('user-1', dummyMessages, dummyResponse, {
+    await processMemoryV2(client, 'user-1', dummyMessages, dummyResponse, {
       mentorId: 'mentor-abc',
     });
 

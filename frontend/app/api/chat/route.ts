@@ -576,7 +576,7 @@ Live web search is unavailable in this environment. If the question depends on f
     if (!isTemporaryChat) {
       after(async () => {
         try {
-          await processMemoryV2(user.id, messages, assistantResponse, {
+          await processMemoryV2(supabase, user.id, messages, assistantResponse, {
             conversationId: activeConversationId,
             mentorId: mentor?.id ?? null,
             sourceMessageId: latestUserMessageId,

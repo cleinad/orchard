@@ -21,7 +21,6 @@ The Next.js app serves as both the frontend and the primary API server. The Pyth
 # Get these from: https://app.supabase.com/project/_/settings/api
 NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key          # use the anon key, NOT the service role key
-SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key       # server-only, used for admin operations
 
 # LLM — Chat responses (required)
 GOOGLE_GENERATIVE_AI_API_KEY=your_google_api_key               # Gemini — primary chat model
