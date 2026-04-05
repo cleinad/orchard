@@ -1,10 +1,10 @@
 import type { FormEventHandler, KeyboardEventHandler, RefObject } from 'react';
 import Tooltip from '@/app/components/Tooltip';
+import ChatModelPicker from '@/app/home/components/ChatModelPicker';
 import type { MicStatus } from '@/app/home/components/useMicrophone';
 import type { TranscriptStatus } from '@/app/home/components/useTranscription';
 import type { TemporaryMemoryMode } from '@/lib/chat-session';
 import {
-  isChatModelId,
   type ChatModelId,
   type ChatModelListItem,
 } from '@/lib/chat-models';
@@ -340,28 +340,12 @@ export default function ChatComposer({
               </Tooltip>
             </div>
 
-            <label className="flex min-w-0 items-center gap-2 text-xs text-muted">
-              <span className="whitespace-nowrap">Model</span>
-              <select
-                value={selectedModelId}
-                onChange={(event) => {
-                  const nextModelId = event.target.value;
-                  if (isChatModelId(nextModelId)) {
-                    onModelChange(nextModelId);
-                  }
-                }}
-                disabled={isLoading || !hasAvailableChatModels}
-                aria-label="Chat model"
-                className="min-w-[9rem] rounded-md border border-border-subtle bg-surface px-2.5 py-1 text-xs text-foreground outline-none transition focus:border-foreground/[0.18] disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {chatModels.map((model) => (
-                  <option key={model.id} value={model.id} disabled={!model.available}>
-                    {model.label}
-                    {!model.available ? ' (Unavailable)' : ''}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <ChatModelPicker
+              chatModels={chatModels}
+              selectedModelId={selectedModelId}
+              disabled={isLoading || !hasAvailableChatModels}
+              onChange={onModelChange}
+            />
           </div>
 
           {searchWarning && (
