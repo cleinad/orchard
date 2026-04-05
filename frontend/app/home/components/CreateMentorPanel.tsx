@@ -142,8 +142,6 @@ export default function CreateMentorPanel({ isOpen, onClose, onCreated }: Props)
         is_builtin: data.is_builtin,
         accent_color: data.accent_color,
         avatar_url: data.avatar_url,
-        conversation_id: null,
-        conversation_updated_at: null,
       });
       onClose();
     } catch (err) {

@@ -20,6 +20,10 @@ import type {
   ChatMode,
   TemporaryMemoryMode,
 } from '@/lib/chat-session';
+import {
+  fallbackChatTitleFromMessage,
+  sanitizeGeneratedChatTitle,
+} from '@/lib/chat-session';
 
 const BASE_SYSTEM_PROMPT = `You are Keen, a voice-native thinking partner. You help the user think through problems with depth, capture their thoughts, and stay on top of their commitments.
 
@@ -113,6 +117,27 @@ function sanitizeHistoryMessages(input: unknown, maxItems: number): ChatHistoryM
     .slice(-maxItems);
 }
 
+async function generateConversationTitle(
+  userMessage: string,
+  assistantMessage: string
+) {
+  const fallbackTitle = fallbackChatTitleFromMessage(userMessage);
+
+  try {
+    const result = await generateText({
+      model: CHAT_MODEL,
+      system:
+        'Write a concise chat title in 2 to 5 words. Use plain title case. Do not use quotes or ending punctuation.',
+      prompt: `User message:\n${userMessage}\n\nAssistant reply:\n${assistantMessage}`,
+    });
+
+    return sanitizeGeneratedChatTitle(result.text, fallbackTitle);
+  } catch (error) {
+    console.error('Failed to generate conversation title:', error);
+    return fallbackTitle;
+  }
+}
+
 interface ChatRequest {
   message: string;
   conversationId?: string;
@@ -169,6 +194,7 @@ export async function POST(request: NextRequest) {
     }
 
     let activeConversationId = isTemporaryChat ? null : conversationId ?? null;
+    let createdConversation = false;
 
     const { data: profile } = await supabase
       .from('profiles')
@@ -236,74 +262,28 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Create or reuse conversation when none is provided.
+      // Create a new conversation when none is provided.
       if (!activeConversationId) {
-        if (mentor) {
-          const { data: existingMentorConversation } = await supabase
-            .from('conversations')
-            .select('id')
-            .eq('user_id', user.id)
-            .eq('mentor_id', mentor.id)
-            .maybeSingle();
+        const { data: conversation, error: convError } = await supabase
+          .from('conversations')
+          .insert({
+            user_id: user.id,
+            title: null,
+            mentor_id: mentor?.id ?? null,
+          })
+          .select('id')
+          .single();
 
-          if (existingMentorConversation) {
-            activeConversationId = existingMentorConversation.id;
-          } else {
-            const { data: conversation, error: convError } = await supabase
-              .from('conversations')
-              .insert({
-                user_id: user.id,
-                title: message.slice(0, 100),
-                mentor_id: mentor.id,
-              })
-              .select('id')
-              .single();
-
-            if (convError || !conversation) {
-              // Another request may have created it first (unique index on user_id + mentor_id).
-              if (convError?.code === '23505') {
-                const { data: retriedConversation } = await supabase
-                  .from('conversations')
-                  .select('id')
-                  .eq('user_id', user.id)
-                  .eq('mentor_id', mentor.id)
-                  .maybeSingle();
-
-                if (retriedConversation) {
-                  activeConversationId = retriedConversation.id;
-                }
-              }
-
-              if (!activeConversationId) {
-                console.error('Error creating mentor conversation:', convError);
-                return NextResponse.json(
-                  { error: 'Failed to create conversation' },
-                  { status: 500 }
-                );
-              }
-            }
-
-            if (conversation?.id) {
-              activeConversationId = conversation.id;
-            }
-          }
-        } else {
-          const { data: conversation, error: convError } = await supabase
-            .from('conversations')
-            .insert({ user_id: user.id, title: message.slice(0, 100) })
-            .select('id')
-            .single();
-
-          if (convError || !conversation) {
-            console.error('Error creating conversation:', convError);
-            return NextResponse.json(
-              { error: 'Failed to create conversation' },
-              { status: 500 }
-            );
-          }
-
-          activeConversationId = conversation.id;
+        if (convError || !conversation) {
+          console.error('Error creating conversation:', convError);
+          return NextResponse.json(
+            { error: 'Failed to create conversation' },
+            { status: 500 }
+          );
         }
+
+        activeConversationId = conversation.id;
+        createdConversation = true;
       }
     }
 
@@ -588,9 +568,32 @@ Live web search is unavailable in this environment. If the question depends on f
       });
     }
 
+    let conversationTitle: string | null = null;
+    const shouldGenerateTitle =
+      !activeThreadId &&
+      ((isTemporaryChat && sanitizedHistory.length === 0) ||
+        (!isTemporaryChat && createdConversation));
+
+    if (shouldGenerateTitle) {
+      conversationTitle = await generateConversationTitle(message, assistantText);
+
+      if (!isTemporaryChat && activeConversationId && conversationTitle) {
+        const { error: titleError } = await supabase
+          .from('conversations')
+          .update({ title: conversationTitle })
+          .eq('id', activeConversationId)
+          .eq('user_id', user.id);
+
+        if (titleError) {
+          console.error('Failed to save conversation title:', titleError);
+        }
+      }
+    }
+
     return NextResponse.json({
       message: assistantResponse,
       conversationId: activeConversationId,
+      conversationTitle,
       mentorId: mentor?.id ?? null,
       threadId: activeThreadId,
       userMessageId: latestUserMessageId,

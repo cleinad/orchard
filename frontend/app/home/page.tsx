@@ -12,16 +12,16 @@ import { useHomeVoice } from '@/app/home/components/useHomeVoice';
 import type { ThreadMeta } from '@/app/home/components/MarkdownWithThreads';
 import type { SearchMetadata } from '@/lib/chat-search';
 import type { MentorListItem } from '@/lib/mentors/types';
-import { type ConversationListItem } from '@/app/home/components/ConversationsPanel';
 import SidePanel from '@/app/home/components/SidePanel';
 import MentorDetailPanel from '@/app/home/components/MentorDetailPanel';
 import CreateMentorPanel from '@/app/home/components/CreateMentorPanel';
 import { LearningModeProvider, useLearningMode } from '@/app/home/components/LearningModeContext';
 import TextSelectionPopover from '@/app/home/components/TextSelectionPopover';
 import ThreadPanel, { type ThreadMessage } from '@/app/home/components/ThreadPanel';
-import type { Message } from '@/app/home/types';
+import type { ConversationListItem, Message } from '@/app/home/types';
 import {
   createTemporaryId,
+  fallbackChatTitleFromMessage,
   toChatHistory,
   type ChatMode,
   type TemporaryMemoryMode,
@@ -30,6 +30,7 @@ import {
 interface ChatResponse {
   message?: string;
   conversationId?: string;
+  conversationTitle?: string | null;
   mentorId?: string | null;
   threadId?: string | null;
   userMessageId?: string | null;
@@ -38,7 +39,196 @@ interface ChatResponse {
   error?: string;
 }
 
+type SelectedChat =
+  | { kind: 'persistent'; conversationId: string; mentorId: string | null }
+  | { kind: 'draft'; draftId: string; mentorId: string | null }
+  | { kind: 'temporary'; tempChatId: string };
+
+interface PersistentDraftChat {
+  id: string;
+  mentorId: string | null;
+  title: 'New chat';
+  createdAt: string;
+  updatedAt: string;
+  messages: Message[];
+}
+
+type ThreadMetaRecord = Record<string, ThreadMeta[]>;
+type ThreadMessagesRecord = Record<string, ThreadMessage[]>;
+
+interface TemporaryChatSession {
+  id: string;
+  title: string;
+  memoryMode: TemporaryMemoryMode;
+  createdAt: string;
+  updatedAt: string;
+  messages: Message[];
+  threadsMap: ThreadMetaRecord;
+  threadMessages: ThreadMessagesRecord;
+}
+
+interface StoredMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: string;
+}
+
+interface StoredThreadMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: string;
+}
+
+interface StoredTemporaryChatSession {
+  id: string;
+  title: string;
+  memoryMode: TemporaryMemoryMode;
+  createdAt: string;
+  updatedAt: string;
+  messages: StoredMessage[];
+  threadsMap: ThreadMetaRecord;
+  threadMessages: Record<string, StoredThreadMessage[]>;
+}
+
 const TTS_STORAGE_KEY = 'keen-tts-enabled';
+const TEMP_CHAT_STORAGE_KEY = 'keen-home-temp-chats-v1';
+const TEMP_CHAT_TITLE = 'Temporary chat';
+
+function getMentorKey(mentorId: string | null) {
+  return mentorId ?? '__keen__';
+}
+
+function toStoredMessage(message: Message): StoredMessage {
+  return {
+    id: message.id,
+    role: message.role,
+    content: message.content,
+    timestamp: message.timestamp.toISOString(),
+  };
+}
+
+function fromStoredMessage(message: StoredMessage): Message {
+  return {
+    id: message.id,
+    role: message.role,
+    content: message.content,
+    timestamp: new Date(message.timestamp),
+  };
+}
+
+function toStoredThreadMessage(message: ThreadMessage): StoredThreadMessage {
+  return {
+    id: message.id,
+    role: message.role,
+    content: message.content,
+    timestamp: message.timestamp.toISOString(),
+  };
+}
+
+function fromStoredThreadMessage(message: StoredThreadMessage): ThreadMessage {
+  return {
+    id: message.id,
+    role: message.role,
+    content: message.content,
+    timestamp: new Date(message.timestamp),
+  };
+}
+
+function serializeTemporaryChats(chats: TemporaryChatSession[]) {
+  const serialized: StoredTemporaryChatSession[] = chats.map((chat) => ({
+    ...chat,
+    messages: chat.messages.map(toStoredMessage),
+    threadMessages: Object.fromEntries(
+      Object.entries(chat.threadMessages).map(([threadId, messages]) => [
+        threadId,
+        messages.map(toStoredThreadMessage),
+      ])
+    ),
+  }));
+
+  return JSON.stringify(serialized);
+}
+
+function deserializeTemporaryChats(raw: string): TemporaryChatSession[] {
+  const parsed = JSON.parse(raw) as StoredTemporaryChatSession[];
+
+  return parsed.map((chat) => ({
+    ...chat,
+    messages: Array.isArray(chat.messages) ? chat.messages.map(fromStoredMessage) : [],
+    threadsMap: chat.threadsMap || {},
+    threadMessages: Object.fromEntries(
+      Object.entries(chat.threadMessages || {}).map(([threadId, messages]) => [
+        threadId,
+        messages.map(fromStoredThreadMessage),
+      ])
+    ),
+  }));
+}
+
+function sortByUpdatedAtDesc<T extends { updatedAt: string }>(items: T[]) {
+  return [...items].sort(
+    (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+  );
+}
+
+function recordToThreadsMap(record: ThreadMetaRecord | undefined) {
+  return new Map<string, ThreadMeta[]>(Object.entries(record || {}));
+}
+
+function recordToThreadMessagesMap(record: ThreadMessagesRecord | undefined) {
+  return new Map<string, ThreadMessage[]>(Object.entries(record || {}));
+}
+
+function addThreadMetaToMap(
+  prev: Map<string, ThreadMeta[]>,
+  threadId: string,
+  sourceMessageId: string,
+  highlightedText: string
+) {
+  const next = new Map(prev);
+  const existing = next.get(sourceMessageId) || [];
+
+  if (existing.some((thread) => thread.threadId === threadId)) {
+    return next;
+  }
+
+  next.set(sourceMessageId, [
+    ...existing,
+    { threadId, highlightedText, sourceMessageId },
+  ]);
+
+  return next;
+}
+
+function addThreadMetaToRecord(
+  prev: ThreadMetaRecord,
+  threadId: string,
+  sourceMessageId: string,
+  highlightedText: string
+) {
+  const existing = prev[sourceMessageId] || [];
+
+  if (existing.some((thread) => thread.threadId === threadId)) {
+    return prev;
+  }
+
+  return {
+    ...prev,
+    [sourceMessageId]: [
+      ...existing,
+      { threadId, highlightedText, sourceMessageId },
+    ],
+  };
+}
+
+function findLatestConversationForMentor(
+  mentorId: string | null,
+  conversations: ConversationListItem[]
+) {
+  return conversations.find((conversation) => conversation.mentor_id === mentorId) || null;
+}
 
 /**
  * Home page - editorial voice + text conversation interface
@@ -58,17 +248,13 @@ function HomePageInner() {
   const [isLoading, setIsLoading] = useState(false);
   const [searchEnabled, setSearchEnabled] = useState(false);
   const [lastSearchState, setLastSearchState] = useState<SearchMetadata | null>(null);
-  const [chatMode, setChatMode] = useState<ChatMode>('persistent');
-  const [temporaryMemoryMode, setTemporaryMemoryMode] =
-    useState<TemporaryMemoryMode>('use_existing');
-  const [temporaryMessages, setTemporaryMessages] = useState<Message[]>([]);
-  const [temporaryThreadsMap, setTemporaryThreadsMap] = useState<Map<string, ThreadMeta[]>>(
+  const [persistentMessages, setPersistentMessages] = useState<Message[]>([]);
+  const [persistentThreadsMap, setPersistentThreadsMap] = useState<Map<string, ThreadMeta[]>>(
     new Map()
   );
-  const [temporaryThreadMessages, setTemporaryThreadMessages] = useState<
-    Map<string, ThreadMessage[]>
-  >(new Map());
-
+  const [draftChats, setDraftChats] = useState<PersistentDraftChat[]>([]);
+  const [temporaryChats, setTemporaryChats] = useState<TemporaryChatSession[]>([]);
+  const [selectedChat, setSelectedChat] = useState<SelectedChat | null>(null);
   const [sidePanelOpen, setSidePanelOpen] = useState(false);
   const [detailMentorSlug, setDetailMentorSlug] = useState<string | null>(null);
   const [detailPanelOpen, setDetailPanelOpen] = useState(false);
@@ -80,27 +266,15 @@ function HomePageInner() {
   const searchParams = useSearchParams();
 
   const {
-    messages,
-    setMessages,
-    conversationId,
-    setConversationId,
-    activeMentor,
-    setActiveMentor,
     mentors,
     conversations,
+    mentorGroups,
     loadingLists,
     listError,
     setListError,
-    threadsMap,
-    setThreadsMap,
-    clearConversationState,
     refreshSidebarData,
     loadConversationMessages,
   } = useHomeData();
-  const isTemporaryChat = chatMode === 'temporary';
-  const activeMessages = isTemporaryChat ? temporaryMessages : messages;
-  const activeThreadsMap = isTemporaryChat ? temporaryThreadsMap : threadsMap;
-  const activeConversationId = isTemporaryChat ? null : conversationId;
 
   const {
     micActive,
@@ -131,53 +305,131 @@ function HomePageInner() {
     closeThreadPanel,
   } = useHomeThreads(learningMode, containerRef);
   const [userHasScrolled, setUserHasScrolled] = useState(false);
-  const clearTemporaryConversationState = useCallback(() => {
-    setTemporaryMessages([]);
-    setTemporaryThreadsMap(new Map());
-    setTemporaryThreadMessages(new Map());
+
+  const selectedDraftChat =
+    selectedChat?.kind === 'draft'
+      ? draftChats.find((draft) => draft.id === selectedChat.draftId) || null
+      : null;
+  const selectedTemporaryChat =
+    selectedChat?.kind === 'temporary'
+      ? temporaryChats.find((chat) => chat.id === selectedChat.tempChatId) || null
+      : null;
+  const selectedConversation =
+    selectedChat?.kind === 'persistent'
+      ? conversations.find(
+          (conversation) => conversation.id === selectedChat.conversationId
+        ) || null
+      : null;
+
+  const activeMentorId =
+    selectedChat?.kind === 'temporary' ? null : selectedChat?.mentorId ?? null;
+  const activeMentor =
+    activeMentorId ? mentors.find((mentor) => mentor.id === activeMentorId) || null : null;
+  const isTemporaryChat = selectedChat?.kind === 'temporary';
+  const chatMode: ChatMode = isTemporaryChat ? 'temporary' : 'persistent';
+  const activeTemporaryMemoryMode =
+    selectedTemporaryChat?.memoryMode ?? 'use_existing';
+  const activeConversationId =
+    selectedChat?.kind === 'persistent' ? selectedChat.conversationId : null;
+  const activeMessages = isTemporaryChat
+    ? selectedTemporaryChat?.messages || []
+    : selectedChat?.kind === 'draft'
+      ? selectedDraftChat?.messages || []
+      : selectedChat?.kind === 'persistent'
+        ? persistentMessages
+        : [];
+  const activeThreadsMap = isTemporaryChat
+    ? recordToThreadsMap(selectedTemporaryChat?.threadsMap)
+    : selectedChat?.kind === 'persistent'
+      ? persistentThreadsMap
+      : new Map<string, ThreadMeta[]>();
+  const activeTemporaryThreadMessagesMap = recordToThreadMessagesMap(
+    selectedTemporaryChat?.threadMessages
+  );
+  const activeTemporaryThreadMessages = activeThread
+    ? selectedTemporaryChat?.threadMessages[activeThread.id] ?? null
+    : null;
+  const activeName = isTemporaryChat
+    ? 'Keen'
+    : selectedConversation?.mentor_name || activeMentor?.name || 'Keen';
+
+  const autoSendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mentorSlugHandledRef = useRef(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const stored = window.sessionStorage.getItem(TEMP_CHAT_STORAGE_KEY);
+    if (!stored) {
+      return;
+    }
+
+    try {
+      setTemporaryChats(sortByUpdatedAtDesc(deserializeTemporaryChats(stored)));
+    } catch (error) {
+      console.error('Failed to restore temporary chats:', error);
+      window.sessionStorage.removeItem(TEMP_CHAT_STORAGE_KEY);
+    }
   }, []);
 
-  const setTemporaryThreadMessagesForThread = useCallback(
-    (threadId: string, nextMessages: ThreadMessage[]) => {
-      setTemporaryThreadMessages((prev) => {
-        const next = new Map(prev);
-        if (nextMessages.length === 0) {
-          next.delete(threadId);
-        } else {
-          next.set(threadId, nextMessages);
-        }
-        return next;
-      });
-    },
-    []
-  );
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
 
-  const addThreadMeta = useCallback(
-    (threadId: string, sourceMessageId: string, highlightedText: string) => {
-      const updateMap = (prev: Map<string, ThreadMeta[]>) => {
-        const next = new Map(prev);
-        const existing = next.get(sourceMessageId) || [];
-        if (existing.some((thread) => thread.threadId === threadId)) {
-          return next;
-        }
+    if (temporaryChats.length === 0) {
+      window.sessionStorage.removeItem(TEMP_CHAT_STORAGE_KEY);
+      return;
+    }
 
-        next.set(sourceMessageId, [
-          ...existing,
-          { threadId, highlightedText, sourceMessageId },
-        ]);
-        return next;
-      };
+    window.sessionStorage.setItem(
+      TEMP_CHAT_STORAGE_KEY,
+      serializeTemporaryChats(temporaryChats)
+    );
+  }, [temporaryChats]);
 
-      if (isTemporaryChat) {
-        setTemporaryThreadsMap(updateMap);
+  useEffect(() => {
+    void refreshSidebarData();
+  }, [refreshSidebarData]);
+
+  useEffect(() => {
+    if (selectedChat?.kind === 'draft' && !selectedDraftChat) {
+      setSelectedChat(null);
+    }
+  }, [selectedChat, selectedDraftChat]);
+
+  useEffect(() => {
+    if (selectedChat?.kind === 'temporary' && !selectedTemporaryChat) {
+      setSelectedChat(null);
+    }
+  }, [selectedChat, selectedTemporaryChat]);
+
+  useEffect(() => {
+    if (mentorSlugHandledRef.current) return;
+    const mentorSlug = searchParams.get('mentor');
+    if (!mentorSlug || loadingLists) return;
+
+    mentorSlugHandledRef.current = true;
+    const target = mentors.find((mentor) => mentor.slug === mentorSlug);
+
+    if (target) {
+      const latestConversation = findLatestConversationForMentor(
+        target.id,
+        conversations
+      );
+
+      if (latestConversation) {
+        void handleSelectConversation(latestConversation);
       } else {
-        setThreadsMap(updateMap);
+        handleCreateDraftSelection(target.id);
       }
-    },
-    [isTemporaryChat, setThreadsMap]
-  );
+    }
 
-  // Auto-scroll to bottom
+    router.replace('/home', { scroll: false });
+  }, [searchParams, loadingLists, mentors, conversations, router]);
+
   const scrollToBottom = useCallback(() => {
     if (!userHasScrolled && messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
@@ -188,35 +440,23 @@ function HomePageInner() {
     scrollToBottom();
   }, [activeMessages, scrollToBottom]);
 
-  useEffect(() => {
-    void refreshSidebarData();
-  }, [refreshSidebarData]);
-
-  useEffect(() => {
-    if (!activeMentor) return;
-    const synced = mentors.find((mentor) => mentor.id === activeMentor.id);
-    if (synced && synced !== activeMentor) {
-      setActiveMentor(synced);
-    }
-  }, [activeMentor, mentors]);
-
-  // Handle scroll detection
   const handleScroll = () => {
     const container = containerRef.current;
     if (!container) return;
-    const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 100;
+    const isAtBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight < 100;
     setUserHasScrolled(!isAtBottom);
   };
 
-  // Auto-resize textarea
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 200) + 'px';
+      textareaRef.current.style.height = `${Math.min(
+        textareaRef.current.scrollHeight,
+        200
+      )}px`;
     }
   }, [input]);
-
-  const autoSendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const stopMic = useCallback(() => {
     if (autoSendTimerRef.current) {
@@ -234,160 +474,341 @@ function HomePageInner() {
     }
   }, [micActive, startMic, stopMic]);
 
-  const handleSelectDefault = useCallback(() => {
-    tts.stop();
-    resetThreadUi();
-    setActiveMentor(null);
-    clearTemporaryConversationState();
-    clearConversationState();
-    setLastSearchState(null);
-    setInput('');
-    setUserHasScrolled(false);
-  }, [
-    clearConversationState,
-    clearTemporaryConversationState,
-    resetThreadUi,
-    setActiveMentor,
-    tts,
-  ]);
+  const createDraft = useCallback((mentorId: string | null): PersistentDraftChat => {
+    const now = new Date().toISOString();
 
-  const handleSelectMentor = useCallback(
-    async (mentor: MentorListItem) => {
+    return {
+      id: createTemporaryId('draft'),
+      mentorId,
+      title: 'New chat',
+      createdAt: now,
+      updatedAt: now,
+      messages: [],
+    };
+  }, []);
+
+  const getOrCreateDraft = useCallback(
+    (mentorId: string | null) => {
+      const existing = draftChats.find((draft) => draft.mentorId === mentorId);
+      if (existing) {
+        return existing;
+      }
+
+      const draft = createDraft(mentorId);
+      setDraftChats((prev) => [draft, ...prev]);
+      return draft;
+    },
+    [createDraft, draftChats]
+  );
+
+  const updateDraftChat = useCallback(
+    (
+      draftId: string,
+      updater: (draft: PersistentDraftChat) => PersistentDraftChat
+    ) => {
+      setDraftChats((prev) =>
+        prev.map((draft) => (draft.id === draftId ? updater(draft) : draft))
+      );
+    },
+    []
+  );
+
+  const updateTemporaryChat = useCallback(
+    (
+      tempChatId: string,
+      updater: (chat: TemporaryChatSession) => TemporaryChatSession
+    ) => {
+      setTemporaryChats((prev) =>
+        sortByUpdatedAtDesc(
+          prev.map((chat) => (chat.id === tempChatId ? updater(chat) : chat))
+        )
+      );
+    },
+    []
+  );
+
+  const prepareForChatSwitch = useCallback(
+    (nextSelection: SelectedChat | null) => {
       tts.stop();
+      stopMic();
       resetThreadUi();
-      setActiveMentor(mentor);
-      clearTemporaryConversationState();
       setInput('');
       setLastSearchState(null);
       setUserHasScrolled(false);
 
-      if (isTemporaryChat) {
-        clearConversationState();
+      if (
+        selectedChat?.kind === 'draft' &&
+        selectedDraftChat &&
+        selectedDraftChat.messages.length === 0 &&
+        !(
+          nextSelection?.kind === 'draft' &&
+          nextSelection.draftId === selectedDraftChat.id
+        )
+      ) {
+        setDraftChats((prev) =>
+          prev.filter((draft) => draft.id !== selectedDraftChat.id)
+        );
+      }
+    },
+    [resetThreadUi, selectedChat, selectedDraftChat, stopMic, tts]
+  );
+
+  const handleCreateDraftSelection = useCallback(
+    (mentorId: string | null) => {
+      const draft = getOrCreateDraft(mentorId);
+      const nextSelection: SelectedChat = {
+        kind: 'draft',
+        draftId: draft.id,
+        mentorId,
+      };
+
+      prepareForChatSwitch(nextSelection);
+      setPersistentMessages([]);
+      setPersistentThreadsMap(new Map());
+      setSelectedChat(nextSelection);
+    },
+    [getOrCreateDraft, prepareForChatSwitch]
+  );
+
+  const handleCreateTemporaryChat = useCallback(() => {
+    const now = new Date().toISOString();
+    const chat: TemporaryChatSession = {
+      id: createTemporaryId('temporary-chat'),
+      title: TEMP_CHAT_TITLE,
+      memoryMode: 'use_existing',
+      createdAt: now,
+      updatedAt: now,
+      messages: [],
+      threadsMap: {},
+      threadMessages: {},
+    };
+
+    const nextSelection: SelectedChat = {
+      kind: 'temporary',
+      tempChatId: chat.id,
+    };
+
+    prepareForChatSwitch(nextSelection);
+    setPersistentMessages([]);
+    setPersistentThreadsMap(new Map());
+    setTemporaryChats((prev) => [chat, ...prev]);
+    setSelectedChat(nextSelection);
+  }, [prepareForChatSwitch]);
+
+  const handleSelectTemporaryChat = useCallback(
+    (tempChatId: string) => {
+      const nextSelection: SelectedChat = {
+        kind: 'temporary',
+        tempChatId,
+      };
+
+      prepareForChatSwitch(nextSelection);
+      setPersistentMessages([]);
+      setPersistentThreadsMap(new Map());
+      setSelectedChat(nextSelection);
+    },
+    [prepareForChatSwitch]
+  );
+
+  const handleSelectDraft = useCallback(
+    (draftId: string) => {
+      const draft = draftChats.find((entry) => entry.id === draftId);
+      if (!draft) {
         return;
       }
 
-      if (mentor.conversation_id) {
-        try {
-          await loadConversationMessages(mentor.conversation_id);
-        } catch (err) {
-          setListError(err instanceof Error ? err.message : 'Failed to load conversation');
-        }
-      } else {
-        clearConversationState();
-      }
+      const nextSelection: SelectedChat = {
+        kind: 'draft',
+        draftId,
+        mentorId: draft.mentorId,
+      };
+
+      prepareForChatSwitch(nextSelection);
+      setPersistentMessages([]);
+      setPersistentThreadsMap(new Map());
+      setSelectedChat(nextSelection);
     },
-    [
-      clearConversationState,
-      clearTemporaryConversationState,
-      isTemporaryChat,
-      loadConversationMessages,
-      resetThreadUi,
-      setActiveMentor,
-      setListError,
-      tts,
-    ]
+    [draftChats, prepareForChatSwitch]
   );
-
-  // Handle ?mentor=<slug> search param from /mentors page
-  const mentorSlugHandledRef = useRef(false);
-  useEffect(() => {
-    if (mentorSlugHandledRef.current) return;
-    const mentorSlug = searchParams.get('mentor');
-    if (!mentorSlug || mentors.length === 0) return;
-    mentorSlugHandledRef.current = true;
-
-    const target = mentors.find((m) => m.slug === mentorSlug);
-    if (target) {
-      void handleSelectMentor(target);
-    }
-    // Clear the search param
-    router.replace('/home', { scroll: false });
-  }, [searchParams, mentors, handleSelectMentor, router]);
 
   const handleSelectConversation = useCallback(
     async (conversation: ConversationListItem) => {
-      tts.stop();
-      resetThreadUi();
-      setChatMode('persistent');
-      clearTemporaryConversationState();
-      setInput('');
-      setLastSearchState(null);
-      setUserHasScrolled(false);
+      const nextSelection: SelectedChat = {
+        kind: 'persistent',
+        conversationId: conversation.id,
+        mentorId: conversation.mentor_id,
+      };
 
-      const nextMentor = conversation.mentor_id
-        ? mentors.find((mentor) => mentor.id === conversation.mentor_id) || null
-        : null;
-      setActiveMentor(nextMentor);
+      prepareForChatSwitch(nextSelection);
+      setSelectedChat(nextSelection);
+      setPersistentMessages([]);
+      setPersistentThreadsMap(new Map());
 
       try {
-        await loadConversationMessages(conversation.id);
+        const loadedConversation = await loadConversationMessages(conversation.id);
+        setPersistentMessages(loadedConversation.messages);
+        setPersistentThreadsMap(loadedConversation.threadsMap);
       } catch (err) {
         setListError(err instanceof Error ? err.message : 'Failed to load conversation');
       }
     },
-    [clearTemporaryConversationState, mentors, loadConversationMessages, resetThreadUi, tts]
+    [loadConversationMessages, prepareForChatSwitch, setListError]
   );
 
-  const handleToggleTemporaryChat = useCallback(async () => {
-    const nextMode: ChatMode = isTemporaryChat ? 'persistent' : 'temporary';
+  const handleCloseTemporaryChat = useCallback(
+    (tempChatId: string) => {
+      const remaining = temporaryChats.filter((chat) => chat.id !== tempChatId);
+      setTemporaryChats(remaining);
 
-    tts.stop();
-    stopMic();
-    resetThreadUi();
-    setInput('');
-    setLastSearchState(null);
-    setUserHasScrolled(false);
-    clearTemporaryConversationState();
-    clearConversationState();
-
-    if (nextMode === 'persistent') {
-      setChatMode('persistent');
-      if (activeMentor?.conversation_id) {
-        try {
-          await loadConversationMessages(activeMentor.conversation_id);
-        } catch (err) {
-          setListError(err instanceof Error ? err.message : 'Failed to load conversation');
-        }
+      if (
+        selectedChat?.kind !== 'temporary' ||
+        selectedChat.tempChatId !== tempChatId
+      ) {
+        return;
       }
-      return;
-    }
 
-    setChatMode('temporary');
-  }, [
-    activeMentor?.conversation_id,
-    clearConversationState,
-    clearTemporaryConversationState,
-    isTemporaryChat,
-    loadConversationMessages,
-    resetThreadUi,
-    setListError,
-    stopMic,
-    tts,
-  ]);
+      const nextTempChat = remaining[0];
+      if (nextTempChat) {
+        handleSelectTemporaryChat(nextTempChat.id);
+        return;
+      }
 
-  // Send message (from text or voice)
+      const latestConversation = conversations[0];
+      if (latestConversation) {
+        void handleSelectConversation(latestConversation);
+        return;
+      }
+
+      prepareForChatSwitch(null);
+      setSelectedChat(null);
+      setPersistentMessages([]);
+      setPersistentThreadsMap(new Map());
+    },
+    [
+      conversations,
+      handleSelectConversation,
+      handleSelectTemporaryChat,
+      prepareForChatSwitch,
+      selectedChat,
+      temporaryChats,
+    ]
+  );
+
+  const setTemporaryThreadMessagesForThread = useCallback(
+    (threadId: string, nextMessages: ThreadMessage[]) => {
+      if (selectedChat?.kind !== 'temporary') {
+        return;
+      }
+
+      updateTemporaryChat(selectedChat.tempChatId, (chat) => {
+        const nextThreadMessages = { ...chat.threadMessages };
+
+        if (nextMessages.length === 0) {
+          delete nextThreadMessages[threadId];
+        } else {
+          nextThreadMessages[threadId] = nextMessages;
+        }
+
+        return {
+          ...chat,
+          threadMessages: nextThreadMessages,
+        };
+      });
+    },
+    [selectedChat, updateTemporaryChat]
+  );
+
+  const addThreadMeta = useCallback(
+    (threadId: string, sourceMessageId: string, highlightedText: string) => {
+      if (selectedChat?.kind === 'temporary') {
+        updateTemporaryChat(selectedChat.tempChatId, (chat) => ({
+          ...chat,
+          threadsMap: addThreadMetaToRecord(
+            chat.threadsMap,
+            threadId,
+            sourceMessageId,
+            highlightedText
+          ),
+        }));
+        return;
+      }
+
+      setPersistentThreadsMap((prev) =>
+        addThreadMetaToMap(prev, threadId, sourceMessageId, highlightedText)
+      );
+    },
+    [selectedChat, updateTemporaryChat]
+  );
+
+  const updateSelectedTemporaryMemoryMode = useCallback(
+    (mode: TemporaryMemoryMode) => {
+      if (selectedChat?.kind !== 'temporary') {
+        return;
+      }
+
+      updateTemporaryChat(selectedChat.tempChatId, (chat) => ({
+        ...chat,
+        memoryMode: mode,
+      }));
+    },
+    [selectedChat, updateTemporaryChat]
+  );
+
   const sendMessage = useCallback(async (content: string) => {
     if (!content.trim() || isLoading) return;
 
-    // Cancel pending auto-send and clear transcript
     if (autoSendTimerRef.current) {
       clearTimeout(autoSendTimerRef.current);
       autoSendTimerRef.current = null;
     }
     transcription.clearTranscript();
 
+    const now = new Date();
+    const nextUpdatedAt = now.toISOString();
+    const messageText = content.trim();
+
+    let effectiveSelection = selectedChat;
+    let effectiveDraft = selectedDraftChat;
+    let effectiveTempChat = selectedTemporaryChat;
+
+    if (!effectiveSelection) {
+      effectiveDraft = getOrCreateDraft(null);
+      effectiveSelection = {
+        kind: 'draft',
+        draftId: effectiveDraft.id,
+        mentorId: null,
+      };
+      setSelectedChat(effectiveSelection);
+    }
+
     const userMessage: Message = {
-      id: isTemporaryChat ? createTemporaryId('message') : Date.now().toString(),
+      id:
+        effectiveSelection.kind === 'temporary'
+          ? createTemporaryId('message')
+          : Date.now().toString(),
       role: 'user',
-      content: content.trim(),
-      timestamp: new Date(),
+      content: messageText,
+      timestamp: now,
     };
 
-    if (isTemporaryChat) {
-      setTemporaryMessages((prev) => [...prev, userMessage]);
+    if (effectiveSelection.kind === 'temporary') {
+      updateTemporaryChat(effectiveSelection.tempChatId, (chat) => ({
+        ...chat,
+        messages: [...chat.messages, userMessage],
+        updatedAt: nextUpdatedAt,
+      }));
+    } else if (effectiveSelection.kind === 'persistent') {
+      setPersistentMessages((prev) => [...prev, userMessage]);
     } else {
-      setMessages((prev) => [...prev, userMessage]);
+      const draft = effectiveDraft || getOrCreateDraft(effectiveSelection.mentorId);
+      effectiveDraft = draft;
+      updateDraftChat(draft.id, (currentDraft) => ({
+        ...currentDraft,
+        messages: [...currentDraft.messages, userMessage],
+        updatedAt: nextUpdatedAt,
+      }));
     }
+
     setInput('');
     setIsLoading(true);
     setLastSearchState(null);
@@ -398,15 +819,22 @@ function HomePageInner() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: userMessage.content,
-          conversationId: isTemporaryChat ? undefined : conversationId,
-          mentorId: activeMentor?.id ?? undefined,
+          message: messageText,
+          conversationId:
+            effectiveSelection.kind === 'persistent'
+              ? effectiveSelection.conversationId
+              : undefined,
+          mentorId:
+            effectiveSelection.kind === 'temporary'
+              ? undefined
+              : effectiveSelection.mentorId ?? undefined,
           searchEnabled,
-          chatMode,
-          ...(isTemporaryChat
+          chatMode:
+            effectiveSelection.kind === 'temporary' ? 'temporary' : 'persistent',
+          ...(effectiveSelection.kind === 'temporary'
             ? {
-                memoryMode: temporaryMemoryMode,
-                history: toChatHistory(activeMessages),
+                memoryMode: effectiveTempChat?.memoryMode ?? 'use_existing',
+                history: toChatHistory(effectiveTempChat?.messages || []),
               }
             : {}),
         }),
@@ -416,21 +844,31 @@ function HomePageInner() {
 
       if (!response.ok || data.error) {
         const errorMessage: Message = {
-          id: isTemporaryChat ? createTemporaryId('message') : (Date.now() + 1).toString(),
+          id:
+            effectiveSelection.kind === 'temporary'
+              ? createTemporaryId('message')
+              : (Date.now() + 1).toString(),
           role: 'assistant',
-          content: `Something went wrong. ${data.error || ''}`,
+          content: `Something went wrong. ${data.error || ''}`.trim(),
           timestamp: new Date(),
         };
-        if (isTemporaryChat) {
-          setTemporaryMessages((prev) => [...prev, errorMessage]);
-        } else {
-          setMessages((prev) => [...prev, errorMessage]);
+
+        if (effectiveSelection.kind === 'temporary') {
+          updateTemporaryChat(effectiveSelection.tempChatId, (chat) => ({
+            ...chat,
+            messages: [...chat.messages, errorMessage],
+            updatedAt: new Date().toISOString(),
+          }));
+        } else if (effectiveSelection.kind === 'persistent') {
+          setPersistentMessages((prev) => [...prev, errorMessage]);
+        } else if (effectiveDraft) {
+          updateDraftChat(effectiveDraft.id, (draft) => ({
+            ...draft,
+            messages: [...draft.messages, errorMessage],
+            updatedAt: new Date().toISOString(),
+          }));
         }
         return;
-      }
-
-      if (!isTemporaryChat && data.conversationId && data.conversationId !== conversationId) {
-        setConversationId(data.conversationId);
       }
 
       setLastSearchState(data.search ?? null);
@@ -439,7 +877,7 @@ function HomePageInner() {
         data.message?.trim() || 'Something went wrong. The assistant returned an empty response.';
       const assistantMessage: Message = {
         id:
-          isTemporaryChat
+          effectiveSelection.kind === 'temporary'
             ? createTemporaryId('message')
             : data.assistantMessageId || (Date.now() + 1).toString(),
         role: 'assistant',
@@ -447,19 +885,43 @@ function HomePageInner() {
         timestamp: new Date(),
       };
 
-      if (isTemporaryChat) {
-        setTemporaryMessages((prev) => [...prev, assistantMessage]);
-      } else {
-        // Update user message with real DB ID and add assistant message
-        setMessages((prev) => {
-          const persistedUserMessageId =
-            typeof data.userMessageId === 'string' ? data.userMessageId : null;
-          const updated = persistedUserMessageId
-            ? prev.map((m) => m.id === userMessage.id ? { ...m, id: persistedUserMessageId } : m)
+      if (effectiveSelection.kind === 'temporary') {
+        updateTemporaryChat(effectiveSelection.tempChatId, (chat) => ({
+          ...chat,
+          title:
+            data.conversationTitle ||
+            fallbackChatTitleFromMessage(messageText, TEMP_CHAT_TITLE),
+          messages: [...chat.messages, assistantMessage],
+          updatedAt: new Date().toISOString(),
+        }));
+      } else if (effectiveSelection.kind === 'persistent') {
+        setPersistentMessages((prev) => {
+          const updated = data.userMessageId
+            ? prev.map((message) =>
+                message.id === userMessage.id
+                  ? { ...message, id: data.userMessageId! }
+                  : message
+              )
             : prev;
           return [...updated, assistantMessage];
         });
 
+        await refreshSidebarData();
+      } else if (effectiveDraft && data.conversationId) {
+        const nextPersistentSelection: SelectedChat = {
+          kind: 'persistent',
+          conversationId: data.conversationId,
+          mentorId: effectiveDraft.mentorId,
+        };
+
+        const updatedDraftMessages = effectiveDraft.messages.concat(
+          data.userMessageId ? { ...userMessage, id: data.userMessageId } : userMessage
+        );
+
+        setPersistentMessages([...updatedDraftMessages, assistantMessage]);
+        setPersistentThreadsMap(new Map());
+        setDraftChats((prev) => prev.filter((draft) => draft.id !== effectiveDraft!.id));
+        setSelectedChat(nextPersistentSelection);
         await refreshSidebarData();
       }
 
@@ -468,37 +930,48 @@ function HomePageInner() {
       }
     } catch {
       const errorMessage: Message = {
-        id: isTemporaryChat ? createTemporaryId('message') : (Date.now() + 1).toString(),
+        id:
+          effectiveSelection.kind === 'temporary'
+            ? createTemporaryId('message')
+            : (Date.now() + 1).toString(),
         role: 'assistant',
         content: 'Sorry, there was an error processing your message.',
         timestamp: new Date(),
       };
-      if (isTemporaryChat) {
-        setTemporaryMessages((prev) => [...prev, errorMessage]);
-      } else {
-        setMessages((prev) => [...prev, errorMessage]);
+
+      if (effectiveSelection.kind === 'temporary') {
+        updateTemporaryChat(effectiveSelection.tempChatId, (chat) => ({
+          ...chat,
+          messages: [...chat.messages, errorMessage],
+          updatedAt: new Date().toISOString(),
+        }));
+      } else if (effectiveSelection.kind === 'persistent') {
+        setPersistentMessages((prev) => [...prev, errorMessage]);
+      } else if (effectiveDraft) {
+        updateDraftChat(effectiveDraft.id, (draft) => ({
+          ...draft,
+          messages: [...draft.messages, errorMessage],
+          updatedAt: new Date().toISOString(),
+        }));
       }
     } finally {
       setIsLoading(false);
     }
   }, [
-    activeMessages,
-    activeMentor?.id,
-    chatMode,
-    conversationId,
+    getOrCreateDraft,
     isLoading,
-    isTemporaryChat,
     refreshSidebarData,
     searchEnabled,
-    temporaryMemoryMode,
-    ttsEnabled,
+    selectedChat,
+    selectedDraftChat,
+    selectedTemporaryChat,
+    transcription,
     tts,
-    transcription.clearTranscript,
+    ttsEnabled,
+    updateDraftChat,
+    updateTemporaryChat,
   ]);
 
-  // Auto-send voice transcript with adaptive delay based on transcript completeness.
-  // Deepgram provides punctuation via punctuate=true & smart_format=true, so we can
-  // use sentence-ending punctuation as a strong signal of a complete thought.
   useEffect(() => {
     const text = transcription.finalTranscript.trim();
     const hasFinal = text.length > 0;
@@ -506,24 +979,50 @@ function HomePageInner() {
 
     if (hasFinal && !hasInterim && micActive && !isLoading) {
       const lastChar = text[text.length - 1];
-      const lastWord = text.split(/\s+/).pop()?.toLowerCase().replace(/[.,!?;:]$/, '') ?? '';
+      const lastWord =
+        text
+          .split(/\s+/)
+          .pop()
+          ?.toLowerCase()
+          .replace(/[.,!?;:]$/, '') ?? '';
       const wordCount = text.split(/\s+/).length;
 
       let delay: number;
+      const incomplete = [
+        'and',
+        'but',
+        'or',
+        'so',
+        'because',
+        'since',
+        'although',
+        'however',
+        'with',
+        'to',
+        'for',
+        'the',
+        'a',
+        'an',
+        'that',
+        'which',
+        'who',
+        'if',
+        'then',
+        'like',
+        'of',
+        'in',
+        'on',
+        'about',
+        'is',
+        'are',
+        'was',
+        'were',
+      ];
 
-      // Trailing conjunctions / prepositions — clearly mid-thought
-      const incomplete = ['and', 'but', 'or', 'so', 'because', 'since', 'although',
-        'however', 'with', 'to', 'for', 'the', 'a', 'an', 'that', 'which', 'who',
-        'if', 'then', 'like', 'of', 'in', 'on', 'about', 'is', 'are', 'was', 'were'];
-      if (incomplete.includes(lastWord)) {
+      if (incomplete.includes(lastWord) || lastChar === ',' || lastChar === ';' || lastChar === ':') {
         delay = 4000;
-      // Mid-sentence punctuation — user paused but isn't done
-      } else if (lastChar === ',' || lastChar === ';' || lastChar === ':') {
-        delay = 4000;
-      // Complete sentence — Deepgram is confident it's a full thought
       } else if (lastChar === '.' || lastChar === '?' || lastChar === '!') {
         delay = wordCount <= 4 ? 1500 : 2000;
-      // No terminal punctuation — Deepgram wasn't sure, give a bit more time
       } else {
         delay = 3000;
       }
@@ -540,7 +1039,13 @@ function HomePageInner() {
         autoSendTimerRef.current = null;
       }
     };
-  }, [transcription.finalTranscript, transcription.interimTranscript, micActive, isLoading, sendMessage]);
+  }, [
+    isLoading,
+    micActive,
+    sendMessage,
+    transcription.finalTranscript,
+    transcription.interimTranscript,
+  ]);
 
   const handleThreadCreated = useCallback(
     (threadId: string, sourceMessageId: string, highlightedText: string) => {
@@ -564,20 +1069,20 @@ function HomePageInner() {
     }
   };
 
-  const activeName = activeMentor?.name || 'Keen';
-  const activeTemporaryThreadMessages = activeThread
-    ? temporaryThreadMessages.get(activeThread.id) ?? null
-    : null;
   const emptyTitle = isTemporaryChat
-    ? 'Temporary chat'
-    : activeMentor
-      ? `Talk to ${activeMentor.name}`
-      : "What's on your mind?";
+    ? TEMP_CHAT_TITLE
+    : selectedChat?.kind === 'draft'
+      ? 'New chat'
+      : activeMentor
+        ? `Talk to ${activeMentor.name}`
+        : "What's on your mind?";
   const emptySubtitle = isTemporaryChat
-    ? 'Nothing from this conversation will be saved.'
-    : activeMentor
-      ? activeMentor.tagline
-      : "I'm Listening";
+    ? 'Nothing from this chat will be saved.'
+    : selectedChat?.kind === 'draft'
+      ? activeMentor?.tagline || 'Start a new conversation.'
+      : activeMentor
+        ? activeMentor.tagline
+        : "I'm Listening";
 
   return (
     <div className="relative flex h-dvh min-h-0 flex-col overflow-hidden bg-background text-foreground">
@@ -585,25 +1090,20 @@ function HomePageInner() {
 
       <main
         className={`relative flex min-h-0 flex-1 flex-col transition-[padding] duration-300 ease-out ${
-          // Desktop: when the left sidebar is open, push the chat area right (ChatGPT-style).
           sidePanelOpen ? 'lg:pl-[380px]' : ''
         } ${threadPanelOpen ? 'lg:pr-[460px]' : ''}`}
       >
-        {/* Full-width header: stretches left/right on desktop while content stays constrained below. */}
         <div className="w-full shrink-0 px-6">
           <HomeHeader
             activeName={activeName}
-            temporaryChatEnabled={isTemporaryChat}
-            temporaryMemoryMode={temporaryMemoryMode}
+            isTemporaryChat={isTemporaryChat}
+            temporaryMemoryMode={activeTemporaryMemoryMode}
             onOpenSidePanel={() => setSidePanelOpen(true)}
             onBrowseMentors={() => router.push('/mentors')}
-            onToggleTemporaryChat={() => {
-              void handleToggleTemporaryChat();
-            }}
+            onCreateTemporaryChat={handleCreateTemporaryChat}
           />
         </div>
 
-        {/* Conversation area — scrollbar sits at the right edge of main */}
         <div
           ref={containerRef}
           onScroll={handleScroll}
@@ -627,10 +1127,10 @@ function HomePageInner() {
             popoverState={popoverState}
             chatMode={chatMode}
             conversationId={activeConversationId}
-            mentorId={activeMentor?.id ?? null}
-            memoryMode={temporaryMemoryMode}
+            mentorId={activeMentorId}
+            memoryMode={activeTemporaryMemoryMode}
             history={activeMessages}
-            temporaryThreadMessages={temporaryThreadMessages}
+            temporaryThreadMessages={activeTemporaryThreadMessagesMap}
             onTemporaryThreadMessagesChange={setTemporaryThreadMessagesForThread}
             onDismiss={dismissPopover}
             onThreadCreated={handleThreadCreated}
@@ -646,8 +1146,8 @@ function HomePageInner() {
           ttsEnabled={ttsEnabled}
           searchEnabled={searchEnabled}
           temporaryChatEnabled={isTemporaryChat}
-          showTemporaryIntro={activeMessages.length === 0}
-          temporaryMemoryMode={temporaryMemoryMode}
+          showTemporaryIntro={isTemporaryChat && activeMessages.length === 0}
+          temporaryMemoryMode={activeTemporaryMemoryMode}
           finalTranscript={transcription.finalTranscript}
           interimTranscript={transcription.interimTranscript}
           transcriptionStatus={transcription.status}
@@ -664,7 +1164,7 @@ function HomePageInner() {
           onToggleMic={toggleMic}
           onToggleTts={toggleTtsEnabled}
           onToggleSearch={() => setSearchEnabled((prev) => !prev)}
-          onTemporaryMemoryModeChange={setTemporaryMemoryMode}
+          onTemporaryMemoryModeChange={updateSelectedTemporaryMemoryMode}
           onSubmit={handleSubmit}
           onKeyDown={handleKeyDown}
         />
@@ -673,12 +1173,45 @@ function HomePageInner() {
       <SidePanel
         isOpen={sidePanelOpen}
         onClose={() => setSidePanelOpen(false)}
-        conversations={conversations}
-        activeConversationId={activeConversationId}
+        mentorGroups={mentorGroups}
+        draftChats={draftChats.map((draft) => ({
+          id: draft.id,
+          mentor_id: draft.mentorId,
+          title: draft.title,
+          updated_at: draft.updatedAt,
+        }))}
+        temporaryChats={temporaryChats.map((chat) => ({
+          id: chat.id,
+          title: chat.title,
+          updated_at: chat.updatedAt,
+        }))}
+        selectedConversationId={
+          selectedChat?.kind === 'persistent' ? selectedChat.conversationId : null
+        }
+        selectedDraftId={selectedChat?.kind === 'draft' ? selectedChat.draftId : null}
+        selectedTempChatId={
+          selectedChat?.kind === 'temporary' ? selectedChat.tempChatId : null
+        }
+        selectedMentorId={
+          selectedChat?.kind === 'temporary' ? null : selectedChat?.mentorId ?? null
+        }
         onSelectConversation={(conversation) => {
           void handleSelectConversation(conversation);
+          setSidePanelOpen(false);
         }}
-        onNewDefaultChat={handleSelectDefault}
+        onSelectDraft={(draftId) => {
+          handleSelectDraft(draftId);
+          setSidePanelOpen(false);
+        }}
+        onSelectTemporaryChat={(tempChatId) => {
+          handleSelectTemporaryChat(tempChatId);
+          setSidePanelOpen(false);
+        }}
+        onCreateDraft={(mentorId) => {
+          handleCreateDraftSelection(mentorId);
+          setSidePanelOpen(false);
+        }}
+        onCloseTemporaryChat={handleCloseTemporaryChat}
       />
       <MentorDetailPanel
         isOpen={detailPanelOpen}
@@ -688,22 +1221,29 @@ function HomePageInner() {
           void refreshSidebarData();
         }}
         onDeleted={(deletedSlug) => {
-          if (activeMentor?.slug === deletedSlug) {
-            handleSelectDefault();
+          const deletedMentor = mentors.find((mentor) => mentor.slug === deletedSlug) || null;
+
+          if (
+            deletedMentor &&
+            selectedChat?.kind !== 'temporary' &&
+            selectedChat?.mentorId === deletedMentor.id
+          ) {
+            setSelectedChat(null);
+            setPersistentMessages([]);
+            setPersistentThreadsMap(new Map());
+            setDraftChats((prev) =>
+              prev.filter((draft) => draft.mentorId !== deletedMentor.id)
+            );
           }
+
           void refreshSidebarData();
         }}
       />
       <CreateMentorPanel
         isOpen={createPanelOpen}
         onClose={() => setCreatePanelOpen(false)}
-        onCreated={(mentor) => {
-          resetThreadUi();
-          setActiveMentor(mentor);
-          clearTemporaryConversationState();
-          clearConversationState();
-          setLastSearchState(null);
-          setUserHasScrolled(false);
+        onCreated={(mentor: MentorListItem) => {
+          handleCreateDraftSelection(mentor.id);
           void refreshSidebarData();
         }}
       />
@@ -713,8 +1253,8 @@ function HomePageInner() {
         thread={activeThread}
         chatMode={chatMode}
         conversationId={activeConversationId}
-        mentorId={activeMentor?.id ?? null}
-        memoryMode={temporaryMemoryMode}
+        mentorId={activeMentorId}
+        memoryMode={activeTemporaryMemoryMode}
         conversationMessages={activeMessages}
         initialMessages={threadPanelInitialMessages}
         temporaryMessages={activeTemporaryThreadMessages}
@@ -724,7 +1264,6 @@ function HomePageInner() {
         onPendingMessageConsumed={clearPendingThreadMessage}
         onClose={closeThreadPanel}
       />
-
     </div>
   );
 }

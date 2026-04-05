@@ -131,12 +131,6 @@ export default function MentorsPage() {
                         <span className="truncate font-heading text-base text-foreground">
                           {mentor.name}
                         </span>
-                        {mentor.conversation_id && (
-                          <span
-                            className="h-1.5 w-1.5 flex-shrink-0 rounded-full"
-                            style={{ backgroundColor: accent }}
-                          />
-                        )}
                       </div>
                       <p className="mt-0.5 truncate text-xs text-muted">
                         {mentor.tagline}

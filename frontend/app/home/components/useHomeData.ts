@@ -1,9 +1,12 @@
 import { useCallback, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { MentorListItem } from '@/lib/mentors/types';
-import type { ConversationListItem } from '@/app/home/components/ConversationsPanel';
+import type {
+  ConversationListItem,
+  Message,
+  SidebarMentorGroup,
+} from '@/app/home/types';
 import type { ThreadMeta } from '@/app/home/components/MarkdownWithThreads';
-import type { Message } from '@/app/home/types';
 
 interface ConversationRow {
   id: string;
@@ -40,21 +43,78 @@ function buildThreadsMap(
   return nextThreadsMap;
 }
 
+function buildSidebarGroups(
+  mentorSource: MentorListItem[],
+  conversationSource: ConversationListItem[]
+): SidebarMentorGroup[] {
+  const groups: SidebarMentorGroup[] = [
+    {
+      mentor_id: null,
+      mentor_name: 'Keen',
+      mentor_accent_color: null,
+      last_activity_at: null,
+      conversations: [],
+    },
+    ...mentorSource.map((mentor) => ({
+      mentor_id: mentor.id,
+      mentor_name: mentor.name,
+      mentor_accent_color: mentor.accent_color,
+      last_activity_at: null,
+      conversations: [],
+    })),
+  ];
+
+  const groupByMentorId = new Map(
+    groups.map((group) => [group.mentor_id ?? '__keen__', group])
+  );
+
+  for (const conversation of conversationSource) {
+    const key = conversation.mentor_id ?? '__keen__';
+    const group = groupByMentorId.get(key);
+
+    if (!group) {
+      continue;
+    }
+
+    group.conversations.push(conversation);
+
+    if (
+      !group.last_activity_at ||
+      new Date(conversation.updated_at).getTime() >
+        new Date(group.last_activity_at).getTime()
+    ) {
+      group.last_activity_at = conversation.updated_at;
+    }
+  }
+
+  for (const group of groups) {
+    group.conversations.sort(
+      (a, b) =>
+        new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+    );
+  }
+
+  const activeGroups = groups
+    .filter((group) => group.last_activity_at)
+    .sort(
+      (a, b) =>
+        new Date(b.last_activity_at || 0).getTime() -
+        new Date(a.last_activity_at || 0).getTime()
+    );
+
+  const inactiveGroups = groups
+    .filter((group) => !group.last_activity_at)
+    .sort((a, b) => a.mentor_name.localeCompare(b.mentor_name));
+
+  return [...activeGroups, ...inactiveGroups];
+}
+
 export function useHomeData() {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [conversationId, setConversationId] = useState<string | null>(null);
-  const [activeMentor, setActiveMentor] = useState<MentorListItem | null>(null);
   const [mentors, setMentors] = useState<MentorListItem[]>([]);
   const [conversations, setConversations] = useState<ConversationListItem[]>([]);
+  const [mentorGroups, setMentorGroups] = useState<SidebarMentorGroup[]>([]);
   const [loadingLists, setLoadingLists] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
-  const [threadsMap, setThreadsMap] = useState<Map<string, ThreadMeta[]>>(new Map());
-
-  const clearConversationState = useCallback(() => {
-    setConversationId(null);
-    setMessages([]);
-    setThreadsMap(new Map());
-  }, []);
 
   const loadMentors = useCallback(async (): Promise<MentorListItem[]> => {
     const response = await fetch('/api/mentors', { cache: 'no-store' });
@@ -73,7 +133,7 @@ export function useHomeData() {
       .from('conversations')
       .select('id, title, mentor_id, updated_at, created_at')
       .order('updated_at', { ascending: false })
-      .limit(100);
+      .limit(200);
 
     if (conversationError) {
       throw new Error(conversationError.message);
@@ -107,7 +167,7 @@ export function useHomeData() {
 
       return {
         id: row.id,
-        title: row.title,
+        title: row.title?.trim() || 'New chat',
         mentor_id: row.mentor_id,
         updated_at: row.updated_at,
         created_at: row.created_at,
@@ -118,6 +178,7 @@ export function useHomeData() {
     });
 
     setConversations(nextConversations);
+    setMentorGroups(buildSidebarGroups(mentorSource, nextConversations));
   }, []);
 
   const refreshSidebarData = useCallback(async () => {
@@ -164,9 +225,6 @@ export function useHomeData() {
       timestamp: new Date(message.created_at),
     }));
 
-    setMessages(nextMessages);
-    setConversationId(nextConversationId);
-
     const { data: threadRows, error: threadsError } = await supabase
       .from('threads')
       .select('id, source_message_id, highlighted_text')
@@ -174,37 +232,33 @@ export function useHomeData() {
 
     if (threadsError) {
       console.error('Failed to load threads:', threadsError);
-      setThreadsMap(new Map());
-      return;
+
+      return {
+        messages: nextMessages,
+        threadsMap: new Map<string, ThreadMeta[]>(),
+      };
     }
 
-    setThreadsMap(
-      buildThreadsMap(
+    return {
+      messages: nextMessages,
+      threadsMap: buildThreadsMap(
         (threadRows || []) as Array<{
           id: string;
           source_message_id: string;
           highlighted_text: string;
         }>
-      )
-    );
+      ),
+    };
   }, []);
 
   return {
-    messages,
-    setMessages,
-    conversationId,
-    setConversationId,
-    activeMentor,
-    setActiveMentor,
     mentors,
     setMentors,
     conversations,
+    mentorGroups,
     loadingLists,
     listError,
     setListError,
-    threadsMap,
-    setThreadsMap,
-    clearConversationState,
     refreshSidebarData,
     loadConversationMessages,
   };
