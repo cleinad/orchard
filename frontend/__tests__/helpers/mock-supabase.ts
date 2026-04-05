@@ -78,6 +78,10 @@ export function createMockSupabase(options: MockSupabaseOptions = {}) {
       isSingle = true;
       return chain;
     };
+    chain.maybeSingle = () => {
+      isSingle = true;
+      return chain;
+    };
     chain.select = (cols?: string) => {
       selectCalled = true;
       return chain;

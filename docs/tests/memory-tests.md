@@ -1,5 +1,50 @@
 # Memory System Test Suite
 
+## Why These Tests Exist
+
+The memory system is easy to break in ways that are not obvious from normal chat behavior. A user can still receive a good response even when:
+
+- memory is no longer loaded into the prompt
+- memory extraction silently stops running in the background
+- mentor and global scopes are mixed incorrectly
+- semantic retrieval falls back incorrectly or not at all
+- edit/delete routes stop updating embeddings correctly
+
+The goal of this suite is not just "does memory code run", but "does the product still honor the memory contract after refactors".
+
+### The Contract We Care About
+
+The tests are designed to protect four product-level guarantees:
+
+1. **Chat loads memory in the right situations**  
+   Persistent chats should load memory. Temporary chats should only load memory when explicitly configured to use existing memory.
+
+2. **Chat writes memory in the right situations**  
+   Persistent chats should schedule background extraction. Temporary chats should not persist memory.
+
+3. **Memory retrieval degrades gracefully**  
+   If semantic retrieval changes, RPC retrieval fails, embeddings are unavailable, or ranking logic shifts, the system should still produce a valid prompt context instead of failing hard.
+
+4. **Users can safely inspect and manage memory items**  
+   The memory item routes must keep scope, auth, normalization, and embedding side effects correct.
+
+### What This Suite Is Optimized For
+
+This suite is a **memory canary suite**. Engineers should be able to modify the memory system, run a focused set of tests, and quickly answer:
+
+- Did I break prompt memory loading?
+- Did I break background memory writes?
+- Did I break scoping or ranking?
+- Did I break edit/delete behavior?
+
+This means the tests intentionally favor:
+
+- contract checks at the route boundary
+- integration tests around merge/retrieval behavior
+- a small number of pure utility tests
+
+This suite does **not** try to fully validate external providers. It can prove graceful fallback and call wiring, but it cannot prove that production provider keys are valid. Real API credentials still require a manual smoke test.
+
 ## Running Tests
 
 ```bash
@@ -8,13 +53,37 @@ npm test                # Run all tests once
 npm run test:watch      # Run in watch mode (re-runs on file changes)
 
 # Run a specific test file
+npx vitest run __tests__/app/chat-route.test.ts
 npx vitest run __tests__/lib/memory-items.test.ts
 npx vitest run __tests__/lib/memory-integration.test.ts
 ```
 
+### Recommended Memory Canary Command
+
+When changing the memory system, prefer running the focused canary suite instead of the entire frontend test suite:
+
+```bash
+npm test -- __tests__/app/chat-route.test.ts __tests__/lib/memory-items.test.ts __tests__/lib/memory-integration.test.ts
+```
+
+If memory item API routes gain dedicated tests, add them to this command and treat that set as the required post-change verification path.
+
 **Framework:** Vitest — config at `frontend/vitest.config.ts`.
 
 ## Test Files
+
+### `__tests__/app/chat-route.test.ts`
+
+Route-level contract tests for `app/api/chat/route.ts`.
+
+These exist because the highest-risk regressions often happen at the handoff boundary between chat orchestration and memory internals. The route decides:
+
+- whether memory should be loaded
+- whether background extraction should run
+- which actor/scope should be used
+- which Supabase client is handed to the background memory job
+
+The service-role-key regression was exactly this kind of failure. The route test that asserts the authenticated Supabase client is passed into `processMemoryV2()` is intended to permanently lock down that behavior.
 
 ### `__tests__/lib/memory-items.test.ts` (36 tests)
 
@@ -35,7 +104,7 @@ Integration tests for the write path (`processMemoryV2`) and read path (`loadMem
 
 **Mocking:** Supabase client (chainable mock with mutation tracking), `generateObject` (LLM call), and `embed`/`embedMany` (OpenAI embeddings). The reusable Supabase mock lives in `__tests__/helpers/mock-supabase.ts`.
 
-#### Write path — `processMemoryV2` (8 tests)
+#### Write path — `processMemoryV2` (9 tests)
 
 | Test | Verifies |
 |------|----------|
@@ -49,7 +118,7 @@ Integration tests for the write path (`processMemoryV2`) and read path (`loadMem
 | Mixed batch | 5 candidates (2 novel, 1 duplicate, 1 ignored, 1 too-short) → verifies exact insert/update counts |
 | Mentor-scoped write | `mentorId` context produces rows with `owner_type: "mentor"` and correct `owner_id` |
 
-#### Read path — `loadMemoryContextV2` (5 tests)
+#### Read path — `loadMemoryContextV2` (4 tests)
 
 | Test | Verifies |
 |------|----------|
@@ -57,3 +126,47 @@ Integration tests for the write path (`processMemoryV2`) and read path (`loadMem
 | Core profile selection | Stable high-salience items appear under `## Core Profile`, profile/goal/preference types ranked higher |
 | Token budget trimming | Episodic items dropped first, core items preserved (min 3 for default actor) |
 | Mentor scoping | Mentor actor sees `## Global Profile` header, only mentor-owned items in relevant recall, other mentors excluded |
+
+## Coverage Philosophy
+
+Future engineers should preserve this split:
+
+- **Route tests** protect behavioral contracts between the API layer and memory internals.
+- **Integration tests** protect ranking, merge, fallback, and embedding side effects.
+- **Utility tests** protect deterministic text normalization and scoring helpers.
+
+If a change only updates internals but breaks one of these contracts, the suite should fail.
+
+## Missing Cases To Prioritize Next
+
+The current suite is useful, but it is not yet complete. The highest-value additions are:
+
+1. Temporary chat does not call `processMemoryV2()`.
+2. Temporary chat with `memoryMode='use_existing'` still loads memory.
+3. Temporary chat with memory disabled does not load memory.
+4. Mentor chat passes `actor='mentor'` and the correct `mentorId` to both read and write paths.
+5. Same text with different `type` does not merge in the write path.
+6. `action='update'` with low similarity inserts without superseding.
+7. Memory row insert/update still succeeds when embedding generation fails.
+8. Read path prefers RPC semantic matches when available.
+9. Read path falls back to row embeddings when RPC retrieval fails or returns empty.
+10. Memory item API routes are covered for GET scope/status filters and PATCH/DELETE embedding behavior.
+
+## Future Shape Of The Suite
+
+The intended long-term memory canary suite is:
+
+- `__tests__/app/chat-route.test.ts`
+- `__tests__/app/memory-items-routes.test.ts`
+- `__tests__/lib/memory-integration.test.ts`
+- `__tests__/lib/memory-items.test.ts`
+
+That suite should answer, with high confidence, whether the memory product still works after changes to:
+
+- prompt assembly
+- chat modes
+- mentor scoping
+- merge logic
+- retrieval logic
+- embedding side effects
+- memory item CRUD routes
