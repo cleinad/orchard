@@ -5,7 +5,7 @@ import { createSupabaseServerClient } from '@/lib/supabase-server';
 import { loadMemoryContextV2 } from '@/lib/memory-reader';
 import { processMemoryV2 } from '@/lib/memory-agent';
 import { isChatModelId } from '@/lib/chat-models';
-import { getChatModel } from '@/lib/models';
+import { getChatModel, resolveChatModelSelection } from '@/lib/models';
 import {
   addSearchInstructions,
   applySearchDisclosure,
@@ -451,9 +451,22 @@ export async function POST(request: NextRequest) {
         )
       : buildSystemPrompt(memoryContext);
 
+    const resolvedSelection = resolveChatModelSelection(
+      modelId ?? mentor?.model_id ?? null
+    );
+    if (!resolvedSelection) {
+      return NextResponse.json(
+        {
+          error:
+            'No chat model is configured. Set at least one of OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_GENERATIVE_AI_API_KEY.',
+        },
+        { status: 503 }
+      );
+    }
+
     let chatModel;
     try {
-      chatModel = getChatModel(modelId ?? mentor?.model_id ?? null);
+      chatModel = getChatModel(resolvedSelection.id);
     } catch (error) {
       return NextResponse.json(
         {
@@ -618,6 +631,8 @@ Live web search is unavailable in this environment. If the question depends on f
       threadId: activeThreadId,
       userMessageId: latestUserMessageId,
       assistantMessageId,
+      resolvedModelId: resolvedSelection.id,
+      resolvedProvider: resolvedSelection.provider,
       search,
     });
   } catch (error) {

@@ -6,6 +6,7 @@ import HomeBackground from '@/app/home/components/HomeBackground';
 import HomeHeader from '@/app/home/components/HomeHeader';
 import ChatComposer from '@/app/home/components/ChatComposer';
 import ConversationView from '@/app/home/components/ConversationView';
+import { logResolvedChatModel } from '@/app/home/components/logResolvedChatModel';
 import { useHomeData } from '@/app/home/components/useHomeData';
 import { useHomeThreads } from '@/app/home/components/useHomeThreads';
 import { useHomeVoice } from '@/app/home/components/useHomeVoice';
@@ -42,6 +43,8 @@ interface ChatResponse {
   threadId?: string | null;
   userMessageId?: string | null;
   assistantMessageId?: string | null;
+  resolvedModelId?: string;
+  resolvedProvider?: string;
   search?: SearchMetadata;
   error?: string;
 }
@@ -488,6 +491,7 @@ function HomePageInner() {
       });
 
       const data = (await response.json()) as ChatResponse;
+      logResolvedChatModel(data, 'composer');
 
       if (!response.ok || data.error) {
         const errorMessage: Message = {

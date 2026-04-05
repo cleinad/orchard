@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { logResolvedChatModel } from "@/app/home/components/logResolvedChatModel";
 import type { Message } from "@/app/home/types";
 import MarkdownWithThreads from "@/app/home/components/MarkdownWithThreads";
 import { markdownContentClassName } from "@/lib/markdown";
@@ -211,6 +212,7 @@ export default function ThreadPanel({
       });
 
       const data = await res.json();
+      logResolvedChatModel(data, 'thread');
       if (res.ok && data.message) {
         const assistantMessage: ThreadMessage = {
           id:

@@ -8,6 +8,7 @@ import {
   type ChatModelId,
   type ChatModelListItem,
   type ChatModelOption,
+  type ResolvedChatModelSelection,
 } from '@/lib/chat-models';
 
 export const MEMORY_MODEL = anthropic('claude-haiku-4-5-20251001');
@@ -66,18 +67,36 @@ export function resolveChatModelId(modelId?: string | null): ChatModelId | null 
   return getDefaultChatModelId();
 }
 
-export function getChatModel(modelId?: string | null) {
+export function resolveChatModelSelection(
+  modelId?: string | null
+): ResolvedChatModelSelection | null {
   const resolvedModelId = resolveChatModelId(modelId);
+  const option = getChatModelOption(resolvedModelId);
 
-  if (!resolvedModelId) {
+  if (!option) {
+    return null;
+  }
+
+  return {
+    id: option.id,
+    label: option.label,
+    provider: option.provider,
+    apiModelId: option.apiModelId,
+  };
+}
+
+export function getChatModel(modelId?: string | null) {
+  const resolvedSelection = resolveChatModelSelection(modelId);
+
+  if (!resolvedSelection) {
     throw new Error(
       'No chat model is configured. Set at least one of OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_GENERATIVE_AI_API_KEY.'
     );
   }
 
-  const option = getChatModelOption(resolvedModelId);
+  const option = getChatModelOption(resolvedSelection.id);
   if (!option) {
-    throw new Error(`Unknown chat model: ${resolvedModelId}`);
+    throw new Error(`Unknown chat model: ${resolvedSelection.id}`);
   }
 
   return instantiateChatModel(option);

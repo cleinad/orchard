@@ -21,6 +21,13 @@ export interface ChatModelListItem {
   isDefault: boolean;
 }
 
+export interface ResolvedChatModelSelection {
+  id: ChatModelId;
+  label: string;
+  provider: ChatModelProvider;
+  apiModelId: string;
+}
+
 export const DEFAULT_CHAT_MODEL_ID: ChatModelId = 'gemini-3-flash-preview';
 
 export const CHAT_MODEL_OPTIONS: readonly ChatModelOption[] = [
