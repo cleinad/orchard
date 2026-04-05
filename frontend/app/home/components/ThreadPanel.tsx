@@ -43,6 +43,7 @@ interface ThreadPanelProps {
   temporaryMessages?: ThreadMessage[] | null;
   temporaryChatEnabled: boolean;
   draftInput?: string | null;
+  loadingQuestion?: string | null;
   pendingMessage?: string | null;
   onTemporaryMessagesChange?: (threadId: string, messages: ThreadMessage[]) => void;
   onPendingMessageConsumed?: () => void;
@@ -105,6 +106,7 @@ export default function ThreadPanel({
   temporaryMessages,
   temporaryChatEnabled,
   draftInput,
+  loadingQuestion,
   pendingMessage,
   onTemporaryMessagesChange,
   onPendingMessageConsumed,
@@ -118,8 +120,9 @@ export default function ThreadPanel({
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const activeQuestion = isLoading
-    ? messages.findLast((message) => message.role === "user")?.content ?? null
+  const isBusy = isLoading || Boolean(loadingQuestion);
+  const activeQuestion = isBusy
+    ? messages.findLast((message) => message.role === "user")?.content ?? loadingQuestion ?? null
     : null;
   const headerTitle = activeQuestion ? toSnippet(activeQuestion) : thread?.highlightedText ?? null;
 
@@ -217,7 +220,7 @@ export default function ThreadPanel({
     const content = overrideContent?.trim() || input.trim();
     const canUsePersistentThread = chatMode === "persistent" && conversationId;
     const canSend = chatMode === "temporary" || canUsePersistentThread;
-    if (!content || !thread || !canSend || isLoading) return;
+    if (!content || !thread || !canSend || isBusy) return;
 
     const temporaryThreadId =
       chatMode === "temporary"
@@ -343,6 +346,7 @@ export default function ThreadPanel({
     conversationId,
     conversationMessages,
     input,
+    isBusy,
     isLoading,
     memoryMode,
     mentorId,
@@ -454,7 +458,7 @@ export default function ThreadPanel({
             </div>
           ))}
 
-          {isLoading && (
+          {isBusy && (
             <div className="py-3">
               <span className="text-xs font-medium tracking-wider text-muted">Thread</span>
               <div className="mt-1 flex items-center gap-1.5">
@@ -477,13 +481,13 @@ export default function ThreadPanel({
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Ask a follow-up..."
-              disabled={isLoading}
+              disabled={isBusy}
               className="w-full bg-transparent py-1 text-sm text-foreground placeholder-muted/50 outline-none disabled:opacity-50"
             />
             <button
               type="button"
               onClick={() => sendMessage()}
-              disabled={!input.trim() || isLoading}
+              disabled={!input.trim() || isBusy}
               className="flex-shrink-0 rounded-lg bg-foreground p-1.5 text-background transition-opacity hover:opacity-80 disabled:opacity-20"
             >
               <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">

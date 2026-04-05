@@ -122,6 +122,7 @@ function HomePageInner() {
     threadPanelOpen,
     threadPanelInitialMessages,
     threadPanelDraftInput,
+    threadPanelLoadingQuestion,
     pendingThreadMessage,
     resetThreadUi,
     dismissPopover,
@@ -721,6 +722,7 @@ function HomePageInner() {
         temporaryMessages={activeTemporaryThreadMessages}
         temporaryChatEnabled={isTemporaryChat}
         draftInput={threadPanelDraftInput}
+        loadingQuestion={threadPanelLoadingQuestion}
         pendingMessage={pendingThreadMessage}
         onTemporaryMessagesChange={setTemporaryThreadMessagesForThread}
         onPendingMessageConsumed={clearPendingThreadMessage}

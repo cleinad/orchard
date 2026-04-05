@@ -46,6 +46,7 @@ interface TextSelectionPopoverProps {
     options?: {
       pendingMessage?: string;
       draftInput?: string;
+      loadingQuestion?: string;
       initialMessages?: ThreadMessage[];
     }
   ) => void;
@@ -80,6 +81,20 @@ function buildInitialMessages(
   ];
 }
 
+function buildPendingMessages(
+  question: string,
+  userMessageId?: string | null
+): ThreadMessage[] {
+  return [
+    {
+      id: userMessageId || Date.now().toString(),
+      role: "user",
+      content: question,
+      timestamp: new Date(),
+    },
+  ];
+}
+
 export default function TextSelectionPopover({
   popoverState,
   chatMode,
@@ -97,6 +112,7 @@ export default function TextSelectionPopover({
   const [response, setResponse] = useState<string | null>(null);
   const [threadId, setThreadId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [submittedQuestion, setSubmittedQuestion] = useState<string | null>(null);
   const [followUpInput, setFollowUpInput] = useState("");
   const [responseSeedMessages, setResponseSeedMessages] = useState<ThreadMessage[] | null>(null);
   const [responseThreadId, setResponseThreadId] = useState<string | null>(null);
@@ -107,6 +123,13 @@ export default function TextSelectionPopover({
   const anchorRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const responseBodyRef = useRef<HTMLDivElement>(null);
+  const handoffRef = useRef<{
+    selectionKey: string;
+    question: string;
+    threadId: string | null;
+    sourceMessageId: string;
+    highlightedText: string;
+  } | null>(null);
   const useNativePopover = supportsNativePopover && supportsAnchorPositioning;
 
   useEffect(() => {
@@ -133,6 +156,7 @@ export default function TextSelectionPopover({
       setResponse(null);
       setThreadId(null);
       setIsLoading(false);
+      setSubmittedQuestion(null);
       setFollowUpInput("");
       setResponseSeedMessages(null);
       setResponseThreadId(null);
@@ -202,6 +226,11 @@ export default function TextSelectionPopover({
     const requestSelectionKey = activePopoverState
       ? `${activePopoverState.sourceMessageId}:${activePopoverState.selectedText}`
       : null;
+    const getMatchingHandoff = () =>
+      handoffRef.current?.selectionKey === requestSelectionKey
+      && handoffRef.current.question === question
+        ? handoffRef.current
+        : null;
     const isStaleRequest = () =>
       !requestSelectionKey || activeSelectionKeyRef.current !== requestSelectionKey;
     const canUseChat =
@@ -209,6 +238,7 @@ export default function TextSelectionPopover({
     if (!canUseChat || !activePopoverState || isLoading) return;
 
     setIsLoading(true);
+    setSubmittedQuestion(question);
     try {
       const requestedThreadId =
         threadId ?? (chatMode === "temporary" ? createTemporaryId("thread") : null);
@@ -240,6 +270,49 @@ export default function TextSelectionPopover({
 
       const data = await res.json();
       if (isStaleRequest()) {
+        const matchingHandoff = getMatchingHandoff();
+        if (matchingHandoff && res.ok && data.message) {
+          const nextThreadId = data.threadId || requestedThreadId || threadId || matchingHandoff.threadId || null;
+          const initialMessages = buildInitialMessages(
+            question,
+            data.message,
+            data.userMessageId,
+            data.assistantMessageId
+          );
+
+          if (nextThreadId && chatMode === "temporary") {
+            onTemporaryThreadMessagesChange(nextThreadId, initialMessages);
+          }
+
+          if (nextThreadId && !threadId) {
+            onThreadCreated(
+              nextThreadId,
+              matchingHandoff.sourceMessageId,
+              matchingHandoff.highlightedText
+            );
+          }
+
+          onGraduateToThread(
+            nextThreadId,
+            matchingHandoff.sourceMessageId,
+            matchingHandoff.highlightedText,
+            {
+              initialMessages,
+            }
+          );
+          handoffRef.current = null;
+        } else if (matchingHandoff) {
+          const fallbackResponse = data.error || "Something went wrong.";
+          onGraduateToThread(
+            matchingHandoff.threadId,
+            matchingHandoff.sourceMessageId,
+            matchingHandoff.highlightedText,
+            {
+              initialMessages: buildInitialMessages(question, fallbackResponse),
+            }
+          );
+          handoffRef.current = null;
+        }
         return;
       }
 
@@ -285,12 +358,25 @@ export default function TextSelectionPopover({
       }
     } catch {
       if (isStaleRequest()) {
+        const matchingHandoff = getMatchingHandoff();
+        if (matchingHandoff) {
+          onGraduateToThread(
+            matchingHandoff.threadId,
+            matchingHandoff.sourceMessageId,
+            matchingHandoff.highlightedText,
+            {
+              initialMessages: buildInitialMessages(question, "Something went wrong."),
+            }
+          );
+          handoffRef.current = null;
+        }
         return;
       }
       setResponse("Something went wrong.");
     } finally {
       if (!isStaleRequest()) {
         setIsLoading(false);
+        setSubmittedQuestion(null);
       }
     }
   };
@@ -344,15 +430,29 @@ export default function TextSelectionPopover({
         responseThreadId
         || threadId
         || (chatMode === "temporary" ? createTemporaryId("thread") : null);
+      const loadingPrompt = isLoading ? submittedQuestion : null;
       const draftInput = response ? followUpInput : customQuestion;
+
+      if (loadingPrompt && popoverState) {
+        handoffRef.current = {
+          selectionKey: `${popoverState.sourceMessageId}:${popoverState.selectedText}`,
+          question: loadingPrompt,
+          threadId: nextThreadId,
+          sourceMessageId: popoverState.sourceMessageId,
+          highlightedText: popoverState.selectedText,
+        };
+      }
 
       onGraduateToThread(
         nextThreadId,
         popoverState.sourceMessageId,
         popoverState.selectedText,
         {
-          draftInput,
-          initialMessages: responseSeedMessages || undefined,
+          draftInput: loadingPrompt ? undefined : draftInput,
+          loadingQuestion: loadingPrompt || undefined,
+          initialMessages: loadingPrompt
+            ? buildPendingMessages(loadingPrompt)
+            : responseSeedMessages || undefined,
         }
       );
     };
@@ -363,11 +463,13 @@ export default function TextSelectionPopover({
     chatMode,
     customQuestion,
     followUpInput,
+    isLoading,
     onGraduateToThread,
     popoverState,
     response,
     responseSeedMessages,
     responseThreadId,
+    submittedQuestion,
     threadId,
   ]);
 

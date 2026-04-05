@@ -64,6 +64,7 @@ export function useHomeThreads(
   const [threadPanelInitialMessages, setThreadPanelInitialMessages] =
     useState<ThreadMessage[] | null>(null);
   const [threadPanelDraftInput, setThreadPanelDraftInput] = useState<string | null>(null);
+  const [threadPanelLoadingQuestion, setThreadPanelLoadingQuestion] = useState<string | null>(null);
   const [pendingThreadMessage, setPendingThreadMessage] = useState<string | null>(null);
   const highlightedRangeRef = useRef<Range | null>(null);
   const selectionResolveTimerRef = useRef<number | null>(null);
@@ -107,6 +108,7 @@ export function useHomeThreads(
     setThreadPanelOpen(false);
     setThreadPanelInitialMessages(null);
     setThreadPanelDraftInput(null);
+    setThreadPanelLoadingQuestion(null);
     setPendingThreadMessage(null);
   }, [clearPersistentHighlight]);
 
@@ -293,12 +295,14 @@ export function useHomeThreads(
       options?: {
         pendingMessage?: string;
         draftInput?: string;
+        loadingQuestion?: string;
         initialMessages?: ThreadMessage[];
       }
     ) => {
       setActiveThread({ id: threadId, highlightedText, sourceMessageId });
       setThreadPanelInitialMessages(options?.initialMessages || null);
       setThreadPanelDraftInput(options?.draftInput ?? null);
+      setThreadPanelLoadingQuestion(options?.loadingQuestion ?? null);
       setPendingThreadMessage(options?.pendingMessage || null);
       setThreadPanelOpen(true);
       setPopoverState(null);
@@ -317,6 +321,7 @@ export function useHomeThreads(
     });
     setThreadPanelInitialMessages(null);
     setThreadPanelDraftInput(null);
+    setThreadPanelLoadingQuestion(null);
     setPendingThreadMessage(null);
     setThreadPanelOpen(true);
   }, [clearPersistentHighlight]);
@@ -334,6 +339,7 @@ export function useHomeThreads(
     setActiveThread(null);
     setThreadPanelInitialMessages(null);
     setThreadPanelDraftInput(null);
+    setThreadPanelLoadingQuestion(null);
     setPendingThreadMessage(null);
   }, [clearPersistentHighlight, popoverState]);
 
@@ -343,6 +349,7 @@ export function useHomeThreads(
     threadPanelOpen,
     threadPanelInitialMessages,
     threadPanelDraftInput,
+    threadPanelLoadingQuestion,
     pendingThreadMessage,
     resetThreadUi,
     dismissPopover,
