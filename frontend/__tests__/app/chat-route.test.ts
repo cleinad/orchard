@@ -7,6 +7,7 @@ const mockGenerateText = vi.fn();
 const mockCreateSupabaseServerClient = vi.fn();
 const mockLoadMemoryContextV2 = vi.fn();
 const mockProcessMemoryV2 = vi.fn();
+const mockBuildMentorPrompt = vi.fn();
 
 vi.mock('next/server', async (importOriginal) => {
   const actual = await importOriginal<typeof import('next/server')>();
@@ -54,23 +55,68 @@ vi.mock('@/lib/tools', () => ({
 }));
 
 vi.mock('@/lib/mentors/prompts', () => ({
-  buildMentorPrompt: vi.fn(),
+  buildMentorPrompt: (...args: unknown[]) => mockBuildMentorPrompt(...args),
 }));
 
-describe('chat route memory handoff', () => {
+function createAuthenticatedSupabase(tables: Record<string, { rows: object[]; returnOnMutate?: object[] }> = {}) {
+  const { client, tracker } = createMockSupabase({
+    tables: {
+      profiles: {
+        rows: [{ full_name: 'Test User' }],
+      },
+      ...tables,
+    },
+  });
+
+  const supabase = {
+    ...client,
+    auth: {
+      getUser: vi.fn().mockResolvedValue({
+        data: { user: { id: 'user-1' } },
+        error: null,
+      }),
+    },
+  };
+
+  return { supabase, tracker };
+}
+
+async function runChatRequest(
+  body: Record<string, unknown>,
+  tables: Record<string, { rows: object[]; returnOnMutate?: object[] }> = {}
+) {
+  const { supabase, tracker } = createAuthenticatedSupabase(tables);
+  mockCreateSupabaseServerClient.mockResolvedValue(supabase);
+
+  const { POST } = await import('@/app/api/chat/route');
+
+  const request = new NextRequest('http://localhost/api/chat', {
+    method: 'POST',
+    body: JSON.stringify(body),
+    headers: {
+      'content-type': 'application/json',
+    },
+  });
+
+  const response = await POST(request);
+  const json = await response.json();
+
+  return { response, body: json, supabase, tracker };
+}
+
+describe('chat route memory contract', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGenerateText.mockResolvedValue({ text: 'Assistant reply' });
     mockLoadMemoryContextV2.mockResolvedValue('');
     mockProcessMemoryV2.mockResolvedValue(undefined);
+    mockBuildMentorPrompt.mockReturnValue('Mentor base prompt');
   });
 
   it('passes the authenticated Supabase client into processMemoryV2', async () => {
-    const { client } = createMockSupabase({
-      tables: {
-        profiles: {
-          rows: [{ full_name: 'Test User' }],
-        },
+    const { response, body, supabase } = await runChatRequest(
+      { message: 'Hello' },
+      {
         conversations: {
           rows: [],
           returnOnMutate: [{ id: 'conv-1' }],
@@ -79,33 +125,8 @@ describe('chat route memory handoff', () => {
           rows: [{ role: 'user', content: 'Hello' }],
           returnOnMutate: [{ id: 'msg-user-1' }, { id: 'msg-assistant-1' }],
         },
-      },
-    });
-
-    const supabase = {
-      ...client,
-      auth: {
-        getUser: vi.fn().mockResolvedValue({
-          data: { user: { id: 'user-1' } },
-          error: null,
-        }),
-      },
-    };
-
-    mockCreateSupabaseServerClient.mockResolvedValue(supabase);
-
-    const { POST } = await import('@/app/api/chat/route');
-
-    const request = new NextRequest('http://localhost/api/chat', {
-      method: 'POST',
-      body: JSON.stringify({ message: 'Hello' }),
-      headers: {
-        'content-type': 'application/json',
-      },
-    });
-
-    const response = await POST(request);
-    const body = await response.json();
+      }
+    );
 
     expect(response.status).toBe(200);
     expect(body.message).toBe('Assistant reply');
@@ -119,6 +140,103 @@ describe('chat route memory handoff', () => {
         conversationId: 'conv-1',
         sourceMessageId: 'msg-user-1',
         sourceRole: 'user',
+      })
+    );
+  });
+
+  it('does not schedule background memory extraction for temporary chats', async () => {
+    const { response } = await runChatRequest({
+      message: 'Hello',
+      chatMode: 'temporary',
+    });
+
+    expect(response.status).toBe(200);
+    expect(mockAfter).not.toHaveBeenCalled();
+    expect(mockProcessMemoryV2).not.toHaveBeenCalled();
+  });
+
+  it('loads existing memory for temporary chats when memoryMode is use_existing', async () => {
+    const { response, supabase } = await runChatRequest({
+      message: 'Hello',
+      chatMode: 'temporary',
+      memoryMode: 'use_existing',
+    });
+
+    expect(response.status).toBe(200);
+    expect(mockLoadMemoryContextV2).toHaveBeenCalledTimes(1);
+    expect(mockLoadMemoryContextV2).toHaveBeenCalledWith(
+      supabase,
+      'user-1',
+      expect.objectContaining({
+        actor: 'default',
+        query: 'Hello',
+      })
+    );
+    expect(mockProcessMemoryV2).not.toHaveBeenCalled();
+  });
+
+  it('skips memory loading for temporary chats when memoryMode is off', async () => {
+    const { response } = await runChatRequest({
+      message: 'Hello',
+      chatMode: 'temporary',
+      memoryMode: 'off',
+    });
+
+    expect(response.status).toBe(200);
+    expect(mockLoadMemoryContextV2).not.toHaveBeenCalled();
+    expect(mockProcessMemoryV2).not.toHaveBeenCalled();
+  });
+
+  it('passes mentor actor and mentorId into memory read/write paths', async () => {
+    const { response, supabase } = await runChatRequest(
+      {
+        message: 'Help me study calculus',
+        mentorId: 'mentor-1',
+      },
+      {
+        mentors: {
+          rows: [
+            {
+              id: 'mentor-1',
+              base_system_prompt: 'Mentor prompt',
+              user_instructions: '',
+              model_id: null,
+            },
+          ],
+        },
+        conversations: {
+          rows: [],
+          returnOnMutate: [{ id: 'conv-mentor-1' }],
+        },
+        messages: {
+          rows: [{ role: 'user', content: 'Help me study calculus' }],
+          returnOnMutate: [
+            { id: 'msg-user-mentor-1' },
+            { id: 'msg-assistant-mentor-1' },
+          ],
+        },
+      }
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockLoadMemoryContextV2).toHaveBeenCalledWith(
+      supabase,
+      'user-1',
+      expect.objectContaining({
+        actor: 'mentor',
+        mentorId: 'mentor-1',
+        query: 'Help me study calculus',
+      })
+    );
+    expect(mockProcessMemoryV2).toHaveBeenCalledWith(
+      supabase,
+      'user-1',
+      [{ role: 'user', content: 'Help me study calculus' }],
+      'Assistant reply',
+      expect.objectContaining({
+        conversationId: 'conv-mentor-1',
+        mentorId: 'mentor-1',
+        sourceMessageId: 'msg-user-mentor-1',
       })
     );
   });

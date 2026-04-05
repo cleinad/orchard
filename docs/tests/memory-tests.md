@@ -54,6 +54,7 @@ npm run test:watch      # Run in watch mode (re-runs on file changes)
 
 # Run a specific test file
 npx vitest run __tests__/app/chat-route.test.ts
+npx vitest run __tests__/app/memory-items-routes.test.ts
 npx vitest run __tests__/lib/memory-items.test.ts
 npx vitest run __tests__/lib/memory-integration.test.ts
 ```
@@ -63,16 +64,14 @@ npx vitest run __tests__/lib/memory-integration.test.ts
 When changing the memory system, prefer running the focused canary suite instead of the entire frontend test suite:
 
 ```bash
-npm test -- __tests__/app/chat-route.test.ts __tests__/lib/memory-items.test.ts __tests__/lib/memory-integration.test.ts
+npm test -- __tests__/app/chat-route.test.ts __tests__/app/memory-items-routes.test.ts __tests__/lib/memory-items.test.ts __tests__/lib/memory-integration.test.ts
 ```
-
-If memory item API routes gain dedicated tests, add them to this command and treat that set as the required post-change verification path.
 
 **Framework:** Vitest — config at `frontend/vitest.config.ts`.
 
 ## Test Files
 
-### `__tests__/app/chat-route.test.ts`
+### `__tests__/app/chat-route.test.ts` (5 tests)
 
 Route-level contract tests for `app/api/chat/route.ts`.
 
@@ -84,6 +83,18 @@ These exist because the highest-risk regressions often happen at the handoff bou
 - which Supabase client is handed to the background memory job
 
 The service-role-key regression was exactly this kind of failure. The route test that asserts the authenticated Supabase client is passed into `processMemoryV2()` is intended to permanently lock down that behavior.
+
+### `__tests__/app/memory-items-routes.test.ts` (6 tests)
+
+Route-level tests for the memory item CRUD APIs.
+
+These protect the user-managed memory surface:
+
+- `GET /api/memory/items` applies auth and scope/status filters correctly
+- `PATCH /api/memory/items/:id` normalizes updates and triggers the correct embedding side effect
+- `DELETE /api/memory/items/:id` soft-deletes rows and removes embeddings
+
+These tests matter because route regressions here often do not break chat immediately, but they do break memory hygiene and user trust.
 
 ### `__tests__/lib/memory-items.test.ts` (36 tests)
 
@@ -98,13 +109,13 @@ Unit tests for pure utility functions in `lib/memory-items.ts`. No mocking — a
 - `lexicalOverlapScore` — query token coverage in target text
 - `parseMemoryScope` / `parseMentorScope` — scope string parsing and validation
 
-### `__tests__/lib/memory-integration.test.ts` (13 tests)
+### `__tests__/lib/memory-integration.test.ts` (19 tests)
 
 Integration tests for the write path (`processMemoryV2`) and read path (`loadMemoryContextV2`) with mocked externals.
 
 **Mocking:** Supabase client (chainable mock with mutation tracking), `generateObject` (LLM call), and `embed`/`embedMany` (OpenAI embeddings). The reusable Supabase mock lives in `__tests__/helpers/mock-supabase.ts`.
 
-#### Write path — `processMemoryV2` (9 tests)
+#### Write path — `processMemoryV2` (12 tests)
 
 | Test | Verifies |
 |------|----------|
@@ -112,13 +123,16 @@ Integration tests for the write path (`processMemoryV2`) and read path (`loadMem
 | Multiple novel facts | 3 distinct candidates produce 3 separate inserts |
 | Exact duplicate → merge | Matching `normalized_text` + type triggers update (not insert), salience/confidence take max |
 | Near-duplicate → merge | Texts differing only by stop words (jaccard ≥ 0.86) merge via update |
+| Same text, different type | Identical text under a different `type` inserts instead of merging |
 | Supersede + insert | `action: "update"` with moderate similarity (≥ 0.45) supersedes old row and inserts new |
+| Low-similarity update | `action: "update"` with low similarity inserts without superseding |
 | action=ignore skipped | No DB mutations for ignored candidates |
 | Too-short text rejected | Text < 6 chars after sanitization produces no DB mutations |
 | Mixed batch | 5 candidates (2 novel, 1 duplicate, 1 ignored, 1 too-short) → verifies exact insert/update counts |
+| Embedding failure fallback | Memory row inserts still succeed even if embedding generation fails |
 | Mentor-scoped write | `mentorId` context produces rows with `owner_type: "mentor"` and correct `owner_id` |
 
-#### Read path — `loadMemoryContextV2` (4 tests)
+#### Read path — `loadMemoryContextV2` (7 tests)
 
 | Test | Verifies |
 |------|----------|
@@ -126,6 +140,9 @@ Integration tests for the write path (`processMemoryV2`) and read path (`loadMem
 | Core profile selection | Stable high-salience items appear under `## Core Profile`, profile/goal/preference types ranked higher |
 | Token budget trimming | Episodic items dropped first, core items preserved (min 3 for default actor) |
 | Mentor scoping | Mentor actor sees `## Global Profile` header, only mentor-owned items in relevant recall, other mentors excluded |
+| RPC semantic ranking | Relevant recall prefers RPC semantic winners when available |
+| Row embedding fallback (empty RPC) | Falls back to `memory_item_embeddings` rows when RPC returns no matches |
+| Row embedding fallback (RPC error) | Falls back to row embeddings when RPC retrieval errors |
 
 ## Coverage Philosophy
 
@@ -137,24 +154,19 @@ Future engineers should preserve this split:
 
 If a change only updates internals but breaks one of these contracts, the suite should fail.
 
-## Missing Cases To Prioritize Next
+## Remaining Gaps
 
-The current suite is useful, but it is not yet complete. The highest-value additions are:
+The suite is now strong enough to act as a real canary, but a few useful cases are still missing:
 
-1. Temporary chat does not call `processMemoryV2()`.
-2. Temporary chat with `memoryMode='use_existing'` still loads memory.
-3. Temporary chat with memory disabled does not load memory.
-4. Mentor chat passes `actor='mentor'` and the correct `mentorId` to both read and write paths.
-5. Same text with different `type` does not merge in the write path.
-6. `action='update'` with low similarity inserts without superseding.
-7. Memory row insert/update still succeeds when embedding generation fails.
-8. Read path prefers RPC semantic matches when available.
-9. Read path falls back to row embeddings when RPC retrieval fails or returns empty.
-10. Memory item API routes are covered for GET scope/status filters and PATCH/DELETE embedding behavior.
+1. Read path behavior when `OPENAI_API_KEY` is absent.
+2. Read path behavior when query embedding generation fails.
+3. Write path behavior when loading existing scope items fails before merge logic runs.
+4. Route-level 404 behavior for PATCH/DELETE when the target memory item is missing.
+5. Route-level 500 behavior when Supabase returns unexpected errors.
 
-## Future Shape Of The Suite
+## Current Shape Of The Suite
 
-The intended long-term memory canary suite is:
+The memory canary suite is now:
 
 - `__tests__/app/chat-route.test.ts`
 - `__tests__/app/memory-items-routes.test.ts`

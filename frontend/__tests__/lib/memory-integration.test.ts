@@ -6,13 +6,15 @@ import type { MemoryItem } from '@/lib/memory-items';
 
 // Mock generateObject — replaces the LLM call
 const mockGenerateObject = vi.fn();
+const mockEmbed = vi.fn();
+const mockEmbedMany = vi.fn();
 vi.mock('ai', async (importOriginal) => {
   const actual = await importOriginal<typeof import('ai')>();
   return {
     ...actual,
     generateObject: (...args: unknown[]) => mockGenerateObject(...args),
-    embed: vi.fn().mockResolvedValue({ embedding: new Array(1536).fill(0) }),
-    embedMany: vi.fn().mockResolvedValue({ embeddings: [] }),
+    embed: (...args: unknown[]) => mockEmbed(...args),
+    embedMany: (...args: unknown[]) => mockEmbedMany(...args),
   };
 });
 
@@ -28,6 +30,14 @@ vi.mock('@/lib/models', () => ({
 
 // Set OPENAI_API_KEY so embedding paths don't short-circuit
 vi.stubEnv('OPENAI_API_KEY', 'test-key');
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  mockEmbed.mockResolvedValue({ embedding: [1, 0] });
+  mockEmbedMany.mockImplementation(async (input: { values: unknown[] }) => ({
+    embeddings: input.values.map(() => [1, 0]),
+  }));
+});
 
 // ── Helpers ──────────────────────────────────────────────────
 
@@ -73,10 +83,6 @@ const dummyResponse = 'Hi there!';
 
 describe('processMemoryV2 — write path', () => {
   let tracker: MutationTracker;
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
 
   function setup(existingItems: MemoryItem[], returnOnMutate?: Record<string, unknown>[]) {
     const mock = createMockSupabase({
@@ -202,6 +208,33 @@ describe('processMemoryV2 — write path', () => {
     expect(tracker.updates('memory_items')).toHaveLength(1);
   });
 
+  it('does not merge identical text across different types', async () => {
+    const candidate = makeCandidate({
+      text: 'User loves chess',
+      type: 'project',
+    });
+    mockGenerateObject.mockResolvedValueOnce({
+      object: { candidates: [candidate] },
+    });
+
+    const existing = makeMemoryItem({
+      id: 'existing-different-type',
+      type: 'preference',
+      text: 'User loves chess',
+      normalized_text: 'user loves chess',
+    });
+
+    const client = setup([existing], [
+      { id: 'inserted-different-type', ...candidate, user_id: 'user-1', status: 'active' },
+    ]);
+
+    const { processMemoryV2 } = await import('@/lib/memory-agent');
+    await processMemoryV2(client, 'user-1', dummyMessages, dummyResponse);
+
+    expect(tracker.inserts('memory_items')).toHaveLength(1);
+    expect(tracker.updates('memory_items')).toHaveLength(0);
+  });
+
   it('supersedes old entry and inserts new one on action=update with moderate similarity', async () => {
     const candidate = makeCandidate({
       text: 'User switched from Python to Rust for their main project',
@@ -245,6 +278,37 @@ describe('processMemoryV2 — write path', () => {
       text: 'User switched from Python to Rust for their main project',
       status: 'active',
     });
+  });
+
+  it('inserts without superseding when action=update has low similarity', async () => {
+    const candidate = makeCandidate({
+      text: 'User adopted a dog named Pixel',
+      type: 'project',
+      action: 'update',
+    });
+    mockGenerateObject.mockResolvedValueOnce({
+      object: { candidates: [candidate] },
+    });
+
+    const existing = makeMemoryItem({
+      id: 'existing-low-similarity',
+      type: 'project',
+      text: 'User uses Python for backend APIs',
+      normalized_text: 'user uses python backend apis',
+    });
+
+    const client = setup([existing], [
+      { id: 'new-low-similarity', ...candidate, user_id: 'user-1', status: 'active' },
+    ]);
+
+    const { processMemoryV2 } = await import('@/lib/memory-agent');
+    await processMemoryV2(client, 'user-1', dummyMessages, dummyResponse);
+
+    expect(tracker.inserts('memory_items')).toHaveLength(1);
+    const supersedeCall = tracker
+      .updates('memory_items')
+      .find((record) => (record.args as Record<string, unknown>)?.status === 'superseded');
+    expect(supersedeCall).toBeUndefined();
   });
 
   it('skips candidates with action=ignore', async () => {
@@ -317,6 +381,27 @@ describe('processMemoryV2 — write path', () => {
 
     expect(tracker.inserts('memory_items')).toHaveLength(2);
     expect(tracker.updates('memory_items')).toHaveLength(1); // the merge
+  });
+
+  it('keeps inserted rows even when embedding generation fails', async () => {
+    const candidate = makeCandidate({
+      text: 'User is preparing for finals',
+      type: 'project',
+    });
+    mockGenerateObject.mockResolvedValueOnce({
+      object: { candidates: [candidate] },
+    });
+    mockEmbedMany.mockRejectedValueOnce(new Error('embedding unavailable'));
+
+    const client = setup([], [
+      { id: 'inserted-embedding-failure', ...candidate, user_id: 'user-1', status: 'active' },
+    ]);
+
+    const { processMemoryV2 } = await import('@/lib/memory-agent');
+    await processMemoryV2(client, 'user-1', dummyMessages, dummyResponse);
+
+    expect(tracker.inserts('memory_items')).toHaveLength(1);
+    expect(tracker.upserts('memory_item_embeddings')).toHaveLength(0);
   });
 
   it('writes mentor-scoped entries when mentorId is provided', async () => {
@@ -464,5 +549,156 @@ describe('loadMemoryContextV2 — read path', () => {
     expect(result).toContain('## Global Profile');
     expect(result).not.toContain('## Core Profile');
     expect(result).not.toContain('Other mentor pref');
+  });
+
+  it('uses RPC semantic matches when available for relevant recall ranking', async () => {
+    const matched = makeMemoryItem({
+      id: 'rpc-1',
+      type: 'event',
+      text: 'Semantic RPC winner',
+      stability: 'episodic',
+      salience: 40,
+      confidence: 0.7,
+      updated_at: '2026-03-01T00:00:00.000Z',
+    });
+    const other = makeMemoryItem({
+      id: 'rpc-2',
+      type: 'event',
+      text: 'Lower semantic score item',
+      stability: 'episodic',
+      salience: 40,
+      confidence: 0.7,
+      updated_at: '2026-03-01T00:00:00.000Z',
+    });
+
+    const { client, tracker } = createMockSupabase({
+      tables: {
+        memory_items: { rows: [matched, other] },
+        memory_item_embeddings: { rows: [] },
+      },
+      rpcResults: {
+        match_memory_items: {
+          data: [
+            { memory_item_id: 'rpc-1', similarity: 0.98 },
+            { memory_item_id: 'rpc-2', similarity: 0.12 },
+          ],
+          error: null,
+        },
+      },
+    });
+
+    const { loadMemoryContextV2 } = await import('@/lib/memory-items-server');
+    const result = await loadMemoryContextV2(client as any, 'user-1', {
+      actor: 'default',
+      query: 'query with no direct lexical overlap',
+    });
+
+    expect(tracker.rpcs).toHaveLength(1);
+    expect(result).toContain('## Relevant Recall');
+    expect(result.indexOf('Semantic RPC winner')).toBeLessThan(
+      result.indexOf('Lower semantic score item')
+    );
+  });
+
+  it('falls back to row embeddings when RPC semantic retrieval returns empty', async () => {
+    const matched = makeMemoryItem({
+      id: 'rows-empty-1',
+      type: 'event',
+      text: 'Embedding row fallback winner',
+      stability: 'episodic',
+      salience: 40,
+      confidence: 0.7,
+      updated_at: '2026-03-01T00:00:00.000Z',
+    });
+    const other = makeMemoryItem({
+      id: 'rows-empty-2',
+      type: 'event',
+      text: 'Embedding row fallback loser',
+      stability: 'episodic',
+      salience: 40,
+      confidence: 0.7,
+      updated_at: '2026-03-01T00:00:00.000Z',
+    });
+
+    const { client, tracker } = createMockSupabase({
+      tables: {
+        memory_items: { rows: [matched, other] },
+        memory_item_embeddings: {
+          rows: [
+            { memory_item_id: 'rows-empty-1', embedding: '[1, 0]' },
+            { memory_item_id: 'rows-empty-2', embedding: '[0, 1]' },
+          ],
+        },
+      },
+      rpcResults: {
+        match_memory_items: {
+          data: [],
+          error: null,
+        },
+      },
+    });
+
+    const { loadMemoryContextV2 } = await import('@/lib/memory-items-server');
+    const result = await loadMemoryContextV2(client as any, 'user-1', {
+      actor: 'default',
+      query: 'query with no direct lexical overlap',
+    });
+
+    expect(tracker.rpcs).toHaveLength(1);
+    expect(tracker.selects('memory_item_embeddings')).toHaveLength(1);
+    expect(result.indexOf('Embedding row fallback winner')).toBeLessThan(
+      result.indexOf('Embedding row fallback loser')
+    );
+  });
+
+  it('falls back to row embeddings when RPC semantic retrieval errors', async () => {
+    const matched = makeMemoryItem({
+      id: 'rows-error-1',
+      type: 'event',
+      text: 'Embedding fallback after RPC error',
+      stability: 'episodic',
+      salience: 40,
+      confidence: 0.7,
+      updated_at: '2026-03-01T00:00:00.000Z',
+    });
+    const other = makeMemoryItem({
+      id: 'rows-error-2',
+      type: 'event',
+      text: 'Other fallback candidate',
+      stability: 'episodic',
+      salience: 40,
+      confidence: 0.7,
+      updated_at: '2026-03-01T00:00:00.000Z',
+    });
+
+    const { client, tracker } = createMockSupabase({
+      tables: {
+        memory_items: { rows: [matched, other] },
+        memory_item_embeddings: {
+          rows: [
+            { memory_item_id: 'rows-error-1', embedding: [1, 0] },
+            { memory_item_id: 'rows-error-2', embedding: [0, 1] },
+          ],
+        },
+      },
+      rpcResults: {
+        match_memory_items: {
+          data: null,
+          error: { message: 'rpc failed' },
+        },
+      },
+    });
+
+    const { loadMemoryContextV2 } = await import('@/lib/memory-items-server');
+    const result = await loadMemoryContextV2(client as any, 'user-1', {
+      actor: 'default',
+      query: 'query with no direct lexical overlap',
+    });
+
+    expect(tracker.rpcs).toHaveLength(1);
+    expect(tracker.selects('memory_item_embeddings')).toHaveLength(1);
+    expect(result.indexOf('Embedding fallback after RPC error')).toBeLessThan(
+      result.indexOf('Other fallback candidate')
+    );
   });
 });
