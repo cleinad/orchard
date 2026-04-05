@@ -10,6 +10,7 @@ import {
   type ChatMode,
   type TemporaryMemoryMode,
 } from "@/lib/chat-session";
+import type { ChatModelId } from "@/lib/chat-models";
 
 export interface ThreadMessage {
   id: string;
@@ -37,6 +38,7 @@ interface ThreadPanelProps {
   chatMode: ChatMode;
   conversationId: string | null;
   mentorId?: string | null;
+  modelId: ChatModelId;
   memoryMode: TemporaryMemoryMode;
   conversationMessages: Message[];
   initialMessages?: ThreadMessage[] | null;
@@ -96,6 +98,7 @@ export default function ThreadPanel({
   chatMode,
   conversationId,
   mentorId,
+  modelId,
   memoryMode,
   conversationMessages,
   initialMessages,
@@ -192,6 +195,7 @@ export default function ThreadPanel({
           message: content,
           conversationId: chatMode === "persistent" ? conversationId : undefined,
           mentorId: mentorId ?? undefined,
+          modelId,
           threadId: thread.id,
           sourceMessageId: thread.sourceMessageId,
           highlightedText: thread.highlightedText,

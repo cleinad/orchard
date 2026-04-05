@@ -10,6 +10,7 @@ import {
   type ChatMode,
   type TemporaryMemoryMode,
 } from "@/lib/chat-session";
+import type { ChatModelId } from "@/lib/chat-models";
 import type { ThreadMessage } from "@/app/home/components/ThreadPanel";
 
 const LARGE_RESPONSE_CHAR_LIMIT = 350;
@@ -33,6 +34,7 @@ interface TextSelectionPopoverProps {
   chatMode: ChatMode;
   conversationId: string | null;
   mentorId?: string | null;
+  modelId: ChatModelId;
   memoryMode: TemporaryMemoryMode;
   history: Message[];
   temporaryThreadMessages: Map<string, ThreadMessage[]>;
@@ -84,6 +86,7 @@ export default function TextSelectionPopover({
   chatMode,
   conversationId,
   mentorId,
+  modelId,
   memoryMode,
   history,
   temporaryThreadMessages,
@@ -215,6 +218,7 @@ export default function TextSelectionPopover({
           message: question,
           conversationId: chatMode === "persistent" ? conversationId : undefined,
           mentorId: mentorId ?? undefined,
+          modelId,
           sourceMessageId: activePopoverState.sourceMessageId,
           highlightedText: activePopoverState.selectedText,
           concise: true,
