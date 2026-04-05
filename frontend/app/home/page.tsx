@@ -6,11 +6,20 @@ import HomeBackground from '@/app/home/components/HomeBackground';
 import HomeHeader from '@/app/home/components/HomeHeader';
 import ChatComposer from '@/app/home/components/ChatComposer';
 import ConversationView from '@/app/home/components/ConversationView';
+import { logResolvedChatModel } from '@/app/home/components/logResolvedChatModel';
 import { useHomeData } from '@/app/home/components/useHomeData';
 import { useHomeThreads } from '@/app/home/components/useHomeThreads';
 import { useHomeVoice } from '@/app/home/components/useHomeVoice';
+import { usePersistedString } from '@/app/home/components/usePersistedString';
 import type { ThreadMeta } from '@/app/home/components/MarkdownWithThreads';
 import type { SearchMetadata } from '@/lib/chat-search';
+import {
+  CHAT_MODEL_OPTIONS,
+  DEFAULT_CHAT_MODEL_ID,
+  isChatModelId,
+  type ChatModelId,
+  type ChatModelListItem,
+} from '@/lib/chat-models';
 import type { MentorListItem } from '@/lib/mentors/types';
 import { type ConversationListItem } from '@/app/home/components/ConversationsPanel';
 import SidePanel from '@/app/home/components/SidePanel';
@@ -35,11 +44,19 @@ interface ChatResponse {
   threadId?: string | null;
   userMessageId?: string | null;
   assistantMessageId?: string | null;
+  resolvedModelId?: string;
+  resolvedProvider?: string;
   search?: SearchMetadata;
   error?: string;
 }
 
+interface ChatModelsResponse {
+  models?: ChatModelListItem[];
+  error?: string;
+}
+
 const TTS_STORAGE_KEY = 'keen-tts-enabled';
+const CHAT_MODEL_STORAGE_KEY = 'keen-chat-model';
 
 /**
  * Home page - editorial voice + text conversation interface
@@ -58,6 +75,20 @@ function HomePageInner() {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [searchEnabled, setSearchEnabled] = useState(false);
+  const [selectedModelId, setSelectedModelId] = usePersistedString<ChatModelId>(
+    CHAT_MODEL_STORAGE_KEY,
+    DEFAULT_CHAT_MODEL_ID,
+    isChatModelId
+  );
+  const [chatModels, setChatModels] = useState<ChatModelListItem[]>(
+    CHAT_MODEL_OPTIONS.map((option) => ({
+      id: option.id,
+      label: option.label,
+      provider: option.provider,
+      available: true,
+      isDefault: option.id === DEFAULT_CHAT_MODEL_ID,
+    }))
+  );
   const [lastSearchState, setLastSearchState] = useState<SearchMetadata | null>(null);
   const [chatMode, setChatMode] = useState<ChatMode>('persistent');
   const [temporaryMemoryMode, setTemporaryMemoryMode] =
@@ -227,6 +258,52 @@ function HomePageInner() {
   }, [input]);
 
   const autoSendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadChatModels = async () => {
+      try {
+        const response = await fetch('/api/chat/models', { cache: 'no-store' });
+        const data = (await response.json()) as ChatModelsResponse;
+
+        if (!response.ok || data.error || !data.models) {
+          throw new Error(data.error || 'Failed to load chat models');
+        }
+
+        if (!cancelled) {
+          setChatModels(data.models);
+        }
+      } catch {
+        // Keep the optimistic client-side catalog if the server list can't load.
+      }
+    };
+
+    void loadChatModels();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    const hasSelectedModel = chatModels.some(
+      (model) => model.id === selectedModelId && model.available
+    );
+
+    if (hasSelectedModel) {
+      return;
+    }
+
+    const fallbackModel =
+      chatModels.find((model) => model.isDefault && model.available) ||
+      chatModels.find((model) => model.available) ||
+      null;
+
+    if (fallbackModel) {
+      setSelectedModelId(fallbackModel.id);
+    }
+  }, [chatModels, selectedModelId, setSelectedModelId]);
 
   const stopMic = useCallback(() => {
     if (autoSendTimerRef.current) {
@@ -453,6 +530,7 @@ function HomePageInner() {
           message: userMessage.content,
           conversationId: isTemporaryChat ? undefined : conversationId,
           mentorId: activeMentor?.id ?? undefined,
+          modelId: selectedModelId,
           searchEnabled,
           chatMode,
           ...(isTemporaryChat
@@ -465,6 +543,7 @@ function HomePageInner() {
       });
 
       const data = (await response.json()) as ChatResponse;
+      logResolvedChatModel(data, 'composer');
 
       if (!response.ok || data.error) {
         const errorMessage: Message = {
@@ -539,6 +618,7 @@ function HomePageInner() {
     activeMessages,
     activeMentor?.id,
     chatMode,
+    selectedModelId,
     conversationId,
     isLoading,
     isHomeE2eFixture,
@@ -684,6 +764,7 @@ function HomePageInner() {
             chatMode={chatMode}
             conversationId={activeConversationId}
             mentorId={activeMentor?.id ?? null}
+            modelId={selectedModelId}
             memoryMode={temporaryMemoryMode}
             history={activeMessages}
             temporaryThreadMessages={temporaryThreadMessages}
@@ -696,9 +777,11 @@ function HomePageInner() {
 
         <ChatComposer
           activeName={activeName}
+          chatModels={chatModels}
           input={input}
           isLoading={isLoading}
           micActive={micActive}
+          selectedModelId={selectedModelId}
           ttsEnabled={ttsEnabled}
           searchEnabled={searchEnabled}
           temporaryChatEnabled={isTemporaryChat}
@@ -717,6 +800,7 @@ function HomePageInner() {
           waveformGlowRef={visualization.glowRef}
           waveformContainerRef={visualization.visualRef}
           onInputChange={setInput}
+          onModelChange={setSelectedModelId}
           onToggleMic={toggleMic}
           onToggleTts={toggleTtsEnabled}
           onToggleSearch={() => setSearchEnabled((prev) => !prev)}
@@ -770,6 +854,7 @@ function HomePageInner() {
         chatMode={chatMode}
         conversationId={activeConversationId}
         mentorId={activeMentor?.id ?? null}
+        modelId={selectedModelId}
         memoryMode={temporaryMemoryMode}
         conversationMessages={activeMessages}
         initialMessages={threadPanelInitialMessages}

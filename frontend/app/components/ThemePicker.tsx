@@ -42,7 +42,7 @@ function ThemeAccent({ themeId }: { themeId: ThemeId }) {
   return (
     <span
       aria-hidden="true"
-      className="h-2.5 w-2.5 flex-shrink-0 rounded-full ring-1 ring-black/[0.08] dark:ring-white/[0.12]"
+      className="h-2 w-2 flex-shrink-0 rounded-full ring-1 ring-black/[0.08] dark:ring-white/[0.12]"
       style={{ backgroundColor: theme.accent }}
     />
   );
@@ -58,7 +58,7 @@ function ThemePalette({ themeId }: { themeId: ThemeId }) {
         <span
           key={swatch}
           aria-hidden="true"
-          className="h-2.5 w-2.5 rounded-full ring-1 ring-black/[0.08] dark:ring-white/[0.12]"
+          className="h-2 w-2 rounded-full ring-1 ring-black/[0.08] dark:ring-white/[0.12]"
           style={{ backgroundColor: swatch }}
         />
       ))}
@@ -141,10 +141,10 @@ export default function ThemePicker() {
         aria-expanded={isOpen}
         aria-haspopup="dialog"
         onClick={togglePopover}
-        className={`inline-flex h-10 items-center gap-2 rounded-xl border px-3 text-sm font-medium text-foreground shadow-sm transition ${
+        className={`inline-flex h-8 items-center gap-1.5 rounded-full border px-2.5 text-[13px] font-medium transition ${
           isOpen
-            ? "border-black/[0.08] bg-foreground/[0.05] dark:border-white/[0.10]"
-            : "border-black/[0.06] bg-surface hover:bg-foreground/[0.03] dark:border-white/[0.08]"
+            ? "border-black/[0.08] bg-foreground/[0.055] text-foreground dark:border-white/[0.08]"
+            : "border-transparent bg-background text-foreground/82 hover:bg-foreground/[0.035] hover:text-foreground"
         }`}
       >
         {isHydrated ? (
@@ -152,10 +152,10 @@ export default function ThemePicker() {
         ) : (
           <span
             aria-hidden="true"
-            className="h-2.5 w-2.5 flex-shrink-0 rounded-full bg-muted/45"
+            className="h-2 w-2 flex-shrink-0 rounded-full bg-muted/45"
           />
         )}
-        <span className="whitespace-nowrap text-sm">{currentThemeLabel}</span>
+        <span className="whitespace-nowrap text-[13px] text-foreground">{currentThemeLabel}</span>
       </button>
 
       <div
@@ -168,9 +168,9 @@ export default function ThemePicker() {
           setIsOpen(toggleEvent.newState === "open");
         }}
       >
-        <div className="w-[min(21rem,calc(100vw-1rem))] rounded-2xl bg-surface p-2.5 text-foreground shadow-[0_24px_48px_rgba(15,23,42,0.12)] ring-1 ring-black/[0.08] dark:shadow-[0_24px_48px_rgba(0,0,0,0.34)] dark:ring-white/[0.08]">
-          <div className="px-2 pb-2 pt-1">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted/70">
+        <div className="w-[min(18.5rem,calc(100vw-1rem))] rounded-[1.2rem] bg-background p-1.5 text-foreground shadow-[0_16px_36px_rgba(15,23,42,0.12)] ring-1 ring-black/[0.06] dark:shadow-[0_18px_40px_rgba(0,0,0,0.28)] dark:ring-white/[0.06]">
+          <div className="px-2.5 pb-1.5 pt-1">
+            <p className="text-[11px] font-medium text-muted/75">
               Themes
             </p>
           </div>
@@ -185,22 +185,22 @@ export default function ThemePicker() {
                   type="button"
                   aria-pressed={active}
                   onClick={() => selectTheme(theme.id)}
-                  className={`flex w-full items-center justify-between rounded-xl px-3 py-3 text-left transition ${
+                  className={`flex w-full items-center justify-between rounded-[0.95rem] px-3 py-2 text-left transition ${
                     active
-                      ? "bg-foreground/[0.06]"
+                      ? "bg-foreground/[0.055]"
                       : "hover:bg-foreground/[0.04]"
                   }`}
                 >
-                  <span className="text-sm font-medium text-foreground">{theme.label}</span>
+                  <span className="text-[13px] font-medium text-foreground">{theme.label}</span>
 
-                  <div className="ml-4 flex items-center gap-3">
+                  <div className="ml-4 flex items-center gap-2.5">
                     <ThemePalette themeId={theme.id} />
                     {active ? (
-                      <div className="flex h-6 w-6 items-center justify-center text-muted">
+                      <div className="flex h-5 w-5 items-center justify-center text-muted">
                         <svg
                           viewBox="0 0 20 20"
                           aria-hidden="true"
-                          className="h-4 w-4"
+                          className="h-3.5 w-3.5"
                           fill="none"
                           stroke="currentColor"
                           strokeWidth="1.8"
