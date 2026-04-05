@@ -10,9 +10,9 @@
   position-area: bottom;
   justify-self: anchor-end;
   position-try-fallbacks: flip-block flip-inline;
-  margin-top: 8px;
+  margin-top: 6px;
   opacity: 0;
-  transform: translateY(-4px) scale(0.985);
+  transform: translateY(-3px) scale(0.99);
   transition:
     opacity 160ms ease,
     transform 160ms ease,
@@ -28,6 +28,6 @@
 @starting-style {
   .chat-model-picker-popover:popover-open {
     opacity: 0;
-    transform: translateY(-4px) scale(0.985);
+    transform: translateY(-3px) scale(0.99);
   }
 }

@@ -9,9 +9,9 @@
   position-area: bottom;
   justify-self: anchor-end;
   position-try-fallbacks: flip-block flip-inline;
-  margin-top: 10px;
+  margin-top: 6px;
   opacity: 0;
-  transform: translateY(-4px);
+  transform: translateY(-3px) scale(0.99);
   transition:
     opacity 160ms ease,
     transform 160ms ease,
@@ -21,12 +21,12 @@
 
 .theme-picker-popover:popover-open {
   opacity: 1;
-  transform: translateY(0);
+  transform: translateY(0) scale(1);
 }
 
 @starting-style {
   .theme-picker-popover:popover-open {
     opacity: 0;
-    transform: translateY(-4px);
+    transform: translateY(-3px) scale(0.99);
   }
 }

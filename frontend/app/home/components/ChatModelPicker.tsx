@@ -83,10 +83,10 @@ export default function ChatModelPicker({
         aria-haspopup="menu"
         onClick={togglePopover}
         disabled={disabledState}
-        className={`inline-flex h-8 min-w-[9.5rem] items-center justify-between gap-2 rounded-full border px-3.5 text-left text-xs font-medium transition ${
+        className={`inline-flex h-8 min-w-[9.25rem] items-center justify-between gap-2 rounded-full border px-3 text-left font-medium transition ${
           isOpen
-            ? 'border-foreground/[0.10] bg-foreground/[0.05] text-foreground shadow-sm'
-            : 'border-border-subtle bg-background text-foreground shadow-sm hover:border-foreground/[0.08] hover:bg-foreground/[0.025]'
+            ? 'border-foreground/[0.08] bg-foreground/[0.055] text-foreground'
+            : 'border-transparent bg-background text-foreground/88 hover:bg-foreground/[0.035] hover:text-foreground'
         } disabled:cursor-not-allowed disabled:opacity-50`}
       >
         <span className="flex min-w-0 items-center gap-2">
@@ -94,8 +94,10 @@ export default function ChatModelPicker({
             aria-hidden="true"
             className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-accent/80"
           />
-          <span className="truncate">{selectedModel?.label ?? 'No models'}</span>
-          <span className="hidden text-[11px] font-medium text-muted sm:inline">
+          <span className="truncate text-[13px] text-foreground">
+            {selectedModel?.label ?? 'No models'}
+          </span>
+          <span className="hidden text-[10px] font-medium text-muted/80 sm:inline">
             {isUnavailable ? 'Unavailable' : providerLabel}
           </span>
         </span>
@@ -128,9 +130,9 @@ export default function ChatModelPicker({
           setIsOpen(toggleEvent.newState === 'open');
         }}
       >
-        <div className="w-[min(18rem,calc(100vw-1rem))] rounded-[1.35rem] bg-background p-2 text-foreground shadow-[0_24px_48px_rgba(15,23,42,0.14)] ring-1 ring-black/[0.08] dark:shadow-[0_24px_48px_rgba(0,0,0,0.34)] dark:ring-white/[0.08]">
-          <div className="px-2 pb-2 pt-1">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted/70">
+        <div className="w-[min(16.5rem,calc(100vw-1rem))] rounded-[1.2rem] bg-background p-1.5 text-foreground shadow-[0_16px_36px_rgba(15,23,42,0.12)] ring-1 ring-black/[0.06] dark:shadow-[0_18px_40px_rgba(0,0,0,0.28)] dark:ring-white/[0.06]">
+          <div className="px-2.5 pb-1.5 pt-1">
+            <p className="text-[11px] font-medium text-muted/75">
               Chat model
             </p>
           </div>
@@ -147,30 +149,30 @@ export default function ChatModelPicker({
                   aria-checked={active}
                   disabled={!model.available}
                   onClick={() => selectModel(model.id)}
-                  className={`flex w-full items-center justify-between rounded-[1rem] px-3 py-2.5 text-left transition outline-none ${
+                  className={`flex w-full items-center justify-between rounded-[0.95rem] px-3 py-1.5 text-left transition outline-none ${
                     active
-                      ? 'bg-foreground/[0.06]'
-                      : 'hover:bg-foreground/[0.04] focus-visible:bg-foreground/[0.04]'
+                      ? 'bg-foreground/[0.055]'
+                      : 'hover:bg-foreground/[0.035] focus-visible:bg-foreground/[0.035]'
                   } disabled:cursor-not-allowed disabled:opacity-45`}
                 >
-                  <span className="min-w-0">
-                    <span className="block truncate text-sm font-medium text-foreground">
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <span className="truncate text-[13px] font-medium text-foreground">
                       {model.label}
                     </span>
-                    <span className="mt-0.5 block text-[11px] text-muted">
+                    <span className="truncate text-[10px] font-medium text-muted/75">
                       {PROVIDER_LABELS[model.provider]}
                     </span>
                   </span>
 
                   {!model.available ? (
-                    <span className="ml-4 flex-shrink-0 text-[11px] font-medium text-muted">
+                    <span className="ml-4 flex-shrink-0 text-[10px] font-medium text-muted/75">
                       Unavailable
                     </span>
                   ) : active ? (
-                    <span className="ml-4 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-foreground/[0.05] text-muted">
+                    <span className="ml-4 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-foreground/[0.05] text-muted">
                       <svg
                         aria-hidden="true"
-                        className="h-4 w-4"
+                        className="h-3.5 w-3.5"
                         fill="none"
                         stroke="currentColor"
                         strokeWidth="1.8"
