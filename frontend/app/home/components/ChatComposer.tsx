@@ -1,14 +1,21 @@
 import type { FormEventHandler, KeyboardEventHandler, RefObject } from 'react';
 import Tooltip from '@/app/components/Tooltip';
+import ChatModelPicker from '@/app/home/components/ChatModelPicker';
 import type { MicStatus } from '@/app/home/components/useMicrophone';
 import type { TranscriptStatus } from '@/app/home/components/useTranscription';
 import type { TemporaryMemoryMode } from '@/lib/chat-session';
+import {
+  type ChatModelId,
+  type ChatModelListItem,
+} from '@/lib/chat-models';
 
 interface ChatComposerProps {
   activeName: string;
+  chatModels: ChatModelListItem[];
   input: string;
   isLoading: boolean;
   micActive: boolean;
+  selectedModelId: ChatModelId;
   ttsEnabled: boolean;
   searchEnabled: boolean;
   temporaryChatEnabled: boolean;
@@ -27,6 +34,7 @@ interface ChatComposerProps {
   waveformGlowRef: RefObject<SVGPolylineElement | null>;
   waveformContainerRef: RefObject<HTMLDivElement | null>;
   onInputChange: (value: string) => void;
+  onModelChange: (modelId: ChatModelId) => void;
   onToggleMic: () => void;
   onToggleTts: () => void;
   onToggleSearch: () => void;
@@ -48,9 +56,11 @@ function getTranscriptStatusLabel(status: TranscriptStatus) {
 
 export default function ChatComposer({
   activeName,
+  chatModels,
   input,
   isLoading,
   micActive,
+  selectedModelId,
   ttsEnabled,
   searchEnabled,
   temporaryChatEnabled,
@@ -69,6 +79,7 @@ export default function ChatComposer({
   waveformGlowRef,
   waveformContainerRef,
   onInputChange,
+  onModelChange,
   onToggleMic,
   onToggleTts,
   onToggleSearch,
@@ -77,6 +88,7 @@ export default function ChatComposer({
   onKeyDown,
 }: ChatComposerProps) {
   const hasTranscript = finalTranscript.length > 0 || interimTranscript.length > 0;
+  const hasAvailableChatModels = chatModels.some((model) => model.available);
   const temporaryModeHelperText =
     temporaryMemoryMode === 'use_existing'
       ? 'Keen can use saved memories for context, but nothing from this chat is retained.'
@@ -239,92 +251,101 @@ export default function ChatComposer({
             </div>
           </div>
 
-          <div className="mt-1.5 flex items-center gap-1.5 px-1">
-            <Tooltip
-              content={
-                ttsEnabled
-                  ? 'Voice — Text-to-speech for responses'
-                  : 'Voice — Currently off'
-              }
-              side="bottom"
-            >
-              <button
-                type="button"
-                aria-pressed={ttsEnabled}
-                aria-label={ttsEnabled ? 'Voice on' : 'Voice off'}
-                onClick={onToggleTts}
-                className={`flex h-7 w-7 items-center justify-center rounded-md border transition-colors ${
+          <div className="mt-1.5 flex items-center justify-between gap-3 px-1">
+            <div className="flex items-center gap-1.5">
+              <Tooltip
+                content={
                   ttsEnabled
-                    ? 'border-foreground/[0.10] bg-foreground/[0.05] text-foreground'
-                    : 'border-border-subtle text-muted hover:bg-foreground/[0.04] hover:text-foreground/70'
-                }`}
+                    ? 'Voice — Text-to-speech for responses'
+                    : 'Voice — Currently off'
+                }
+                side="bottom"
               >
-                <svg
-                  className="h-3.5 w-3.5"
-                  fill={ttsEnabled ? 'currentColor' : 'none'}
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  viewBox="0 0 24 24"
+                <button
+                  type="button"
+                  aria-pressed={ttsEnabled}
+                  aria-label={ttsEnabled ? 'Voice on' : 'Voice off'}
+                  onClick={onToggleTts}
+                  className={`flex h-7 w-7 items-center justify-center rounded-md border transition-colors ${
+                    ttsEnabled
+                      ? 'border-foreground/[0.10] bg-foreground/[0.05] text-foreground'
+                      : 'border-border-subtle text-muted hover:bg-foreground/[0.04] hover:text-foreground/70'
+                  }`}
                 >
-                  {ttsEnabled ? (
+                  <svg
+                    className="h-3.5 w-3.5"
+                    fill={ttsEnabled ? 'currentColor' : 'none'}
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    viewBox="0 0 24 24"
+                  >
+                    {ttsEnabled ? (
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M11.25 5.25L6.75 9H4.5v6h2.25l4.5 3.75V5.25zm4.5 4.5a4.5 4.5 0 010 4.5m2.25-6.75a7.5 7.5 0 010 9"
+                      />
+                    ) : (
+                      <>
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M11.25 5.25L6.75 9H4.5v6h2.25l4.5 3.75V5.25z"
+                        />
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M15.75 9.75l4.5 4.5m0-4.5l-4.5 4.5"
+                        />
+                      </>
+                    )}
+                  </svg>
+                </button>
+              </Tooltip>
+
+              <Tooltip
+                content={
+                  searchEnabled
+                    ? 'Live Search — Always grounds replies with live web results'
+                    : 'Live Search — Lets the model decide when search is needed'
+                }
+                side="bottom"
+              >
+                <button
+                  type="button"
+                  aria-pressed={searchEnabled}
+                  aria-label={searchEnabled ? 'Live search always on' : 'Live search auto'}
+                  onClick={onToggleSearch}
+                  disabled={isLoading}
+                  className={`flex h-7 w-7 items-center justify-center rounded-md border transition-colors ${
+                    searchEnabled
+                      ? 'border-foreground/[0.10] bg-foreground/[0.05] text-foreground'
+                      : 'border-border-subtle text-muted hover:bg-foreground/[0.04] hover:text-foreground/70'
+                  } disabled:cursor-not-allowed disabled:opacity-50`}
+                >
+                  <svg
+                    className="h-3.5 w-3.5"
+                    fill={searchEnabled ? 'currentColor' : 'none'}
+                    stroke="currentColor"
+                    strokeWidth="2.2"
+                    viewBox="0 0 24 24"
+                  >
                     <path
                       strokeLinecap="round"
                       strokeLinejoin="round"
-                      d="M11.25 5.25L6.75 9H4.5v6h2.25l4.5 3.75V5.25zm4.5 4.5a4.5 4.5 0 010 4.5m2.25-6.75a7.5 7.5 0 010 9"
+                      d="M21 21l-4.35-4.35m1.85-5.15a7 7 0 11-14 0 7 7 0 0114 0z"
                     />
-                  ) : (
-                    <>
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M11.25 5.25L6.75 9H4.5v6h2.25l4.5 3.75V5.25z"
-                      />
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M15.75 9.75l4.5 4.5m0-4.5l-4.5 4.5"
-                      />
-                    </>
-                  )}
-                </svg>
-              </button>
-            </Tooltip>
+                  </svg>
+                </button>
+              </Tooltip>
+            </div>
 
-            <Tooltip
-              content={
-                searchEnabled
-                  ? 'Live Search — Always grounds replies with live web results'
-                  : 'Live Search — Lets the model decide when search is needed'
-              }
-              side="bottom"
-            >
-              <button
-                type="button"
-                aria-pressed={searchEnabled}
-                aria-label={searchEnabled ? 'Live search always on' : 'Live search auto'}
-                onClick={onToggleSearch}
-                disabled={isLoading}
-                className={`flex h-7 w-7 items-center justify-center rounded-md border transition-colors ${
-                  searchEnabled
-                    ? 'border-foreground/[0.10] bg-foreground/[0.05] text-foreground'
-                    : 'border-border-subtle text-muted hover:bg-foreground/[0.04] hover:text-foreground/70'
-                } disabled:cursor-not-allowed disabled:opacity-50`}
-              >
-                <svg
-                  className="h-3.5 w-3.5"
-                  fill={searchEnabled ? 'currentColor' : 'none'}
-                  stroke="currentColor"
-                  strokeWidth="2.2"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M21 21l-4.35-4.35m1.85-5.15a7 7 0 11-14 0 7 7 0 0114 0z"
-                  />
-                </svg>
-              </button>
-            </Tooltip>
+            <ChatModelPicker
+              chatModels={chatModels}
+              selectedModelId={selectedModelId}
+              disabled={isLoading || !hasAvailableChatModels}
+              onChange={onModelChange}
+            />
           </div>
 
           {searchWarning && (

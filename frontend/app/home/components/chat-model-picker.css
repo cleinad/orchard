@@ -1,4 +1,4 @@
-.theme-picker-popover {
+.chat-model-picker-popover {
   position: fixed;
   inset: auto;
   margin: 0;
@@ -6,6 +6,7 @@
   padding: 0;
   background: transparent;
   color: inherit;
+  transform-origin: top right;
   position-area: bottom;
   justify-self: anchor-end;
   position-try-fallbacks: flip-block flip-inline;
@@ -19,13 +20,13 @@
     overlay 160ms allow-discrete;
 }
 
-.theme-picker-popover:popover-open {
+.chat-model-picker-popover:popover-open {
   opacity: 1;
   transform: translateY(0) scale(1);
 }
 
 @starting-style {
-  .theme-picker-popover:popover-open {
+  .chat-model-picker-popover:popover-open {
     opacity: 0;
     transform: translateY(-3px) scale(0.99);
   }

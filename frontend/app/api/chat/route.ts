@@ -4,7 +4,8 @@ import { generateText, stepCountIs } from 'ai';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
 import { loadMemoryContextV2 } from '@/lib/memory-reader';
 import { processMemoryV2 } from '@/lib/memory-agent';
-import { CHAT_MODEL } from '@/lib/models';
+import { isChatModelId } from '@/lib/chat-models';
+import { getChatModel, resolveChatModelSelection } from '@/lib/models';
 import {
   addSearchInstructions,
   applySearchDisclosure,
@@ -117,6 +118,7 @@ interface ChatRequest {
   message: string;
   conversationId?: string;
   mentorId?: string;
+  modelId?: string;
   threadId?: string;
   sourceMessageId?: string;
   highlightedText?: string;
@@ -147,6 +149,7 @@ export async function POST(request: NextRequest) {
       message,
       conversationId,
       mentorId,
+      modelId,
       threadId,
       sourceMessageId,
       highlightedText,
@@ -164,6 +167,13 @@ export async function POST(request: NextRequest) {
     if (!message?.trim()) {
       return NextResponse.json(
         { error: 'Message is required' },
+        { status: 400 }
+      );
+    }
+
+    if (modelId != null && !isChatModelId(modelId)) {
+      return NextResponse.json(
+        { error: 'Invalid model selection' },
         { status: 400 }
       );
     }
@@ -441,6 +451,32 @@ export async function POST(request: NextRequest) {
         )
       : buildSystemPrompt(memoryContext);
 
+    const resolvedSelection = resolveChatModelSelection(
+      modelId ?? mentor?.model_id ?? null
+    );
+    if (!resolvedSelection) {
+      return NextResponse.json(
+        {
+          error:
+            'No chat model is configured. Set at least one of OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_GENERATIVE_AI_API_KEY.',
+        },
+        { status: 503 }
+      );
+    }
+
+    let chatModel;
+    try {
+      chatModel = getChatModel(resolvedSelection.id);
+    } catch (error) {
+      return NextResponse.json(
+        {
+          error:
+            error instanceof Error ? error.message : 'No chat model is configured.',
+        },
+        { status: 503 }
+      );
+    }
+
     // Use highlighted text from request, or from the ownership check prefetch.
     const threadHighlightedText = highlightedText || existingThreadHighlightedText;
     if (activeThreadId && threadHighlightedText) {
@@ -476,7 +512,7 @@ Reply to the user's latest message directly. Do not use tools. Do not return an 
 Reply directly in 2 to 4 sentences. Do not return an empty response.`;
 
         const generation = await generateText({
-          model: CHAT_MODEL,
+          model: chatModel,
           system: groundedSystemPrompt,
           messages: modelMessages,
         });
@@ -488,7 +524,7 @@ Reply directly in 2 to 4 sentences. Do not return an empty response.`;
 Live web search is unavailable in this environment. If the question depends on fresh information, say that briefly and answer with an appropriate caveat. Do not return an empty response.`;
 
         const generation = await generateText({
-          model: CHAT_MODEL,
+          model: chatModel,
           system: finalRetrySystemPrompt,
           messages: modelMessages,
         });
@@ -503,7 +539,7 @@ Live web search is unavailable in this environment. If the question depends on f
       );
 
       const generation = await generateText({
-        model: CHAT_MODEL,
+        model: chatModel,
         system: systemPrompt,
         messages: modelMessages,
         ...(searchAvailable
@@ -530,7 +566,7 @@ Live web search is unavailable in this environment. If the question depends on f
       });
 
       const fallbackGeneration = await generateText({
-        model: CHAT_MODEL,
+        model: chatModel,
         system: finalRetrySystemPrompt,
         messages: modelMessages,
       });
@@ -595,6 +631,8 @@ Live web search is unavailable in this environment. If the question depends on f
       threadId: activeThreadId,
       userMessageId: latestUserMessageId,
       assistantMessageId,
+      resolvedModelId: resolvedSelection.id,
+      resolvedProvider: resolvedSelection.provider,
       search,
     });
   } catch (error) {

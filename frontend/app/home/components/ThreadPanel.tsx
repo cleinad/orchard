@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { logResolvedChatModel } from "@/app/home/components/logResolvedChatModel";
 import type { Message } from "@/app/home/types";
 import MarkdownWithThreads from "@/app/home/components/MarkdownWithThreads";
 import { markdownContentClassName } from "@/lib/markdown";
@@ -10,6 +11,7 @@ import {
   type ChatMode,
   type TemporaryMemoryMode,
 } from "@/lib/chat-session";
+import type { ChatModelId } from "@/lib/chat-models";
 
 export interface ThreadMessage {
   id: string;
@@ -37,6 +39,7 @@ interface ThreadPanelProps {
   chatMode: ChatMode;
   conversationId: string | null;
   mentorId?: string | null;
+  modelId: ChatModelId;
   memoryMode: TemporaryMemoryMode;
   conversationMessages: Message[];
   initialMessages?: ThreadMessage[] | null;
@@ -96,6 +99,7 @@ export default function ThreadPanel({
   chatMode,
   conversationId,
   mentorId,
+  modelId,
   memoryMode,
   conversationMessages,
   initialMessages,
@@ -192,6 +196,7 @@ export default function ThreadPanel({
           message: content,
           conversationId: chatMode === "persistent" ? conversationId : undefined,
           mentorId: mentorId ?? undefined,
+          modelId,
           threadId: thread.id,
           sourceMessageId: thread.sourceMessageId,
           highlightedText: thread.highlightedText,
@@ -207,6 +212,7 @@ export default function ThreadPanel({
       });
 
       const data = await res.json();
+      logResolvedChatModel(data, 'thread');
       if (res.ok && data.message) {
         const assistantMessage: ThreadMessage = {
           id:
