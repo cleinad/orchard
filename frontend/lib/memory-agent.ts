@@ -1,4 +1,5 @@
 import { generateObject } from 'ai';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import { MEMORY_MODEL } from './models';
 import {
@@ -12,7 +13,6 @@ import {
 import {
   upsertMemoryItemEmbeddings,
 } from './memory-items-server';
-import { createSupabaseServiceClient } from './supabase-service';
 
 const MEMORY_V2_AGENT_PROMPT = `You are the Keen memory extraction agent.
 
@@ -72,13 +72,12 @@ const MAX_MEMORY_TYPE_LENGTH = 48;
 const MAX_MEMORY_TEXT_LENGTH = 500;
 
 export async function processMemoryV2(
+  supabase: SupabaseClient,
   userId: string,
   conversationMessages: ConversationMessage[],
   latestResponse: string,
   context: ProcessMemoryV2Context = {}
 ): Promise<void> {
-  const supabase = createSupabaseServiceClient();
-
   const ownerType: MemoryOwnerType = context.mentorId ? 'mentor' : 'global';
   const ownerId = context.mentorId ?? null;
 
@@ -295,12 +294,13 @@ export async function processMemoryV2(
 }
 
 export async function processMemory(
+  supabase: SupabaseClient,
   userId: string,
   conversationMessages: ConversationMessage[],
   latestResponse: string,
   context: ProcessMemoryV2Context = {}
 ): Promise<void> {
-  await processMemoryV2(userId, conversationMessages, latestResponse, context);
+  await processMemoryV2(supabase, userId, conversationMessages, latestResponse, context);
 }
 
 function sanitizeType(value: string): string {
