@@ -47,7 +47,7 @@ Keen is **not** a row in the `mentors` table — when `mentor_id` is null on a c
 - **v4**: Cross-mentor conversations, Keen can route questions to or consult other mentors mid-conversation
 - **v5**: User-customizable themes for mentors and the overall app
 - **v6**: Mentor marketplace — publish, browse, install, rate community-created mentors
-- **v7**: Technical configurations — model selection per mentor, thinking/reasoning toggles
+- **v7**: Technical configurations — persistent model selection per mentor UI, thinking/reasoning toggles
 - **v8**: Agentic capabilities
 
 ## Implementation
@@ -66,7 +66,7 @@ Keen is **not** a row in the `mentors` table — when `mentor_id` is null on a c
 | `accent_color` | Hex color for UI accent |
 | `avatar_url` | Optional avatar image URL |
 | `voice_id` | TTS voice identifier (nullable, unused in v1) |
-| `model_id` | LLM model override (nullable, unused in v1) |
+| `model_id` | LLM model override fallback (nullable, not yet exposed in mentor UI) |
 
 RLS: users can only access their own mentors. Built-in mentors cannot be deleted.
 
@@ -118,6 +118,10 @@ Mentors receive memory context scoped to mentor-owned items + a compact global p
 ### Chat Route Integration
 
 In `frontend/app/api/chat/route.ts`:
+
+- Request-level `modelId` is supported for the main chat model picker
+- If no request model is supplied, the route can fall back to `mentor.model_id`
+- If neither is set or available, the shared default configured model is used
 
 1. If `mentorId` is provided, the mentor record is fetched
 2. If no `conversationId` exists for that mentor, one is created with `mentor_id` set
