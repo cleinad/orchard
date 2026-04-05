@@ -20,6 +20,7 @@ import { LearningModeProvider, useLearningMode } from '@/app/home/components/Lea
 import TextSelectionPopover from '@/app/home/components/TextSelectionPopover';
 import ThreadPanel, { type ThreadMessage } from '@/app/home/components/ThreadPanel';
 import type { Message } from '@/app/home/types';
+import { getHomeE2eFixture } from '@/app/home/e2eFixtures';
 import {
   createTemporaryId,
   toChatHistory,
@@ -78,6 +79,8 @@ function HomePageInner() {
 
   const router = useRouter();
   const searchParams = useSearchParams();
+  const homeE2eFixture = getHomeE2eFixture(searchParams.get('e2e'));
+  const isHomeE2eFixture = homeE2eFixture !== null;
 
   const {
     messages,
@@ -133,6 +136,7 @@ function HomePageInner() {
     closeThreadPanel,
   } = useHomeThreads(learningMode, containerRef);
   const [userHasScrolled, setUserHasScrolled] = useState(false);
+  const appliedHomeE2eFixtureRef = useRef<string | null>(null);
   const clearTemporaryConversationState = useCallback(() => {
     setTemporaryMessages([]);
     setTemporaryThreadsMap(new Map());
@@ -191,8 +195,12 @@ function HomePageInner() {
   }, [activeMessages, scrollToBottom]);
 
   useEffect(() => {
+    if (isHomeE2eFixture) {
+      return;
+    }
+
     void refreshSidebarData();
-  }, [refreshSidebarData]);
+  }, [isHomeE2eFixture, refreshSidebarData]);
 
   useEffect(() => {
     if (!activeMentor) return;
@@ -235,6 +243,48 @@ function HomePageInner() {
       void startMic();
     }
   }, [micActive, startMic, stopMic]);
+
+  useEffect(() => {
+    if (!homeE2eFixture || appliedHomeE2eFixtureRef.current === homeE2eFixture.key) {
+      return;
+    }
+
+    appliedHomeE2eFixtureRef.current = homeE2eFixture.key;
+    tts.stop();
+    stopMic();
+    resetThreadUi();
+    setInput('');
+    setIsLoading(false);
+    setLastSearchState(null);
+    setUserHasScrolled(false);
+    setListError(null);
+    setActiveMentor(null);
+
+    if (homeE2eFixture.chatMode === 'temporary') {
+      setChatMode('temporary');
+      clearConversationState();
+      clearTemporaryConversationState();
+      setTemporaryMessages(homeE2eFixture.messages);
+      return;
+    }
+
+    setChatMode('persistent');
+    clearTemporaryConversationState();
+    clearConversationState();
+    setMessages(homeE2eFixture.messages);
+    setConversationId(homeE2eFixture.conversationId);
+  }, [
+    clearConversationState,
+    clearTemporaryConversationState,
+    homeE2eFixture,
+    resetThreadUi,
+    setActiveMentor,
+    setConversationId,
+    setListError,
+    setMessages,
+    stopMic,
+    tts,
+  ]);
 
   const handleSelectDefault = useCallback(() => {
     tts.stop();
@@ -462,7 +512,9 @@ function HomePageInner() {
           return [...updated, assistantMessage];
         });
 
-        await refreshSidebarData();
+        if (!isHomeE2eFixture) {
+          await refreshSidebarData();
+        }
       }
 
       if (ttsEnabled && responseText && !responseText.startsWith('Something went wrong')) {
@@ -489,6 +541,7 @@ function HomePageInner() {
     chatMode,
     conversationId,
     isLoading,
+    isHomeE2eFixture,
     isTemporaryChat,
     refreshSidebarData,
     searchEnabled,
@@ -607,6 +660,7 @@ function HomePageInner() {
 
         {/* Conversation area — scrollbar sits at the right edge of main */}
         <div
+          data-testid="home-scroll-container"
           ref={containerRef}
           onScroll={handleScroll}
           className="relative min-h-0 flex-1 overflow-y-auto"

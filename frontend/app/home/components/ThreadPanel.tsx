@@ -396,6 +396,9 @@ export default function ThreadPanel({
       />
 
       <aside
+        data-testid="thread-panel"
+        data-state={isOpen ? "open" : "closed"}
+        aria-hidden={!isOpen}
         className={`pointer-events-auto relative flex h-full w-full max-w-[460px] flex-col bg-background shadow-xl transition-transform duration-300 ease-out ${
           isOpen ? "translate-x-0" : "translate-x-full"
         }`}
@@ -426,6 +429,7 @@ export default function ThreadPanel({
           <button
             type="button"
             onClick={onClose}
+            data-testid="thread-panel-close"
             aria-label="Close"
             className="ml-4 inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-muted transition hover:text-foreground"
           >
@@ -459,7 +463,7 @@ export default function ThreadPanel({
           ))}
 
           {isBusy && (
-            <div className="py-3">
+            <div data-testid="thread-panel-loading" className="py-3">
               <span className="text-xs font-medium tracking-wider text-muted">Thread</span>
               <div className="mt-1 flex items-center gap-1.5">
                 <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted/40" style={{ animationDelay: "0ms" }} />
@@ -476,6 +480,7 @@ export default function ThreadPanel({
           <div className="flex items-center gap-2 rounded-xl bg-surface px-4 py-2 shadow-sm ring-1 ring-border-subtle">
             <input
               ref={inputRef}
+              data-testid="thread-panel-input"
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}

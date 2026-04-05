@@ -568,6 +568,7 @@ export default function TextSelectionPopover({
       />
       <div
         ref={popoverRef}
+        data-testid="selection-popover"
         popover={useNativePopover ? "auto" : undefined}
         onMouseDownCapture={handleMouseDownCapture}
         style={fallbackStyle}
@@ -590,6 +591,7 @@ export default function TextSelectionPopover({
             <form onSubmit={handleCustomSubmit}>
               <input
                 ref={inputRef}
+                data-testid="selection-popover-input"
                 type="text"
                 value={customQuestion}
                 onChange={(e) => setCustomQuestion(e.target.value)}
@@ -601,7 +603,7 @@ export default function TextSelectionPopover({
         )}
 
         {isLoading && (
-          <div className="flex items-center gap-1.5 py-2">
+          <div data-testid="selection-popover-loading" className="flex items-center gap-1.5 py-2">
             <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted/40" style={{ animationDelay: "0ms" }} />
             <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted/40" style={{ animationDelay: "150ms" }} />
             <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted/40" style={{ animationDelay: "300ms" }} />
@@ -623,6 +625,7 @@ export default function TextSelectionPopover({
 
             <form onSubmit={handleFollowUp} className="mt-3">
               <input
+                data-testid="selection-popover-follow-up-input"
                 type="text"
                 value={followUpInput}
                 onChange={(e) => setFollowUpInput(e.target.value)}

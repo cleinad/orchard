@@ -182,6 +182,9 @@ function ThreadIndicator({
     <span
       role="button"
       tabIndex={0}
+      data-testid="inline-thread-link"
+      data-thread-id={thread.threadId}
+      data-source-message-id={thread.sourceMessageId}
       onClick={() => onClick(thread)}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") onClick(thread);
