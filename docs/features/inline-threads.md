@@ -56,6 +56,8 @@ The app stores:
 
 That lets the app reapply the source highlight even after the browser’s native selection has been cleared.
 
+Those offsets are measured relative to the message body root, not the entire chat row. In practice that means the offset space is the rendered text inside `[data-message-content]`, excluding labels, timestamps, and other outer chrome.
+
 ## Popover Behavior
 
 The popover is the lightweight exploration surface.
@@ -149,6 +151,7 @@ The interaction model is the same in both modes, but persistence differs.
 - Threads can be persisted.
 - A real thread id is created when needed.
 - Persisted threads become reopenable from the originating assistant message.
+- Persisted thread linkage is anchored by `startOffset` and `endOffset`, not by substring matching on `highlightedText`.
 
 ### Temporary chat
 
@@ -170,6 +173,14 @@ Important concepts:
   - the deeper follow-up context, including draft input, loading-question handoff, and seeded messages
 
 The selection lifecycle is intentionally decoupled from raw browser selection timing. The app resolves the selection after the browser settles it, then clears native selection and relies on the persistent highlight layer.
+
+Durable thread rendering now uses the same locator model as the active highlight:
+
+- the active highlight is rebuilt from offsets
+- persisted thread metadata stores those offsets
+- the message renderer wraps the same offset span when recreating clickable inline thread links
+
+`highlightedText` still exists as display metadata, but it is no longer the durable locator for reattaching a thread to message content. That change avoids a broader class of bugs caused by visible formatting prefixes, repeated text, and markdown/render-boundary differences.
 
 The popover-to-panel handoff is also state-aware:
 
@@ -198,6 +209,7 @@ Important verified behaviors:
 - `Ctrl+L` from the popover preserves draft, loading, and completed states correctly
 - in-flight popover requests can transfer into the thread panel without reverting to draft text
 - thread-panel requests continue to use longer-response behavior
+- persisted inline thread links reattach correctly for ordered-list markers, repeated-text selections, and bullet-list selections
 
 Current constraint:
 

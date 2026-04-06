@@ -9,6 +9,7 @@ This doc describes the Playwright coverage for the inline-thread workflow on `/h
 - popover-to-thread-panel promotion with `Ctrl+L`
 - draft, loading, and completed handoff states
 - persisted thread reopen behavior from the source message
+- offset-based durable inline thread rendering for tricky content shapes
 
 ## How To Run
 
@@ -27,6 +28,9 @@ Fixture URLs:
 
 - `/home?e2e=inline-threads`
 - `/home?e2e=inline-threads-persistent`
+- `/home?e2e=inline-threads-ordered-list`
+- `/home?e2e=inline-threads-repeated-text`
+- `/home?e2e=inline-threads-bullet-list`
 
 These fixtures:
 
@@ -50,6 +54,17 @@ That keeps the tests focused on frontend behavior:
 - keyboard shortcuts
 - popover lifecycle
 - thread panel rendering
+- durable inline-thread rendering from persisted offsets
+
+## Key Regression Cases
+
+The persistent fixture coverage now includes:
+
+- ordered-list selections where the visible highlighted text includes a marker such as `3.`
+- repeated-text selections where offsets must target the correct occurrence
+- bullet-list selections where the visible prefix is not safe to recover by substring matching
+
+These cases exist specifically to guard against regressions in chat-display and markdown-rendering changes. If inline thread rendering changes, this suite should be rerun before shipping.
 
 ## Intentional Gaps
 
