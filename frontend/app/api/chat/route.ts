@@ -122,6 +122,8 @@ interface ChatRequest {
   threadId?: string;
   sourceMessageId?: string;
   highlightedText?: string;
+  startOffset?: number;
+  endOffset?: number;
   concise?: boolean;
   searchEnabled?: boolean;
   chatMode?: ChatMode;
@@ -153,6 +155,8 @@ export async function POST(request: NextRequest) {
       threadId,
       sourceMessageId,
       highlightedText,
+      startOffset,
+      endOffset,
       concise,
       searchEnabled = false,
       chatMode = 'persistent',
@@ -338,12 +342,29 @@ export async function POST(request: NextRequest) {
       }
 
       if (!activeThreadId && sourceMessageId && highlightedText) {
+        const normalizedStartOffset = typeof startOffset === 'number' ? startOffset : null;
+        const normalizedEndOffset = typeof endOffset === 'number' ? endOffset : null;
+
+        if (
+          normalizedStartOffset === null
+          || normalizedEndOffset === null
+          || normalizedStartOffset < 0
+          || normalizedEndOffset <= normalizedStartOffset
+        ) {
+          return NextResponse.json(
+            { error: 'Valid selection offsets are required to create a thread' },
+            { status: 400 }
+          );
+        }
+
         const { data: threadRow, error: threadError } = await supabase
           .from('threads')
           .insert({
             conversation_id: activeConversationId,
             source_message_id: sourceMessageId,
             highlighted_text: highlightedText,
+            start_offset: normalizedStartOffset,
+            end_offset: normalizedEndOffset,
             user_id: user.id,
           })
           .select('id')

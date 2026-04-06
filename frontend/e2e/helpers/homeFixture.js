@@ -2,6 +2,7 @@ const INLINE_THREADS_SELECTED_TEXT = 'microtasks run before the browser paints t
 const FIXTURE_MESSAGE_IDS = {
   'inline-threads': 'assistant-inline-threads-fixture',
   'inline-threads-persistent': 'assistant-inline-threads-persistent-fixture',
+  'inline-threads-offset-render': 'assistant-inline-threads-ordered-list-fixture',
 };
 
 async function gotoHomeFixture(page, fixture = 'inline-threads') {

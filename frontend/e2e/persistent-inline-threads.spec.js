@@ -63,3 +63,37 @@ test('reopens a persisted inline thread from the source message', async ({ page 
   await expect(page.getByTestId('thread-panel')).toContainText(question);
   await expect(page.getByTestId('thread-panel')).toContainText(answer);
 });
+
+test('renders a persisted inline thread from offsets when highlighted text includes a list marker', async ({ page }) => {
+  await mockThreadMessagesRoute(page, async ({ threadId }) => {
+    expect(threadId).toBe('persisted-thread-list-marker-1');
+    return {
+      messages: [
+        {
+          id: 'persisted-user-list-1',
+          role: 'user',
+          content: 'Explain that line.',
+          created_at: '2026-04-05T09:10:01.000Z',
+        },
+        {
+          id: 'persisted-assistant-list-1',
+          role: 'assistant',
+          content: 'It means promise callbacks finish before the browser paints again.',
+          created_at: '2026-04-05T09:10:02.000Z',
+        },
+      ],
+    };
+  });
+
+  const { selectedText } = await gotoHomeFixture(page, 'inline-threads-offset-render');
+  const threadLink = page.getByTestId('inline-thread-link');
+
+  await expect(threadLink).toContainText(selectedText);
+  await threadLink.click();
+
+  await expect(page.getByTestId('thread-panel')).toHaveAttribute('data-state', 'open');
+  await expect(page.getByTestId('thread-panel')).toContainText('Explain that line.');
+  await expect(page.getByTestId('thread-panel')).toContainText(
+    'It means promise callbacks finish before the browser paints again.'
+  );
+});

@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useLayoutEffect } from "react";
 import { logResolvedChatModel } from "@/app/home/components/logResolvedChatModel";
 import MarkdownWithThreads from "@/app/home/components/MarkdownWithThreads";
+import type { ThreadSource } from "@/app/home/components/threadTypes";
 import type { Message } from "@/app/home/types";
 import { markdownContentClassName } from "@/lib/markdown";
 import {
@@ -19,7 +20,7 @@ const LARGE_RESPONSE_MAX_HEIGHT = 240;
 const LARGE_RESPONSE_MAX_VIEWPORT_RATIO = 0.4;
 const COMPLEX_MARKDOWN_PATTERN = /```|(?:^|\n)#{1,6}\s|(?:^|\n)\|.+\|/m;
 
-export interface PopoverState {
+export interface PopoverState extends ThreadSource {
   anchorRect: {
     left: number;
     top: number;
@@ -27,7 +28,6 @@ export interface PopoverState {
     height: number;
   };
   selectedText: string;
-  sourceMessageId: string;
 }
 
 interface TextSelectionPopoverProps {
@@ -41,11 +41,10 @@ interface TextSelectionPopoverProps {
   temporaryThreadMessages: Map<string, ThreadMessage[]>;
   onTemporaryThreadMessagesChange: (threadId: string, messages: ThreadMessage[]) => void;
   onDismiss: () => void;
-  onThreadCreated: (threadId: string, sourceMessageId: string, highlightedText: string) => void;
+  onThreadCreated: (threadId: string, source: ThreadSource) => void;
   onGraduateToThread: (
     threadId: string | null,
-    sourceMessageId: string,
-    highlightedText: string,
+    source: ThreadSource,
     options?: {
       pendingMessage?: string;
       draftInput?: string;
@@ -131,8 +130,7 @@ export default function TextSelectionPopover({
     selectionKey: string;
     question: string;
     threadId: string | null;
-    sourceMessageId: string;
-    highlightedText: string;
+    source: ThreadSource;
   } | null>(null);
   const useNativePopover = supportsNativePopover && supportsAnchorPositioning;
 
@@ -151,7 +149,7 @@ export default function TextSelectionPopover({
   const activeSelectionKeyRef = useRef<string | null>(null);
   useEffect(() => {
     const key = popoverState
-      ? `${popoverState.sourceMessageId}:${popoverState.selectedText}`
+      ? `${popoverState.sourceMessageId}:${popoverState.startOffset}:${popoverState.endOffset}`
       : null;
     activeSelectionKeyRef.current = key;
 
@@ -228,7 +226,7 @@ export default function TextSelectionPopover({
   const sendQuestion = async (question: string) => {
     const activePopoverState = popoverState;
     const requestSelectionKey = activePopoverState
-      ? `${activePopoverState.sourceMessageId}:${activePopoverState.selectedText}`
+      ? `${activePopoverState.sourceMessageId}:${activePopoverState.startOffset}:${activePopoverState.endOffset}`
       : null;
     const getMatchingHandoff = () =>
       handoffRef.current?.selectionKey === requestSelectionKey
@@ -260,6 +258,8 @@ export default function TextSelectionPopover({
           modelId,
           sourceMessageId: activePopoverState.sourceMessageId,
           highlightedText: activePopoverState.selectedText,
+          startOffset: activePopoverState.startOffset,
+          endOffset: activePopoverState.endOffset,
           concise: true,
           ...(requestedThreadId ? { threadId: requestedThreadId } : {}),
           chatMode,
@@ -291,17 +291,12 @@ export default function TextSelectionPopover({
           }
 
           if (nextThreadId && !threadId) {
-            onThreadCreated(
-              nextThreadId,
-              matchingHandoff.sourceMessageId,
-              matchingHandoff.highlightedText
-            );
+            onThreadCreated(nextThreadId, matchingHandoff.source);
           }
 
           onGraduateToThread(
             nextThreadId,
-            matchingHandoff.sourceMessageId,
-            matchingHandoff.highlightedText,
+            matchingHandoff.source,
             {
               initialMessages,
             }
@@ -311,8 +306,7 @@ export default function TextSelectionPopover({
           const fallbackResponse = data.error || "Something went wrong.";
           onGraduateToThread(
             matchingHandoff.threadId,
-            matchingHandoff.sourceMessageId,
-            matchingHandoff.highlightedText,
+            matchingHandoff.source,
             {
               initialMessages: buildInitialMessages(question, fallbackResponse),
             }
@@ -336,18 +330,13 @@ export default function TextSelectionPopover({
 
         if (nextThreadId && !threadId) {
           setThreadId(nextThreadId);
-          onThreadCreated(
-            nextThreadId,
-            activePopoverState.sourceMessageId,
-            activePopoverState.selectedText
-          );
+          onThreadCreated(nextThreadId, activePopoverState);
         }
 
         if (nextThreadId && shouldAutoGraduateImmediately(data.message)) {
           onGraduateToThread(
             nextThreadId,
-            activePopoverState.sourceMessageId,
-            activePopoverState.selectedText,
+            activePopoverState,
             {
               initialMessages,
             }
@@ -367,8 +356,7 @@ export default function TextSelectionPopover({
         if (matchingHandoff) {
           onGraduateToThread(
             matchingHandoff.threadId,
-            matchingHandoff.sourceMessageId,
-            matchingHandoff.highlightedText,
+            matchingHandoff.source,
             {
               initialMessages: buildInitialMessages(question, "Something went wrong."),
             }
@@ -404,8 +392,7 @@ export default function TextSelectionPopover({
     if (followUpInput.trim() && threadId) {
       onGraduateToThread(
         threadId,
-        popoverState.sourceMessageId,
-        popoverState.selectedText,
+        popoverState,
         {
           pendingMessage: followUpInput.trim(),
           initialMessages: responseSeedMessages || undefined,
@@ -440,18 +427,16 @@ export default function TextSelectionPopover({
 
       if (loadingPrompt && popoverState) {
         handoffRef.current = {
-          selectionKey: `${popoverState.sourceMessageId}:${popoverState.selectedText}`,
+          selectionKey: `${popoverState.sourceMessageId}:${popoverState.startOffset}:${popoverState.endOffset}`,
           question: loadingPrompt,
           threadId: nextThreadId,
-          sourceMessageId: popoverState.sourceMessageId,
-          highlightedText: popoverState.selectedText,
+          source: popoverState,
         };
       }
 
       onGraduateToThread(
         nextThreadId,
-        popoverState.sourceMessageId,
-        popoverState.selectedText,
+        popoverState,
         {
           draftInput: loadingPrompt ? undefined : draftInput,
           loadingQuestion: loadingPrompt || undefined,
@@ -521,8 +506,7 @@ export default function TextSelectionPopover({
     ) {
       onGraduateToThread(
         responseThreadId,
-        popoverState.sourceMessageId,
-        popoverState.selectedText,
+        popoverState,
         {
           initialMessages: responseSeedMessages,
         }

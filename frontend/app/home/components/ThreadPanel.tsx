@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { logResolvedChatModel } from "@/app/home/components/logResolvedChatModel";
 import type { Message } from "@/app/home/types";
 import MarkdownWithThreads from "@/app/home/components/MarkdownWithThreads";
+import type { ThreadSource } from "@/app/home/components/threadTypes";
 import { markdownContentClassName } from "@/lib/markdown";
 import {
   createTemporaryId,
@@ -27,10 +28,8 @@ interface ThreadMessageRow {
   created_at: string;
 }
 
-interface ThreadInfo {
+interface ThreadInfo extends ThreadSource {
   id: string | null;
-  highlightedText: string;
-  sourceMessageId: string;
 }
 
 interface ThreadPanelProps {
@@ -50,7 +49,7 @@ interface ThreadPanelProps {
   pendingMessage?: string | null;
   onTemporaryMessagesChange?: (threadId: string, messages: ThreadMessage[]) => void;
   onPendingMessageConsumed?: () => void;
-  onThreadCreated?: (threadId: string, sourceMessageId: string, highlightedText: string) => void;
+  onThreadCreated?: (threadId: string, source: ThreadSource) => void;
   suspendCloseShortcut?: boolean;
   onClose: () => void;
 }
@@ -262,6 +261,8 @@ export default function ThreadPanel({
           modelId,
           sourceMessageId: thread.sourceMessageId,
           highlightedText: thread.highlightedText,
+          startOffset: thread.startOffset,
+          endOffset: thread.endOffset,
           ...(requestThreadId ? { threadId: requestThreadId } : {}),
           chatMode,
           ...(chatMode === "temporary"
@@ -284,7 +285,7 @@ export default function ThreadPanel({
 
         if (resolvedThreadId) {
           setActiveThreadId(resolvedThreadId);
-          onThreadCreated?.(resolvedThreadId, thread.sourceMessageId, thread.highlightedText);
+          onThreadCreated?.(resolvedThreadId, thread);
         }
 
         const assistantMessage: ThreadMessage = {
@@ -367,7 +368,7 @@ export default function ThreadPanel({
   useEffect(() => {
     const pendingSignature =
       pendingMessage && thread
-        ? `${thread.id ?? "draft"}:${thread.sourceMessageId}:${thread.highlightedText}:${pendingMessage}`
+        ? `${thread.id ?? "draft"}:${thread.sourceMessageId}:${thread.startOffset}:${thread.endOffset}:${pendingMessage}`
         : null;
 
     if (!pendingSignature) {

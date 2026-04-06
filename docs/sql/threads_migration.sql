@@ -7,9 +7,15 @@ create table if not exists public.threads (
   conversation_id uuid not null references public.conversations(id) on delete cascade,
   source_message_id uuid not null references public.messages(id) on delete cascade,
   highlighted_text text not null,
+  start_offset integer not null,
+  end_offset integer not null,
   user_id uuid not null references auth.users(id) on delete cascade,
   created_at timestamptz not null default now()
 );
+
+alter table if exists public.threads
+  add column if not exists start_offset integer,
+  add column if not exists end_offset integer;
 
 -- Add thread columns to messages
 alter table public.messages

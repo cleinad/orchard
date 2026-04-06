@@ -11,7 +11,7 @@ import { useHomeData } from '@/app/home/components/useHomeData';
 import { useHomeThreads } from '@/app/home/components/useHomeThreads';
 import { useHomeVoice } from '@/app/home/components/useHomeVoice';
 import { usePersistedString } from '@/app/home/components/usePersistedString';
-import type { ThreadMeta } from '@/app/home/components/MarkdownWithThreads';
+import type { ThreadMeta, ThreadSource } from '@/app/home/components/threadTypes';
 import type { SearchMetadata } from '@/lib/chat-search';
 import {
   CHAT_MODEL_OPTIONS,
@@ -57,6 +57,18 @@ interface ChatModelsResponse {
 
 const TTS_STORAGE_KEY = 'keen-tts-enabled';
 const CHAT_MODEL_STORAGE_KEY = 'keen-chat-model';
+
+function buildFixtureThreadsMap(threads: ThreadMeta[]) {
+  const next = new Map<string, ThreadMeta[]>();
+
+  for (const thread of threads) {
+    const existing = next.get(thread.sourceMessageId) || [];
+    existing.push(thread);
+    next.set(thread.sourceMessageId, existing);
+  }
+
+  return next;
+}
 
 /**
  * Home page - editorial voice + text conversation interface
@@ -190,17 +202,17 @@ function HomePageInner() {
   );
 
   const addThreadMeta = useCallback(
-    (threadId: string, sourceMessageId: string, highlightedText: string) => {
+    (threadId: string, source: ThreadSource) => {
       const updateMap = (prev: Map<string, ThreadMeta[]>) => {
         const next = new Map(prev);
-        const existing = next.get(sourceMessageId) || [];
+        const existing = next.get(source.sourceMessageId) || [];
         if (existing.some((thread) => thread.threadId === threadId)) {
           return next;
         }
 
-        next.set(sourceMessageId, [
+        next.set(source.sourceMessageId, [
           ...existing,
-          { threadId, highlightedText, sourceMessageId },
+          { threadId, ...source },
         ]);
         return next;
       };
@@ -342,6 +354,7 @@ function HomePageInner() {
       clearConversationState();
       clearTemporaryConversationState();
       setTemporaryMessages(homeE2eFixture.messages);
+      setTemporaryThreadsMap(buildFixtureThreadsMap(homeE2eFixture.threads || []));
       return;
     }
 
@@ -350,6 +363,7 @@ function HomePageInner() {
     clearConversationState();
     setMessages(homeE2eFixture.messages);
     setConversationId(homeE2eFixture.conversationId);
+    setThreadsMap(buildFixtureThreadsMap(homeE2eFixture.threads || []));
   }, [
     clearConversationState,
     clearTemporaryConversationState,
@@ -359,6 +373,7 @@ function HomePageInner() {
     setConversationId,
     setListError,
     setMessages,
+    setThreadsMap,
     stopMic,
     tts,
   ]);
@@ -678,8 +693,8 @@ function HomePageInner() {
   }, [transcription.finalTranscript, transcription.interimTranscript, micActive, isLoading, sendMessage]);
 
   const handleThreadCreated = useCallback(
-    (threadId: string, sourceMessageId: string, highlightedText: string) => {
-      addThreadMeta(threadId, sourceMessageId, highlightedText);
+    (threadId: string, source: ThreadSource) => {
+      addThreadMeta(threadId, source);
     },
     [addThreadMeta]
   );

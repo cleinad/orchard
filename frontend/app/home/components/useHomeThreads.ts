@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import type { PopoverState } from '@/app/home/components/TextSelectionPopover';
-import type { ThreadMeta } from '@/app/home/components/MarkdownWithThreads';
+import type { ThreadMeta, ThreadSource } from '@/app/home/components/threadTypes';
 import type { ThreadMessage } from '@/app/home/components/ThreadPanel';
 
 const ACTIVE_SELECTION_HIGHLIGHT = 'keen-active-selection';
@@ -22,10 +22,8 @@ function ensureHighlightStylesInjected() {
   document.head.appendChild(style);
 }
 
-interface ActiveThread {
+interface ActiveThread extends ThreadSource {
   id: string | null;
-  highlightedText: string;
-  sourceMessageId: string;
 }
 
 interface ActiveSelection {
@@ -118,12 +116,12 @@ export function useHomeThreads(
     setPopoverState(null);
   }, [clearPersistentHighlight]);
 
-  const resolveMessageElement = (node: Node) => {
+  const resolveMessageContentElement = (node: Node) => {
     if (node instanceof Element) {
-      return node.closest('[data-message-id]');
+      return node.closest('[data-message-content]');
     }
 
-    return node.parentElement?.closest('[data-message-id]') ?? null;
+    return node.parentElement?.closest('[data-message-content]') ?? null;
   };
 
   const getSelectionOffsets = (messageEl: Element, range: Range) => {
@@ -199,21 +197,22 @@ export function useHomeThreads(
     }
 
     const range = selection.getRangeAt(0);
-    const messageEl = resolveMessageElement(range.startContainer);
-    const endMessageEl = resolveMessageElement(range.endContainer);
+    const messageContentEl = resolveMessageContentElement(range.startContainer);
+    const endMessageContentEl = resolveMessageContentElement(range.endContainer);
 
-    if (!messageEl || !endMessageEl || endMessageEl !== messageEl) {
+    if (!messageContentEl || !endMessageContentEl || endMessageContentEl !== messageContentEl) {
       return;
     }
 
-    const messageId = messageEl.getAttribute('data-message-id');
-    const messageRole = messageEl.getAttribute('data-message-role');
+    const messageEl = messageContentEl.closest('[data-message-id]');
+    const messageId = messageEl?.getAttribute('data-message-id');
+    const messageRole = messageEl?.getAttribute('data-message-role');
 
     if (!messageId || messageRole !== 'assistant') {
       return;
     }
 
-    const offsets = getSelectionOffsets(messageEl, range);
+    const offsets = getSelectionOffsets(messageContentEl, range);
     const clientRects = Array.from(range.getClientRects()).filter(
       (rect) => rect.width > 0 || rect.height > 0
     );
@@ -235,8 +234,11 @@ export function useHomeThreads(
     setActiveSelection(nextSelection);
     setPopoverState({
       anchorRect: nextSelection.anchorRect,
+      highlightedText: nextSelection.selectedText,
       selectedText: nextSelection.selectedText,
       sourceMessageId: nextSelection.sourceMessageId,
+      startOffset: nextSelection.startOffset,
+      endOffset: nextSelection.endOffset,
     });
 
     selection.removeAllRanges();
@@ -267,14 +269,15 @@ export function useHomeThreads(
     const messageEl = scrollContainer?.querySelector<HTMLElement>(
       `[data-message-id="${activeSelection.sourceMessageId}"]`
     );
+    const messageContentEl = messageEl?.querySelector<HTMLElement>('[data-message-content]');
 
-    if (!messageEl) {
+    if (!messageContentEl) {
       clearPersistentHighlight();
       return;
     }
 
     const range = restoreRangeFromOffsets(
-      messageEl,
+      messageContentEl,
       activeSelection.startOffset,
       activeSelection.endOffset
     );
@@ -290,8 +293,7 @@ export function useHomeThreads(
   const handleGraduateToThread = useCallback(
     (
       threadId: string | null,
-      sourceMessageId: string,
-      highlightedText: string,
+      source: ThreadSource,
       options?: {
         pendingMessage?: string;
         draftInput?: string;
@@ -299,7 +301,7 @@ export function useHomeThreads(
         initialMessages?: ThreadMessage[];
       }
     ) => {
-      setActiveThread({ id: threadId, highlightedText, sourceMessageId });
+      setActiveThread({ id: threadId, ...source });
       setThreadPanelInitialMessages(options?.initialMessages || null);
       setThreadPanelDraftInput(options?.draftInput ?? null);
       setThreadPanelLoadingQuestion(options?.loadingQuestion ?? null);
@@ -318,6 +320,8 @@ export function useHomeThreads(
       id: thread.threadId,
       highlightedText: thread.highlightedText,
       sourceMessageId: thread.sourceMessageId,
+      startOffset: thread.startOffset,
+      endOffset: thread.endOffset,
     });
     setThreadPanelInitialMessages(null);
     setThreadPanelDraftInput(null);
