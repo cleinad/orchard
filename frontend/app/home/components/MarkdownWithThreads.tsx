@@ -1,9 +1,7 @@
 "use client";
 
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { type Options } from "react-markdown";
 import {
-  Fragment,
-  cloneElement,
   isValidElement,
   useEffect,
   useRef,
@@ -16,12 +14,7 @@ import {
   markdownRehypePlugins,
   markdownRemarkPlugins,
 } from "@/lib/markdown";
-
-export interface ThreadMeta {
-  threadId: string;
-  highlightedText: string;
-  sourceMessageId: string;
-}
+import type { ThreadMeta } from "@/app/home/components/threadTypes";
 
 interface MarkdownWithThreadsProps {
   content: string;
@@ -30,6 +23,28 @@ interface MarkdownWithThreadsProps {
 }
 
 type PreProps = ComponentPropsWithoutRef<"pre"> & { node?: unknown };
+type SpanProps = ComponentPropsWithoutRef<"span"> & {
+  node?: unknown;
+  "data-inline-thread-id"?: string;
+};
+
+interface TextMatch {
+  start: number;
+  end: number;
+  thread: ThreadMeta;
+}
+
+interface CursorRef {
+  current: number;
+}
+
+interface HastNode {
+  type: string;
+  tagName?: string;
+  value?: string;
+  properties?: Record<string, unknown>;
+  children?: HastNode[];
+}
 
 const LANGUAGE_LABELS: Record<string, string> = {
   bash: "Bash",
@@ -83,7 +98,9 @@ function extractCodeText(children: ReactNode): string {
   return "";
 }
 
-function findCodeElement(children: ReactNode): ReactElement<{ className?: string; children?: ReactNode }> | null {
+function findCodeElement(
+  children: ReactNode
+): ReactElement<{ className?: string; children?: ReactNode }> | null {
   if (isValidElement(children)) {
     return children as ReactElement<{ className?: string; children?: ReactNode }>;
   }
@@ -182,6 +199,9 @@ function ThreadIndicator({
     <span
       role="button"
       tabIndex={0}
+      data-testid="inline-thread-link"
+      data-thread-id={thread.threadId}
+      data-source-message-id={thread.sourceMessageId}
       onClick={() => onClick(thread)}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") onClick(thread);
@@ -194,76 +214,164 @@ function ThreadIndicator({
   );
 }
 
-interface TextMatch {
-  start: number;
-  end: number;
-  thread: ThreadMeta;
-}
-
-function getTextMatches(text: string, threads: ThreadMeta[]): TextMatch[] {
+function normalizeThreadMatches(threads: ThreadMeta[]): TextMatch[] {
+  const normalizedThreads = [...threads]
+    .filter((thread) => thread.endOffset > thread.startOffset)
+    .sort(
+      (a, b) =>
+        a.startOffset - b.startOffset
+        || (b.endOffset - b.startOffset) - (a.endOffset - a.startOffset)
+    );
   const matches: TextMatch[] = [];
 
-  for (const thread of [...threads].sort((a, b) => b.highlightedText.length - a.highlightedText.length)) {
-    const needle = thread.highlightedText;
-    if (!needle) continue;
-
-    let searchFrom = 0;
-
-    while (searchFrom <= text.length - needle.length) {
-      const start = text.indexOf(needle, searchFrom);
-      if (start === -1) break;
-
-      const end = start + needle.length;
-      const overlaps = matches.some((match) => start < match.end && end > match.start);
-      if (!overlaps) {
-        matches.push({ start, end, thread });
-        break;
-      }
-
-      searchFrom = start + 1;
-    }
-  }
-
-  return matches.sort((a, b) => a.start - b.start || a.end - b.end);
-}
-
-function splitTextWithThreads(
-  text: string,
-  threads: ThreadMeta[],
-  onThreadClick: (thread: ThreadMeta) => void,
-  keyPrefix: string
-): ReactNode[] {
-  if (threads.length === 0) return [text];
-
-  const matches = getTextMatches(text, threads);
-  if (matches.length === 0) return [text];
-
-  const parts: ReactNode[] = [];
-  let cursor = 0;
-
-  matches.forEach((match, index) => {
-    if (match.start > cursor) {
-      parts.push(text.slice(cursor, match.start));
-    }
-
-    parts.push(
-      <ThreadIndicator
-        key={`${keyPrefix}-thread-${index}`}
-        thread={match.thread}
-        onClick={onThreadClick}
-      >
-        {text.slice(match.start, match.end)}
-      </ThreadIndicator>
+  for (const thread of normalizedThreads) {
+    const overlaps = matches.some(
+      (match) => thread.startOffset < match.end && thread.endOffset > match.start
     );
 
-    cursor = match.end;
-  });
-
-  if (cursor < text.length) {
-    parts.push(text.slice(cursor));
+    if (!overlaps) {
+      matches.push({
+        start: thread.startOffset,
+        end: thread.endOffset,
+        thread,
+      });
+    }
   }
 
-  return parts.length > 0 ? parts : [text];
+  return matches;
+}
+
+function getClassNames(node: HastNode): string[] {
+  const className = node.properties?.className;
+
+  if (Array.isArray(className)) {
+    return className.filter((value): value is string => typeof value === "string");
+  }
+
+  if (typeof className === "string") {
+    return className.split(/\s+/).filter(Boolean);
+  }
+
+  return [];
+}
+
+function shouldSkipInlineThreadWrapping(node: HastNode) {
+  const classNames = getClassNames(node);
+  return (
+    node.tagName === "pre" ||
+    node.tagName === "math" ||
+    node.tagName === "annotation" ||
+    classNames.includes("hljs") ||
+    classNames.some((className) => className.startsWith("katex"))
+  );
+}
+
+function getHastTextLength(node: HastNode): number {
+  if (node.type === "text") {
+    return node.value?.length ?? 0;
+  }
+
+  return (node.children || []).reduce((total, child) => total + getHastTextLength(child), 0);
+}
+
+function createThreadSpanNode(text: string, thread: ThreadMeta): HastNode {
+  return {
+    type: "element",
+    tagName: "span",
+    properties: {
+      "data-inline-thread-id": thread.threadId,
+    },
+    children: [{ type: "text", value: text }],
+  };
+}
+
+function splitTextNode(node: HastNode, matches: TextMatch[], cursorRef: CursorRef): HastNode[] {
+  const text = node.value ?? "";
+  if (text.length === 0 || matches.length === 0) {
+    cursorRef.current += text.length;
+    return [node];
+  }
+
+  const textStartOffset = cursorRef.current;
+  const textEndOffset = textStartOffset + text.length;
+  const relevantMatches = matches.filter(
+    (match) => match.start < textEndOffset && match.end > textStartOffset
+  );
+
+  cursorRef.current = textEndOffset;
+
+  if (relevantMatches.length === 0) {
+    return [node];
+  }
+
+  const parts: HastNode[] = [];
+  let cursor = 0;
+
+  for (const match of relevantMatches) {
+    const matchStart = Math.max(match.start, textStartOffset) - textStartOffset;
+    const matchEnd = Math.min(match.end, textEndOffset) - textStartOffset;
+
+    if (matchStart > cursor) {
+      parts.push({ type: "text", value: text.slice(cursor, matchStart) });
+    }
+
+    parts.push(createThreadSpanNode(text.slice(matchStart, matchEnd), match.thread));
+    cursor = matchEnd;
+  }
+
+  if (cursor < text.length) {
+    parts.push({ type: "text", value: text.slice(cursor) });
+  }
+
+  return parts;
+}
+
+function annotateThreadNodes(
+  nodes: HastNode[] | undefined,
+  matches: TextMatch[],
+  cursorRef: CursorRef
+): HastNode[] | undefined {
+  if (!nodes || nodes.length === 0 || matches.length === 0) {
+    return nodes;
+  }
+
+  const nextChildren: HastNode[] = [];
+
+  for (const child of nodes) {
+    if (child.type === "text") {
+      nextChildren.push(...splitTextNode(child, matches, cursorRef));
+      continue;
+    }
+
+    if (child.type === "element") {
+      if (shouldSkipInlineThreadWrapping(child)) {
+        cursorRef.current += getHastTextLength(child);
+        nextChildren.push(child);
+        continue;
+      }
+
+      nextChildren.push({
+        ...child,
+        children: annotateThreadNodes(child.children, matches, cursorRef),
+      });
+      continue;
+    }
+
+    nextChildren.push(child);
+  }
+
+  return nextChildren;
+}
+
+function rehypeInlineThreads(matches: TextMatch[]) {
+  return (tree: HastNode) => {
+    if (matches.length === 0) {
+      return;
+    }
+
+    const cursorRef: CursorRef = { current: 0 };
+    tree.children = annotateThreadNodes(tree.children, matches, cursorRef);
+  };
 }
 
 export default function MarkdownWithThreads({
@@ -271,88 +379,40 @@ export default function MarkdownWithThreads({
   threads,
   onThreadClick,
 }: MarkdownWithThreadsProps) {
+  const matches = normalizeThreadMatches(threads);
+  const threadById = new Map(matches.map((match) => [match.thread.threadId, match.thread]));
+  const inlineThreadPlugin =
+    [rehypeInlineThreads, matches] as unknown as NonNullable<Options["rehypePlugins"]>[number];
+  const rehypePlugins: NonNullable<Options["rehypePlugins"]> =
+    matches.length > 0
+      ? [...markdownRehypePlugins, inlineThreadPlugin]
+      : markdownRehypePlugins;
+
   return (
     <ReactMarkdown
       remarkPlugins={markdownRemarkPlugins}
-      rehypePlugins={markdownRehypePlugins}
+      rehypePlugins={rehypePlugins}
       components={{
         pre: CodeBlock,
-        ...(threads.length > 0
-          ? {
-              p: ({ children, ...props }: ComponentPropsWithoutRef<"p">) => {
-                const processed = processChildren(children, threads, onThreadClick, "p");
-                return <p {...props}>{processed}</p>;
-              },
-              li: ({ children, ...props }: ComponentPropsWithoutRef<"li">) => {
-                const processed = processChildren(children, threads, onThreadClick, "li");
-                return <li {...props}>{processed}</li>;
-              },
+        span: ({ children, ...props }: SpanProps) => {
+          const threadId = props["data-inline-thread-id"];
+          if (typeof threadId === "string") {
+            const thread = threadById.get(threadId);
+            if (thread) {
+              const { ["data-inline-thread-id"]: _ignored, ...rest } = props;
+              return (
+                <ThreadIndicator thread={thread} onClick={onThreadClick}>
+                  <span {...rest}>{children}</span>
+                </ThreadIndicator>
+              );
             }
-          : undefined),
+          }
+
+          return <span {...props}>{children}</span>;
+        },
       }}
     >
       {content}
     </ReactMarkdown>
   );
-}
-
-function processChildren(
-  children: ReactNode,
-  threads: ThreadMeta[],
-  onThreadClick: (thread: ThreadMeta) => void,
-  keyPrefix: string
-): ReactNode {
-  if (typeof children === "string") {
-    const parts = splitTextWithThreads(children, threads, onThreadClick, keyPrefix);
-    return parts.length === 1 && typeof parts[0] === "string" ? parts[0] : <>{parts}</>;
-  }
-
-  if (Array.isArray(children)) {
-    return children.map((child, i) => {
-      const processedChild = processChildren(child, threads, onThreadClick, `${keyPrefix}-${i}`);
-
-      if (processedChild === child) {
-        return child;
-      }
-
-      if (isValidElement(processedChild)) {
-        return cloneElement(processedChild, { key: `${keyPrefix}-${i}` });
-      }
-
-      return <Fragment key={`${keyPrefix}-${i}`}>{processedChild}</Fragment>;
-    });
-  }
-
-  if (isValidElement(children)) {
-    const element = children as ReactElement<{ children?: ReactNode; className?: string }>;
-    const elementType = typeof element.type === "string" ? element.type : null;
-    const classNames =
-      typeof element.props.className === "string" ? element.props.className.split(/\s+/) : [];
-
-    if (
-      elementType === "code" ||
-      elementType === "pre" ||
-      elementType === "math" ||
-      elementType === "annotation" ||
-      classNames.includes("hljs") ||
-      classNames.some((className) => className.startsWith("katex"))
-    ) {
-      return children;
-    }
-
-    const processed = processChildren(
-      element.props.children,
-      threads,
-      onThreadClick,
-      `${keyPrefix}-${elementType || "node"}`
-    );
-
-    if (processed === element.props.children) {
-      return children;
-    }
-
-    return cloneElement(element, undefined, processed);
-  }
-
-  return children;
 }

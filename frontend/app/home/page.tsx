@@ -11,7 +11,7 @@ import { useHomeData } from '@/app/home/components/useHomeData';
 import { useHomeThreads } from '@/app/home/components/useHomeThreads';
 import { useHomeVoice } from '@/app/home/components/useHomeVoice';
 import { usePersistedString } from '@/app/home/components/usePersistedString';
-import type { ThreadMeta } from '@/app/home/components/MarkdownWithThreads';
+import type { ThreadMeta, ThreadSource } from '@/app/home/components/threadTypes';
 import type { SearchMetadata } from '@/lib/chat-search';
 import {
   CHAT_MODEL_OPTIONS,
@@ -29,6 +29,7 @@ import { LearningModeProvider, useLearningMode } from '@/app/home/components/Lea
 import TextSelectionPopover from '@/app/home/components/TextSelectionPopover';
 import ThreadPanel, { type ThreadMessage } from '@/app/home/components/ThreadPanel';
 import type { Message } from '@/app/home/types';
+import { getHomeE2eFixture } from '@/app/home/e2eFixtures';
 import {
   createTemporaryId,
   toChatHistory,
@@ -56,6 +57,18 @@ interface ChatModelsResponse {
 
 const TTS_STORAGE_KEY = 'keen-tts-enabled';
 const CHAT_MODEL_STORAGE_KEY = 'keen-chat-model';
+
+function buildFixtureThreadsMap(threads: ThreadMeta[]) {
+  const next = new Map<string, ThreadMeta[]>();
+
+  for (const thread of threads) {
+    const existing = next.get(thread.sourceMessageId) || [];
+    existing.push(thread);
+    next.set(thread.sourceMessageId, existing);
+  }
+
+  return next;
+}
 
 /**
  * Home page - editorial voice + text conversation interface
@@ -109,6 +122,8 @@ function HomePageInner() {
 
   const router = useRouter();
   const searchParams = useSearchParams();
+  const homeE2eFixture = getHomeE2eFixture(searchParams.get('e2e'));
+  const isHomeE2eFixture = homeE2eFixture !== null;
 
   const {
     messages,
@@ -152,6 +167,8 @@ function HomePageInner() {
     activeThread,
     threadPanelOpen,
     threadPanelInitialMessages,
+    threadPanelDraftInput,
+    threadPanelLoadingQuestion,
     pendingThreadMessage,
     resetThreadUi,
     dismissPopover,
@@ -162,6 +179,7 @@ function HomePageInner() {
     closeThreadPanel,
   } = useHomeThreads(learningMode, containerRef);
   const [userHasScrolled, setUserHasScrolled] = useState(false);
+  const appliedHomeE2eFixtureRef = useRef<string | null>(null);
   const clearTemporaryConversationState = useCallback(() => {
     setTemporaryMessages([]);
     setTemporaryThreadsMap(new Map());
@@ -184,17 +202,17 @@ function HomePageInner() {
   );
 
   const addThreadMeta = useCallback(
-    (threadId: string, sourceMessageId: string, highlightedText: string) => {
+    (threadId: string, source: ThreadSource) => {
       const updateMap = (prev: Map<string, ThreadMeta[]>) => {
         const next = new Map(prev);
-        const existing = next.get(sourceMessageId) || [];
+        const existing = next.get(source.sourceMessageId) || [];
         if (existing.some((thread) => thread.threadId === threadId)) {
           return next;
         }
 
-        next.set(sourceMessageId, [
+        next.set(source.sourceMessageId, [
           ...existing,
-          { threadId, highlightedText, sourceMessageId },
+          { threadId, ...source },
         ]);
         return next;
       };
@@ -220,8 +238,12 @@ function HomePageInner() {
   }, [activeMessages, scrollToBottom]);
 
   useEffect(() => {
+    if (isHomeE2eFixture) {
+      return;
+    }
+
     void refreshSidebarData();
-  }, [refreshSidebarData]);
+  }, [isHomeE2eFixture, refreshSidebarData]);
 
   useEffect(() => {
     if (!activeMentor) return;
@@ -310,6 +332,51 @@ function HomePageInner() {
       void startMic();
     }
   }, [micActive, startMic, stopMic]);
+
+  useEffect(() => {
+    if (!homeE2eFixture || appliedHomeE2eFixtureRef.current === homeE2eFixture.key) {
+      return;
+    }
+
+    appliedHomeE2eFixtureRef.current = homeE2eFixture.key;
+    tts.stop();
+    stopMic();
+    resetThreadUi();
+    setInput('');
+    setIsLoading(false);
+    setLastSearchState(null);
+    setUserHasScrolled(false);
+    setListError(null);
+    setActiveMentor(null);
+
+    if (homeE2eFixture.chatMode === 'temporary') {
+      setChatMode('temporary');
+      clearConversationState();
+      clearTemporaryConversationState();
+      setTemporaryMessages(homeE2eFixture.messages);
+      setTemporaryThreadsMap(buildFixtureThreadsMap(homeE2eFixture.threads || []));
+      return;
+    }
+
+    setChatMode('persistent');
+    clearTemporaryConversationState();
+    clearConversationState();
+    setMessages(homeE2eFixture.messages);
+    setConversationId(homeE2eFixture.conversationId);
+    setThreadsMap(buildFixtureThreadsMap(homeE2eFixture.threads || []));
+  }, [
+    clearConversationState,
+    clearTemporaryConversationState,
+    homeE2eFixture,
+    resetThreadUi,
+    setActiveMentor,
+    setConversationId,
+    setListError,
+    setMessages,
+    setThreadsMap,
+    stopMic,
+    tts,
+  ]);
 
   const handleSelectDefault = useCallback(() => {
     tts.stop();
@@ -539,7 +606,9 @@ function HomePageInner() {
           return [...updated, assistantMessage];
         });
 
-        await refreshSidebarData();
+        if (!isHomeE2eFixture) {
+          await refreshSidebarData();
+        }
       }
 
       if (ttsEnabled && responseText && !responseText.startsWith('Something went wrong')) {
@@ -567,6 +636,7 @@ function HomePageInner() {
     selectedModelId,
     conversationId,
     isLoading,
+    isHomeE2eFixture,
     isTemporaryChat,
     refreshSidebarData,
     searchEnabled,
@@ -623,8 +693,8 @@ function HomePageInner() {
   }, [transcription.finalTranscript, transcription.interimTranscript, micActive, isLoading, sendMessage]);
 
   const handleThreadCreated = useCallback(
-    (threadId: string, sourceMessageId: string, highlightedText: string) => {
-      addThreadMeta(threadId, sourceMessageId, highlightedText);
+    (threadId: string, source: ThreadSource) => {
+      addThreadMeta(threadId, source);
     },
     [addThreadMeta]
   );
@@ -645,7 +715,7 @@ function HomePageInner() {
   };
 
   const activeName = activeMentor?.name || 'Keen';
-  const activeTemporaryThreadMessages = activeThread
+  const activeTemporaryThreadMessages = activeThread?.id
     ? temporaryThreadMessages.get(activeThread.id) ?? null
     : null;
   const emptyTitle = isTemporaryChat
@@ -685,6 +755,7 @@ function HomePageInner() {
 
         {/* Conversation area — scrollbar sits at the right edge of main */}
         <div
+          data-testid="home-scroll-container"
           ref={containerRef}
           onScroll={handleScroll}
           className="relative min-h-0 flex-1 overflow-y-auto"
@@ -804,9 +875,13 @@ function HomePageInner() {
         initialMessages={threadPanelInitialMessages}
         temporaryMessages={activeTemporaryThreadMessages}
         temporaryChatEnabled={isTemporaryChat}
+        draftInput={threadPanelDraftInput}
+        loadingQuestion={threadPanelLoadingQuestion}
         pendingMessage={pendingThreadMessage}
         onTemporaryMessagesChange={setTemporaryThreadMessagesForThread}
         onPendingMessageConsumed={clearPendingThreadMessage}
+        onThreadCreated={handleThreadCreated}
+        suspendCloseShortcut={Boolean(popoverState)}
         onClose={closeThreadPanel}
       />
 

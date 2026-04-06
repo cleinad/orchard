@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { logResolvedChatModel } from "@/app/home/components/logResolvedChatModel";
 import type { Message } from "@/app/home/types";
 import MarkdownWithThreads from "@/app/home/components/MarkdownWithThreads";
+import type { ThreadSource } from "@/app/home/components/threadTypes";
 import { markdownContentClassName } from "@/lib/markdown";
 import {
   createTemporaryId,
@@ -27,10 +28,8 @@ interface ThreadMessageRow {
   created_at: string;
 }
 
-interface ThreadInfo {
-  id: string;
-  highlightedText: string;
-  sourceMessageId: string;
+interface ThreadInfo extends ThreadSource {
+  id: string | null;
 }
 
 interface ThreadPanelProps {
@@ -45,9 +44,13 @@ interface ThreadPanelProps {
   initialMessages?: ThreadMessage[] | null;
   temporaryMessages?: ThreadMessage[] | null;
   temporaryChatEnabled: boolean;
+  draftInput?: string | null;
+  loadingQuestion?: string | null;
   pendingMessage?: string | null;
   onTemporaryMessagesChange?: (threadId: string, messages: ThreadMessage[]) => void;
   onPendingMessageConsumed?: () => void;
+  onThreadCreated?: (threadId: string, source: ThreadSource) => void;
+  suspendCloseShortcut?: boolean;
   onClose: () => void;
 }
 
@@ -105,25 +108,41 @@ export default function ThreadPanel({
   initialMessages,
   temporaryMessages,
   temporaryChatEnabled,
+  draftInput,
+  loadingQuestion,
   pendingMessage,
   onTemporaryMessagesChange,
   onPendingMessageConsumed,
+  onThreadCreated,
+  suspendCloseShortcut = false,
   onClose,
 }: ThreadPanelProps) {
   const [messages, setMessages] = useState<ThreadMessage[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const activeQuestion = isLoading
-    ? messages.findLast((message) => message.role === "user")?.content ?? null
+  const isBusy = isLoading || Boolean(loadingQuestion);
+  const activeQuestion = isBusy
+    ? messages.findLast((message) => message.role === "user")?.content ?? loadingQuestion ?? null
     : null;
   const headerTitle = activeQuestion ? toSnippet(activeQuestion) : thread?.highlightedText ?? null;
 
   useEffect(() => {
     if (!thread || !isOpen) {
-      setMessages([]);
+      setActiveThreadId(null);
       setInput("");
+      return;
+    }
+
+    setActiveThreadId(thread.id ?? null);
+    setInput(draftInput ?? "");
+  }, [thread, isOpen, draftInput]);
+
+  useEffect(() => {
+    if (!thread || !isOpen) {
+      setMessages([]);
       return;
     }
 
@@ -133,11 +152,18 @@ export default function ThreadPanel({
     }
 
     setMessages(initialMessages || []);
+  }, [thread, isOpen, initialMessages, chatMode, temporaryMessages]);
+
+  useEffect(() => {
+    if (!thread || !isOpen || chatMode === "temporary" || !activeThreadId) {
+      return;
+    }
+
     let cancelled = false;
 
     const loadMessages = async () => {
       try {
-        const res = await fetch(`/api/threads/${thread.id}/messages`);
+        const res = await fetch(`/api/threads/${activeThreadId}/messages`);
         if (res.ok) {
           const data = await res.json();
           const nextMessages = mapThreadMessages((data.messages || []) as ThreadMessageRow[]);
@@ -155,23 +181,59 @@ export default function ThreadPanel({
     return () => {
       cancelled = true;
     };
-  }, [thread, isOpen, initialMessages, chatMode, temporaryMessages]);
+  }, [thread, isOpen, chatMode, activeThreadId]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
   useEffect(() => {
-    if (isOpen) {
-      setTimeout(() => inputRef.current?.focus(), 300);
-    }
-  }, [isOpen]);
+    if (!isOpen || !thread) return;
+
+    const timer = window.setTimeout(() => inputRef.current?.focus(), 300);
+    return () => window.clearTimeout(timer);
+  }, [isOpen, thread, draftInput]);
+
+  const handleCloseShortcut = useCallback(
+    (event: KeyboardEvent) => {
+      if (suspendCloseShortcut) return;
+
+      if (
+        event.ctrlKey
+        && !event.metaKey
+        && !event.shiftKey
+        && !event.altKey
+        && event.key.toLowerCase() === "l"
+      ) {
+        event.preventDefault();
+        onClose();
+      }
+    },
+    [onClose, suspendCloseShortcut]
+  );
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    document.addEventListener("keydown", handleCloseShortcut);
+    return () => document.removeEventListener("keydown", handleCloseShortcut);
+  }, [isOpen, handleCloseShortcut]);
 
   const sendMessage = useCallback(async (overrideContent?: string) => {
     const content = overrideContent?.trim() || input.trim();
     const canUsePersistentThread = chatMode === "persistent" && conversationId;
     const canSend = chatMode === "temporary" || canUsePersistentThread;
-    if (!content || !thread || !canSend || isLoading) return;
+    if (!content || !thread || !canSend || isBusy) return;
+
+    const temporaryThreadId =
+      chatMode === "temporary"
+        ? activeThreadId ?? thread.id ?? createTemporaryId("thread")
+        : null;
+    const requestThreadId = temporaryThreadId ?? activeThreadId;
+
+    if (temporaryThreadId && temporaryThreadId !== activeThreadId) {
+      setActiveThreadId(temporaryThreadId);
+    }
 
     const userMessage: ThreadMessage = {
       id: chatMode === "temporary" ? createTemporaryId("message") : Date.now().toString(),
@@ -182,8 +244,8 @@ export default function ThreadPanel({
     const optimisticMessages = [...messages, userMessage];
 
     setMessages(optimisticMessages);
-    if (chatMode === "temporary") {
-      onTemporaryMessagesChange?.(thread.id, optimisticMessages);
+    if (chatMode === "temporary" && temporaryThreadId) {
+      onTemporaryMessagesChange?.(temporaryThreadId, optimisticMessages);
     }
     setInput("");
     setIsLoading(true);
@@ -197,9 +259,11 @@ export default function ThreadPanel({
           conversationId: chatMode === "persistent" ? conversationId : undefined,
           mentorId: mentorId ?? undefined,
           modelId,
-          threadId: thread.id,
           sourceMessageId: thread.sourceMessageId,
           highlightedText: thread.highlightedText,
+          startOffset: thread.startOffset,
+          endOffset: thread.endOffset,
+          ...(requestThreadId ? { threadId: requestThreadId } : {}),
           chatMode,
           ...(chatMode === "temporary"
             ? {
@@ -214,6 +278,16 @@ export default function ThreadPanel({
       const data = await res.json();
       logResolvedChatModel(data, 'thread');
       if (res.ok && data.message) {
+        const resolvedThreadId =
+          typeof data.threadId === "string" && data.threadId.length > 0
+            ? data.threadId
+            : requestThreadId;
+
+        if (resolvedThreadId) {
+          setActiveThreadId(resolvedThreadId);
+          onThreadCreated?.(resolvedThreadId, thread);
+        }
+
         const assistantMessage: ThreadMessage = {
           id:
             chatMode === "temporary"
@@ -230,8 +304,8 @@ export default function ThreadPanel({
               )
             : prev;
           const nextMessages = [...updated, assistantMessage];
-          if (chatMode === "temporary") {
-            onTemporaryMessagesChange?.(thread.id, nextMessages);
+          if (chatMode === "temporary" && temporaryThreadId) {
+            onTemporaryMessagesChange?.(temporaryThreadId, nextMessages);
           }
           return nextMessages;
         });
@@ -247,8 +321,8 @@ export default function ThreadPanel({
         };
         setMessages((prev) => {
           const nextMessages = [...prev, errMessage];
-          if (chatMode === "temporary") {
-            onTemporaryMessagesChange?.(thread.id, nextMessages);
+          if (chatMode === "temporary" && temporaryThreadId) {
+            onTemporaryMessagesChange?.(temporaryThreadId, nextMessages);
           }
           return nextMessages;
         });
@@ -265,8 +339,8 @@ export default function ThreadPanel({
       };
       setMessages((prev) => {
         const nextMessages = [...prev, errorMessage];
-        if (chatMode === "temporary") {
-          onTemporaryMessagesChange?.(thread.id, nextMessages);
+        if (chatMode === "temporary" && temporaryThreadId) {
+          onTemporaryMessagesChange?.(temporaryThreadId, nextMessages);
         }
         return nextMessages;
       });
@@ -274,29 +348,39 @@ export default function ThreadPanel({
       setIsLoading(false);
     }
   }, [
+    activeThreadId,
     chatMode,
     conversationId,
     conversationMessages,
     input,
+    isBusy,
     isLoading,
     memoryMode,
     mentorId,
     messages,
+    onThreadCreated,
     onTemporaryMessagesChange,
     thread,
   ]);
 
   // Auto-send pending message from popover graduation
-  const pendingHandled = useRef(false);
+  const lastPendingSignatureRef = useRef<string | null>(null);
   useEffect(() => {
-    const canUseChat = chatMode === "temporary" || conversationId;
-    if (pendingMessage && isOpen && thread && canUseChat && !pendingHandled.current) {
-      pendingHandled.current = true;
-      sendMessage(pendingMessage);
-      onPendingMessageConsumed?.();
+    const pendingSignature =
+      pendingMessage && thread
+        ? `${thread.id ?? "draft"}:${thread.sourceMessageId}:${thread.startOffset}:${thread.endOffset}:${pendingMessage}`
+        : null;
+
+    if (!pendingSignature) {
+      lastPendingSignatureRef.current = null;
+      return;
     }
-    if (!pendingMessage) {
-      pendingHandled.current = false;
+
+    const canUseChat = chatMode === "temporary" || conversationId;
+    if (isOpen && thread && canUseChat && lastPendingSignatureRef.current !== pendingSignature) {
+      lastPendingSignatureRef.current = pendingSignature;
+      void sendMessage(pendingMessage ?? undefined);
+      onPendingMessageConsumed?.();
     }
   }, [pendingMessage, isOpen, thread, conversationId, chatMode, sendMessage, onPendingMessageConsumed]);
 
@@ -319,6 +403,9 @@ export default function ThreadPanel({
       />
 
       <aside
+        data-testid="thread-panel"
+        data-state={isOpen ? "open" : "closed"}
+        aria-hidden={!isOpen}
         className={`pointer-events-auto relative flex h-full w-full max-w-[460px] flex-col bg-background shadow-xl transition-transform duration-300 ease-out ${
           isOpen ? "translate-x-0" : "translate-x-full"
         }`}
@@ -349,6 +436,7 @@ export default function ThreadPanel({
           <button
             type="button"
             onClick={onClose}
+            data-testid="thread-panel-close"
             aria-label="Close"
             className="ml-4 inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-muted transition hover:text-foreground"
           >
@@ -381,8 +469,8 @@ export default function ThreadPanel({
             </div>
           ))}
 
-          {isLoading && (
-            <div className="py-3">
+          {isBusy && (
+            <div data-testid="thread-panel-loading" className="py-3">
               <span className="text-xs font-medium tracking-wider text-muted">Thread</span>
               <div className="mt-1 flex items-center gap-1.5">
                 <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted/40" style={{ animationDelay: "0ms" }} />
@@ -399,18 +487,19 @@ export default function ThreadPanel({
           <div className="flex items-center gap-2 rounded-xl bg-surface px-4 py-2 shadow-sm ring-1 ring-border-subtle">
             <input
               ref={inputRef}
+              data-testid="thread-panel-input"
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Ask a follow-up..."
-              disabled={isLoading}
+              disabled={isBusy}
               className="w-full bg-transparent py-1 text-sm text-foreground placeholder-muted/50 outline-none disabled:opacity-50"
             />
             <button
               type="button"
               onClick={() => sendMessage()}
-              disabled={!input.trim() || isLoading}
+              disabled={!input.trim() || isBusy}
               className="flex-shrink-0 rounded-lg bg-foreground p-1.5 text-background transition-opacity hover:opacity-80 disabled:opacity-20"
             >
               <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
