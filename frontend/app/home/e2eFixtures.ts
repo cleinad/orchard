@@ -17,8 +17,21 @@ const INLINE_THREADS_MESSAGE_CONTENT = [
 ].join(' ');
 const INLINE_THREADS_ORDERED_LIST_TEXT = 'microtasks run before the browser paints the next frame';
 const INLINE_THREADS_ORDERED_LIST_CONTENT = `3. ${INLINE_THREADS_ORDERED_LIST_TEXT}`;
+const INLINE_THREADS_REPEATED_TEXT = 'before paint';
+const INLINE_THREADS_REPEATED_CONTENT =
+  'One update can happen before paint, and another can also happen before paint when microtasks keep draining.';
+const INLINE_THREADS_REPEATED_SECOND_OFFSET = INLINE_THREADS_REPEATED_CONTENT.indexOf(
+  INLINE_THREADS_REPEATED_TEXT,
+  INLINE_THREADS_REPEATED_CONTENT.indexOf(INLINE_THREADS_REPEATED_TEXT) + 1
+);
+const INLINE_THREADS_BULLET_LIST_TEXT =
+  'microtasks can delay visible paint until queued work finishes';
+const INLINE_THREADS_BULLET_LIST_CONTENT = `- ${INLINE_THREADS_BULLET_LIST_TEXT}`;
 
-const FIXTURE_MESSAGES: Record<'temporary' | 'persistent' | 'orderedList', Message[]> = {
+const FIXTURE_MESSAGES: Record<
+  'temporary' | 'persistent' | 'orderedList' | 'repeatedText' | 'bulletList',
+  Message[]
+> = {
   temporary: [
     {
       id: 'assistant-inline-threads-fixture',
@@ -40,6 +53,22 @@ const FIXTURE_MESSAGES: Record<'temporary' | 'persistent' | 'orderedList', Messa
       id: 'assistant-inline-threads-ordered-list-fixture',
       role: 'assistant',
       content: INLINE_THREADS_ORDERED_LIST_CONTENT,
+      timestamp: new Date('2026-04-05T09:00:00.000Z'),
+    },
+  ],
+  repeatedText: [
+    {
+      id: 'assistant-inline-threads-repeated-text-fixture',
+      role: 'assistant',
+      content: INLINE_THREADS_REPEATED_CONTENT,
+      timestamp: new Date('2026-04-05T09:00:00.000Z'),
+    },
+  ],
+  bulletList: [
+    {
+      id: 'assistant-inline-threads-bullet-list-fixture',
+      role: 'assistant',
+      content: INLINE_THREADS_BULLET_LIST_CONTENT,
       timestamp: new Date('2026-04-05T09:00:00.000Z'),
     },
   ],
@@ -70,6 +99,36 @@ const HOME_E2E_FIXTURES: Record<string, HomeE2eFixture> = {
         highlightedText: `3. ${INLINE_THREADS_ORDERED_LIST_TEXT}`,
         startOffset: 1,
         endOffset: INLINE_THREADS_ORDERED_LIST_TEXT.length + 1,
+      },
+    ],
+  },
+  'inline-threads-repeated-text': {
+    key: 'inline-threads-repeated-text',
+    chatMode: 'persistent',
+    conversationId: 'conversation-inline-threads-repeated-text-fixture',
+    messages: FIXTURE_MESSAGES.repeatedText,
+    threads: [
+      {
+        threadId: 'persisted-thread-repeated-text-1',
+        sourceMessageId: 'assistant-inline-threads-repeated-text-fixture',
+        highlightedText: INLINE_THREADS_REPEATED_TEXT,
+        startOffset: INLINE_THREADS_REPEATED_SECOND_OFFSET,
+        endOffset: INLINE_THREADS_REPEATED_SECOND_OFFSET + INLINE_THREADS_REPEATED_TEXT.length,
+      },
+    ],
+  },
+  'inline-threads-bullet-list': {
+    key: 'inline-threads-bullet-list',
+    chatMode: 'persistent',
+    conversationId: 'conversation-inline-threads-bullet-list-fixture',
+    messages: FIXTURE_MESSAGES.bulletList,
+    threads: [
+      {
+        threadId: 'persisted-thread-bullet-list-1',
+        sourceMessageId: 'assistant-inline-threads-bullet-list-fixture',
+        highlightedText: `• ${INLINE_THREADS_BULLET_LIST_TEXT}`,
+        startOffset: 1,
+        endOffset: INLINE_THREADS_BULLET_LIST_TEXT.length + 1,
       },
     ],
   },
