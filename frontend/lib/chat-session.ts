@@ -18,8 +18,45 @@ export function toChatHistory(
   }));
 }
 
-export function createTemporaryId(prefix: 'message' | 'thread'): string {
+export function createTemporaryId(prefix: string): string {
   return `temp-${prefix}-${Date.now().toString(36)}-${Math.random()
     .toString(36)
     .slice(2, 8)}`;
+}
+
+export function fallbackChatTitleFromMessage(
+  message: string,
+  emptyTitle = 'New chat'
+): string {
+  const normalized = message.replace(/\s+/g, ' ').trim();
+
+  if (!normalized) {
+    return emptyTitle;
+  }
+
+  if (normalized.length <= 60) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, 57).trimEnd()}...`;
+}
+
+export function sanitizeGeneratedChatTitle(
+  title: string | null | undefined,
+  fallback: string
+): string {
+  const normalized = (title ?? '')
+    .replace(/^["'\s]+|["'\s]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!normalized) {
+    return fallback;
+  }
+
+  if (normalized.length <= 60) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, 57).trimEnd()}...`;
 }

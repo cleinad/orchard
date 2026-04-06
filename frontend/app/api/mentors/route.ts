@@ -55,54 +55,11 @@ export async function GET() {
       return NextResponse.json({ error: mentorsError.message }, { status: 500 });
     }
 
-    const { data: conversations, error: conversationsError } = await supabase
-      .from('conversations')
-      .select('id, mentor_id, updated_at')
-      .eq('user_id', user.id)
-      .not('mentor_id', 'is', null);
+    const sortedMentors = [...(mentors || [])].sort((a, b) =>
+      a.name.localeCompare(b.name)
+    );
 
-    if (conversationsError) {
-      return NextResponse.json({ error: conversationsError.message }, { status: 500 });
-    }
-
-    const conversationByMentor = new Map<
-      string,
-      { id: string; updated_at: string }
-    >();
-    for (const conversation of conversations || []) {
-      if (!conversation.mentor_id) continue;
-      conversationByMentor.set(conversation.mentor_id, {
-        id: conversation.id,
-        updated_at: conversation.updated_at,
-      });
-    }
-
-    const withConversation = (mentors || []).map((mentor) => {
-      const conversation = conversationByMentor.get(mentor.id);
-      return {
-        ...mentor,
-        conversation_id: conversation?.id ?? null,
-        conversation_updated_at: conversation?.updated_at ?? null,
-      };
-    });
-
-    const active = withConversation
-      .filter((mentor) => mentor.conversation_id)
-      .sort((a, b) => {
-        const aTime = a.conversation_updated_at
-          ? new Date(a.conversation_updated_at).getTime()
-          : 0;
-        const bTime = b.conversation_updated_at
-          ? new Date(b.conversation_updated_at).getTime()
-          : 0;
-        return bTime - aTime;
-      });
-
-    const inactive = withConversation
-      .filter((mentor) => !mentor.conversation_id)
-      .sort((a, b) => a.name.localeCompare(b.name));
-
-    return NextResponse.json([...active, ...inactive]);
+    return NextResponse.json(sortedMentors);
   } catch (error) {
     console.error('Mentors GET error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

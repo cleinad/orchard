@@ -1,16 +1,44 @@
 'use client';
 
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import type { ConversationListItem } from './ConversationsPanel';
+import type {
+  ConversationListItem,
+  SidebarMentorGroup,
+} from '@/app/home/types';
+
+interface DraftChatListItem {
+  id: string;
+  mentor_id: string | null;
+  title: string;
+  updated_at: string;
+}
+
+interface TemporaryChatListItem {
+  id: string;
+  title: string;
+  updated_at: string;
+}
 
 interface Props {
   isOpen: boolean;
   onClose: () => void;
-  conversations: ConversationListItem[];
-  activeConversationId: string | null;
+  mentorGroups: SidebarMentorGroup[];
+  draftChats: DraftChatListItem[];
+  temporaryChats: TemporaryChatListItem[];
+  selectedConversationId: string | null;
+  selectedDraftId: string | null;
+  selectedTempChatId: string | null;
+  selectedMentorId: string | null;
   onSelectConversation: (conversation: ConversationListItem) => void;
-  onNewDefaultChat: () => void;
+  onSelectDraft: (draftId: string) => void;
+  onSelectTemporaryChat: (tempChatId: string) => void;
+  onCreateDraft: (mentorId: string | null) => void;
+  onCloseTemporaryChat: (tempChatId: string) => void;
+}
+
+function getMentorKey(mentorId: string | null) {
+  return mentorId ?? '__keen__';
 }
 
 function formatDate(input: string): string {
@@ -26,12 +54,22 @@ function formatDate(input: string): string {
 export default function SidePanel({
   isOpen,
   onClose,
-  conversations,
-  activeConversationId,
+  mentorGroups,
+  draftChats,
+  temporaryChats,
+  selectedConversationId,
+  selectedDraftId,
+  selectedTempChatId,
+  selectedMentorId,
   onSelectConversation,
-  onNewDefaultChat,
+  onSelectDraft,
+  onSelectTemporaryChat,
+  onCreateDraft,
+  onCloseTemporaryChat,
 }: Props) {
   const router = useRouter();
+  const [expandedMentors, setExpandedMentors] = useState<Record<string, boolean>>({});
+  const [visibleCounts, setVisibleCounts] = useState<Record<string, number>>({});
 
   const handleEscape = useCallback(
     (event: KeyboardEvent) => {
@@ -47,15 +85,64 @@ export default function SidePanel({
     }
   }, [isOpen, handleEscape]);
 
+  useEffect(() => {
+    if (!selectedMentorId && !selectedDraftId && !selectedConversationId) {
+      return;
+    }
+
+    const mentorKey = getMentorKey(selectedMentorId);
+    const draftByMentorKey = new Map(
+      draftChats.map((draft) => [getMentorKey(draft.mentor_id), draft])
+    );
+    const group = mentorGroups.find((entry) => entry.mentor_id === selectedMentorId);
+    if (!group) {
+      return;
+    }
+
+    setExpandedMentors((prev) => ({ ...prev, [mentorKey]: true }));
+
+    const items = [
+      ...(draftByMentorKey.get(mentorKey)
+        ? [{ kind: 'draft' as const, id: draftByMentorKey.get(mentorKey)!.id }]
+        : []),
+      ...group.conversations.map((conversation) => ({
+        kind: 'conversation' as const,
+        id: conversation.id,
+      })),
+    ];
+
+    const selectedIndex = items.findIndex((item) =>
+      item.kind === 'draft'
+        ? item.id === selectedDraftId
+        : item.id === selectedConversationId
+    );
+
+    if (selectedIndex >= 0) {
+      const minimumVisible = selectedIndex < 3 ? 3 : Math.max(10, selectedIndex + 1);
+      setVisibleCounts((prev) => ({
+        ...prev,
+        [mentorKey]: Math.max(prev[mentorKey] ?? 3, minimumVisible),
+      }));
+    }
+  }, [
+    draftChats,
+    mentorGroups,
+    selectedConversationId,
+    selectedDraftId,
+    selectedMentorId,
+  ]);
+
+  const draftByMentorKey = new Map(
+    draftChats.map((draft) => [getMentorKey(draft.mentor_id), draft])
+  );
+
   return (
     <div
-      // Mobile: full-screen overlay. Desktop: docked left column (so the chat can be pushed right).
       className={`fixed inset-0 z-40 transition-all duration-300 lg:inset-y-0 lg:left-0 lg:right-auto lg:w-[380px] ${
         isOpen ? 'pointer-events-auto' : 'pointer-events-none'
       }`}
     >
       <div
-        // The backdrop is only for the mobile overlay variant.
         className={`absolute inset-0 bg-foreground/[0.06] backdrop-blur-sm transition-opacity duration-300 dark:bg-black/40 lg:hidden ${
           isOpen ? 'opacity-100' : 'opacity-0'
         }`}
@@ -76,9 +163,7 @@ export default function SidePanel({
         >
           <div className="px-6 pb-3 pt-6">
             <div className="flex items-center justify-between">
-              <h2 className="font-heading text-lg text-foreground">
-                Conversations
-              </h2>
+              <h2 className="font-heading text-lg text-foreground">Chats</h2>
               <button
                 onClick={onClose}
                 className="rounded-full p-1.5 text-muted/55 transition-colors hover:text-foreground"
@@ -101,109 +186,251 @@ export default function SidePanel({
             </div>
           </div>
 
-          <div className="px-4 pb-2">
-            <button
-              type="button"
-              onClick={() => {
-                onNewDefaultChat();
-                onClose();
-              }}
-              className="flex w-full items-center justify-center gap-2 rounded-xl border border-border-subtle px-4 py-2.5 text-[12px] font-medium text-muted transition-colors duration-150 hover:border-foreground/[0.12] hover:text-foreground"
-            >
-              <svg
-                className="h-3.5 w-3.5"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M12 4.5v15m7.5-7.5h-15"
-                />
-              </svg>
-              New Chat
-            </button>
-          </div>
-
-          <div className="px-4 pb-3">
-            <button
-              type="button"
-              onClick={() => {
-                router.push('/memory');
-                onClose();
-              }}
-              className="flex w-full items-center gap-2 rounded-xl px-4 py-2.5 text-[12px] font-semibold text-foreground/84 transition-colors hover:bg-foreground/[0.04] hover:text-foreground"
-              aria-label="Open memories"
-              title="Open memories"
-            >
-              <svg
-                className="h-4 w-4 text-muted"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.75"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M7.5 3.75h9A2.25 2.25 0 0118.75 6v14.25l-6.75-3-6.75 3V6A2.25 2.25 0 017.5 3.75z"
-                />
-              </svg>
-              <span>Memories</span>
-            </button>
-          </div>
-
-          <div className="mx-6 h-px bg-border-subtle" />
-
           <div className="side-panel-scroll-area relative min-h-0 flex-1">
-            <div className="side-panel-scroll h-full overflow-y-auto px-3 py-2">
-              {conversations.length === 0 ? (
-                <div className="px-3 py-10 text-center text-sm text-muted">
-                  No conversations yet.
-                </div>
-              ) : (
-                <div>
-                  {conversations.map((conversation) => {
-                    const isActive = activeConversationId === conversation.id;
-                    const accent = conversation.mentor_accent_color || '#94a3b8';
-                    return (
-                      <button
-                        key={conversation.id}
-                        type="button"
-                        onClick={() => {
-                          onSelectConversation(conversation);
-                          onClose();
-                        }}
-                        className={`group w-full rounded-xl px-3 py-2.5 text-left transition-colors duration-150 ${
-                          isActive
-                            ? 'bg-foreground/[0.06]'
-                            : 'hover:bg-foreground/[0.04]'
+            <div className="side-panel-scroll h-full overflow-y-auto px-4 pb-6">
+              <button
+                type="button"
+                onClick={() => {
+                  router.push('/memory');
+                  onClose();
+                }}
+                className="flex w-full items-center justify-between rounded-2xl px-3 py-3 text-left transition-colors hover:bg-foreground/[0.04]"
+              >
+                <span className="font-heading text-[15px] text-foreground">Memories</span>
+                <svg
+                  className="h-4 w-4 text-muted"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.75"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M13.5 6.75L18.75 12m0 0l-5.25 5.25M18.75 12H5.25"
+                  />
+                </svg>
+              </button>
+
+              <div className="mx-2 h-px bg-border-subtle" />
+
+              {temporaryChats.length > 0 && (
+                <>
+                  <div className="px-3 pb-2 pt-4 text-[11px] font-medium uppercase tracking-[0.18em] text-muted/70">
+                    Temporary
+                  </div>
+                  <div className="space-y-1">
+                    {temporaryChats.map((chat) => {
+                      const isActive = selectedTempChatId === chat.id;
+                      return (
+                        <div
+                          key={chat.id}
+                          className={`group flex items-center gap-3 rounded-2xl px-3 py-2.5 transition-colors ${
+                            isActive ? 'bg-foreground/[0.06]' : 'hover:bg-foreground/[0.04]'
+                          }`}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => onSelectTemporaryChat(chat.id)}
+                            className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                          >
+                            <span className="inline-flex items-center rounded-full border border-border-subtle px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-muted/80">
+                              Temp
+                            </span>
+                            <span className="min-w-0 flex-1 truncate text-sm text-foreground">
+                              {chat.title}
+                            </span>
+                            <span className="flex-shrink-0 text-[11px] text-muted">
+                              {formatDate(chat.updated_at)}
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onCloseTemporaryChat(chat.id)}
+                            className="rounded-full p-1 text-muted/60 transition-colors hover:text-foreground"
+                            aria-label={`Close ${chat.title}`}
+                          >
+                            <svg
+                              className="h-3.5 w-3.5"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="1.5"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d="M6 18L18 6M6 6l12 12"
+                              />
+                            </svg>
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="mx-2 mt-4 h-px bg-border-subtle" />
+                </>
+              )}
+
+              <div className="pt-4">
+                {mentorGroups.map((group) => {
+                  const mentorKey = getMentorKey(group.mentor_id);
+                  const draft = draftByMentorKey.get(mentorKey) || null;
+                  const isExpanded = expandedMentors[mentorKey] || false;
+                  const visibleCount = visibleCounts[mentorKey] ?? 3;
+                  const visibleConversations = isExpanded
+                    ? group.conversations.slice(0, visibleCount)
+                    : [];
+                  const hasMore = group.conversations.length > visibleConversations.length;
+                  const isSelectedMentor =
+                    selectedMentorId === group.mentor_id &&
+                    (selectedConversationId !== null || selectedDraftId !== null);
+
+                  return (
+                    <div key={mentorKey} className="py-1">
+                      <div
+                        className={`flex items-center gap-2 rounded-2xl px-3 py-2 transition-colors ${
+                          isSelectedMentor ? 'bg-foreground/[0.05]' : 'hover:bg-foreground/[0.03]'
                         }`}
                       >
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex min-w-0 items-center gap-2">
-                            <span
-                              className="h-2 w-2 flex-shrink-0 rounded-full"
-                              style={{ backgroundColor: accent }}
-                            />
-                            <span className="truncate font-heading text-[13px] text-foreground">
-                              {conversation.mentor_name}
-                            </span>
-                          </div>
-                          <span className="flex-shrink-0 text-[11px] text-muted">
-                            {formatDate(conversation.updated_at)}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setExpandedMentors((prev) => ({
+                              ...prev,
+                              [mentorKey]: !isExpanded,
+                            }))
+                          }
+                          className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                        >
+                          <span
+                            className="h-2.5 w-2.5 flex-shrink-0 rounded-full"
+                            style={{
+                              backgroundColor: group.mentor_accent_color || '#94a3b8',
+                            }}
+                          />
+                          <span className="min-w-0 flex-1 truncate font-heading text-[15px] text-foreground">
+                            {group.mentor_name}
                           </span>
+                          <svg
+                            className={`h-4 w-4 flex-shrink-0 text-muted transition-transform ${
+                              isExpanded ? 'rotate-90' : ''
+                            }`}
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.5"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="M9 5.25L15 12l-6 6.75"
+                            />
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onCreateDraft(group.mentor_id)}
+                          className="inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-muted transition-colors hover:bg-foreground/[0.05] hover:text-foreground"
+                          aria-label={`New chat with ${group.mentor_name}`}
+                        >
+                          <svg
+                            className="h-4 w-4"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.5"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="M12 4.5v15m7.5-7.5h-15"
+                            />
+                          </svg>
+                        </button>
+                      </div>
+
+                      {isExpanded && (
+                        <div className="ml-6 mt-1 space-y-0.5 border-l border-border-subtle/80 pl-4">
+                          {draft && (
+                            <button
+                              type="button"
+                              onClick={() => onSelectDraft(draft.id)}
+                              className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2 text-left transition-colors ${
+                                selectedDraftId === draft.id
+                                  ? 'bg-foreground/[0.06]'
+                                  : 'hover:bg-foreground/[0.04]'
+                              }`}
+                            >
+                              <span className="truncate text-sm text-foreground">
+                                {draft.title}
+                              </span>
+                              <span className="flex-shrink-0 text-[11px] text-muted">
+                                {formatDate(draft.updated_at)}
+                              </span>
+                            </button>
+                          )}
+
+                          {visibleConversations.map((conversation) => (
+                            <button
+                              key={conversation.id}
+                              type="button"
+                              onClick={() => onSelectConversation(conversation)}
+                              className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2 text-left transition-colors ${
+                                selectedConversationId === conversation.id
+                                  ? 'bg-foreground/[0.06]'
+                                  : 'hover:bg-foreground/[0.04]'
+                              }`}
+                            >
+                              <span className="truncate text-sm text-foreground/88">
+                                {conversation.title}
+                              </span>
+                              <span className="flex-shrink-0 text-[11px] text-muted">
+                                {formatDate(conversation.updated_at)}
+                              </span>
+                            </button>
+                          ))}
+
+                          {group.conversations.length > 3 && (
+                            <div className="flex items-center gap-3 px-3 pt-1">
+                              {hasMore ? (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setVisibleCounts((prev) => ({
+                                      ...prev,
+                                      [mentorKey]:
+                                        (prev[mentorKey] ?? 3) <= 3
+                                          ? 10
+                                          : (prev[mentorKey] ?? 3) + 10,
+                                    }))
+                                  }
+                                  className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted transition-colors hover:text-foreground"
+                                >
+                                  Show more
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setVisibleCounts((prev) => ({
+                                      ...prev,
+                                      [mentorKey]: 3,
+                                    }))
+                                  }
+                                  className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted transition-colors hover:text-foreground"
+                                >
+                                  Show less
+                                </button>
+                              )}
+                            </div>
+                          )}
                         </div>
-                        <p className="mt-0.5 line-clamp-2 pl-4 text-[11px] leading-snug text-muted">
-                          {conversation.preview || conversation.title || 'No messages yet'}
-                        </p>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
 
             <div

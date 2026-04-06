@@ -25,8 +25,6 @@ export interface MentorListItem {
   is_builtin: boolean;
   accent_color: string | null;
   avatar_url: string | null;
-  conversation_id: string | null;
-  conversation_updated_at?: string | null;
 }
 
 export interface MentorConversationMeta {

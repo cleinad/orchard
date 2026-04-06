@@ -7,20 +7,20 @@ import { useLearningMode } from "./LearningModeContext";
 
 type HomeHeaderProps = {
   activeName: string;
-  temporaryChatEnabled: boolean;
+  isTemporaryChat: boolean;
   temporaryMemoryMode: TemporaryMemoryMode;
   onOpenSidePanel: () => void;
   onBrowseMentors: () => void;
-  onToggleTemporaryChat: () => void;
+  onCreateTemporaryChat: () => void;
 };
 
 export default function HomeHeader({
   activeName,
-  temporaryChatEnabled,
+  isTemporaryChat,
   temporaryMemoryMode,
   onOpenSidePanel,
   onBrowseMentors,
-  onToggleTemporaryChat,
+  onCreateTemporaryChat,
 }: HomeHeaderProps) {
   const { learningMode, toggleLearningMode } = useLearningMode();
   const temporaryMemoryModeLabel =
@@ -53,7 +53,7 @@ export default function HomeHeader({
         <div className="min-w-0">
           <div className="mt-1 flex items-center gap-2">
             <span className="truncate font-heading text-xl text-foreground">{activeName}</span>
-            {temporaryChatEnabled && (
+            {isTemporaryChat && (
               <div className="flex items-center gap-1.5 text-[11px] font-medium text-muted">
                 <span className="whitespace-nowrap">Temporary</span>
                 <span aria-hidden="true" className="text-muted/70">
@@ -90,14 +90,13 @@ export default function HomeHeader({
           </button>
         </Tooltip>
 
-        <Tooltip content="Temporary chat">
+        <Tooltip content="New temporary chat">
           <button
             type="button"
-            onClick={onToggleTemporaryChat}
-            aria-label="Toggle temporary chat"
-            aria-pressed={temporaryChatEnabled}
+            onClick={onCreateTemporaryChat}
+            aria-label="New temporary chat"
             className={`inline-flex h-10 w-10 items-center justify-center rounded-lg border transition ${
-              temporaryChatEnabled
+              isTemporaryChat
                 ? "border-foreground/[0.08] bg-foreground/[0.05] text-foreground shadow-sm"
                 : "border-transparent text-muted hover:text-foreground"
             }`}
