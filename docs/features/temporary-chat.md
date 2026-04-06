@@ -2,191 +2,107 @@
 
 ## Overview
 
-Temporary chat is an incognito-style chat mode on the home screen.
+Temporary chat is now a first-class chat type inside the `/home` multi-chat system, not a global on/off mode.
 
-- The user can toggle temporary mode from the header.
-- In temporary mode, the chat is **not saved**.
-- Temporary threads are also **not saved**.
-- The user can choose between:
-  - `use_existing`: existing memories may be used for context, but nothing from the session is retained
-  - `off`: no memory is read and no memory is written
+For the full home navigation model, see:
 
-This is intentionally a true no-persistence mode. It does **not** create rows and then clean them up later.
+- [`multi-chat-home.md`](/home/daniel-chen/Documents/code/projects/keen-new-tab/docs/features/multi-chat-home.md)
+
+Temporary chats are session-scoped Keen-style chats that:
+
+- never write to the database
+- can exist multiple times at once
+- appear in the sidebar under `Temporary`
+- persist across reloads in the same browser tab via `sessionStorage`
+- disappear when closed or when the browser tab or session ends
+
+They are intentionally a real no-persistence path, not a "write then delete later" path.
 
 ## User-Facing Behavior
 
-- Header shows a dedicated temporary-chat toggle with an incognito-style icon.
-- While temporary mode is active, the header shows soft inline metadata beside the active name: `Temporary / Uses memories` or `Temporary / No memory`.
-- A fresh temporary session shows a light onboarding card above the composer explaining that the conversation will not be saved.
-- The user chooses the memory mode at the start of the temporary session.
-- After the first submitted message, the temporary intro card disappears entirely and the chosen memory mode remains fixed for that session.
-- Switching between persistent and temporary mode clears the current session.
-- Temporary chats do not appear in the sidebar.
-- Refreshing or leaving the page drops the temporary session.
+### Entry point
 
-## Why It Works This Way
+- The header incognito button creates and selects a new temporary chat.
+- Creating a temporary chat does not toggle the whole page into a separate mode.
+- The selected chat simply becomes a temporary chat session.
 
-The persistent chat system is backed by Supabase tables (`conversations`, `messages`, `threads`) and the memory pipeline writes new memory asynchronously after each response.
+### Sidebar behavior
 
-For temporary chat, “write then delete” would have been the wrong model because:
+- Temporary chats appear above mentors in their own section.
+- Each temporary chat is labeled `Temp`.
+- Each temporary chat can be selected directly from the sidebar.
+- Each temporary chat can be closed directly from the sidebar.
+- Temporary chats are not associated with mentor rows.
 
-- it breaks the promise if cleanup fails
-- it complicates sidebar/history filtering
-- it creates avoidable persistence risk
+### Header and composer behavior
 
-Instead, temporary chat is handled as:
+- When a temporary chat is selected, the header shows `Temporary / Uses memories` or `Temporary / No memory` beside `Keen`.
+- A brand-new temporary chat shows a temporary intro card above the composer.
+- That intro card is shown only while the selected temporary chat has no messages.
+- The intro card lets the user choose the memory mode for that specific temporary chat.
+- After the first submitted message, the intro card disappears for that chat.
 
-- **server-side generation with optional memory read**
-- **client-side conversation state**
-- **client-side thread state**
-- **zero database writes**
+### Memory modes
+
+Each temporary chat has its own `memoryMode`:
+
+- `use_existing`: existing saved memories may be used for context, but nothing from the temporary chat is retained
+- `off`: no memory is read and no memory is written
+
+This choice is scoped to the selected temporary chat, not to the page globally.
+
+### Titles
+
+- New temporary chats start as `Temporary chat`.
+- After the first top-level exchange, the client uses the returned generated title when available.
+- If no generated title is returned, the client falls back to a truncated version of the first user message.
 
 ## Architecture
 
-### Shared Session Types
+### Client state
 
-`frontend/lib/chat-session.ts`
+Temporary chat state lives in the home layer and is stored as a collection of independent sessions.
 
-Introduces shared types/constants used by both client and server:
+Each session carries:
 
-- `ChatMode = 'persistent' | 'temporary'`
-- `TemporaryMemoryMode = 'use_existing' | 'off'`
-- `ChatHistoryMessage`
-- `toChatHistory()`
-- `createTemporaryId()`
-
-This is the contract that lets the client send temporary history to `/api/chat` without pretending that a real conversation or thread exists in the database.
-
-### Home Page State
-
-`frontend/app/home/page.tsx`
-
-This is the main orchestration point.
-
-It now manages two parallel modes:
-
-- **persistent mode**
-  - uses existing `useHomeData()` state
-  - loads/saves conversations and messages normally
-- **temporary mode**
-  - keeps `temporaryMessages` in React state
-  - keeps `temporaryThreadsMap` in React state
-  - keeps `temporaryThreadMessages` in React state
-
-Important behavior in this file:
-
-- toggling temporary mode resets the current chat UI and starts clean
-- persistent sidebar selection forces `chatMode='persistent'`
-- `activeMessages`, `activeThreadsMap`, and `activeConversationId` are derived from the current mode
-- the large temporary intro card is only shown when `activeMessages.length === 0`
-
-### Header / Composer UI
-
-- `frontend/app/home/components/HomeHeader.tsx`
-- `frontend/app/home/components/ChatComposer.tsx`
-
-Header:
-
-- adds the temporary toggle beside the marketplace button
-- keeps `Temporary / {memory mode}` as soft inline text beside the active name instead of persistent pills
-- uses the merged tooltip-based header controls from `main`
-
-Composer:
-
-- keeps the compact chatbar layout from `main`
-- shows the temporary intro card only for a brand-new temporary session
-- exposes the `use_existing` / `off` toggle only inside that intro card
-- removes all temporary memory controls after the first submitted message
-
-### Temporary Threads
-
-- `frontend/app/home/components/TextSelectionPopover.tsx`
-- `frontend/app/home/components/ThreadPanel.tsx`
-
-Persistent threads already existed and were DB-backed.
-
-Temporary threads intentionally do **not** touch the `threads` table.
-
-Instead:
-
-- thread ids are client-generated with `createTemporaryId('thread')`
-- thread message ids are client-generated with `createTemporaryId('message')`
-- thread metadata lives in `temporaryThreadsMap`
-- thread message history lives in `temporaryThreadMessages`
-
-The popover and thread panel still call `/api/chat`, but in temporary mode they send:
-
-- `chatMode`
+- `id`
+- `title`
 - `memoryMode`
-- main conversation `history`
-- thread-specific `threadHistory`
+- `createdAt`
+- `updatedAt`
+- `messages`
+- `threadsMap`
+- `threadMessages`
 
-That gives the server enough context to answer, while keeping the source of truth local to the browser session.
+The collection is serialized into `sessionStorage` under:
+
+```ts
+keen-home-temp-chats-v1
+```
+
+That gives the desired behavior:
+
+- survives reload in the same tab
+- does not sync across tabs
+- does not touch the database
+
+### Temporary threads
+
+Temporary threads reuse the inline-thread UI, but remain local-only.
+
+- thread ids are client-generated
+- thread message ids are client-generated
+- thread metadata lives in the selected temporary chat's `threadsMap`
+- thread message history lives in the selected temporary chat's `threadMessages`
+- no `threads` rows are created for temporary chats
 
 ## Chat API Behavior
 
-`frontend/app/api/chat/route.ts`
-
-The chat route now supports both persistent and temporary execution paths.
-
-### Persistent Path
-
-Current behavior is preserved:
-
-- validate/create conversation
-- create/validate thread when needed
-- write user message
-- load DB history
-- read memory context
-- generate reply
-- write assistant message
-- schedule `processMemoryV2()` in `after()`
-
-### Temporary Path
-
-Temporary requests send:
-
-- `chatMode: 'temporary'`
-- `memoryMode: 'use_existing' | 'off'`
-- `history`
-- optional `threadHistory`
-
-The route then:
-
-- authenticates the user normally
-- optionally loads mentor config
-- does **not** create or validate a conversation row
-- does **not** create or validate a thread row
-- does **not** write user or assistant messages
-- does **not** call `processMemoryV2()`
-
-Memory behavior:
-
-- `use_existing`: load memory context with `loadMemoryContextV2()`
-- `off`: skip memory loading entirely
-
-Generation still uses the same prompt/search stack, so the model behavior remains close to normal chat.
-
-## Key Files
-
-| File | Role |
-|------|------|
-| `frontend/lib/chat-session.ts` | Shared temporary chat/session types and helpers |
-| `frontend/app/home/page.tsx` | Main mode switch, temporary state, request payload construction |
-| `frontend/app/home/components/HomeHeader.tsx` | Header toggle + inline temporary mode metadata |
-| `frontend/app/home/components/ChatComposer.tsx` | Temporary intro card layered onto the compact merged chatbar UI |
-| `frontend/app/home/components/TextSelectionPopover.tsx` | Temporary thread creation via local ids + temporary history payloads |
-| `frontend/app/home/components/ThreadPanel.tsx` | Temporary thread message handling and compact `Temporary` indicator |
-| `frontend/app/api/chat/route.ts` | Persistent vs temporary branching, optional memory read, zero-write temporary path |
-
-## Temporary Request Shape
-
-In temporary mode, the client sends enough context for the server to answer without DB history:
+Temporary requests send enough context for the server to answer without any persistent conversation record:
 
 ```ts
 {
   message: string,
-  mentorId?: string,
   chatMode: 'temporary',
   memoryMode: 'use_existing' | 'off',
   history: Array<{ role: 'user' | 'assistant'; content: string }>,
@@ -198,20 +114,31 @@ In temporary mode, the client sends enough context for the server to answer with
 }
 ```
 
-The route sanitizes these arrays before using them.
+On the temporary path, `POST /api/chat`:
 
-## Limitations / Intentional Tradeoffs
+- authenticates the user normally
+- optionally loads existing memory when `memoryMode = 'use_existing'`
+- does not create or validate a conversation row
+- does not create or validate a thread row
+- does not write user or assistant messages
+- does not schedule memory extraction
+- can still generate a title for the first top-level exchange and return it to the client
 
-- Temporary chats disappear on refresh/navigation.
-- Temporary threads are session-local only.
-- Temporary mode is not represented in the database at all.
-- Existing ESLint setup in this repo was unable to run because `eslint-config-next/core-web-vitals` could not be resolved locally; TypeScript and tests were used for verification instead.
+## Key Files
 
-## Verification
+| File | Role |
+|------|------|
+| `frontend/lib/chat-session.ts` | Shared temporary ids, memory-mode types, and title fallback helpers |
+| `frontend/app/home/page.tsx` | Temporary chat collection, session storage, selection, and client-side updates |
+| `frontend/app/home/components/SidePanel.tsx` | Temporary section rendering, selection, and close behavior |
+| `frontend/app/home/components/HomeHeader.tsx` | `New temporary chat` entry point and temporary metadata beside `Keen` |
+| `frontend/app/home/components/ChatComposer.tsx` | Temporary intro card and per-chat memory mode controls |
+| `frontend/app/home/components/TextSelectionPopover.tsx` | Temporary thread creation payloads |
+| `frontend/app/home/components/ThreadPanel.tsx` | Temporary thread interaction UI |
+| `frontend/app/api/chat/route.ts` | Zero-write temporary path with optional memory read |
 
-Verified during implementation:
+## Intentional Limits
 
-- `./node_modules/.bin/tsc --noEmit`
-- `npm test`
-
-No schema migration was required for this feature.
+- Temporary chats cannot be converted into persistent chats in the current version.
+- Temporary chats do not affect mentor ordering in the sidebar.
+- Temporary chats are session-local only.

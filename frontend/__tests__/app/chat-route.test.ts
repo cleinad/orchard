@@ -35,7 +35,11 @@ vi.mock('@/lib/memory-agent', () => ({
 }));
 
 vi.mock('@/lib/models', () => ({
-  CHAT_MODEL: 'mock-chat-model',
+  getChatModel: vi.fn(() => 'mock-chat-model'),
+  resolveChatModelSelection: vi.fn(() => ({
+    id: 'gpt-5-mini',
+    provider: 'openai',
+  })),
 }));
 
 vi.mock('@/lib/chat-search', () => ({
