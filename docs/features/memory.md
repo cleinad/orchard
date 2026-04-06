@@ -112,14 +112,15 @@ Semantic scoring uses OpenAI `text-embedding-3-small` embeddings. The system fir
 `processMemoryV2()` in `memory-agent.ts`:
 
 1. Takes the last 8 conversation messages + latest assistant response
-2. Calls `generateObject()` with `MEMORY_MODEL` (Claude Haiku 4.5) using a structured JSON schema
-3. Haiku outputs up to 16 candidates, each with: `type`, `text`, `stability`, `sensitivity`, `salience`, `confidence`, `action` (`insert`/`update`/`ignore`)
-4. Deterministic merge logic:
+2. Runs with the already-authenticated Supabase server client from the chat request, so writes stay scoped by the signed-in user's RLS policies
+3. Calls `generateObject()` with `MEMORY_MODEL` (Claude Haiku 4.5) using a structured JSON schema
+4. Haiku outputs up to 16 candidates, each with: `type`, `text`, `stability`, `sensitivity`, `salience`, `confidence`, `action` (`insert`/`update`/`ignore`)
+5. Deterministic merge logic:
    - Finds exact matches by `normalized_text` within the same `type` — updates in place
    - Finds near-duplicates via Jaccard similarity (threshold 0.86) — merges
    - For `action=update` with moderate similarity (threshold 0.45) — supersedes old item and inserts new
    - Otherwise inserts as new item
-5. Generates embeddings for all new/updated items via `upsertMemoryItemEmbeddings()`
+6. Generates embeddings for all new/updated items via `upsertMemoryItemEmbeddings()`
 
 Mentor conversations write to `owner_type='mentor'` scoped items. Keen conversations write to `owner_type='global'`.
 

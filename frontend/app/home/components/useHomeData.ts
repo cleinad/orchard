@@ -6,7 +6,7 @@ import type {
   Message,
   SidebarMentorGroup,
 } from '@/app/home/types';
-import type { ThreadMeta } from '@/app/home/components/MarkdownWithThreads';
+import type { ThreadMeta } from '@/app/home/components/threadTypes';
 
 interface ConversationRow {
   id: string;
@@ -25,6 +25,8 @@ function buildThreadsMap(
     id: string;
     source_message_id: string;
     highlighted_text: string;
+    start_offset: number;
+    end_offset: number;
   }>
 ) {
   const nextThreadsMap = new Map<string, ThreadMeta[]>();
@@ -36,6 +38,8 @@ function buildThreadsMap(
       threadId: thread.id,
       highlightedText: thread.highlighted_text,
       sourceMessageId: thread.source_message_id,
+      startOffset: thread.start_offset,
+      endOffset: thread.end_offset,
     });
     nextThreadsMap.set(key, existing);
   }
@@ -227,7 +231,7 @@ export function useHomeData() {
 
     const { data: threadRows, error: threadsError } = await supabase
       .from('threads')
-      .select('id, source_message_id, highlighted_text')
+      .select('id, source_message_id, highlighted_text, start_offset, end_offset')
       .eq('conversation_id', nextConversationId);
 
     if (threadsError) {
@@ -246,6 +250,8 @@ export function useHomeData() {
           id: string;
           source_message_id: string;
           highlighted_text: string;
+          start_offset: number;
+          end_offset: number;
         }>
       ),
     };

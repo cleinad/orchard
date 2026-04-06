@@ -16,6 +16,13 @@ interface MutationRecord {
   filters: Record<string, unknown>;
 }
 
+interface QueryRecord {
+  table: string;
+  operation: 'select';
+  args: unknown;
+  filters: Record<string, unknown>;
+}
+
 interface RpcRecord {
   fn: string;
   args: unknown;
@@ -23,11 +30,13 @@ interface RpcRecord {
 
 export interface MutationTracker {
   mutations: MutationRecord[];
+  queries: QueryRecord[];
   rpcs: RpcRecord[];
   inserts: (table: string) => MutationRecord[];
   updates: (table: string) => MutationRecord[];
   upserts: (table: string) => MutationRecord[];
   deletes: (table: string) => MutationRecord[];
+  selects: (table: string) => QueryRecord[];
 }
 
 interface TableConfig {
@@ -46,20 +55,23 @@ export function createMockSupabase(options: MockSupabaseOptions = {}) {
   const rpcResults = options.rpcResults ?? {};
 
   const mutations: MutationRecord[] = [];
+  const queries: QueryRecord[] = [];
   const rpcs: RpcRecord[] = [];
 
   const tracker: MutationTracker = {
     mutations,
+    queries,
     rpcs,
     inserts: (table) => mutations.filter((m) => m.table === table && m.operation === 'insert'),
     updates: (table) => mutations.filter((m) => m.table === table && m.operation === 'update'),
     upserts: (table) => mutations.filter((m) => m.table === table && m.operation === 'upsert'),
     deletes: (table) => mutations.filter((m) => m.table === table && m.operation === 'delete'),
+    selects: (table) => queries.filter((q) => q.table === table),
   };
 
   function buildChain(table: string, operation: 'select' | 'insert' | 'update' | 'upsert' | 'delete', args?: unknown) {
     const filters: Record<string, unknown> = {};
-    let isSingle = false;
+    let singleMode: 'single' | 'maybeSingle' | null = null;
     let selectCalled = false;
 
     const chain: Record<string, unknown> = {};
@@ -75,7 +87,11 @@ export function createMockSupabase(options: MockSupabaseOptions = {}) {
     chain.order = () => chain;
     chain.limit = () => chain;
     chain.single = () => {
-      isSingle = true;
+      singleMode = 'single';
+      return chain;
+    };
+    chain.maybeSingle = () => {
+      singleMode = 'maybeSingle';
       return chain;
     };
     chain.select = (cols?: string) => {
@@ -92,9 +108,9 @@ export function createMockSupabase(options: MockSupabaseOptions = {}) {
 
           mutations.push({ table, operation, args, filters });
 
-          if (selectCalled && isSingle && mutateReturn) {
+          if (selectCalled && singleMode && mutateReturn) {
             resolve({ data: mutateReturn, error: null });
-          } else if (selectCalled && isSingle) {
+          } else if (selectCalled && singleMode) {
             // Return the args as the "inserted/updated" row
             resolve({ data: args, error: null });
           } else {
@@ -104,9 +120,15 @@ export function createMockSupabase(options: MockSupabaseOptions = {}) {
           // SELECT path — return matching rows from config
           const tableConf = tables[table];
           const rows = tableConf?.rows ?? [];
+          queries.push({ table, operation, args, filters });
 
-          if (isSingle) {
-            resolve({ data: rows[0] ?? null, error: rows.length === 0 ? { message: 'not found' } : null });
+          if (singleMode === 'single') {
+            resolve({
+              data: rows[0] ?? null,
+              error: rows.length === 0 ? { message: 'not found' } : null,
+            });
+          } else if (singleMode === 'maybeSingle') {
+            resolve({ data: rows[0] ?? null, error: null });
           } else {
             resolve({ data: rows, error: null });
           }
@@ -121,7 +143,7 @@ export function createMockSupabase(options: MockSupabaseOptions = {}) {
 
   const client = {
     from: (table: string) => ({
-      select: (cols?: string) => buildChain(table, 'select'),
+      select: (cols?: string) => buildChain(table, 'select', cols),
       insert: (data: unknown) => buildChain(table, 'insert', data),
       update: (data: unknown) => buildChain(table, 'update', data),
       upsert: (data: unknown, opts?: unknown) => buildChain(table, 'upsert', data),

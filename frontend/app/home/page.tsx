@@ -6,11 +6,20 @@ import HomeBackground from '@/app/home/components/HomeBackground';
 import HomeHeader from '@/app/home/components/HomeHeader';
 import ChatComposer from '@/app/home/components/ChatComposer';
 import ConversationView from '@/app/home/components/ConversationView';
+import { logResolvedChatModel } from '@/app/home/components/logResolvedChatModel';
 import { useHomeData } from '@/app/home/components/useHomeData';
 import { useHomeThreads } from '@/app/home/components/useHomeThreads';
 import { useHomeVoice } from '@/app/home/components/useHomeVoice';
-import type { ThreadMeta } from '@/app/home/components/MarkdownWithThreads';
+import { usePersistedString } from '@/app/home/components/usePersistedString';
+import type { ThreadMeta, ThreadSource } from '@/app/home/components/threadTypes';
 import type { SearchMetadata } from '@/lib/chat-search';
+import {
+  CHAT_MODEL_OPTIONS,
+  DEFAULT_CHAT_MODEL_ID,
+  isChatModelId,
+  type ChatModelId,
+  type ChatModelListItem,
+} from '@/lib/chat-models';
 import type { MentorListItem } from '@/lib/mentors/types';
 import SidePanel from '@/app/home/components/SidePanel';
 import MentorDetailPanel from '@/app/home/components/MentorDetailPanel';
@@ -19,6 +28,7 @@ import { LearningModeProvider, useLearningMode } from '@/app/home/components/Lea
 import TextSelectionPopover from '@/app/home/components/TextSelectionPopover';
 import ThreadPanel, { type ThreadMessage } from '@/app/home/components/ThreadPanel';
 import type { ConversationListItem, Message } from '@/app/home/types';
+import { getHomeE2eFixture } from '@/app/home/e2eFixtures';
 import {
   createTemporaryId,
   fallbackChatTitleFromMessage,
@@ -35,7 +45,14 @@ interface ChatResponse {
   threadId?: string | null;
   userMessageId?: string | null;
   assistantMessageId?: string | null;
+  resolvedModelId?: string;
+  resolvedProvider?: string;
   search?: SearchMetadata;
+  error?: string;
+}
+
+interface ChatModelsResponse {
+  models?: ChatModelListItem[];
   error?: string;
 }
 
@@ -93,6 +110,7 @@ interface StoredTemporaryChatSession {
 }
 
 const TTS_STORAGE_KEY = 'keen-tts-enabled';
+const CHAT_MODEL_STORAGE_KEY = 'keen-chat-model';
 const TEMP_CHAT_STORAGE_KEY = 'keen-home-temp-chats-v1';
 const TEMP_CHAT_TITLE = 'Temporary chat';
 
@@ -184,19 +202,18 @@ function recordToThreadMessagesMap(record: ThreadMessagesRecord | undefined) {
 function addThreadMetaToMap(
   prev: Map<string, ThreadMeta[]>,
   threadId: string,
-  sourceMessageId: string,
-  highlightedText: string
+  source: ThreadSource
 ) {
   const next = new Map(prev);
-  const existing = next.get(sourceMessageId) || [];
+  const existing = next.get(source.sourceMessageId) || [];
 
   if (existing.some((thread) => thread.threadId === threadId)) {
     return next;
   }
 
-  next.set(sourceMessageId, [
+  next.set(source.sourceMessageId, [
     ...existing,
-    { threadId, highlightedText, sourceMessageId },
+    { threadId, ...source },
   ]);
 
   return next;
@@ -205,10 +222,9 @@ function addThreadMetaToMap(
 function addThreadMetaToRecord(
   prev: ThreadMetaRecord,
   threadId: string,
-  sourceMessageId: string,
-  highlightedText: string
+  source: ThreadSource
 ) {
-  const existing = prev[sourceMessageId] || [];
+  const existing = prev[source.sourceMessageId] || [];
 
   if (existing.some((thread) => thread.threadId === threadId)) {
     return prev;
@@ -216,9 +232,9 @@ function addThreadMetaToRecord(
 
   return {
     ...prev,
-    [sourceMessageId]: [
+    [source.sourceMessageId]: [
       ...existing,
-      { threadId, highlightedText, sourceMessageId },
+      { threadId, ...source },
     ],
   };
 }
@@ -228,6 +244,18 @@ function findLatestConversationForMentor(
   conversations: ConversationListItem[]
 ) {
   return conversations.find((conversation) => conversation.mentor_id === mentorId) || null;
+}
+
+function buildFixtureThreadsMap(threads: ThreadMeta[]) {
+  const next = new Map<string, ThreadMeta[]>();
+
+  for (const thread of threads) {
+    const existing = next.get(thread.sourceMessageId) || [];
+    existing.push(thread);
+    next.set(thread.sourceMessageId, existing);
+  }
+
+  return next;
 }
 
 /**
@@ -247,6 +275,20 @@ function HomePageInner() {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [searchEnabled, setSearchEnabled] = useState(false);
+  const [selectedModelId, setSelectedModelId] = usePersistedString<ChatModelId>(
+    CHAT_MODEL_STORAGE_KEY,
+    DEFAULT_CHAT_MODEL_ID,
+    isChatModelId
+  );
+  const [chatModels, setChatModels] = useState<ChatModelListItem[]>(
+    CHAT_MODEL_OPTIONS.map((option) => ({
+      id: option.id,
+      label: option.label,
+      provider: option.provider,
+      available: true,
+      isDefault: option.id === DEFAULT_CHAT_MODEL_ID,
+    }))
+  );
   const [lastSearchState, setLastSearchState] = useState<SearchMetadata | null>(null);
   const [persistentMessages, setPersistentMessages] = useState<Message[]>([]);
   const [persistentThreadsMap, setPersistentThreadsMap] = useState<Map<string, ThreadMeta[]>>(
@@ -264,6 +306,8 @@ function HomePageInner() {
 
   const router = useRouter();
   const searchParams = useSearchParams();
+  const homeE2eFixture = getHomeE2eFixture(searchParams.get('e2e'));
+  const isHomeE2eFixture = homeE2eFixture !== null;
 
   const {
     mentors,
@@ -295,6 +339,8 @@ function HomePageInner() {
     activeThread,
     threadPanelOpen,
     threadPanelInitialMessages,
+    threadPanelDraftInput,
+    threadPanelLoadingQuestion,
     pendingThreadMessage,
     resetThreadUi,
     dismissPopover,
@@ -305,7 +351,6 @@ function HomePageInner() {
     closeThreadPanel,
   } = useHomeThreads(learningMode, containerRef);
   const [userHasScrolled, setUserHasScrolled] = useState(false);
-
   const selectedDraftChat =
     selectedChat?.kind === 'draft'
       ? draftChats.find((draft) => draft.id === selectedChat.draftId) || null
@@ -327,8 +372,7 @@ function HomePageInner() {
     activeMentorId ? mentors.find((mentor) => mentor.id === activeMentorId) || null : null;
   const isTemporaryChat = selectedChat?.kind === 'temporary';
   const chatMode: ChatMode = isTemporaryChat ? 'temporary' : 'persistent';
-  const activeTemporaryMemoryMode =
-    selectedTemporaryChat?.memoryMode ?? 'use_existing';
+  const activeTemporaryMemoryMode = selectedTemporaryChat?.memoryMode ?? 'use_existing';
   const activeConversationId =
     selectedChat?.kind === 'persistent' ? selectedChat.conversationId : null;
   const activeMessages = isTemporaryChat
@@ -346,18 +390,20 @@ function HomePageInner() {
   const activeTemporaryThreadMessagesMap = recordToThreadMessagesMap(
     selectedTemporaryChat?.threadMessages
   );
-  const activeTemporaryThreadMessages = activeThread
-    ? selectedTemporaryChat?.threadMessages[activeThread.id] ?? null
-    : null;
+  const activeTemporaryThreadMessages =
+    activeThread?.id && selectedTemporaryChat
+      ? selectedTemporaryChat.threadMessages[activeThread.id] ?? null
+      : null;
   const activeName = isTemporaryChat
     ? 'Keen'
     : selectedConversation?.mentor_name || activeMentor?.name || 'Keen';
 
   const autoSendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mentorSlugHandledRef = useRef(false);
+  const appliedHomeE2eFixtureRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (typeof window === 'undefined') {
+    if (typeof window === 'undefined' || isHomeE2eFixture) {
       return;
     }
 
@@ -372,10 +418,10 @@ function HomePageInner() {
       console.error('Failed to restore temporary chats:', error);
       window.sessionStorage.removeItem(TEMP_CHAT_STORAGE_KEY);
     }
-  }, []);
+  }, [isHomeE2eFixture]);
 
   useEffect(() => {
-    if (typeof window === 'undefined') {
+    if (typeof window === 'undefined' || isHomeE2eFixture) {
       return;
     }
 
@@ -388,11 +434,15 @@ function HomePageInner() {
       TEMP_CHAT_STORAGE_KEY,
       serializeTemporaryChats(temporaryChats)
     );
-  }, [temporaryChats]);
+  }, [isHomeE2eFixture, temporaryChats]);
 
   useEffect(() => {
+    if (isHomeE2eFixture) {
+      return;
+    }
+
     void refreshSidebarData();
-  }, [refreshSidebarData]);
+  }, [isHomeE2eFixture, refreshSidebarData]);
 
   useEffect(() => {
     if (selectedChat?.kind === 'draft' && !selectedDraftChat) {
@@ -407,7 +457,7 @@ function HomePageInner() {
   }, [selectedChat, selectedTemporaryChat]);
 
   useEffect(() => {
-    if (mentorSlugHandledRef.current) return;
+    if (isHomeE2eFixture || mentorSlugHandledRef.current) return;
     const mentorSlug = searchParams.get('mentor');
     if (!mentorSlug || loadingLists) return;
     if (mentors.length === 0 && !listError) return;
@@ -429,7 +479,7 @@ function HomePageInner() {
     }
 
     router.replace('/home', { scroll: false });
-  }, [searchParams, loadingLists, mentors, conversations, router, listError]);
+  }, [searchParams, loadingLists, mentors, conversations, router, listError, isHomeE2eFixture]);
 
   const scrollToBottom = useCallback(() => {
     if (!userHasScrolled && messagesEndRef.current) {
@@ -459,6 +509,51 @@ function HomePageInner() {
     }
   }, [input]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadChatModels = async () => {
+      try {
+        const response = await fetch('/api/chat/models', { cache: 'no-store' });
+        const data = (await response.json()) as ChatModelsResponse;
+
+        if (!response.ok || data.error || !data.models) {
+          throw new Error(data.error || 'Failed to load chat models');
+        }
+
+        if (!cancelled) {
+          setChatModels(data.models);
+        }
+      } catch {
+        // Keep the optimistic client-side catalog if the server list can't load.
+      }
+    };
+
+    void loadChatModels();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    const hasSelectedModel = chatModels.some(
+      (model) => model.id === selectedModelId && model.available
+    );
+
+    if (hasSelectedModel) {
+      return;
+    }
+
+    const fallbackModel =
+      chatModels.find((model) => model.isDefault && model.available) ||
+      chatModels.find((model) => model.available) ||
+      null;
+
+    if (fallbackModel) {
+      setSelectedModelId(fallbackModel.id);
+    }
+  }, [chatModels, selectedModelId, setSelectedModelId]);
   const stopMic = useCallback(() => {
     if (autoSendTimerRef.current) {
       clearTimeout(autoSendTimerRef.current);
@@ -474,6 +569,65 @@ function HomePageInner() {
       void startMic();
     }
   }, [micActive, startMic, stopMic]);
+
+  useEffect(() => {
+    if (!homeE2eFixture || appliedHomeE2eFixtureRef.current === homeE2eFixture.key) {
+      return;
+    }
+
+    appliedHomeE2eFixtureRef.current = homeE2eFixture.key;
+    tts.stop();
+    stopMic();
+    resetThreadUi();
+    setInput('');
+    setIsLoading(false);
+    setLastSearchState(null);
+    setUserHasScrolled(false);
+    setListError(null);
+    setDraftChats([]);
+
+    if (homeE2eFixture.chatMode === 'temporary') {
+      const fixtureThreads = buildFixtureThreadsMap(homeE2eFixture.threads || []);
+      const fixtureChatId = `fixture-temp-${homeE2eFixture.key}`;
+      const now = new Date().toISOString();
+
+      setPersistentMessages([]);
+      setPersistentThreadsMap(new Map());
+      setTemporaryChats([
+        {
+          id: fixtureChatId,
+          title: TEMP_CHAT_TITLE,
+          memoryMode: 'use_existing',
+          createdAt: now,
+          updatedAt: now,
+          messages: homeE2eFixture.messages,
+          threadsMap: Object.fromEntries(fixtureThreads.entries()) as ThreadMetaRecord,
+          threadMessages: {},
+        },
+      ]);
+      setSelectedChat({
+        kind: 'temporary',
+        tempChatId: fixtureChatId,
+      });
+      return;
+    }
+
+    setTemporaryChats([]);
+    setPersistentMessages(homeE2eFixture.messages);
+    setPersistentThreadsMap(buildFixtureThreadsMap(homeE2eFixture.threads || []));
+    setSelectedChat({
+      kind: 'persistent',
+      conversationId:
+        homeE2eFixture.conversationId ?? `fixture-${homeE2eFixture.key}`,
+      mentorId: null,
+    });
+  }, [
+    homeE2eFixture,
+    resetThreadUi,
+    setListError,
+    stopMic,
+    tts,
+  ]);
 
   const createDraft = useCallback((mentorId: string | null): PersistentDraftChat => {
     const now = new Date().toISOString();
@@ -720,23 +874,16 @@ function HomePageInner() {
   );
 
   const addThreadMeta = useCallback(
-    (threadId: string, sourceMessageId: string, highlightedText: string) => {
+    (threadId: string, source: ThreadSource) => {
       if (selectedChat?.kind === 'temporary') {
         updateTemporaryChat(selectedChat.tempChatId, (chat) => ({
           ...chat,
-          threadsMap: addThreadMetaToRecord(
-            chat.threadsMap,
-            threadId,
-            sourceMessageId,
-            highlightedText
-          ),
+          threadsMap: addThreadMetaToRecord(chat.threadsMap, threadId, source),
         }));
         return;
       }
 
-      setPersistentThreadsMap((prev) =>
-        addThreadMetaToMap(prev, threadId, sourceMessageId, highlightedText)
-      );
+      setPersistentThreadsMap((prev) => addThreadMetaToMap(prev, threadId, source));
     },
     [selectedChat, updateTemporaryChat]
   );
@@ -829,6 +976,7 @@ function HomePageInner() {
             effectiveSelection.kind === 'temporary'
               ? undefined
               : effectiveSelection.mentorId ?? undefined,
+          modelId: selectedModelId,
           searchEnabled,
           chatMode:
             effectiveSelection.kind === 'temporary' ? 'temporary' : 'persistent',
@@ -842,6 +990,7 @@ function HomePageInner() {
       });
 
       const data = (await response.json()) as ChatResponse;
+      logResolvedChatModel(data, 'composer');
 
       if (!response.ok || data.error) {
         const errorMessage: Message = {
@@ -907,7 +1056,9 @@ function HomePageInner() {
           return [...updated, assistantMessage];
         });
 
-        await refreshSidebarData();
+        if (!isHomeE2eFixture) {
+          await refreshSidebarData();
+        }
       } else if (effectiveDraft && data.conversationId) {
         const nextPersistentSelection: SelectedChat = {
           kind: 'persistent',
@@ -923,7 +1074,9 @@ function HomePageInner() {
         setPersistentThreadsMap(new Map());
         setDraftChats((prev) => prev.filter((draft) => draft.id !== effectiveDraft!.id));
         setSelectedChat(nextPersistentSelection);
-        await refreshSidebarData();
+        if (!isHomeE2eFixture) {
+          await refreshSidebarData();
+        }
       }
 
       if (ttsEnabled && responseText && !responseText.startsWith('Something went wrong')) {
@@ -961,6 +1114,8 @@ function HomePageInner() {
   }, [
     getOrCreateDraft,
     isLoading,
+    selectedModelId,
+    isHomeE2eFixture,
     refreshSidebarData,
     searchEnabled,
     selectedChat,
@@ -1049,8 +1204,8 @@ function HomePageInner() {
   ]);
 
   const handleThreadCreated = useCallback(
-    (threadId: string, sourceMessageId: string, highlightedText: string) => {
-      addThreadMeta(threadId, sourceMessageId, highlightedText);
+    (threadId: string, source: ThreadSource) => {
+      addThreadMeta(threadId, source);
     },
     [addThreadMeta]
   );
@@ -1106,6 +1261,7 @@ function HomePageInner() {
         </div>
 
         <div
+          data-testid="home-scroll-container"
           ref={containerRef}
           onScroll={handleScroll}
           className="relative min-h-0 flex-1 overflow-y-auto"
@@ -1129,6 +1285,7 @@ function HomePageInner() {
             chatMode={chatMode}
             conversationId={activeConversationId}
             mentorId={activeMentorId}
+            modelId={selectedModelId}
             memoryMode={activeTemporaryMemoryMode}
             history={activeMessages}
             temporaryThreadMessages={activeTemporaryThreadMessagesMap}
@@ -1141,9 +1298,11 @@ function HomePageInner() {
 
         <ChatComposer
           activeName={activeName}
+          chatModels={chatModels}
           input={input}
           isLoading={isLoading}
           micActive={micActive}
+          selectedModelId={selectedModelId}
           ttsEnabled={ttsEnabled}
           searchEnabled={searchEnabled}
           temporaryChatEnabled={isTemporaryChat}
@@ -1162,6 +1321,7 @@ function HomePageInner() {
           waveformGlowRef={visualization.glowRef}
           waveformContainerRef={visualization.visualRef}
           onInputChange={setInput}
+          onModelChange={setSelectedModelId}
           onToggleMic={toggleMic}
           onToggleTts={toggleTtsEnabled}
           onToggleSearch={() => setSearchEnabled((prev) => !prev)}
@@ -1255,14 +1415,19 @@ function HomePageInner() {
         chatMode={chatMode}
         conversationId={activeConversationId}
         mentorId={activeMentorId}
+        modelId={selectedModelId}
         memoryMode={activeTemporaryMemoryMode}
         conversationMessages={activeMessages}
         initialMessages={threadPanelInitialMessages}
         temporaryMessages={activeTemporaryThreadMessages}
         temporaryChatEnabled={isTemporaryChat}
+        draftInput={threadPanelDraftInput}
+        loadingQuestion={threadPanelLoadingQuestion}
         pendingMessage={pendingThreadMessage}
         onTemporaryMessagesChange={setTemporaryThreadMessagesForThread}
         onPendingMessageConsumed={clearPendingThreadMessage}
+        onThreadCreated={handleThreadCreated}
+        suspendCloseShortcut={Boolean(popoverState)}
         onClose={closeThreadPanel}
       />
     </div>

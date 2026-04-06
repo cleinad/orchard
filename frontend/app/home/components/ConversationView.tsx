@@ -1,7 +1,6 @@
 import type { RefObject } from 'react';
-import MarkdownWithThreads, {
-  type ThreadMeta,
-} from '@/app/home/components/MarkdownWithThreads';
+import MarkdownWithThreads from '@/app/home/components/MarkdownWithThreads';
+import type { ThreadMeta } from '@/app/home/components/threadTypes';
 import type { Message } from '@/app/home/types';
 import { markdownContentClassName } from '@/lib/markdown';
 
@@ -73,6 +72,7 @@ export default function ConversationView({
                 </span>
               </div>
               <div
+                data-message-content="true"
                 className={`${markdownContentClassName} mt-2 text-base leading-relaxed text-foreground`}
               >
                 <MarkdownWithThreads

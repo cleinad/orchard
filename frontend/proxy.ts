@@ -20,6 +20,16 @@ export async function proxy(request: NextRequest) {
     },
   });
 
+  const pathname = request.nextUrl.pathname;
+  const bypassHomeAuth =
+    process.env.KEEN_E2E_BYPASS_AUTH === '1'
+    && pathname.startsWith('/home')
+    && request.nextUrl.searchParams.has('e2e');
+
+  if (bypassHomeAuth) {
+    return response;
+  }
+
   // Create a Supabase client that reads/writes cookies
   const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
     cookies: {
@@ -47,9 +57,6 @@ export async function proxy(request: NextRequest) {
 
   // Get the current user session from cookies
   const { data: { user } } = await supabase.auth.getUser();
-
-  // Get the pathname from the request URL
-  const pathname = request.nextUrl.pathname;
 
   // Protect the /home route and all nested paths
   if (pathname.startsWith('/home')) {

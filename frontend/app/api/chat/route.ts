@@ -4,7 +4,8 @@ import { generateText, stepCountIs } from 'ai';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
 import { loadMemoryContextV2 } from '@/lib/memory-reader';
 import { processMemoryV2 } from '@/lib/memory-agent';
-import { CHAT_MODEL } from '@/lib/models';
+import { isChatModelId } from '@/lib/chat-models';
+import { getChatModel, resolveChatModelSelection } from '@/lib/models';
 import {
   addSearchInstructions,
   applySearchDisclosure,
@@ -124,8 +125,13 @@ async function generateConversationTitle(
   const fallbackTitle = fallbackChatTitleFromMessage(userMessage);
 
   try {
+    const titleModelSelection = resolveChatModelSelection(null);
+    if (!titleModelSelection) {
+      return fallbackTitle;
+    }
+
     const result = await generateText({
-      model: CHAT_MODEL,
+      model: getChatModel(titleModelSelection.id),
       system:
         'Write a concise chat title in 2 to 5 words. Use plain title case. Do not use quotes or ending punctuation.',
       prompt: `User message:\n${userMessage}\n\nAssistant reply:\n${assistantMessage}`,
@@ -142,9 +148,12 @@ interface ChatRequest {
   message: string;
   conversationId?: string;
   mentorId?: string;
+  modelId?: string;
   threadId?: string;
   sourceMessageId?: string;
   highlightedText?: string;
+  startOffset?: number;
+  endOffset?: number;
   concise?: boolean;
   searchEnabled?: boolean;
   chatMode?: ChatMode;
@@ -172,9 +181,12 @@ export async function POST(request: NextRequest) {
       message,
       conversationId,
       mentorId,
+      modelId,
       threadId,
       sourceMessageId,
       highlightedText,
+      startOffset,
+      endOffset,
       concise,
       searchEnabled = false,
       chatMode = 'persistent',
@@ -189,6 +201,13 @@ export async function POST(request: NextRequest) {
     if (!message?.trim()) {
       return NextResponse.json(
         { error: 'Message is required' },
+        { status: 400 }
+      );
+    }
+
+    if (modelId != null && !isChatModelId(modelId)) {
+      return NextResponse.json(
+        { error: 'Invalid model selection' },
         { status: 400 }
       );
     }
@@ -308,12 +327,29 @@ export async function POST(request: NextRequest) {
       }
 
       if (!activeThreadId && sourceMessageId && highlightedText) {
+        const normalizedStartOffset = typeof startOffset === 'number' ? startOffset : null;
+        const normalizedEndOffset = typeof endOffset === 'number' ? endOffset : null;
+
+        if (
+          normalizedStartOffset === null
+          || normalizedEndOffset === null
+          || normalizedStartOffset < 0
+          || normalizedEndOffset <= normalizedStartOffset
+        ) {
+          return NextResponse.json(
+            { error: 'Valid selection offsets are required to create a thread' },
+            { status: 400 }
+          );
+        }
+
         const { data: threadRow, error: threadError } = await supabase
           .from('threads')
           .insert({
             conversation_id: activeConversationId,
             source_message_id: sourceMessageId,
             highlighted_text: highlightedText,
+            start_offset: normalizedStartOffset,
+            end_offset: normalizedEndOffset,
             user_id: user.id,
           })
           .select('id')
@@ -421,6 +457,32 @@ export async function POST(request: NextRequest) {
         )
       : buildSystemPrompt(memoryContext);
 
+    const resolvedSelection = resolveChatModelSelection(
+      modelId ?? mentor?.model_id ?? null
+    );
+    if (!resolvedSelection) {
+      return NextResponse.json(
+        {
+          error:
+            'No chat model is configured. Set at least one of OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_GENERATIVE_AI_API_KEY.',
+        },
+        { status: 503 }
+      );
+    }
+
+    let chatModel;
+    try {
+      chatModel = getChatModel(resolvedSelection.id);
+    } catch (error) {
+      return NextResponse.json(
+        {
+          error:
+            error instanceof Error ? error.message : 'No chat model is configured.',
+        },
+        { status: 503 }
+      );
+    }
+
     // Use highlighted text from request, or from the ownership check prefetch.
     const threadHighlightedText = highlightedText || existingThreadHighlightedText;
     if (activeThreadId && threadHighlightedText) {
@@ -456,7 +518,7 @@ Reply to the user's latest message directly. Do not use tools. Do not return an 
 Reply directly in 2 to 4 sentences. Do not return an empty response.`;
 
         const generation = await generateText({
-          model: CHAT_MODEL,
+          model: chatModel,
           system: groundedSystemPrompt,
           messages: modelMessages,
         });
@@ -468,7 +530,7 @@ Reply directly in 2 to 4 sentences. Do not return an empty response.`;
 Live web search is unavailable in this environment. If the question depends on fresh information, say that briefly and answer with an appropriate caveat. Do not return an empty response.`;
 
         const generation = await generateText({
-          model: CHAT_MODEL,
+          model: chatModel,
           system: finalRetrySystemPrompt,
           messages: modelMessages,
         });
@@ -483,7 +545,7 @@ Live web search is unavailable in this environment. If the question depends on f
       );
 
       const generation = await generateText({
-        model: CHAT_MODEL,
+        model: chatModel,
         system: systemPrompt,
         messages: modelMessages,
         ...(searchAvailable
@@ -510,7 +572,7 @@ Live web search is unavailable in this environment. If the question depends on f
       });
 
       const fallbackGeneration = await generateText({
-        model: CHAT_MODEL,
+        model: chatModel,
         system: finalRetrySystemPrompt,
         messages: modelMessages,
       });
@@ -556,7 +618,7 @@ Live web search is unavailable in this environment. If the question depends on f
     if (!isTemporaryChat) {
       after(async () => {
         try {
-          await processMemoryV2(user.id, messages, assistantResponse, {
+          await processMemoryV2(supabase, user.id, messages, assistantResponse, {
             conversationId: activeConversationId,
             mentorId: mentor?.id ?? null,
             sourceMessageId: latestUserMessageId,
@@ -598,6 +660,8 @@ Live web search is unavailable in this environment. If the question depends on f
       threadId: activeThreadId,
       userMessageId: latestUserMessageId,
       assistantMessageId,
+      resolvedModelId: resolvedSelection.id,
+      resolvedProvider: resolvedSelection.provider,
       search,
     });
   } catch (error) {

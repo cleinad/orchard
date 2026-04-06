@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generateObject } from 'ai';
 import { z } from 'zod';
-import { CHAT_MODEL } from '@/lib/models';
+import { getChatModel } from '@/lib/models';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
 import {
   sanitizeDescription,
@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
     }
 
     const { object } = await generateObject({
-      model: CHAT_MODEL,
+      model: getChatModel(),
       system: MENTOR_GENERATOR_SYSTEM_PROMPT,
       prompt: `User request:\n${parsed.data.prompt.trim()}`,
       schema: GeneratedMentorSchema,
