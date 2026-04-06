@@ -410,6 +410,7 @@ function HomePageInner() {
     if (mentorSlugHandledRef.current) return;
     const mentorSlug = searchParams.get('mentor');
     if (!mentorSlug || loadingLists) return;
+    if (mentors.length === 0 && !listError) return;
 
     mentorSlugHandledRef.current = true;
     const target = mentors.find((mentor) => mentor.slug === mentorSlug);
@@ -428,7 +429,7 @@ function HomePageInner() {
     }
 
     router.replace('/home', { scroll: false });
-  }, [searchParams, loadingLists, mentors, conversations, router]);
+  }, [searchParams, loadingLists, mentors, conversations, router, listError]);
 
   const scrollToBottom = useCallback(() => {
     if (!userHasScrolled && messagesEndRef.current) {
@@ -914,11 +915,11 @@ function HomePageInner() {
           mentorId: effectiveDraft.mentorId,
         };
 
-        const updatedDraftMessages = effectiveDraft.messages.concat(
-          data.userMessageId ? { ...userMessage, id: data.userMessageId } : userMessage
-        );
+        const persistedUserMessage = data.userMessageId
+          ? { ...userMessage, id: data.userMessageId }
+          : userMessage;
 
-        setPersistentMessages([...updatedDraftMessages, assistantMessage]);
+        setPersistentMessages([persistedUserMessage, assistantMessage]);
         setPersistentThreadsMap(new Map());
         setDraftChats((prev) => prev.filter((draft) => draft.id !== effectiveDraft!.id));
         setSelectedChat(nextPersistentSelection);
