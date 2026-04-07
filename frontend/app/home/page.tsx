@@ -302,6 +302,26 @@ function HomePageInner() {
   const [detailPanelOpen, setDetailPanelOpen] = useState(false);
   const [createPanelOpen, setCreatePanelOpen] = useState(false);
 
+  useEffect(() => {
+    const handleSidePanelShortcut = (event: KeyboardEvent) => {
+      if (
+        event.repeat
+        || event.shiftKey
+        || event.altKey
+        || (!event.ctrlKey && !event.metaKey)
+        || event.key.toLowerCase() !== 'b'
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      setSidePanelOpen((previousOpen) => !previousOpen);
+    };
+
+    document.addEventListener('keydown', handleSidePanelShortcut);
+    return () => document.removeEventListener('keydown', handleSidePanelShortcut);
+  }, []);
+
   const { learningMode } = useLearningMode();
 
   const router = useRouter();
