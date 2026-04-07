@@ -1,9 +1,19 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import ThemePicker from "@/app/components/ThemePicker";
 import Tooltip from "@/app/components/Tooltip";
 import type { TemporaryMemoryMode } from "@/lib/chat-session";
-import { useLearningMode } from "./LearningModeContext";
+
+/**
+ * Toolbar icons: ghost when idle; active = soft box + tiny shadow. Icon stays `text-muted` like the
+ * grid (Browse mentors) glyph so the row shares one neutral icon color; the box carries “on”.
+ */
+const headerIconBase =
+  "inline-flex h-10 w-10 items-center justify-center rounded-lg border transition";
+const headerIconOff = "border-transparent text-muted hover:text-foreground";
+const headerIconOn =
+  "border-border-subtle bg-surface text-muted hover:text-foreground shadow-[0_1px_2px_rgba(0,0,0,0.05)] dark:shadow-[0_1px_2px_rgba(0,0,0,0.18)]";
 
 type HomeHeaderProps = {
   activeName: string;
@@ -24,7 +34,8 @@ export default function HomeHeader({
   onBrowseMentors,
   onCreateTemporaryChat,
 }: HomeHeaderProps) {
-  const { learningMode, toggleLearningMode } = useLearningMode();
+  const pathname = usePathname();
+  const isMentorsRoute = pathname === "/mentors";
   const temporaryMemoryModeLabel =
     temporaryMemoryMode === "use_existing" ? "Uses memories" : "No memory";
 
@@ -75,7 +86,10 @@ export default function HomeHeader({
             type="button"
             onClick={onBrowseMentors}
             aria-label="Browse mentors"
-            className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-muted transition hover:text-foreground"
+            aria-current={isMentorsRoute ? "page" : undefined}
+            className={`${headerIconBase} ${
+              isMentorsRoute ? headerIconOn : headerIconOff
+            }`}
           >
             <svg
               className="h-5 w-5"
@@ -98,11 +112,7 @@ export default function HomeHeader({
             type="button"
             onClick={onCreateTemporaryChat}
             aria-label="New temporary chat"
-            className={`inline-flex h-10 w-10 items-center justify-center rounded-lg border transition ${
-              isTemporaryChat
-                ? "border-foreground/[0.08] bg-foreground/[0.05] text-foreground shadow-sm"
-                : "border-transparent text-muted hover:text-foreground"
-            }`}
+            className={`${headerIconBase} ${headerIconOff}`}
           >
             <svg className="h-5 w-5" fill="none" viewBox="0 0 28 28" aria-hidden="true">
               {/* Hat crown */}
@@ -118,31 +128,6 @@ export default function HomeHeader({
               <circle cx="19" cy="20.5" r="4" stroke="currentColor" strokeWidth="2.25" />
               {/* Nose bridge */}
               <path d="M13 20.5h2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-            </svg>
-          </button>
-        </Tooltip>
-
-        <Tooltip content="Learning mode">
-          <button
-            type="button"
-            onClick={toggleLearningMode}
-            aria-label="Toggle learning mode"
-            className={`inline-flex h-10 w-10 items-center justify-center rounded-lg transition hover:text-foreground ${
-              learningMode ? "text-foreground" : "text-muted"
-            }`}
-          >
-            <svg
-              className="h-5 w-5"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"
-              />
             </svg>
           </button>
         </Tooltip>

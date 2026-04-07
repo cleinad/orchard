@@ -330,7 +330,7 @@ function HomePageInner() {
     return () => document.removeEventListener('keydown', handleSidePanelShortcut);
   }, [handleToggleSidePanel]);
 
-  const { learningMode } = useLearningMode();
+  const { learningMode, toggleLearningMode } = useLearningMode();
 
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -1334,6 +1334,7 @@ function HomePageInner() {
           selectedModelId={selectedModelId}
           ttsEnabled={ttsEnabled}
           searchEnabled={searchEnabled}
+          learningMode={learningMode}
           temporaryChatEnabled={isTemporaryChat}
           showTemporaryIntro={isTemporaryChat && activeMessages.length === 0}
           temporaryMemoryMode={activeTemporaryMemoryMode}
@@ -1354,6 +1355,7 @@ function HomePageInner() {
           onToggleMic={toggleMic}
           onToggleTts={toggleTtsEnabled}
           onToggleSearch={() => setSearchEnabled((prev) => !prev)}
+          onToggleLearningMode={toggleLearningMode}
           onTemporaryMemoryModeChange={updateSelectedTemporaryMemoryMode}
           onSubmit={handleSubmit}
           onKeyDown={handleKeyDown}
