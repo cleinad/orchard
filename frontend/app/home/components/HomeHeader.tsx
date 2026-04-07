@@ -9,7 +9,8 @@ type HomeHeaderProps = {
   activeName: string;
   isTemporaryChat: boolean;
   temporaryMemoryMode: TemporaryMemoryMode;
-  onOpenSidePanel: () => void;
+  isSidePanelOpen: boolean;
+  onToggleSidePanel: () => void;
   onBrowseMentors: () => void;
   onCreateTemporaryChat: () => void;
 };
@@ -18,7 +19,8 @@ export default function HomeHeader({
   activeName,
   isTemporaryChat,
   temporaryMemoryMode,
-  onOpenSidePanel,
+  isSidePanelOpen,
+  onToggleSidePanel,
   onBrowseMentors,
   onCreateTemporaryChat,
 }: HomeHeaderProps) {
@@ -31,8 +33,9 @@ export default function HomeHeader({
       <div className="flex min-w-0 items-center gap-3">
         <button
           type="button"
-          onClick={onOpenSidePanel}
-          aria-label="Open conversations"
+          onClick={onToggleSidePanel}
+          aria-label="Toggle conversations"
+          aria-expanded={isSidePanelOpen}
           className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-muted transition hover:text-foreground"
         >
           <svg

@@ -302,6 +302,14 @@ function HomePageInner() {
   const [detailPanelOpen, setDetailPanelOpen] = useState(false);
   const [createPanelOpen, setCreatePanelOpen] = useState(false);
 
+  const handleToggleSidePanel = useCallback(() => {
+    setSidePanelOpen((previousOpen) => !previousOpen);
+  }, []);
+
+  const handleCloseSidePanel = useCallback(() => {
+    setSidePanelOpen(false);
+  }, []);
+
   useEffect(() => {
     const handleSidePanelShortcut = (event: KeyboardEvent) => {
       if (
@@ -315,12 +323,12 @@ function HomePageInner() {
       }
 
       event.preventDefault();
-      setSidePanelOpen((previousOpen) => !previousOpen);
+      handleToggleSidePanel();
     };
 
     document.addEventListener('keydown', handleSidePanelShortcut);
     return () => document.removeEventListener('keydown', handleSidePanelShortcut);
-  }, []);
+  }, [handleToggleSidePanel]);
 
   const { learningMode } = useLearningMode();
 
@@ -1274,7 +1282,8 @@ function HomePageInner() {
             activeName={activeName}
             isTemporaryChat={isTemporaryChat}
             temporaryMemoryMode={activeTemporaryMemoryMode}
-            onOpenSidePanel={() => setSidePanelOpen(true)}
+            isSidePanelOpen={sidePanelOpen}
+            onToggleSidePanel={handleToggleSidePanel}
             onBrowseMentors={() => router.push('/mentors')}
             onCreateTemporaryChat={handleCreateTemporaryChat}
           />
@@ -1353,7 +1362,7 @@ function HomePageInner() {
 
       <SidePanel
         isOpen={sidePanelOpen}
-        onClose={() => setSidePanelOpen(false)}
+        onClose={handleCloseSidePanel}
         mentorGroups={mentorGroups}
         draftChats={draftChats.map((draft) => ({
           id: draft.id,
@@ -1378,19 +1387,19 @@ function HomePageInner() {
         }
         onSelectConversation={(conversation) => {
           void handleSelectConversation(conversation);
-          setSidePanelOpen(false);
+          handleCloseSidePanel();
         }}
         onSelectDraft={(draftId) => {
           handleSelectDraft(draftId);
-          setSidePanelOpen(false);
+          handleCloseSidePanel();
         }}
         onSelectTemporaryChat={(tempChatId) => {
           handleSelectTemporaryChat(tempChatId);
-          setSidePanelOpen(false);
+          handleCloseSidePanel();
         }}
         onCreateDraft={(mentorId) => {
           handleCreateDraftSelection(mentorId);
-          setSidePanelOpen(false);
+          handleCloseSidePanel();
         }}
         onCloseTemporaryChat={handleCloseTemporaryChat}
       />
