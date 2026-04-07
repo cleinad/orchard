@@ -18,6 +18,7 @@ interface ChatComposerProps {
   selectedModelId: ChatModelId;
   ttsEnabled: boolean;
   searchEnabled: boolean;
+  learningMode: boolean;
   temporaryChatEnabled: boolean;
   showTemporaryIntro: boolean;
   temporaryMemoryMode: TemporaryMemoryMode;
@@ -38,6 +39,7 @@ interface ChatComposerProps {
   onToggleMic: () => void;
   onToggleTts: () => void;
   onToggleSearch: () => void;
+  onToggleLearningMode: () => void;
   onTemporaryMemoryModeChange: (mode: TemporaryMemoryMode) => void;
   onSubmit: FormEventHandler<HTMLFormElement>;
   onKeyDown: KeyboardEventHandler<HTMLTextAreaElement>;
@@ -63,6 +65,7 @@ export default function ChatComposer({
   selectedModelId,
   ttsEnabled,
   searchEnabled,
+  learningMode,
   temporaryChatEnabled,
   showTemporaryIntro,
   temporaryMemoryMode,
@@ -83,6 +86,7 @@ export default function ChatComposer({
   onToggleMic,
   onToggleTts,
   onToggleSearch,
+  onToggleLearningMode,
   onTemporaryMemoryModeChange,
   onSubmit,
   onKeyDown,
@@ -306,8 +310,8 @@ export default function ChatComposer({
               <Tooltip
                 content={
                   searchEnabled
-                    ? 'Live Search — Always grounds replies with live web results'
-                    : 'Live Search — Lets the model decide when search is needed'
+                    ? 'Live Search: always grounds replies with live web results'
+                    : 'Live Search: lets the model decide when search is needed'
                 }
                 side="bottom"
               >
@@ -325,7 +329,7 @@ export default function ChatComposer({
                 >
                   <svg
                     className="h-3.5 w-3.5"
-                    fill={searchEnabled ? 'currentColor' : 'none'}
+                    fill="none"
                     stroke="currentColor"
                     strokeWidth="2.2"
                     viewBox="0 0 24 24"
@@ -334,6 +338,41 @@ export default function ChatComposer({
                       strokeLinecap="round"
                       strokeLinejoin="round"
                       d="M21 21l-4.35-4.35m1.85-5.15a7 7 0 11-14 0 7 7 0 0114 0z"
+                    />
+                  </svg>
+                </button>
+              </Tooltip>
+
+              <Tooltip
+                content={
+                  learningMode
+                    ? 'Learning mode on'
+                    : 'Learning mode off'
+                }
+                side="bottom"
+              >
+                <button
+                  type="button"
+                  aria-pressed={learningMode}
+                  aria-label={learningMode ? 'Learning mode on' : 'Learning mode off'}
+                  onClick={onToggleLearningMode}
+                  className={`flex h-7 w-7 items-center justify-center rounded-md border transition-colors ${
+                    learningMode
+                      ? 'border-foreground/[0.10] bg-foreground/[0.05] text-foreground'
+                      : 'border-border-subtle text-muted hover:bg-foreground/[0.04] hover:text-foreground/70'
+                  }`}
+                >
+                  <svg
+                    className="h-3.5 w-3.5"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"
                     />
                   </svg>
                 </button>
