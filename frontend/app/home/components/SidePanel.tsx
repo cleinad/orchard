@@ -2,6 +2,8 @@
 
 import { useEffect, useCallback, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useViewerIdentity } from '@/app/components/useViewerIdentity';
+import { initialsFor } from '@/lib/mentors/ui-helpers';
 import type {
   ConversationListItem,
   SidebarMentorGroup,
@@ -70,6 +72,9 @@ export default function SidePanel({
   const router = useRouter();
   const [expandedMentors, setExpandedMentors] = useState<Record<string, boolean>>({});
   const [visibleCounts, setVisibleCounts] = useState<Record<string, number>>({});
+  const { viewer } = useViewerIdentity();
+  const profileName = viewer?.fullName || viewer?.email || 'Your profile';
+  const profileInitials = initialsFor(profileName);
 
   const handleEscape = useCallback(
     (event: KeyboardEvent) => {
@@ -440,6 +445,52 @@ export default function SidePanel({
                   'linear-gradient(to bottom, color-mix(in srgb, var(--surface) 94%, transparent), transparent)',
               }}
             />
+          </div>
+
+          <div className="border-t border-border-subtle px-4 py-2">
+            <div className="flex items-center justify-between gap-3 px-3 py-0.5">
+              <div className="flex min-w-0 flex-1 items-center gap-3">
+                <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-foreground/[0.05] text-[11px] font-semibold text-foreground">
+                  {profileInitials}
+                </div>
+                <div className="min-w-0">
+                  <p className="truncate font-heading text-sm text-foreground">
+                    {profileName}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  router.push('/settings');
+                  onClose();
+                }}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-muted transition-colors hover:bg-foreground/[0.05] hover:text-foreground"
+                aria-label="Open settings"
+                title="Open settings"
+              >
+                <svg
+                  className="h-[26px] w-[26px] translate-x-[1px] text-muted"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.7"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M12 3.75v2.1M12 18.15v2.1M3.75 12h2.1M18.15 12h2.1M6.17 6.17l1.48 1.48M16.35 16.35l1.48 1.48M17.83 6.17l-1.48 1.48M7.65 16.35l-1.48 1.48"
+                  />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M12 6.65a5.35 5.35 0 100 10.7 5.35 5.35 0 000-10.7z"
+                  />
+                  <circle cx="12" cy="12" r="2.2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            </div>
           </div>
         </div>
       </aside>
