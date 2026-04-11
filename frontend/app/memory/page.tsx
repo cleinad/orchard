@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabase';
 import ThemePicker from '@/app/components/ThemePicker';
 import HomeBackground from '@/app/home/components/HomeBackground';
 import MemoryEntryComponent from '@/app/home/components/MemoryEntry';
@@ -19,21 +18,8 @@ export default function MemoryPage() {
   const [typeFilter, setTypeFilter] = useState<string>('all');
 
   useEffect(() => {
-    async function init() {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      if (!session) {
-        router.replace('/login');
-        return;
-      }
-
-      await load({ scope: 'all', status: 'active' });
-    }
-
-    void init();
-  }, [router, load]);
+    void load({ scope: 'all', status: 'active' });
+  }, [load]);
 
   const availableTypes = useMemo(() => {
     return Array.from(new Set(entries.map((entry) => entry.type))).sort((a, b) =>

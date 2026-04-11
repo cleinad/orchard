@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabase';
 import ThemePicker from '@/app/components/ThemePicker';
 import HomeBackground from '@/app/home/components/HomeBackground';
 import MentorDetailPanel from '@/app/home/components/MentorDetailPanel';
@@ -20,15 +19,8 @@ export default function MentorsPage() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
 
-  // Auth check + fetch mentors
   useEffect(() => {
     async function init() {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        router.replace('/login');
-        return;
-      }
-
       try {
         const res = await fetch('/api/mentors', { cache: 'no-store' });
         const data = await res.json();
@@ -40,8 +32,9 @@ export default function MentorsPage() {
         setLoading(false);
       }
     }
+
     void init();
-  }, [router]);
+  }, []);
 
   const refreshMentors = async () => {
     try {
