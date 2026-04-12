@@ -16,11 +16,11 @@ Shift `/home` from a single-conversation-per-mentor model to a lightweight multi
 
 This spec is written against the current codebase, where the main surfaces are:
 
-- [`frontend/app/home/page.tsx`](/home/daniel-chen/Documents/code/projects/keen-new-tab/frontend/app/home/page.tsx)
-- [`frontend/app/home/components/SidePanel.tsx`](/home/daniel-chen/Documents/code/projects/keen-new-tab/frontend/app/home/components/SidePanel.tsx)
-- [`frontend/app/home/components/useHomeData.ts`](/home/daniel-chen/Documents/code/projects/keen-new-tab/frontend/app/home/components/useHomeData.ts)
-- [`frontend/app/api/chat/route.ts`](/home/daniel-chen/Documents/code/projects/keen-new-tab/frontend/app/api/chat/route.ts)
-- [`frontend/app/api/mentors/route.ts`](/home/daniel-chen/Documents/code/projects/keen-new-tab/frontend/app/api/mentors/route.ts)
+- [`frontend/app/home/page.tsx`](../../frontend/app/home/page.tsx)
+- [`frontend/app/home/components/SidePanel.tsx`](../../frontend/app/home/components/SidePanel.tsx)
+- [`frontend/app/home/components/useHomeData.ts`](../../frontend/app/home/components/useHomeData.ts)
+- [`frontend/app/api/chat/route.ts`](../../frontend/app/api/chat/route.ts)
+- [`frontend/app/api/mentors/route.ts`](../../frontend/app/api/mentors/route.ts)
 
 ---
 
@@ -144,10 +144,10 @@ New behavior:
 
 ### Current runtime assumptions
 
-- [`frontend/app/api/chat/route.ts`](/home/daniel-chen/Documents/code/projects/keen-new-tab/frontend/app/api/chat/route.ts) auto-reuses a mentor conversation when `conversationId` is missing.
-- [`frontend/app/api/mentors/route.ts`](/home/daniel-chen/Documents/code/projects/keen-new-tab/frontend/app/api/mentors/route.ts) returns `conversation_id` and `conversation_updated_at`, which bakes in one conversation per mentor.
-- [`frontend/app/home/page.tsx`](/home/daniel-chen/Documents/code/projects/keen-new-tab/frontend/app/home/page.tsx) models temporary chat as a single page-level mode with one temporary message list.
-- [`frontend/app/home/components/useHomeData.ts`](/home/daniel-chen/Documents/code/projects/keen-new-tab/frontend/app/home/components/useHomeData.ts) loads a flat list of conversations, not mentor-grouped sidebar data.
+- [`frontend/app/api/chat/route.ts`](../../frontend/app/api/chat/route.ts) auto-reuses a mentor conversation when `conversationId` is missing.
+- [`frontend/app/api/mentors/route.ts`](../../frontend/app/api/mentors/route.ts) returns `conversation_id` and `conversation_updated_at`, which bakes in one conversation per mentor.
+- [`frontend/app/home/page.tsx`](../../frontend/app/home/page.tsx) models temporary chat as a single page-level mode with one temporary message list.
+- [`frontend/app/home/components/useHomeData.ts`](../../frontend/app/home/components/useHomeData.ts) loads a flat list of conversations, not mentor-grouped sidebar data.
 
 ### Schema drift to reconcile first
 
@@ -251,7 +251,7 @@ type SelectedChat =
   | { kind: 'temporary'; tempChatId: string };
 ```
 
-Key changes in [`frontend/app/home/page.tsx`](/home/daniel-chen/Documents/code/projects/keen-new-tab/frontend/app/home/page.tsx):
+Key changes in [`frontend/app/home/page.tsx`](../../frontend/app/home/page.tsx):
 
 - remove global `chatMode` as the primary source of truth
 - remove single `temporaryMessages` / `temporaryThreadsMap` / `temporaryThreadMessages`
@@ -281,7 +281,7 @@ New persistent rules:
 - if `mentorId` is provided during creation, attach it to the new row
 - never search for and reuse an existing conversation by `mentorId`
 
-This removes the current single-conversation assumption in [`frontend/app/api/chat/route.ts`](/home/daniel-chen/Documents/code/projects/keen-new-tab/frontend/app/api/chat/route.ts).
+This removes the current single-conversation assumption in [`frontend/app/api/chat/route.ts`](../../frontend/app/api/chat/route.ts).
 
 Temporary rules:
 
@@ -340,7 +340,7 @@ type SidebarMentorGroup = {
 };
 ```
 
-Build this in [`frontend/app/home/components/useHomeData.ts`](/home/daniel-chen/Documents/code/projects/keen-new-tab/frontend/app/home/components/useHomeData.ts) from:
+Build this in [`frontend/app/home/components/useHomeData.ts`](../../frontend/app/home/components/useHomeData.ts) from:
 
 - mentors API response
 - conversations query
@@ -354,7 +354,7 @@ Also synthesize a `Keen` group client-side using `mentorId = null`.
 
 ### `SidePanel`
 
-[`frontend/app/home/components/SidePanel.tsx`](/home/daniel-chen/Documents/code/projects/keen-new-tab/frontend/app/home/components/SidePanel.tsx) becomes a grouped sidebar instead of a flat conversation list.
+[`frontend/app/home/components/SidePanel.tsx`](../../frontend/app/home/components/SidePanel.tsx) becomes a grouped sidebar instead of a flat conversation list.
 
 Required content:
 
@@ -374,7 +374,7 @@ Do not add a close/delete affordance to persistent conversations in this pass.
 
 ### `HomeHeader`
 
-[`frontend/app/home/components/HomeHeader.tsx`](/home/daniel-chen/Documents/code/projects/keen-new-tab/frontend/app/home/components/HomeHeader.tsx):
+[`frontend/app/home/components/HomeHeader.tsx`](../../frontend/app/home/components/HomeHeader.tsx):
 
 - keep the sidebar button
 - keep the mentors browse button
@@ -383,7 +383,7 @@ Do not add a close/delete affordance to persistent conversations in this pass.
 
 ### `ChatComposer`
 
-[`frontend/app/home/components/ChatComposer.tsx`](/home/daniel-chen/Documents/code/projects/keen-new-tab/frontend/app/home/components/ChatComposer.tsx):
+[`frontend/app/home/components/ChatComposer.tsx`](../../frontend/app/home/components/ChatComposer.tsx):
 
 - keep the temporary intro card, but scope it to the selected temp chat
 - memory mode selector now updates only that temp chat
