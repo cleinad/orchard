@@ -1,5 +1,7 @@
 # Inline Threads E2E
 
+For the overall test inventory, runner commands, and canary map, start with [README.md](./README.md).
+
 This doc describes the Playwright coverage for the inline-thread workflow on `/home`.
 
 ## What It Covers

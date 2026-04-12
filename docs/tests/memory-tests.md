@@ -1,5 +1,7 @@
 # Memory System Test Suite
 
+For the overall test inventory, runner commands, and canary map, start with [../testing/README.md](../testing/README.md).
+
 ## Why These Tests Exist
 
 The memory system is easy to break in ways that are not obvious from normal chat behavior. A user can still receive a good response even when:

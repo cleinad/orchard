@@ -10,13 +10,13 @@ It is a maintainer note for future changes to chat display and markdown renderin
 - persisted thread metadata
 - a durable clickable inline thread marker after reload or panel close
 
-This is not a product-behavior doc. See [inline-threads.md](/home/daniel-chen/Documents/code/projects/kb-shortcut/docs/features/inline-threads.md) for that.
+This is not a product-behavior doc. See [inline-threads.md](../features/inline-threads.md) for that.
 
 ## Core Invariant
 
 Inline-thread positions are anchored by text offsets relative to the rendered message content root.
 
-That root is the element marked with `data-message-content` in [ConversationView.tsx](/home/daniel-chen/Documents/code/projects/kb-shortcut/frontend/app/home/components/ConversationView.tsx). Offsets are not measured against the outer message row, and they are not derived later by searching `highlightedText`.
+That root is the element marked with `data-message-content` in [ConversationView.tsx](../../frontend/app/home/components/ConversationView.tsx). Offsets are not measured against the outer message row, and they are not derived later by searching `highlightedText`.
 
 This invariant matters because the visible chat row also contains labels, timestamps, and other chrome that must not affect thread placement.
 
@@ -43,7 +43,7 @@ The current implementation removes that split. Active and durable linkage now sh
 
 ### 1. Selection capture
 
-[useHomeThreads.ts](/home/daniel-chen/Documents/code/projects/kb-shortcut/frontend/app/home/components/useHomeThreads.ts) resolves the browser selection after `pointerup` settles.
+[useHomeThreads.ts](../../frontend/app/home/components/useHomeThreads.ts) resolves the browser selection after `pointerup` settles.
 
 The hook:
 
@@ -62,7 +62,7 @@ That reconstructed range drives the `CSS.highlights` entry for the active source
 
 ### 3. Persistence
 
-When a real persistent thread is created, [route.ts](/home/daniel-chen/Documents/code/projects/kb-shortcut/frontend/app/api/chat/route.ts) requires valid `startOffset` and `endOffset` values.
+When a real persistent thread is created, [route.ts](../../frontend/app/api/chat/route.ts) requires valid `startOffset` and `endOffset` values.
 
 Those values are written to `public.threads` as:
 
@@ -73,7 +73,7 @@ Those values are written to `public.threads` as:
 
 ### 4. Reload into client thread metadata
 
-[useHomeData.ts](/home/daniel-chen/Documents/code/projects/kb-shortcut/frontend/app/home/components/useHomeData.ts) loads:
+[useHomeData.ts](../../frontend/app/home/components/useHomeData.ts) loads:
 
 - `id`
 - `source_message_id`
@@ -85,7 +85,7 @@ It converts those rows into `ThreadMeta` objects used by the message renderer.
 
 ### 5. Durable rendering in markdown
 
-[MarkdownWithThreads.tsx](/home/daniel-chen/Documents/code/projects/kb-shortcut/frontend/app/home/components/MarkdownWithThreads.tsx) is the durable inline-thread renderer.
+[MarkdownWithThreads.tsx](../../frontend/app/home/components/MarkdownWithThreads.tsx) is the durable inline-thread renderer.
 
 It no longer searches for `highlightedText`.
 
@@ -111,7 +111,7 @@ Today it skips:
 - nodes with `hljs`
 - nodes with KaTeX-related classes
 
-That means future work on code/math threadability should start by revisiting the skip rules in [MarkdownWithThreads.tsx](/home/daniel-chen/Documents/code/projects/kb-shortcut/frontend/app/home/components/MarkdownWithThreads.tsx), not by reintroducing substring matching.
+That means future work on code/math threadability should start by revisiting the skip rules in [MarkdownWithThreads.tsx](../../frontend/app/home/components/MarkdownWithThreads.tsx), not by reintroducing substring matching.
 
 ## What Future Chat-Display Changes Can Break
 
@@ -142,12 +142,12 @@ When modifying chat rendering, preserve these rules:
 
 If the message content root changes, update both:
 
-- selection capture and restore in [useHomeThreads.ts](/home/daniel-chen/Documents/code/projects/kb-shortcut/frontend/app/home/components/useHomeThreads.ts)
-- durable wrapping in [MarkdownWithThreads.tsx](/home/daniel-chen/Documents/code/projects/kb-shortcut/frontend/app/home/components/MarkdownWithThreads.tsx)
+- selection capture and restore in [useHomeThreads.ts](../../frontend/app/home/components/useHomeThreads.ts)
+- durable wrapping in [MarkdownWithThreads.tsx](../../frontend/app/home/components/MarkdownWithThreads.tsx)
 
 ## Tests To Run After Renderer Changes
 
-Run the Chromium inline-thread Playwright suite described in [inline-threads-e2e.md](/home/daniel-chen/Documents/code/projects/kb-shortcut/docs/testing/inline-threads-e2e.md).
+Run the Chromium inline-thread Playwright suite described in [inline-threads-e2e.md](../testing/inline-threads-e2e.md).
 
 The current high-value regressions are:
 
