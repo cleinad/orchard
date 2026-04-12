@@ -5,6 +5,9 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import HomeBackground from '@/app/home/components/HomeBackground';
 import HomeHeader from '@/app/home/components/HomeHeader';
 import ChatComposer from '@/app/home/components/ChatComposer';
+import BranchNavigator, {
+  type BranchNavigatorItem,
+} from '@/app/home/components/BranchNavigator';
 import ConversationView from '@/app/home/components/ConversationView';
 import {
   applyUserMessageToTree,
@@ -393,6 +396,7 @@ function HomePageInner() {
   const [detailPanelOpen, setDetailPanelOpen] = useState(false);
   const [createPanelOpen, setCreatePanelOpen] = useState(false);
   const [pendingBranch, setPendingBranch] = useState<PendingBranchTarget | null>(null);
+  const [branchNavigatorOpen, setBranchNavigatorOpen] = useState(false);
   const isLoading = pendingChatRequest !== null;
 
   const handleToggleSidePanel = useCallback(() => {
@@ -550,6 +554,22 @@ function HomePageInner() {
       ] as const)
       .filter(([, chips]) => chips.length > 0)
   );
+  const branchNavigatorItems: BranchNavigatorItem[] = activeMessages
+    .filter((message) => message.role === 'assistant')
+    .map((message) => {
+      const chips = branchChipsByMessageId.get(message.id) || [];
+
+      if (chips.length === 0) {
+        return null;
+      }
+
+      return {
+        sourceMessageId: message.id,
+        preview: message.content,
+        chips,
+      };
+    })
+    .filter((item): item is BranchNavigatorItem => item !== null);
   const activeName = isTemporaryChat
     ? 'Keen'
     : selectedConversation?.mentor_name || activeMentor?.name || 'Keen';
@@ -622,6 +642,12 @@ function HomePageInner() {
       setSelectedChat(null);
     }
   }, [selectedChat, selectedTemporaryChat]);
+
+  useEffect(() => {
+    if (branchNavigatorItems.length === 0 && branchNavigatorOpen) {
+      setBranchNavigatorOpen(false);
+    }
+  }, [branchNavigatorItems.length, branchNavigatorOpen]);
 
   useEffect(() => {
     if (isHomeE2eFixture || mentorSlugHandledRef.current) return;
@@ -862,11 +888,12 @@ function HomePageInner() {
     (nextSelection: SelectedChat | null) => {
       tts.stop();
       stopMic();
-      resetThreadUi();
-      setPendingBranch(null);
-      setInput('');
-      setLastSearchState(null);
-      setUserHasScrolled(false);
+    resetThreadUi();
+    setPendingBranch(null);
+    setBranchNavigatorOpen(false);
+    setInput('');
+    setLastSearchState(null);
+    setUserHasScrolled(false);
 
       if (
         selectedChat?.kind === 'draft' &&
@@ -1141,6 +1168,27 @@ function HomePageInner() {
     setUserHasScrolled(false);
   }, []);
 
+  const jumpToMessage = useCallback((messageId: string) => {
+    const selector =
+      typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
+        ? `[data-message-id="${CSS.escape(messageId)}"]`
+        : `[data-message-id="${messageId.replace(/["\\]/g, '\\$&')}"]`;
+
+    setUserHasScrolled(true);
+
+    const scrollToTarget = () => {
+      const target = containerRef.current?.querySelector<HTMLElement>(selector);
+      target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    };
+
+    if (typeof window !== 'undefined') {
+      window.requestAnimationFrame(scrollToTarget);
+      return;
+    }
+
+    scrollToTarget();
+  }, []);
+
   const handleSelectBranch = useCallback(
     (sourceMessageId: string, branchId: string | null) => {
       if (branchId) {
@@ -1154,6 +1202,14 @@ function HomePageInner() {
       setUserHasScrolled(false);
     },
     [pendingBranch, updateActiveBranchSelection]
+  );
+
+  const handleSelectBranchFromNavigator = useCallback(
+    (sourceMessageId: string, branchId: string | null) => {
+      handleSelectBranch(sourceMessageId, branchId);
+      jumpToMessage(sourceMessageId);
+    },
+    [handleSelectBranch, jumpToMessage]
   );
 
   const sendMessage = useCallback(async (content: string) => {
@@ -1634,6 +1690,14 @@ function HomePageInner() {
           className="relative min-h-0 flex-1 overflow-y-auto"
           style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(0,0,0,0.08) transparent' }}
         >
+          <BranchNavigator
+            items={branchNavigatorItems}
+            isOpen={branchNavigatorOpen}
+            onToggle={() => setBranchNavigatorOpen((prev) => !prev)}
+            onClose={() => setBranchNavigatorOpen(false)}
+            onJumpToMessage={jumpToMessage}
+            onSelectBranch={handleSelectBranchFromNavigator}
+          />
           <ConversationView
             loadingLists={loadingLists}
             listError={listError}
