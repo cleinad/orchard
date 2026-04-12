@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import { getSafeRedirectPath } from '@/lib/auth-redirect';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -13,14 +14,19 @@ export default function LoginPage() {
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [redirectPath, setRedirectPath] = useState('/home');
 
-  // Check if user is already logged in and redirect to home
   useEffect(() => {
+    const nextRedirectPath = getSafeRedirectPath(
+      new URLSearchParams(window.location.search).get('redirect')
+    );
+    setRedirectPath(nextRedirectPath);
+
     const checkAuth = async () => {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (session) {
-          router.push('/home');
+          router.replace(nextRedirectPath);
           router.refresh();
         }
       } catch (err) {
@@ -30,7 +36,7 @@ export default function LoginPage() {
       }
     };
 
-    checkAuth();
+    void checkAuth();
   }, [router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -48,6 +54,12 @@ export default function LoginPage() {
 
         if (signUpError) throw signUpError;
 
+        if (data.session) {
+          router.replace(redirectPath);
+          router.refresh();
+          return;
+        }
+
         if (data.user) {
           setMessage('Account created! Please check your email to verify your account.');
         }
@@ -60,7 +72,7 @@ export default function LoginPage() {
         if (signInError) throw signInError;
 
         if (data.user) {
-          router.push('/home');
+          router.replace(redirectPath);
           router.refresh();
         }
       }
@@ -71,7 +83,6 @@ export default function LoginPage() {
     }
   };
 
-  // Show loading state while checking authentication
   if (checkingAuth) {
     return (
       <div className="relative min-h-screen overflow-hidden bg-background text-foreground">
@@ -107,7 +118,6 @@ export default function LoginPage() {
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-5">
-            {/* Email input */}
             <div>
               <label
                 htmlFor="email"
@@ -127,7 +137,6 @@ export default function LoginPage() {
               />
             </div>
 
-            {/* Password input */}
             <div>
               <label
                 htmlFor="password"
@@ -148,21 +157,18 @@ export default function LoginPage() {
               />
             </div>
 
-            {/* Error message */}
             {error && (
               <div className="rounded-lg bg-rose-50 p-3 text-sm text-rose-600 dark:bg-rose-900/20 dark:text-rose-400">
                 {error}
               </div>
             )}
 
-            {/* Success message */}
             {message && (
               <div className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400">
                 {message}
               </div>
             )}
 
-            {/* Submit button */}
             <button
               type="submit"
               disabled={loading}
@@ -172,7 +178,6 @@ export default function LoginPage() {
             </button>
           </form>
 
-          {/* Toggle between sign in and sign up */}
           <div className="mt-6 text-center text-sm text-muted">
             {isSignUp ? (
               <>
