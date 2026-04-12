@@ -21,8 +21,8 @@ Goal: extract atomic memory candidates from a conversation transcript.
 Rules:
 1. Output only genuinely useful memory candidates.
 2. Each candidate must be atomic and standalone.
-3. Avoid trivia, conversation mechanics, and one-off politeness.
-4. Prefer specific facts, preferences, commitments, constraints, recurring context, and meaningful events.
+3. Only extract user-stated facts, preferences, constraints, decisions, and commitments. Do not extract assistant-generated ideas unless the user clearly adopts them as their own.
+4. Avoid trivia, conversation mechanics, one-off politeness, hypothetical branch exploration, and speculative options the user did not commit to.
 5. If no candidate is useful, return an empty list.
 6. Use action=update when the user refined or corrected a previous idea.
 7. Use action=ignore for noisy or uncertain candidates.

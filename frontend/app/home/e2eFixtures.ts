@@ -38,6 +38,7 @@ const FIXTURE_MESSAGES: Record<
       role: 'assistant',
       content: INLINE_THREADS_MESSAGE_CONTENT,
       timestamp: new Date('2026-04-05T09:00:00.000Z'),
+      previousMessageId: null,
     },
   ],
   persistent: [
@@ -46,6 +47,7 @@ const FIXTURE_MESSAGES: Record<
       role: 'assistant',
       content: INLINE_THREADS_MESSAGE_CONTENT,
       timestamp: new Date('2026-04-05T09:00:00.000Z'),
+      previousMessageId: null,
     },
   ],
   orderedList: [
@@ -54,6 +56,7 @@ const FIXTURE_MESSAGES: Record<
       role: 'assistant',
       content: INLINE_THREADS_ORDERED_LIST_CONTENT,
       timestamp: new Date('2026-04-05T09:00:00.000Z'),
+      previousMessageId: null,
     },
   ],
   repeatedText: [
@@ -62,6 +65,7 @@ const FIXTURE_MESSAGES: Record<
       role: 'assistant',
       content: INLINE_THREADS_REPEATED_CONTENT,
       timestamp: new Date('2026-04-05T09:00:00.000Z'),
+      previousMessageId: null,
     },
   ],
   bulletList: [
@@ -70,6 +74,7 @@ const FIXTURE_MESSAGES: Record<
       role: 'assistant',
       content: INLINE_THREADS_BULLET_LIST_CONTENT,
       timestamp: new Date('2026-04-05T09:00:00.000Z'),
+      previousMessageId: null,
     },
   ],
 };

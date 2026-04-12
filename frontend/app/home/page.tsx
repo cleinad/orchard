@@ -6,6 +6,13 @@ import HomeBackground from '@/app/home/components/HomeBackground';
 import HomeHeader from '@/app/home/components/HomeHeader';
 import ChatComposer from '@/app/home/components/ChatComposer';
 import ConversationView from '@/app/home/components/ConversationView';
+import {
+  applyUserMessageToTree,
+  createPendingBranchTarget,
+  getActivePathMessages,
+  getBranchChipsForMessage,
+  type PendingBranchTarget,
+} from '@/app/home/components/conversationTree';
 import { logResolvedChatModel } from '@/app/home/components/logResolvedChatModel';
 import { useHomeData } from '@/app/home/components/useHomeData';
 import { useHomeThreads } from '@/app/home/components/useHomeThreads';
@@ -27,7 +34,12 @@ import CreateMentorPanel from '@/app/home/components/CreateMentorPanel';
 import { LearningModeProvider, useLearningMode } from '@/app/home/components/LearningModeContext';
 import TextSelectionPopover from '@/app/home/components/TextSelectionPopover';
 import ThreadPanel, { type ThreadMessage } from '@/app/home/components/ThreadPanel';
-import type { ConversationListItem, Message } from '@/app/home/types';
+import type {
+  BranchSelectionMap,
+  ConversationBranch,
+  ConversationListItem,
+  Message,
+} from '@/app/home/types';
 import { getHomeE2eFixture } from '@/app/home/e2eFixtures';
 import {
   createTemporaryId,
@@ -68,6 +80,8 @@ interface PersistentDraftChat {
   createdAt: string;
   updatedAt: string;
   messages: Message[];
+  branches: ConversationBranch[];
+  selectedBranchIds: BranchSelectionMap;
 }
 
 type ThreadMetaRecord = Record<string, ThreadMeta[]>;
@@ -80,6 +94,8 @@ interface TemporaryChatSession {
   createdAt: string;
   updatedAt: string;
   messages: Message[];
+  branches: ConversationBranch[];
+  selectedBranchIds: BranchSelectionMap;
   threadsMap: ThreadMetaRecord;
   threadMessages: ThreadMessagesRecord;
 }
@@ -89,6 +105,7 @@ interface StoredMessage {
   role: 'user' | 'assistant';
   content: string;
   timestamp: string;
+  previousMessageId: string | null;
 }
 
 interface StoredThreadMessage {
@@ -105,6 +122,8 @@ interface StoredTemporaryChatSession {
   createdAt: string;
   updatedAt: string;
   messages: StoredMessage[];
+  branches: ConversationBranch[];
+  selectedBranchIds: BranchSelectionMap;
   threadsMap: ThreadMetaRecord;
   threadMessages: Record<string, StoredThreadMessage[]>;
 }
@@ -124,6 +143,7 @@ function toStoredMessage(message: Message): StoredMessage {
     role: message.role,
     content: message.content,
     timestamp: message.timestamp.toISOString(),
+    previousMessageId: message.previousMessageId,
   };
 }
 
@@ -133,6 +153,7 @@ function fromStoredMessage(message: StoredMessage): Message {
     role: message.role,
     content: message.content,
     timestamp: new Date(message.timestamp),
+    previousMessageId: message.previousMessageId ?? null,
   };
 }
 
@@ -175,6 +196,8 @@ function deserializeTemporaryChats(raw: string): TemporaryChatSession[] {
   return parsed.map((chat) => ({
     ...chat,
     messages: Array.isArray(chat.messages) ? chat.messages.map(fromStoredMessage) : [],
+    branches: Array.isArray(chat.branches) ? chat.branches : [],
+    selectedBranchIds: chat.selectedBranchIds || {},
     threadsMap: chat.threadsMap || {},
     threadMessages: Object.fromEntries(
       Object.entries(chat.threadMessages || {}).map(([threadId, messages]) => [
@@ -291,6 +314,9 @@ function HomePageInner() {
   );
   const [lastSearchState, setLastSearchState] = useState<SearchMetadata | null>(null);
   const [persistentMessages, setPersistentMessages] = useState<Message[]>([]);
+  const [persistentBranches, setPersistentBranches] = useState<ConversationBranch[]>([]);
+  const [persistentSelectedBranchIds, setPersistentSelectedBranchIds] =
+    useState<BranchSelectionMap>({});
   const [persistentThreadsMap, setPersistentThreadsMap] = useState<Map<string, ThreadMeta[]>>(
     new Map()
   );
@@ -301,6 +327,7 @@ function HomePageInner() {
   const [detailMentorSlug, setDetailMentorSlug] = useState<string | null>(null);
   const [detailPanelOpen, setDetailPanelOpen] = useState(false);
   const [createPanelOpen, setCreatePanelOpen] = useState(false);
+  const [pendingBranch, setPendingBranch] = useState<PendingBranchTarget | null>(null);
 
   const handleToggleSidePanel = useCallback(() => {
     setSidePanelOpen((previousOpen) => !previousOpen);
@@ -403,13 +430,33 @@ function HomePageInner() {
   const activeTemporaryMemoryMode = selectedTemporaryChat?.memoryMode ?? 'use_existing';
   const activeConversationId =
     selectedChat?.kind === 'persistent' ? selectedChat.conversationId : null;
-  const activeMessages = isTemporaryChat
+  const activeConversationMessages = isTemporaryChat
     ? selectedTemporaryChat?.messages || []
     : selectedChat?.kind === 'draft'
       ? selectedDraftChat?.messages || []
       : selectedChat?.kind === 'persistent'
         ? persistentMessages
         : [];
+  const activeConversationBranches = isTemporaryChat
+    ? selectedTemporaryChat?.branches || []
+    : selectedChat?.kind === 'draft'
+      ? selectedDraftChat?.branches || []
+      : selectedChat?.kind === 'persistent'
+        ? persistentBranches
+        : [];
+  const activeSelectedBranchIds = isTemporaryChat
+    ? selectedTemporaryChat?.selectedBranchIds || {}
+    : selectedChat?.kind === 'draft'
+      ? selectedDraftChat?.selectedBranchIds || {}
+      : selectedChat?.kind === 'persistent'
+        ? persistentSelectedBranchIds
+        : {};
+  const activeMessages = getActivePathMessages({
+    messages: activeConversationMessages,
+    branches: activeConversationBranches,
+    selectedBranchIds: activeSelectedBranchIds,
+    pendingBranch,
+  });
   const activeThreadsMap = isTemporaryChat
     ? recordToThreadsMap(selectedTemporaryChat?.threadsMap)
     : selectedChat?.kind === 'persistent'
@@ -422,6 +469,21 @@ function HomePageInner() {
     activeThread?.id && selectedTemporaryChat
       ? selectedTemporaryChat.threadMessages[activeThread.id] ?? null
       : null;
+  const branchChipsByMessageId = new Map(
+    activeMessages
+      .filter((message) => message.role === 'assistant')
+      .map((message) => [
+        message.id,
+        getBranchChipsForMessage({
+          sourceMessageId: message.id,
+          messages: activeConversationMessages,
+          branches: activeConversationBranches,
+          selectedBranchIds: activeSelectedBranchIds,
+          pendingBranch,
+        }),
+      ] as const)
+      .filter(([, chips]) => chips.length > 0)
+  );
   const activeName = isTemporaryChat
     ? 'Keen'
     : selectedConversation?.mentor_name || activeMentor?.name || 'Keen';
@@ -607,6 +669,7 @@ function HomePageInner() {
     tts.stop();
     stopMic();
     resetThreadUi();
+    setPendingBranch(null);
     setInput('');
     setIsLoading(false);
     setLastSearchState(null);
@@ -620,6 +683,8 @@ function HomePageInner() {
       const now = new Date().toISOString();
 
       setPersistentMessages([]);
+      setPersistentBranches([]);
+      setPersistentSelectedBranchIds({});
       setPersistentThreadsMap(new Map());
       setTemporaryChats([
         {
@@ -629,6 +694,8 @@ function HomePageInner() {
           createdAt: now,
           updatedAt: now,
           messages: homeE2eFixture.messages,
+          branches: [],
+          selectedBranchIds: {},
           threadsMap: Object.fromEntries(fixtureThreads.entries()) as ThreadMetaRecord,
           threadMessages: {},
         },
@@ -642,6 +709,8 @@ function HomePageInner() {
 
     setTemporaryChats([]);
     setPersistentMessages(homeE2eFixture.messages);
+    setPersistentBranches([]);
+    setPersistentSelectedBranchIds({});
     setPersistentThreadsMap(buildFixtureThreadsMap(homeE2eFixture.threads || []));
     setSelectedChat({
       kind: 'persistent',
@@ -667,6 +736,8 @@ function HomePageInner() {
       createdAt: now,
       updatedAt: now,
       messages: [],
+      branches: [],
+      selectedBranchIds: {},
     };
   }, []);
 
@@ -715,6 +786,7 @@ function HomePageInner() {
       tts.stop();
       stopMic();
       resetThreadUi();
+      setPendingBranch(null);
       setInput('');
       setLastSearchState(null);
       setUserHasScrolled(false);
@@ -747,6 +819,8 @@ function HomePageInner() {
 
       prepareForChatSwitch(nextSelection);
       setPersistentMessages([]);
+      setPersistentBranches([]);
+      setPersistentSelectedBranchIds({});
       setPersistentThreadsMap(new Map());
       setSelectedChat(nextSelection);
     },
@@ -762,6 +836,8 @@ function HomePageInner() {
       createdAt: now,
       updatedAt: now,
       messages: [],
+      branches: [],
+      selectedBranchIds: {},
       threadsMap: {},
       threadMessages: {},
     };
@@ -773,6 +849,8 @@ function HomePageInner() {
 
     prepareForChatSwitch(nextSelection);
     setPersistentMessages([]);
+    setPersistentBranches([]);
+    setPersistentSelectedBranchIds({});
     setPersistentThreadsMap(new Map());
     setTemporaryChats((prev) => [chat, ...prev]);
     setSelectedChat(nextSelection);
@@ -787,6 +865,8 @@ function HomePageInner() {
 
       prepareForChatSwitch(nextSelection);
       setPersistentMessages([]);
+      setPersistentBranches([]);
+      setPersistentSelectedBranchIds({});
       setPersistentThreadsMap(new Map());
       setSelectedChat(nextSelection);
     },
@@ -808,6 +888,8 @@ function HomePageInner() {
 
       prepareForChatSwitch(nextSelection);
       setPersistentMessages([]);
+      setPersistentBranches([]);
+      setPersistentSelectedBranchIds({});
       setPersistentThreadsMap(new Map());
       setSelectedChat(nextSelection);
     },
@@ -825,11 +907,15 @@ function HomePageInner() {
       prepareForChatSwitch(nextSelection);
       setSelectedChat(nextSelection);
       setPersistentMessages([]);
+      setPersistentBranches([]);
+      setPersistentSelectedBranchIds({});
       setPersistentThreadsMap(new Map());
 
       try {
         const loadedConversation = await loadConversationMessages(conversation.id);
         setPersistentMessages(loadedConversation.messages);
+        setPersistentBranches(loadedConversation.branches);
+        setPersistentSelectedBranchIds(loadedConversation.selectedBranchIds);
         setPersistentThreadsMap(loadedConversation.threadsMap);
       } catch (err) {
         setListError(err instanceof Error ? err.message : 'Failed to load conversation');
@@ -865,6 +951,8 @@ function HomePageInner() {
       prepareForChatSwitch(null);
       setSelectedChat(null);
       setPersistentMessages([]);
+      setPersistentBranches([]);
+      setPersistentSelectedBranchIds({});
       setPersistentThreadsMap(new Map());
     },
     [
@@ -930,6 +1018,67 @@ function HomePageInner() {
     [selectedChat, updateTemporaryChat]
   );
 
+  const updateDraftBranchSelection = useCallback(
+    (draftId: string, sourceMessageId: string, branchId: string) => {
+      updateDraftChat(draftId, (draft) => ({
+        ...draft,
+        selectedBranchIds: {
+          ...draft.selectedBranchIds,
+          [sourceMessageId]: branchId,
+        },
+      }));
+    },
+    [updateDraftChat]
+  );
+
+  const updateActiveBranchSelection = useCallback(
+    (sourceMessageId: string, branchId: string) => {
+      if (selectedChat?.kind === 'temporary') {
+        updateTemporaryChat(selectedChat.tempChatId, (chat) => ({
+          ...chat,
+          selectedBranchIds: {
+            ...chat.selectedBranchIds,
+            [sourceMessageId]: branchId,
+          },
+        }));
+        return;
+      }
+
+      if (selectedChat?.kind === 'draft') {
+        updateDraftBranchSelection(selectedChat.draftId, sourceMessageId, branchId);
+        return;
+      }
+
+      if (selectedChat?.kind === 'persistent') {
+        setPersistentSelectedBranchIds((prev) => ({
+          ...prev,
+          [sourceMessageId]: branchId,
+        }));
+      }
+    },
+    [selectedChat, updateDraftBranchSelection, updateTemporaryChat]
+  );
+
+  const handleCreateBranch = useCallback((sourceMessageId: string) => {
+    setPendingBranch(createPendingBranchTarget(sourceMessageId));
+    setUserHasScrolled(false);
+  }, []);
+
+  const handleSelectBranch = useCallback(
+    (sourceMessageId: string, branchId: string | null) => {
+      if (branchId) {
+        updateActiveBranchSelection(sourceMessageId, branchId);
+      }
+
+      if (pendingBranch?.sourceMessageId === sourceMessageId) {
+        setPendingBranch(null);
+      }
+
+      setUserHasScrolled(false);
+    },
+    [pendingBranch, updateActiveBranchSelection]
+  );
+
   const sendMessage = useCallback(async (content: string) => {
     if (!content.trim() || isLoading) return;
 
@@ -946,6 +1095,10 @@ function HomePageInner() {
     let effectiveSelection = selectedChat;
     let effectiveDraft = selectedDraftChat;
     let effectiveTempChat = selectedTemporaryChat;
+    const effectivePendingBranch = pendingBranch;
+    const activePathTailMessageId = activeMessages[activeMessages.length - 1]?.id ?? null;
+    const previousMessageId = effectivePendingBranch?.sourceMessageId ?? activePathTailMessageId;
+    const branchSourceMessageId = effectivePendingBranch?.sourceMessageId ?? null;
 
     if (!effectiveSelection) {
       effectiveDraft = getOrCreateDraft(null);
@@ -965,26 +1118,61 @@ function HomePageInner() {
       role: 'user',
       content: messageText,
       timestamp: now,
+      previousMessageId,
     };
 
     if (effectiveSelection.kind === 'temporary') {
-      updateTemporaryChat(effectiveSelection.tempChatId, (chat) => ({
-        ...chat,
-        messages: [...chat.messages, userMessage],
-        updatedAt: nextUpdatedAt,
-      }));
+      updateTemporaryChat(effectiveSelection.tempChatId, (chat) => {
+        const nextTree = applyUserMessageToTree({
+          messages: chat.messages,
+          branches: chat.branches,
+          selectedBranchIds: chat.selectedBranchIds,
+          pendingBranch: effectivePendingBranch,
+          userMessage,
+        });
+
+        return {
+          ...chat,
+          messages: nextTree.messages,
+          branches: nextTree.branches,
+          selectedBranchIds: nextTree.selectedBranchIds,
+          updatedAt: nextUpdatedAt,
+        };
+      });
     } else if (effectiveSelection.kind === 'persistent') {
-      setPersistentMessages((prev) => [...prev, userMessage]);
+      const nextTree = applyUserMessageToTree({
+        messages: persistentMessages,
+        branches: persistentBranches,
+        selectedBranchIds: persistentSelectedBranchIds,
+        pendingBranch: effectivePendingBranch,
+        userMessage,
+      });
+      setPersistentMessages(nextTree.messages);
+      setPersistentBranches(nextTree.branches);
+      setPersistentSelectedBranchIds(nextTree.selectedBranchIds);
     } else {
       const draft = effectiveDraft || getOrCreateDraft(effectiveSelection.mentorId);
       effectiveDraft = draft;
-      updateDraftChat(draft.id, (currentDraft) => ({
-        ...currentDraft,
-        messages: [...currentDraft.messages, userMessage],
-        updatedAt: nextUpdatedAt,
-      }));
+      updateDraftChat(draft.id, (currentDraft) => {
+        const nextTree = applyUserMessageToTree({
+          messages: currentDraft.messages,
+          branches: currentDraft.branches,
+          selectedBranchIds: currentDraft.selectedBranchIds,
+          pendingBranch: effectivePendingBranch,
+          userMessage,
+        });
+
+        return {
+          ...currentDraft,
+          messages: nextTree.messages,
+          branches: nextTree.branches,
+          selectedBranchIds: nextTree.selectedBranchIds,
+          updatedAt: nextUpdatedAt,
+        };
+      });
     }
 
+    setPendingBranch(null);
     setInput('');
     setIsLoading(true);
     setLastSearchState(null);
@@ -1005,13 +1193,15 @@ function HomePageInner() {
               ? undefined
               : effectiveSelection.mentorId ?? undefined,
           modelId: selectedModelId,
+          previousMessageId,
+          branchSourceMessageId: branchSourceMessageId ?? undefined,
           searchEnabled,
           chatMode:
             effectiveSelection.kind === 'temporary' ? 'temporary' : 'persistent',
           ...(effectiveSelection.kind === 'temporary'
             ? {
                 memoryMode: effectiveTempChat?.memoryMode ?? 'use_existing',
-                history: toChatHistory(effectiveTempChat?.messages || []),
+                history: toChatHistory(activeMessages),
               }
             : {}),
         }),
@@ -1029,6 +1219,7 @@ function HomePageInner() {
           role: 'assistant',
           content: `Something went wrong. ${data.error || ''}`.trim(),
           timestamp: new Date(),
+          previousMessageId: userMessage.id,
         };
 
         if (effectiveSelection.kind === 'temporary') {
@@ -1061,6 +1252,7 @@ function HomePageInner() {
         role: 'assistant',
         content: responseText,
         timestamp: new Date(),
+        previousMessageId: data.userMessageId || userMessage.id,
       };
 
       if (effectiveSelection.kind === 'temporary') {
@@ -1073,16 +1265,27 @@ function HomePageInner() {
           updatedAt: new Date().toISOString(),
         }));
       } else if (effectiveSelection.kind === 'persistent') {
-        setPersistentMessages((prev) => {
-          const updated = data.userMessageId
-            ? prev.map((message) =>
-                message.id === userMessage.id
-                  ? { ...message, id: data.userMessageId! }
-                  : message
-              )
-            : prev;
-          return [...updated, assistantMessage];
-        });
+        const loadedConversation = await loadConversationMessages(
+          effectiveSelection.conversationId
+        );
+        const mergedSelections = {
+          ...loadedConversation.selectedBranchIds,
+          ...persistentSelectedBranchIds,
+        };
+        if (branchSourceMessageId) {
+          const latestBranch = [...loadedConversation.branches]
+            .filter((branch) => branch.sourceMessageId === branchSourceMessageId)
+            .sort((a, b) => b.position - a.position)[0];
+
+          if (latestBranch) {
+            mergedSelections[branchSourceMessageId] = latestBranch.id;
+          }
+        }
+
+        setPersistentMessages(loadedConversation.messages);
+        setPersistentBranches(loadedConversation.branches);
+        setPersistentSelectedBranchIds(mergedSelections);
+        setPersistentThreadsMap(loadedConversation.threadsMap);
 
         if (!isHomeE2eFixture) {
           await refreshSidebarData();
@@ -1093,13 +1296,25 @@ function HomePageInner() {
           conversationId: data.conversationId,
           mentorId: effectiveDraft.mentorId,
         };
+        const loadedConversation = await loadConversationMessages(data.conversationId);
+        const mergedSelections = {
+          ...loadedConversation.selectedBranchIds,
+          ...effectiveDraft.selectedBranchIds,
+        };
+        if (branchSourceMessageId) {
+          const latestBranch = [...loadedConversation.branches]
+            .filter((branch) => branch.sourceMessageId === branchSourceMessageId)
+            .sort((a, b) => b.position - a.position)[0];
 
-        const persistedUserMessage = data.userMessageId
-          ? { ...userMessage, id: data.userMessageId }
-          : userMessage;
+          if (latestBranch) {
+            mergedSelections[branchSourceMessageId] = latestBranch.id;
+          }
+        }
 
-        setPersistentMessages([persistedUserMessage, assistantMessage]);
-        setPersistentThreadsMap(new Map());
+        setPersistentMessages(loadedConversation.messages);
+        setPersistentBranches(loadedConversation.branches);
+        setPersistentSelectedBranchIds(mergedSelections);
+        setPersistentThreadsMap(loadedConversation.threadsMap);
         setDraftChats((prev) => prev.filter((draft) => draft.id !== effectiveDraft!.id));
         setSelectedChat(nextPersistentSelection);
         if (!isHomeE2eFixture) {
@@ -1119,6 +1334,7 @@ function HomePageInner() {
         role: 'assistant',
         content: 'Sorry, there was an error processing your message.',
         timestamp: new Date(),
+        previousMessageId: userMessage.id,
       };
 
       if (effectiveSelection.kind === 'temporary') {
@@ -1141,11 +1357,16 @@ function HomePageInner() {
     }
   }, [
     getOrCreateDraft,
-    isLoading,
+      isLoading,
+    loadConversationMessages,
     selectedModelId,
     isHomeE2eFixture,
     refreshSidebarData,
     searchEnabled,
+    pendingBranch,
+    persistentBranches,
+    persistentMessages,
+    persistentSelectedBranchIds,
     selectedChat,
     selectedDraftChat,
     selectedTemporaryChat,
@@ -1154,6 +1375,7 @@ function HomePageInner() {
     ttsEnabled,
     updateDraftChat,
     updateTemporaryChat,
+    activeMessages,
   ]);
 
   useEffect(() => {
@@ -1305,8 +1527,12 @@ function HomePageInner() {
             emptySubtitle={emptySubtitle}
             isLoading={isLoading}
             threadsMap={activeThreadsMap}
+            branchChipsByMessageId={branchChipsByMessageId}
+            pendingBranchSourceMessageId={pendingBranch?.sourceMessageId ?? null}
             messagesEndRef={messagesEndRef}
             onThreadClick={handleThreadClick}
+            onSelectBranch={handleSelectBranch}
+            onCreateBranch={handleCreateBranch}
             onAssistantPointerUp={handlePointerUp}
           />
           <TextSelectionPopover
@@ -1415,16 +1641,18 @@ function HomePageInner() {
         onDeleted={(deletedSlug) => {
           const deletedMentor = mentors.find((mentor) => mentor.slug === deletedSlug) || null;
 
-          if (
-            deletedMentor &&
-            selectedChat?.kind !== 'temporary' &&
-            selectedChat?.mentorId === deletedMentor.id
-          ) {
-            setSelectedChat(null);
-            setPersistentMessages([]);
-            setPersistentThreadsMap(new Map());
-            setDraftChats((prev) =>
-              prev.filter((draft) => draft.mentorId !== deletedMentor.id)
+        if (
+          deletedMentor &&
+          selectedChat?.kind !== 'temporary' &&
+          selectedChat?.mentorId === deletedMentor.id
+        ) {
+          setSelectedChat(null);
+          setPersistentMessages([]);
+          setPersistentBranches([]);
+          setPersistentSelectedBranchIds({});
+          setPersistentThreadsMap(new Map());
+          setDraftChats((prev) =>
+            prev.filter((draft) => draft.mentorId !== deletedMentor.id)
             );
           }
 
