@@ -232,7 +232,7 @@ Supporting multi-chat required removing the old one-conversation-per-mentor inva
 
 Relevant migration:
 
-- [`20260404113000_multi_conversation_sidebar.sql`](/home/daniel-chen/Documents/code/projects/keen-new-tab/supabase/migrations/20260404113000_multi_conversation_sidebar.sql)
+- [`20260404113000_multi_conversation_sidebar.sql`](../../supabase/migrations/20260404113000_multi_conversation_sidebar.sql)
 
 That migration:
 
@@ -263,5 +263,5 @@ These are current product limits, not bugs:
 
 ## Related Docs
 
-- [`temporary-chat.md`](/home/daniel-chen/Documents/code/projects/keen-new-tab/docs/features/temporary-chat.md)
-- [`2026-03-31-multi-chat-sidebar-spec.md`](/home/daniel-chen/Documents/code/projects/keen-new-tab/docs/plans/2026-03-31-multi-chat-sidebar-spec.md)
+- [`temporary-chat.md`](./temporary-chat.md)
+- [`2026-03-31-multi-chat-sidebar-spec.md`](../plans/2026-03-31-multi-chat-sidebar-spec.md)
