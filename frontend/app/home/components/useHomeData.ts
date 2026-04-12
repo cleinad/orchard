@@ -113,6 +113,27 @@ function buildSidebarGroups(
   return [...activeGroups, ...inactiveGroups];
 }
 
+function mapConversationRowToListItem(
+  row: ConversationRow,
+  mentorSource: MentorListItem[],
+  preview: string
+): ConversationListItem {
+  const mentor = row.mentor_id
+    ? mentorSource.find((entry) => entry.id === row.mentor_id) || null
+    : null;
+
+  return {
+    id: row.id,
+    title: row.title?.trim() || 'New chat',
+    mentor_id: row.mentor_id,
+    updated_at: row.updated_at,
+    created_at: row.created_at,
+    preview: mapConversationPreview(preview),
+    mentor_name: mentor?.name || 'Keen',
+    mentor_accent_color: mentor?.accent_color || null,
+  };
+}
+
 export function useHomeData() {
   const [mentors, setMentors] = useState<MentorListItem[]>([]);
   const [conversations, setConversations] = useState<ConversationListItem[]>([]);
@@ -132,7 +153,6 @@ export function useHomeData() {
   }, []);
 
   const loadConversations = useCallback(async (mentorSource: MentorListItem[]) => {
-    const mentorById = new Map(mentorSource.map((mentor) => [mentor.id, mentor]));
     const { data: conversationRows, error: conversationError } = await supabase
       .from('conversations')
       .select('id, title, mentor_id, updated_at, created_at')
@@ -165,21 +185,13 @@ export function useHomeData() {
       previews.map((item) => [item.conversationId, item.preview])
     );
 
-    const nextConversations: ConversationListItem[] = rows.map((row) => {
-      const mentor = row.mentor_id ? mentorById.get(row.mentor_id) : null;
-      const preview = previewByConversationId.get(row.id) || '';
-
-      return {
-        id: row.id,
-        title: row.title?.trim() || 'New chat',
-        mentor_id: row.mentor_id,
-        updated_at: row.updated_at,
-        created_at: row.created_at,
-        preview: mapConversationPreview(preview),
-        mentor_name: mentor?.name || 'Keen',
-        mentor_accent_color: mentor?.accent_color || null,
-      };
-    });
+    const nextConversations: ConversationListItem[] = rows.map((row) =>
+      mapConversationRowToListItem(
+        row,
+        mentorSource,
+        previewByConversationId.get(row.id) || ''
+      )
+    );
 
     setConversations(nextConversations);
     setMentorGroups(buildSidebarGroups(mentorSource, nextConversations));
@@ -257,15 +269,29 @@ export function useHomeData() {
     };
   }, []);
 
+  const loadConversationById = useCallback(async (nextConversationId: string) => {
+    const { data, error } = await supabase
+      .from('conversations')
+      .select('id, title, mentor_id, updated_at, created_at')
+      .eq('id', nextConversationId)
+      .single();
+
+    if (error || !data) {
+      throw new Error(error?.message || 'Conversation not found');
+    }
+
+    return mapConversationRowToListItem(data as ConversationRow, mentors, '');
+  }, [mentors]);
+
   return {
     mentors,
-    setMentors,
     conversations,
     mentorGroups,
     loadingLists,
     listError,
     setListError,
     refreshSidebarData,
+    loadConversationById,
     loadConversationMessages,
   };
 }

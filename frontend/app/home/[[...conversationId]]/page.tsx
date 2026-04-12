@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useState, useCallback, useRef, useEffect } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import HomeBackground from '@/app/home/components/HomeBackground';
 import HomeHeader from '@/app/home/components/HomeHeader';
 import ChatComposer from '@/app/home/components/ChatComposer';
@@ -332,8 +332,13 @@ function HomePageInner() {
 
   const { learningMode, toggleLearningMode } = useLearningMode();
 
+  const params = useParams<{ conversationId?: string[] }>();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const routeConversationId =
+    Array.isArray(params.conversationId) && params.conversationId.length > 0
+      ? params.conversationId[0]
+      : null;
   const homeE2eFixture = getHomeE2eFixture(searchParams.get('e2e'));
   const isHomeE2eFixture = homeE2eFixture !== null;
 
@@ -345,6 +350,7 @@ function HomePageInner() {
     listError,
     setListError,
     refreshSidebarData,
+    loadConversationById,
     loadConversationMessages,
   } = useHomeData();
 
@@ -429,9 +435,16 @@ function HomePageInner() {
   const autoSendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mentorSlugHandledRef = useRef(false);
   const appliedHomeE2eFixtureRef = useRef<string | null>(null);
+  const hydratedRouteConversationIdRef = useRef<string | null>(null);
+  const routeLoadRequestIdRef = useRef(0);
+  const selectedChatRef = useRef<SelectedChat | null>(null);
+  const selectedDraftChatRef = useRef<PersistentDraftChat | null>(null);
+  const prepareForChatSwitchRef = useRef<(nextSelection: SelectedChat | null) => void>(
+    () => {}
+  );
 
   useEffect(() => {
-    if (typeof window === 'undefined' || isHomeE2eFixture) {
+    if (isHomeE2eFixture) {
       return;
     }
 
@@ -449,7 +462,7 @@ function HomePageInner() {
   }, [isHomeE2eFixture]);
 
   useEffect(() => {
-    if (typeof window === 'undefined' || isHomeE2eFixture) {
+    if (isHomeE2eFixture) {
       return;
     }
 
@@ -468,7 +481,6 @@ function HomePageInner() {
     if (isHomeE2eFixture) {
       return;
     }
-
     void refreshSidebarData();
   }, [isHomeE2eFixture, refreshSidebarData]);
 
@@ -485,7 +497,15 @@ function HomePageInner() {
   }, [selectedChat, selectedTemporaryChat]);
 
   useEffect(() => {
-    if (isHomeE2eFixture || mentorSlugHandledRef.current) return;
+    selectedChatRef.current = selectedChat;
+  }, [selectedChat]);
+
+  useEffect(() => {
+    selectedDraftChatRef.current = selectedDraftChat;
+  }, [selectedDraftChat]);
+
+  useEffect(() => {
+    if (isHomeE2eFixture || mentorSlugHandledRef.current || routeConversationId) return;
     const mentorSlug = searchParams.get('mentor');
     if (!mentorSlug || loadingLists) return;
     if (mentors.length === 0 && !listError) return;
@@ -500,14 +520,26 @@ function HomePageInner() {
       );
 
       if (latestConversation) {
-        void handleSelectConversation(latestConversation);
+        router.replace(`/home/${encodeURIComponent(latestConversation.id)}`, {
+          scroll: false,
+        });
       } else {
         handleCreateDraftSelection(target.id);
+        router.replace('/home', { scroll: false });
       }
+    } else {
+      router.replace('/home', { scroll: false });
     }
-
-    router.replace('/home', { scroll: false });
-  }, [searchParams, loadingLists, mentors, conversations, router, listError, isHomeE2eFixture]);
+  }, [
+    routeConversationId,
+    searchParams,
+    loadingLists,
+    mentors,
+    conversations,
+    router,
+    listError,
+    isHomeE2eFixture,
+  ]);
 
   const scrollToBottom = useCallback(() => {
     if (!userHasScrolled && messagesEndRef.current) {
@@ -719,21 +751,50 @@ function HomePageInner() {
       setLastSearchState(null);
       setUserHasScrolled(false);
 
+      const currentSelection = selectedChatRef.current;
+      const currentDraft = selectedDraftChatRef.current;
+
       if (
-        selectedChat?.kind === 'draft' &&
-        selectedDraftChat &&
-        selectedDraftChat.messages.length === 0 &&
+        currentSelection?.kind === 'draft' &&
+        currentDraft &&
+        currentDraft.messages.length === 0 &&
         !(
           nextSelection?.kind === 'draft' &&
-          nextSelection.draftId === selectedDraftChat.id
+          nextSelection.draftId === currentDraft.id
         )
       ) {
         setDraftChats((prev) =>
-          prev.filter((draft) => draft.id !== selectedDraftChat.id)
+          prev.filter((draft) => draft.id !== currentDraft.id)
         );
       }
     },
-    [resetThreadUi, selectedChat, selectedDraftChat, stopMic, tts]
+    [resetThreadUi, stopMic, tts]
+  );
+
+  useEffect(() => {
+    prepareForChatSwitchRef.current = prepareForChatSwitch;
+  }, [prepareForChatSwitch]);
+
+  const openHomeWorkspace = useCallback(() => {
+    if (!routeConversationId) {
+      return;
+    }
+
+    router.push('/home', { scroll: false });
+  }, [routeConversationId, router]);
+
+  const openPersistentConversation = useCallback(
+    (conversationId: string, options?: { replace?: boolean }) => {
+      const href = `/home/${encodeURIComponent(conversationId)}`;
+
+      if (options?.replace) {
+        router.replace(href, { scroll: false });
+        return;
+      }
+
+      router.push(href, { scroll: false });
+    },
+    [router]
   );
 
   const handleCreateDraftSelection = useCallback(
@@ -749,8 +810,9 @@ function HomePageInner() {
       setPersistentMessages([]);
       setPersistentThreadsMap(new Map());
       setSelectedChat(nextSelection);
+      openHomeWorkspace();
     },
-    [getOrCreateDraft, prepareForChatSwitch]
+    [getOrCreateDraft, openHomeWorkspace, prepareForChatSwitch]
   );
 
   const handleCreateTemporaryChat = useCallback(() => {
@@ -776,7 +838,8 @@ function HomePageInner() {
     setPersistentThreadsMap(new Map());
     setTemporaryChats((prev) => [chat, ...prev]);
     setSelectedChat(nextSelection);
-  }, [prepareForChatSwitch]);
+    openHomeWorkspace();
+  }, [openHomeWorkspace, prepareForChatSwitch]);
 
   const handleSelectTemporaryChat = useCallback(
     (tempChatId: string) => {
@@ -789,8 +852,9 @@ function HomePageInner() {
       setPersistentMessages([]);
       setPersistentThreadsMap(new Map());
       setSelectedChat(nextSelection);
+      openHomeWorkspace();
     },
-    [prepareForChatSwitch]
+    [openHomeWorkspace, prepareForChatSwitch]
   );
 
   const handleSelectDraft = useCallback(
@@ -810,33 +874,107 @@ function HomePageInner() {
       setPersistentMessages([]);
       setPersistentThreadsMap(new Map());
       setSelectedChat(nextSelection);
+      openHomeWorkspace();
     },
-    [draftChats, prepareForChatSwitch]
+    [draftChats, openHomeWorkspace, prepareForChatSwitch]
   );
 
   const handleSelectConversation = useCallback(
-    async (conversation: ConversationListItem) => {
+    (conversation: ConversationListItem) => {
+      openPersistentConversation(conversation.id);
+    },
+    [openPersistentConversation]
+  );
+
+  useEffect(() => {
+    if (isHomeE2eFixture) {
+      return;
+    }
+
+    const currentSelectedChat = selectedChatRef.current;
+    const currentPersistentSelection =
+      currentSelectedChat?.kind === 'persistent' ? currentSelectedChat : null;
+
+    if (!routeConversationId) {
+      hydratedRouteConversationIdRef.current = null;
+
+      if (currentPersistentSelection) {
+        prepareForChatSwitchRef.current(null);
+        setSelectedChat(null);
+        setPersistentMessages([]);
+        setPersistentThreadsMap(new Map());
+      }
+
+      return;
+    }
+
+    const alreadyHydrated =
+      hydratedRouteConversationIdRef.current === routeConversationId &&
+      currentPersistentSelection?.conversationId === routeConversationId;
+
+    if (alreadyHydrated) {
+      return;
+    }
+
+    const requestId = routeLoadRequestIdRef.current + 1;
+    routeLoadRequestIdRef.current = requestId;
+
+    const loadSelectedConversation = async () => {
+      const loadedConversation = await loadConversationById(routeConversationId);
+
+      if (routeLoadRequestIdRef.current !== requestId) {
+        return;
+      }
+
       const nextSelection: SelectedChat = {
         kind: 'persistent',
-        conversationId: conversation.id,
-        mentorId: conversation.mentor_id,
+        conversationId: routeConversationId,
+        mentorId: loadedConversation.mentor_id,
       };
 
-      prepareForChatSwitch(nextSelection);
+      prepareForChatSwitchRef.current(nextSelection);
       setSelectedChat(nextSelection);
       setPersistentMessages([]);
       setPersistentThreadsMap(new Map());
+      setListError(null);
 
-      try {
-        const loadedConversation = await loadConversationMessages(conversation.id);
-        setPersistentMessages(loadedConversation.messages);
-        setPersistentThreadsMap(loadedConversation.threadsMap);
-      } catch (err) {
-        setListError(err instanceof Error ? err.message : 'Failed to load conversation');
+      const loadedConversationData = await loadConversationMessages(routeConversationId);
+
+      if (routeLoadRequestIdRef.current !== requestId) {
+        return;
       }
-    },
-    [loadConversationMessages, prepareForChatSwitch, setListError]
-  );
+
+      hydratedRouteConversationIdRef.current = routeConversationId;
+      setPersistentMessages(loadedConversationData.messages);
+      setPersistentThreadsMap(loadedConversationData.threadsMap);
+    };
+
+    void loadSelectedConversation().catch((err) => {
+      if (routeLoadRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      hydratedRouteConversationIdRef.current = null;
+      prepareForChatSwitchRef.current({
+        kind: 'persistent',
+        conversationId: routeConversationId,
+        mentorId: null,
+      });
+      setListError(err instanceof Error ? err.message : 'Failed to load conversation');
+      setSelectedChat({
+        kind: 'persistent',
+        conversationId: routeConversationId,
+        mentorId: null,
+      });
+      setPersistentMessages([]);
+      setPersistentThreadsMap(new Map());
+    });
+  }, [
+    isHomeE2eFixture,
+    loadConversationById,
+    loadConversationMessages,
+    routeConversationId,
+  ]);
 
   const handleCloseTemporaryChat = useCallback(
     (tempChatId: string) => {
@@ -858,7 +996,7 @@ function HomePageInner() {
 
       const latestConversation = conversations[0];
       if (latestConversation) {
-        void handleSelectConversation(latestConversation);
+        handleSelectConversation(latestConversation);
         return;
       }
 
@@ -1101,7 +1239,9 @@ function HomePageInner() {
         setPersistentMessages([persistedUserMessage, assistantMessage]);
         setPersistentThreadsMap(new Map());
         setDraftChats((prev) => prev.filter((draft) => draft.id !== effectiveDraft!.id));
+        hydratedRouteConversationIdRef.current = data.conversationId;
         setSelectedChat(nextPersistentSelection);
+        openPersistentConversation(data.conversationId, { replace: true });
         if (!isHomeE2eFixture) {
           await refreshSidebarData();
         }
@@ -1154,6 +1294,7 @@ function HomePageInner() {
     ttsEnabled,
     updateDraftChat,
     updateTemporaryChat,
+    openPersistentConversation,
   ]);
 
   useEffect(() => {
