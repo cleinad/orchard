@@ -2,6 +2,10 @@
 
 A voice-native AI thinking partner with specialized mentors, persistent memory, and live web search.
 
+## Documentation
+
+Start with [docs/README.md](./docs/README.md) for the product overview and the full documentation map.
+
 ## Project Structure
 
 ```

@@ -1,5 +1,7 @@
 # Chat Model Selection Test Suite
 
+For the overall test inventory, runner commands, and canary map, start with [../testing/README.md](../testing/README.md).
+
 ## Running Tests
 
 ```bash

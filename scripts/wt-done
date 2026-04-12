@@ -1,0 +1,151 @@
+#!/usr/bin/env bash
+#
+# wt-done
+# Remove a git worktree and delete its local branch.
+#
+# Usage:
+#   ./scripts/wt-done
+#   ./scripts/wt-done --target <worktree-path>
+#   ./scripts/wt-done --force
+#
+# What it does:
+#   - removes the target worktree with git worktree remove
+#   - deletes the target worktree directory
+#   - deletes the target local branch
+#   - refuses to remove the primary worktree
+#   - refuses detached HEAD unless --force is passed
+
+set -euo pipefail
+
+script_name=$(basename "$0")
+force=0
+target_root=""
+
+usage() {
+  cat <<'EOF'
+Usage:
+  ./scripts/wt-done
+  ./scripts/wt-done --target <worktree-path>
+  ./scripts/wt-done --force
+
+Remove a Git worktree and delete its local branch.
+
+Behavior:
+  - If --target is omitted, the current worktree is targeted.
+  - The worktree directory is removed with git worktree remove.
+  - The branch is deleted with git branch -d by default.
+  - --force switches to git worktree remove --force and git branch -D.
+  - The primary worktree is never removed.
+
+Options:
+  --target <worktree>     Remove a specific worktree instead of the current one.
+  --force                 Force worktree removal and branch deletion.
+  -h, --help              Show this help text.
+EOF
+}
+
+log() {
+  printf '%s: %s\n' "$script_name" "$*"
+}
+
+die() {
+  printf '%s: %s\n' "$script_name" "$*" >&2
+  exit 1
+}
+
+resolve_existing_path() {
+  local path="$1"
+  local base_dir="$2"
+
+  if [[ "$path" = /* ]]; then
+    (cd "$path" && pwd -P)
+  else
+    (cd "$base_dir/$path" && pwd -P)
+  fi
+}
+
+while (($# > 0)); do
+  case "$1" in
+    --target)
+      shift
+      (($# > 0)) || die "Missing value for --target"
+      target_root="$1"
+      shift
+      ;;
+    --force)
+      force=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      die "Unknown argument: $1"
+      ;;
+  esac
+done
+
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || die "Run this from a Git worktree in this repository"
+repo_root=$(cd "$repo_root" && pwd -P)
+current_common_dir_raw=$(git rev-parse --git-common-dir)
+current_common_dir=$(resolve_existing_path "$current_common_dir_raw" "$repo_root")
+primary_worktree=$(cd "$current_common_dir/.." && pwd -P)
+
+if [[ -n "$target_root" ]]; then
+  [[ -d "$target_root" ]] || die "Target worktree does not exist: $target_root"
+  target_root=$(cd "$target_root" && pwd -P)
+else
+  target_root="$repo_root"
+fi
+
+target_repo_root=$(git -C "$target_root" rev-parse --show-toplevel 2>/dev/null) || die "Target is not a Git worktree: $target_root"
+target_repo_root=$(cd "$target_repo_root" && pwd -P)
+target_common_dir_raw=$(git -C "$target_repo_root" rev-parse --git-common-dir)
+target_common_dir=$(resolve_existing_path "$target_common_dir_raw" "$target_repo_root")
+
+[[ "$current_common_dir" == "$target_common_dir" ]] || die "Target worktree belongs to a different Git repository"
+target_root="$target_repo_root"
+
+[[ "$target_root" != "$primary_worktree" ]] || die "Refusing to remove the primary worktree: $target_root"
+
+branch_name=$(git -C "$target_root" symbolic-ref --quiet --short HEAD || true)
+[[ -n "$branch_name" || $force -eq 1 ]] || die "Target worktree is in detached HEAD state (rerun with --force to remove the worktree without deleting a branch)"
+
+remove_args=()
+branch_delete_args=()
+
+if [[ $force -eq 1 ]]; then
+  remove_args+=(--force)
+  branch_delete_args+=(-D)
+else
+  branch_delete_args+=(-d)
+fi
+
+if [[ "$repo_root" == "$target_root" ]]; then
+  log "Removing the current worktree; your interactive shell may still need a manual 'cd' after this completes."
+fi
+
+cd "$primary_worktree" || die "Failed to change to the primary worktree: $primary_worktree"
+
+log "Removing worktree at $target_root"
+if ! git worktree remove "${remove_args[@]}" "$target_root"; then
+  if [[ $force -eq 1 ]]; then
+    die "Failed to remove worktree: $target_root"
+  fi
+  die "Failed to remove worktree: $target_root (commit or stash changes first, or rerun with --force)"
+fi
+
+if [[ -n "$branch_name" ]]; then
+  log "Deleting local branch '$branch_name'"
+  if ! git branch "${branch_delete_args[@]}" "$branch_name"; then
+    if [[ $force -eq 1 ]]; then
+      die "Removed worktree at $target_root but failed to delete branch '$branch_name'"
+    fi
+    die "Removed worktree at $target_root but refused to delete branch '$branch_name' (merge it first, or rerun with --force)"
+  fi
+else
+  log "Detached HEAD; no local branch to delete."
+fi
+
+log "Done"
