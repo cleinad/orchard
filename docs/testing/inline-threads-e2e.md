@@ -37,7 +37,7 @@ These fixtures:
 - seed a known assistant message
 - keep the chat state deterministic
 - skip live sidebar bootstrap
-- bypass the `/home` auth proxy only when the Playwright server env enables it
+- bypass the normal page-auth proxy for `/home` fixture URLs only when the Playwright server env enables it
 
 Playwright enables learning mode through `localStorage` before navigation.
 
@@ -74,3 +74,4 @@ The suite does not currently cover:
 - non-Chromium browsers
 - live Supabase integration
 - full end-to-end persistence through the real backend
+- real auth redirect behavior

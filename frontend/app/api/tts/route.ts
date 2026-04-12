@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { createSupabaseServerClient } from '@/lib/supabase-server';
 
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || '';
 // Default to a natural conversational voice - you can change this
@@ -10,6 +11,16 @@ interface TTSRequest {
 
 export async function POST(request: NextRequest) {
   try {
+    const supabase = await createSupabaseServerClient();
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     if (!ELEVENLABS_API_KEY) {
       return NextResponse.json(
         { error: 'ElevenLabs API key not configured' },
