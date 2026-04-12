@@ -33,10 +33,10 @@ Live search gives Keen access to real-time web results so responses can be groun
 User clicks toggle
     |
     v
-searchEnabled state (boolean) — frontend/app/home/page.tsx:66
+searchEnabled state (boolean) — frontend/app/home/[[...conversationId]]/page.tsx
     |
     v
-POST /api/chat body includes { searchEnabled }  — page.tsx:435
+POST /api/chat body includes { searchEnabled }  — frontend/app/home/[[...conversationId]]/page.tsx
     |
     v
 Chat route converts: searchEnabled ? 'required' : 'auto'  — app/api/chat/route.ts:376
@@ -53,17 +53,17 @@ Chat route converts: searchEnabled ? 'required' : 'auto'  — app/api/chat/route
 Response includes SearchMetadata (mode, status, resultCount, warning, sources)
     |
     v
-Frontend updates lastSearchState — page.tsx:456
+Frontend updates lastSearchState — frontend/app/home/[[...conversationId]]/page.tsx
     |
     v
-UI shows success/warning indicators — page.tsx:868-878
+UI shows success/warning indicators — frontend/app/home/[[...conversationId]]/page.tsx
 ```
 
 ### Key Files
 
 | File | Role |
 |------|------|
-| `frontend/app/home/page.tsx` | Toggle UI, state management (`searchEnabled`, `lastSearchState`), status indicators |
+| `frontend/app/home/[[...conversationId]]/page.tsx` | Toggle UI, state management (`searchEnabled`, `lastSearchState`), status indicators |
 | `frontend/app/api/chat/route.ts` | Converts `searchEnabled` to `searchMode`, orchestrates search execution, builds grounded prompts |
 | `frontend/lib/chat-search.ts` | `SearchMetadata` types, `addSearchInstructions()` for auto mode, `extractSearchMetadata()`, `applySearchDisclosure()`, warning/disclosure logic |
 | `frontend/lib/tools.ts` | `webSearch` tool definition (Vercel AI SDK `tool()`), `runWebSearch()` function, Tavily API integration, result sanitization |

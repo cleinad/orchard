@@ -15,6 +15,7 @@ Temporary chats are session-scoped Keen-style chats that:
 - appear in the sidebar under `Temporary`
 - persist across reloads in the same browser tab via `sessionStorage`
 - disappear when closed or when the browser tab or session ends
+- stay URL-less and use `/home` rather than `/home/<conversationId>`
 
 They are intentionally a real no-persistence path, not a "write then delete later" path.
 
@@ -33,6 +34,7 @@ They are intentionally a real no-persistence path, not a "write then delete late
 - Each temporary chat can be selected directly from the sidebar.
 - Each temporary chat can be closed directly from the sidebar.
 - Temporary chats are not associated with mentor rows.
+- Selecting a temporary chat returns the browser URL to `/home`.
 
 ### Header and composer behavior
 
@@ -129,7 +131,7 @@ On the temporary path, `POST /api/chat`:
 | File | Role |
 |------|------|
 | `frontend/lib/chat-session.ts` | Shared temporary ids, memory-mode types, and title fallback helpers |
-| `frontend/app/home/page.tsx` | Temporary chat collection, session storage, selection, and client-side updates |
+| `frontend/app/home/[[...conversationId]]/page.tsx` | Temporary chat collection, session storage, selection, and `/home` route coordination |
 | `frontend/app/home/components/SidePanel.tsx` | Temporary section rendering, selection, and close behavior |
 | `frontend/app/home/components/HomeHeader.tsx` | `New temporary chat` entry point and temporary metadata beside `Keen` |
 | `frontend/app/home/components/ChatComposer.tsx` | Temporary intro card and per-chat memory mode controls |

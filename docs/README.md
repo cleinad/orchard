@@ -42,14 +42,14 @@ If docs conflict, prefer:
 
 ## Feature Reference
 
-- [features/auth-and-route-protection.md](./features/auth-and-route-protection.md): auth model, protected routes, proxy rules, and testing coverage
-- [features/chat-model-selection.md](./features/chat-model-selection.md): model picker behavior, resolution rules, availability rules, and verification
-- [features/inline-threads.md](./features/inline-threads.md): text selection, popover behavior, thread panel rules, keyboard behavior, and edge cases
-- [features/live-search.md](./features/live-search.md): live web search behavior, execution flow, and safety constraints
+- [features/auth-and-route-protection.md](./features/auth-and-route-protection.md): auth model, protected routes including `/home/[conversationId]`, proxy rules, and testing coverage
+- [features/chat-model-selection.md](./features/chat-model-selection.md): model picker behavior across routed home chats, resolution rules, availability rules, and verification
+- [features/inline-threads.md](./features/inline-threads.md): text selection, popover behavior, thread panel rules, keyboard behavior, and edge cases across `/home` and `/home/[conversationId]`
+- [features/live-search.md](./features/live-search.md): live web search behavior, execution flow, and routed home-surface integration
 - [features/memory.md](./features/memory.md): memory system architecture, read/write paths, schema, and API shape
 - [features/mentors.md](./features/mentors.md): built-in and custom mentors, data model, prompt construction, and API integration
-- [features/multi-chat-home.md](./features/multi-chat-home.md): multi-conversation home behavior, sidebar model, runtime state, and database impact
-- [features/temporary-chat.md](./features/temporary-chat.md): temporary chat behavior, memory modes, and chat route behavior
+- [features/multi-chat-home.md](./features/multi-chat-home.md): multi-conversation home behavior, persistent conversation URLs, route hydration, sidebar model, runtime state, and database impact
+- [features/temporary-chat.md](./features/temporary-chat.md): temporary chat behavior, memory modes, URL-less `/home` behavior, and chat route behavior
 
 ## Implementation Notes
 

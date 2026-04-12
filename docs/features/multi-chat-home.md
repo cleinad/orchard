@@ -4,6 +4,8 @@
 
 `/home` is now a multi-chat workspace rather than a one-conversation-per-mentor screen.
 
+Persistent conversations also have canonical URLs under `/home/<conversationId>`, while drafts and temporary chats stay on `/home`.
+
 At any moment, the user has exactly one selected chat, but that selected chat can be one of three things:
 
 - a persistent conversation stored in Supabase
@@ -88,7 +90,22 @@ Rules:
 - clicking `+` creates or reuses a local draft
 - the first submitted message creates the real `conversations` row
 - after the first successful exchange, the draft is promoted into a normal persistent conversation
+- after that promotion, the client replaces `/home` with `/home/<conversationId>`
 - if the user switches away from an empty draft without sending anything, that draft is removed
+
+### URL behavior
+
+The home workspace now uses the route to represent persistent chat selection.
+
+Rules:
+
+- `/home` is the blank workspace route
+- `/home` is also used for local drafts and temporary chats
+- `/home/<conversationId>` is the canonical route for persistent conversations
+- clicking a persistent conversation in the sidebar pushes `/home/<conversationId>`
+- clicking a draft or temporary chat returns the URL to `/home`
+- direct loads of `/home/<conversationId>` hydrate the matching conversation into the home state
+- the first successful send from a draft replaces `/home` with `/home/<conversationId>` instead of adding a fake draft route
 
 ### Titles
 
@@ -110,6 +127,11 @@ Temporary chats:
 
 - if the mentor has persistent conversations, open the most recent one
 - otherwise create or reuse that mentor's local empty draft
+
+After resolution:
+
+- persistent selections canonicalize to `/home/<conversationId>`
+- draft selections stay on `/home`
 
 ## Conversation Types
 
@@ -184,6 +206,15 @@ The client groups conversations by mentor, computes `last_activity_at`, sorts ea
 
 Opening a chat does not change sidebar ordering on its own. Ordering changes when persistent conversation activity changes.
 
+### Route hydration model
+
+Persistent route hydration is now part of the home orchestration layer.
+
+- the route param is the source of truth for which persistent conversation should load
+- `/home` clears route-driven persistent selection and leaves the page in blank, draft, or temporary state
+- `/home/<conversationId>` loads conversation metadata, then message history, then marks that route as hydrated
+- route hydration reuses the same persistent message-loading path as sidebar selection instead of maintaining a separate fetch model
+
 ## Chat Route Behavior
 
 `POST /api/chat` supports three effective send paths.
@@ -243,9 +274,9 @@ That migration:
 
 | File | Role |
 |------|------|
-| `frontend/app/home/page.tsx` | Main orchestration for selected chat state, draft lifecycle, temporary chat storage, and send-path switching |
+| `frontend/app/home/[[...conversationId]]/page.tsx` | Main orchestration for selected chat state, route-driven persistent hydration, draft lifecycle, temporary chat storage, and send-path switching |
 | `frontend/app/home/components/SidePanel.tsx` | Sidebar rendering, mentor expansion, selected-item visibility, temp chat section, `Show more` behavior |
-| `frontend/app/home/components/useHomeData.ts` | Loads mentors and persistent conversations, builds mentor groups, computes recency ordering |
+| `frontend/app/home/components/useHomeData.ts` | Loads mentors and persistent conversations, builds mentor groups, computes recency ordering, and resolves direct conversation route loads |
 | `frontend/app/home/components/HomeHeader.tsx` | Header controls, including sidebar open and `new temporary chat` |
 | `frontend/app/home/components/ChatComposer.tsx` | Temporary intro UI and per-temp-chat memory mode selection |
 | `frontend/lib/chat-session.ts` | Shared chat-session helpers, title fallback helpers, temporary ids |
