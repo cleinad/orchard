@@ -25,7 +25,7 @@ Use the docs in this order:
 2. Read [architecture.md](./architecture.md) for the system overview and major technical building blocks.
 3. Read the relevant file in [features](./features/) for the current product behavior of a specific area.
 4. Read [implementation](./implementation/) docs when a feature has non-obvious engineering invariants.
-5. Read [testing](./testing/) and [tests](./tests/) docs before changing sensitive behavior.
+5. Read [testing/README.md](./testing/README.md) before changing sensitive behavior, then follow the linked suite docs.
 6. Use [plans](./plans/) and [superpowers](./superpowers/) for historical rationale, not as the primary source of truth.
 
 If docs conflict, prefer:
@@ -59,9 +59,11 @@ Use implementation docs when the feature doc tells you what should happen, but t
 
 ## Testing Docs
 
+- [testing/README.md](./testing/README.md): central test map, runner commands, focused canaries, and test inventory
 - [testing/inline-threads-e2e.md](./testing/inline-threads-e2e.md): inline-thread end-to-end coverage, fixtures, and regression cases
 - [tests/chat-model-selection-tests.md](./tests/chat-model-selection-tests.md): automated and manual verification for model selection
 - [tests/memory-tests.md](./tests/memory-tests.md): memory test suite map, coverage philosophy, and remaining gaps
+- [features/auth-and-route-protection.md](./features/auth-and-route-protection.md): auth and route-protection testing coverage plus focused command
 
 ## SQL Reference
 
