@@ -2,6 +2,10 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 ## Getting Started
 
+### Project Docs
+
+- Auth and route protection: [`../docs/features/auth-and-route-protection.md`](../docs/features/auth-and-route-protection.md)
+
 ### Environment Setup
 
 1. Create a `.env.local` file in the `frontend` directory with your Supabase credentials:
