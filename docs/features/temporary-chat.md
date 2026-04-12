@@ -6,7 +6,7 @@ Temporary chat is now a first-class chat type inside the `/home` multi-chat syst
 
 For the full home navigation model, see:
 
-- [`multi-chat-home.md`](/home/daniel-chen/Documents/code/projects/keen-new-tab/docs/features/multi-chat-home.md)
+- [`multi-chat-home.md`](./multi-chat-home.md)
 
 Temporary chats are session-scoped Keen-style chats that:
 
