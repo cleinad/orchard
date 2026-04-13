@@ -150,6 +150,8 @@ interface ChatRequest {
   mentorId?: string;
   modelId?: string;
   threadId?: string;
+  previousMessageId?: string;
+  branchSourceMessageId?: string;
   sourceMessageId?: string;
   highlightedText?: string;
   startOffset?: number;
@@ -160,6 +162,55 @@ interface ChatRequest {
   memoryMode?: TemporaryMemoryMode;
   history?: ChatHistoryMessage[];
   threadHistory?: ChatHistoryMessage[];
+}
+
+interface PersistedMainMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  previous_message_id: string | null;
+  created_at: string;
+}
+
+function buildPathHistory(
+  messages: PersistedMainMessage[],
+  tailMessageId: string | null
+): Array<{ role: 'user' | 'assistant'; content: string }> {
+  if (!tailMessageId) {
+    return [];
+  }
+
+  const byId = new Map(messages.map((message) => [message.id, message]));
+  const path: PersistedMainMessage[] = [];
+  const seen = new Set<string>();
+  let current = byId.get(tailMessageId) ?? null;
+
+  while (current && !seen.has(current.id)) {
+    path.push(current);
+    seen.add(current.id);
+    current = current.previous_message_id
+      ? byId.get(current.previous_message_id) ?? null
+      : null;
+  }
+
+  return path
+    .reverse()
+    .map((message) => ({
+      role: message.role,
+      content: message.content,
+    }));
+}
+
+function getNextBranchPosition(
+  positions: number[],
+  mainMaterialized: boolean,
+  hasExistingMainContinuation: boolean
+) {
+  if (positions.length > 0) {
+    return Math.max(...positions) + 1;
+  }
+
+  return mainMaterialized || hasExistingMainContinuation ? 1 : 0;
 }
 
 export async function POST(request: NextRequest) {
@@ -183,6 +234,8 @@ export async function POST(request: NextRequest) {
       mentorId,
       modelId,
       threadId,
+      previousMessageId,
+      branchSourceMessageId,
       sourceMessageId,
       highlightedText,
       startOffset,
@@ -308,6 +361,14 @@ export async function POST(request: NextRequest) {
 
     // Thread handling
     let activeThreadId = threadId || null;
+    const normalizedPreviousMessageId =
+      typeof previousMessageId === 'string' && previousMessageId.trim().length > 0
+        ? previousMessageId.trim()
+        : null;
+    const normalizedBranchSourceMessageId =
+      typeof branchSourceMessageId === 'string' && branchSourceMessageId.trim().length > 0
+        ? branchSourceMessageId.trim()
+        : null;
 
     // Validate thread ownership and prefetch highlighted text in one query
     let existingThreadHighlightedText: string | null = null;
@@ -367,6 +428,70 @@ export async function POST(request: NextRequest) {
     }
 
     let latestUserMessageId: string | null = null;
+    let effectivePreviousMessageId = normalizedPreviousMessageId;
+    let branchSourceForMessage = normalizedBranchSourceMessageId;
+    let materializedMainBranch = false;
+    let existingMainContinuationId: string | null = null;
+    let existingBranchPositions: number[] = [];
+
+    if (!isTemporaryChat && !activeThreadId && activeConversationId) {
+      if (branchSourceForMessage) {
+        const { data: sourceMessageRow, error: sourceMessageError } = await supabase
+          .from('messages')
+          .select('id, role, conversation_id, thread_id')
+          .eq('id', branchSourceForMessage)
+          .eq('conversation_id', activeConversationId)
+          .is('thread_id', null)
+          .single();
+
+        if (sourceMessageError || !sourceMessageRow || sourceMessageRow.role !== 'assistant') {
+          return NextResponse.json(
+            { error: 'Branch source message not found' },
+            { status: 404 }
+          );
+        }
+
+        const { data: existingBranchRows } = await supabase
+          .from('conversation_branches')
+          .select('position')
+          .eq('conversation_id', activeConversationId)
+          .eq('source_message_id', branchSourceForMessage)
+          .eq('user_id', user.id);
+
+        existingBranchPositions = (existingBranchRows || [])
+          .map((row) => row.position as number)
+          .filter((value) => Number.isFinite(value));
+
+        if (existingBranchPositions.length === 0) {
+          const { data: existingContinuation } = await supabase
+            .from('messages')
+            .select('id')
+            .eq('conversation_id', activeConversationId)
+            .eq('previous_message_id', branchSourceForMessage)
+            .is('thread_id', null)
+            .order('created_at', { ascending: true })
+            .limit(1)
+            .maybeSingle();
+
+          existingMainContinuationId = existingContinuation?.id ?? null;
+        }
+
+        effectivePreviousMessageId = branchSourceForMessage;
+      }
+
+      if (!effectivePreviousMessageId) {
+        const { data: latestMainMessage } = await supabase
+          .from('messages')
+          .select('id')
+          .eq('conversation_id', activeConversationId)
+          .is('thread_id', null)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        effectivePreviousMessageId = latestMainMessage?.id ?? null;
+      }
+    }
 
     if (!isTemporaryChat) {
       // Save user message
@@ -379,7 +504,7 @@ export async function POST(request: NextRequest) {
           content: message,
           ...(activeThreadId
             ? { thread_id: activeThreadId, parent_message_id: sourceMessageId || null }
-            : {}),
+            : { previous_message_id: effectivePreviousMessageId }),
         })
         .select('id')
         .single();
@@ -389,6 +514,51 @@ export async function POST(request: NextRequest) {
       }
 
       latestUserMessageId = userMessageRow?.id ?? null;
+
+      if (
+        latestUserMessageId
+        && activeConversationId
+        && branchSourceForMessage
+        && !activeThreadId
+      ) {
+        if (existingMainContinuationId) {
+          const { error: mainBranchError } = await supabase
+            .from('conversation_branches')
+            .insert({
+              conversation_id: activeConversationId,
+              source_message_id: branchSourceForMessage,
+              entry_message_id: existingMainContinuationId,
+              user_id: user.id,
+              title: 'Main',
+              is_main: true,
+              position: 0,
+            });
+
+          if (!mainBranchError) {
+            materializedMainBranch = true;
+          }
+        }
+
+        const { error: branchInsertError } = await supabase
+          .from('conversation_branches')
+          .insert({
+            conversation_id: activeConversationId,
+            source_message_id: branchSourceForMessage,
+            entry_message_id: latestUserMessageId,
+            user_id: user.id,
+            title: fallbackChatTitleFromMessage(message, 'New branch'),
+            is_main: false,
+            position: getNextBranchPosition(
+              existingBranchPositions,
+              materializedMainBranch,
+              Boolean(existingMainContinuationId)
+            ),
+          });
+
+        if (branchInsertError) {
+          console.error('Error creating conversation branch:', branchInsertError);
+        }
+      }
     }
 
     // Fetch conversation history for context
@@ -422,15 +592,22 @@ export async function POST(request: NextRequest) {
         messages = [{ role: 'user', content: message }];
       }
     } else {
-      const { data: history } = await supabase
+      const { data: historyRows } = await supabase
         .from('messages')
-        .select('role, content')
+        .select('id, role, content, previous_message_id, created_at')
         .eq('conversation_id', activeConversationId)
         .is('thread_id', null)
         .order('created_at', { ascending: true })
-        .limit(50);
+        .limit(200);
 
-      messages = history || [{ role: 'user', content: message }];
+      const pathHistory = buildPathHistory(
+        (historyRows || []) as PersistedMainMessage[],
+        latestUserMessageId
+      );
+
+      messages = pathHistory.length > 0
+        ? pathHistory
+        : [{ role: 'user', content: message }];
     }
 
     const isMentorConversation = !!mentor;
@@ -603,7 +780,7 @@ Live web search is unavailable in this environment. If the question depends on f
           content: assistantResponse,
           ...(activeThreadId
             ? { thread_id: activeThreadId, parent_message_id: sourceMessageId || null }
-            : {}),
+            : { previous_message_id: latestUserMessageId }),
         })
         .select('id')
         .single();

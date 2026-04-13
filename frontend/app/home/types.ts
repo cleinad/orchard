@@ -3,7 +3,19 @@ export interface Message {
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
+  previousMessageId: string | null;
 }
+
+export interface ConversationBranch {
+  id: string;
+  sourceMessageId: string;
+  entryMessageId: string;
+  title: string;
+  isMain: boolean;
+  position: number;
+}
+
+export type BranchSelectionMap = Record<string, string>;
 
 export interface ConversationListItem {
   id: string;
