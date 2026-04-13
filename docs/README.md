@@ -61,6 +61,7 @@ Use implementation docs when the feature doc tells you what should happen, but t
 
 - [testing/README.md](./testing/README.md): central test map, runner commands, focused canaries, and test inventory
 - [testing/inline-threads-e2e.md](./testing/inline-threads-e2e.md): inline-thread end-to-end coverage, fixtures, and regression cases
+- [testing/search-citations-and-source-ui.md](./testing/search-citations-and-source-ui.md): live-search citation coverage, focused canary, manual checks, and current gaps
 - [tests/chat-model-selection-tests.md](./tests/chat-model-selection-tests.md): automated and manual verification for model selection
 - [tests/memory-tests.md](./tests/memory-tests.md): memory test suite map, coverage philosophy, and remaining gaps
 - [features/auth-and-route-protection.md](./features/auth-and-route-protection.md): auth and route-protection testing coverage plus focused command
