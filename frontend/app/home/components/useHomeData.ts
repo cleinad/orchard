@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { MentorListItem } from '@/lib/mentors/types';
+import { parsePersistedSearchMetadata, stripCitationMarkers } from '@/lib/search-citations';
 import type {
   BranchSelectionMap,
   ConversationBranch,
@@ -151,15 +152,18 @@ export function useHomeData() {
       rows.map(async (row) => {
         const { data: latestMessage } = await supabase
           .from('messages')
-          .select('content')
+          .select('content, search_metadata')
           .eq('conversation_id', row.id)
           .order('created_at', { ascending: false })
           .limit(1)
           .maybeSingle();
 
+        const latestSearchMetadata = parsePersistedSearchMetadata(
+          latestMessage?.search_metadata
+        );
         return {
           conversationId: row.id,
-          preview: latestMessage?.content || '',
+          preview: stripCitationMarkers(latestMessage?.content || '', latestSearchMetadata),
         };
       })
     );
@@ -210,7 +214,7 @@ export function useHomeData() {
   const loadConversationMessages = useCallback(async (nextConversationId: string) => {
     const { data, error } = await supabase
       .from('messages')
-      .select('id, role, content, created_at, previous_message_id')
+      .select('id, role, content, created_at, search_metadata, previous_message_id')
       .eq('conversation_id', nextConversationId)
       .is('thread_id', null)
       .order('created_at', { ascending: true })
@@ -225,12 +229,14 @@ export function useHomeData() {
       role: 'user' | 'assistant';
       content: string;
       created_at: string;
+      search_metadata?: unknown;
       previous_message_id: string | null;
     }>).map((message) => ({
       id: message.id,
       role: message.role,
       content: message.content,
       timestamp: new Date(message.created_at),
+      searchMetadata: parsePersistedSearchMetadata(message.search_metadata),
       previousMessageId: message.previous_message_id ?? null,
     }));
 

@@ -23,6 +23,7 @@ import { useHomeVoice } from '@/app/home/components/useHomeVoice';
 import { usePersistedString } from '@/app/home/components/usePersistedString';
 import type { ThreadMeta, ThreadSource } from '@/app/home/components/threadTypes';
 import type { SearchMetadata } from '@/lib/chat-search';
+import { stripCitationMarkers } from '@/lib/search-citations';
 import {
   CHAT_MODEL_OPTIONS,
   DEFAULT_CHAT_MODEL_ID,
@@ -113,6 +114,7 @@ interface StoredMessage {
   role: 'user' | 'assistant';
   content: string;
   timestamp: string;
+  searchMetadata?: Message['searchMetadata'];
   previousMessageId: string | null;
 }
 
@@ -121,6 +123,7 @@ interface StoredThreadMessage {
   role: 'user' | 'assistant';
   content: string;
   timestamp: string;
+  searchMetadata?: ThreadMessage['searchMetadata'];
 }
 
 interface StoredTemporaryChatSession {
@@ -209,6 +212,7 @@ function toStoredMessage(message: Message): StoredMessage {
     role: message.role,
     content: message.content,
     timestamp: message.timestamp.toISOString(),
+    searchMetadata: message.searchMetadata ?? null,
     previousMessageId: message.previousMessageId,
   };
 }
@@ -219,6 +223,7 @@ function fromStoredMessage(message: StoredMessage): Message {
     role: message.role,
     content: message.content,
     timestamp: new Date(message.timestamp),
+    searchMetadata: message.searchMetadata ?? null,
     previousMessageId: message.previousMessageId ?? null,
   };
 }
@@ -229,6 +234,7 @@ function toStoredThreadMessage(message: ThreadMessage): StoredThreadMessage {
     role: message.role,
     content: message.content,
     timestamp: message.timestamp.toISOString(),
+    searchMetadata: message.searchMetadata ?? null,
   };
 }
 
@@ -238,6 +244,7 @@ function fromStoredThreadMessage(message: StoredThreadMessage): ThreadMessage {
     role: message.role,
     content: message.content,
     timestamp: new Date(message.timestamp),
+    searchMetadata: message.searchMetadata ?? null,
   };
 }
 
@@ -1418,6 +1425,7 @@ function HomePageInner() {
         role: 'assistant',
         content: responseText,
         timestamp: new Date(),
+        searchMetadata: data.search?.metadata ?? null,
         previousMessageId: data.userMessageId || userMessage.id,
       };
 
@@ -1493,7 +1501,7 @@ function HomePageInner() {
       }
 
       if (ttsEnabled && responseText && !responseText.startsWith('Something went wrong')) {
-        tts.speak(responseText);
+        tts.speak(stripCitationMarkers(responseText, assistantMessage.searchMetadata));
       }
     } catch {
       const errorMessage: Message = {

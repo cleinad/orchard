@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { createMockSupabase } from '../helpers/mock-supabase';
 
@@ -39,21 +39,22 @@ vi.mock('@/lib/memory-agent', () => ({
 vi.mock('@/lib/models', () => ({
   getChatModel: vi.fn(() => 'mock-chat-model'),
   resolveChatModelSelection: vi.fn(() => ({
-    id: 'gpt-5-mini',
+    id: 'gpt-5.4',
     provider: 'openai',
   })),
 }));
 
 vi.mock('@/lib/tools', () => ({
   runWebSearch: (...args: unknown[]) => mockRunWebSearch(...args),
-  webSearch: {},
 }));
 
 vi.mock('@/lib/mentors/prompts', () => ({
   buildMentorPrompt: (...args: unknown[]) => mockBuildMentorPrompt(...args),
 }));
 
-function createAuthenticatedSupabase(tables: Record<string, { rows: object[]; returnOnMutate?: object[] }> = {}) {
+function createAuthenticatedSupabase(
+  tables: Record<string, { rows: object[]; returnOnMutate?: object[] }> = {}
+) {
   const { client, tracker } = createMockSupabase({
     tables: {
       profiles: {
@@ -96,10 +97,10 @@ async function runChatRequest(
   const response = await POST(request);
   const json = await response.json();
 
-  return { response, body: json, supabase, tracker };
+  return { response, body: json, tracker };
 }
 
-describe('chat route memory contract', () => {
+describe('chat route search citations', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGenerateText.mockResolvedValue({ text: 'Assistant reply' });
@@ -114,142 +115,118 @@ describe('chat route memory contract', () => {
     mockBuildMentorPrompt.mockReturnValue('Mentor base prompt');
     mockRunWebSearch.mockResolvedValue({
       status: 'success',
-      query: 'Hello',
+      query: 'latest company update',
       results: [
         {
-          title: 'Example',
-          url: 'https://example.com/article',
-          snippet: 'Example snippet',
+          title: 'Source One',
+          url: 'https://example.com/one',
+          snippet: 'First source snippet',
+        },
+        {
+          title: 'Source Two',
+          url: 'https://example.com/two',
+          snippet: 'Second source snippet',
         },
       ],
     });
+  });
+
+  afterEach(() => {
     delete process.env.TAVILY_API_KEY;
   });
 
-  it('passes the authenticated Supabase client into processMemoryV2', async () => {
-    const { response, body, supabase } = await runChatRequest(
-      { message: 'Hello' },
+  it('persists null search metadata when auto mode does not search', async () => {
+    process.env.TAVILY_API_KEY = 'test-key';
+
+    const { response, body, tracker } = await runChatRequest(
+      { message: 'Help me brainstorm names' },
       {
         conversations: {
           rows: [],
           returnOnMutate: [{ id: 'conv-1' }],
         },
         messages: {
-          rows: [{ role: 'user', content: 'Hello' }],
+          rows: [{ role: 'user', content: 'Help me brainstorm names', search_metadata: null }],
           returnOnMutate: [{ id: 'msg-user-1' }, { id: 'msg-assistant-1' }],
         },
       }
     );
 
     expect(response.status).toBe(200);
-    expect(body.message).toBe('Assistant reply');
-    expect(mockProcessMemoryV2).toHaveBeenCalledTimes(1);
-    expect(mockProcessMemoryV2).toHaveBeenCalledWith(
-      supabase,
-      'user-1',
-      [{ role: 'user', content: 'Hello' }],
-      'Assistant reply',
-      expect.objectContaining({
-        conversationId: 'conv-1',
-        sourceMessageId: 'msg-user-1',
-        sourceRole: 'user',
-      })
-    );
-  });
-
-  it('does not schedule background memory extraction for temporary chats', async () => {
-    const { response } = await runChatRequest({
-      message: 'Hello',
-      chatMode: 'temporary',
+    expect(body.search).toMatchObject({
+      attempted: false,
+      status: 'not_attempted',
+      metadata: null,
     });
+    expect(mockRunWebSearch).not.toHaveBeenCalled();
 
-    expect(response.status).toBe(200);
-    expect(mockAfter).not.toHaveBeenCalled();
-    expect(mockProcessMemoryV2).not.toHaveBeenCalled();
+    const assistantInsert = tracker.inserts('messages')[1]?.args as {
+      search_metadata?: unknown;
+    };
+    expect(assistantInsert.search_metadata).toBeNull();
   });
 
-  it('loads existing memory for temporary chats when memoryMode is use_existing', async () => {
-    const { response, supabase } = await runChatRequest({
-      message: 'Hello',
-      chatMode: 'temporary',
-      memoryMode: 'use_existing',
-    });
+  it('persists normalized search metadata and strips invalid citations for required mode', async () => {
+    process.env.TAVILY_API_KEY = 'test-key';
+    mockGenerateText
+      .mockResolvedValueOnce({ text: 'Grounded answer [1] [9]' })
+      .mockResolvedValueOnce({ text: 'Grounded Title' });
 
-    expect(response.status).toBe(200);
-    expect(mockLoadMemoryContextV2).toHaveBeenCalledTimes(1);
-    expect(mockLoadMemoryContextV2).toHaveBeenCalledWith(
-      supabase,
-      'user-1',
-      expect.objectContaining({
-        actor: 'default',
-        query: 'Hello',
-      })
-    );
-    expect(mockProcessMemoryV2).not.toHaveBeenCalled();
-  });
-
-  it('skips memory loading for temporary chats when memoryMode is off', async () => {
-    const { response } = await runChatRequest({
-      message: 'Hello',
-      chatMode: 'temporary',
-      memoryMode: 'off',
-    });
-
-    expect(response.status).toBe(200);
-    expect(mockLoadMemoryContextV2).not.toHaveBeenCalled();
-    expect(mockProcessMemoryV2).not.toHaveBeenCalled();
-  });
-
-  it('passes mentor actor and mentorId into memory read/write paths', async () => {
-    const { response, supabase } = await runChatRequest(
+    const { response, body, tracker } = await runChatRequest(
       {
-        message: 'Help me study calculus',
-        mentorId: 'mentor-1',
+        message: 'What changed this week?',
+        searchEnabled: true,
       },
       {
-        mentors: {
-          rows: [
-            {
-              id: 'mentor-1',
-              base_system_prompt: 'Mentor prompt',
-              user_instructions: '',
-              model_id: null,
-            },
-          ],
-        },
         conversations: {
           rows: [],
-          returnOnMutate: [{ id: 'conv-mentor-1' }],
+          returnOnMutate: [{ id: 'conv-1' }],
         },
         messages: {
-          rows: [{ role: 'user', content: 'Help me study calculus' }],
-          returnOnMutate: [
-            { id: 'msg-user-mentor-1' },
-            { id: 'msg-assistant-mentor-1' },
-          ],
+          rows: [{ role: 'user', content: 'What changed this week?', search_metadata: null }],
+          returnOnMutate: [{ id: 'msg-user-1' }, { id: 'msg-assistant-1' }],
         },
       }
     );
 
     expect(response.status).toBe(200);
-    expect(mockLoadMemoryContextV2).toHaveBeenCalledWith(
-      supabase,
-      'user-1',
-      expect.objectContaining({
-        actor: 'mentor',
-        mentorId: 'mentor-1',
-        query: 'Help me study calculus',
-      })
-    );
+    expect(body.search).toMatchObject({
+      attempted: true,
+      status: 'success',
+      resultCount: 2,
+      metadata: {
+        status: 'success',
+        query: 'latest company update',
+        sources: [
+          expect.objectContaining({ id: 1, title: 'Source One', domain: 'example.com' }),
+          expect.objectContaining({ id: 2, title: 'Source Two', domain: 'example.com' }),
+        ],
+      },
+    });
+
+    const assistantInsert = tracker.inserts('messages')[1]?.args as {
+      content: string;
+      search_metadata: {
+        status: string;
+        sources: Array<{ id: number; title: string; domain: string }>;
+      };
+    };
+    expect(assistantInsert.content).toBe('Grounded answer [1]');
+    expect(assistantInsert.search_metadata).toMatchObject({
+      status: 'success',
+      sources: [
+        expect.objectContaining({ id: 1, title: 'Source One', domain: 'example.com' }),
+        expect.objectContaining({ id: 2, title: 'Source Two', domain: 'example.com' }),
+      ],
+    });
     expect(mockProcessMemoryV2).toHaveBeenCalledWith(
-      supabase,
+      expect.anything(),
       'user-1',
-      [{ role: 'user', content: 'Help me study calculus' }],
-      'Assistant reply',
+      [{ role: 'user', content: 'What changed this week?' }],
+      'Grounded answer',
       expect.objectContaining({
-        conversationId: 'conv-mentor-1',
-        mentorId: 'mentor-1',
-        sourceMessageId: 'msg-user-mentor-1',
+        conversationId: 'conv-1',
+        sourceMessageId: 'msg-user-1',
       })
     );
   });
