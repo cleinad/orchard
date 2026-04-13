@@ -67,7 +67,8 @@ function normalizeSource(source: unknown): SearchSource | null {
 
   const { id, title, url, domain, snippet } = source;
   if (
-    !Number.isInteger(id)
+    typeof id !== 'number'
+    || !Number.isInteger(id)
     || typeof title !== 'string'
     || typeof url !== 'string'
     || typeof domain !== 'string'
@@ -198,8 +199,11 @@ export function parsePersistedSearchMetadata(
     return null;
   }
 
-  const normalizedSources = sources.map(normalizeSource);
-  if (normalizedSources.some((source) => source === null)) {
+  const normalizedSources = sources
+    .map(normalizeSource)
+    .filter((source): source is SearchSource => source !== null);
+
+  if (normalizedSources.length !== sources.length) {
     return null;
   }
 

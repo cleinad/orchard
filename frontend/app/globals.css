@@ -22,6 +22,7 @@
   --ambient-cursor-glow: rgba(160, 184, 214, 0.14);
   --ambient-blob-a: rgba(203, 216, 232, 0.24);
   --ambient-blob-b: rgba(242, 248, 255, 0.82);
+  /* Default; overridden by lib/body-font (`!important` on `html`). */
   --font-body: "Satoshi", system-ui, sans-serif;
   --markdown-inline-code-bg: #f2f6fb;
   --markdown-inline-code-border: rgba(88, 112, 145, 0.18);
@@ -160,6 +161,15 @@
   --color-accent: var(--accent);
   --color-border-subtle: var(--border-subtle);
   --font-sans: var(--font-body);
+}
+
+/* Fallback when JS has not set inline `--font-body` yet. */
+html[data-body-font="newsreader"] {
+  --font-body: var(--font-body-newsreader), Georgia, serif;
+}
+
+html[data-body-font="satoshi"] {
+  --font-body: "Satoshi", system-ui, sans-serif;
 }
 
 body {

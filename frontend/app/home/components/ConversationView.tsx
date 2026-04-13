@@ -5,6 +5,7 @@ import MarkdownWithThreads from '@/app/home/components/MarkdownWithThreads';
 import SearchSourcesTray from '@/app/home/components/SearchSourcesTray';
 import type { ThreadMeta } from '@/app/home/components/threadTypes';
 import type { Message } from '@/app/home/types';
+import type { BranchChip } from '@/app/home/components/conversationTree';
 import { markdownContentClassName } from '@/lib/markdown';
 
 interface ConversationViewProps {
@@ -16,8 +17,12 @@ interface ConversationViewProps {
   emptySubtitle: string;
   isLoading: boolean;
   threadsMap: Map<string, ThreadMeta[]>;
+  branchChipsByMessageId: Map<string, BranchChip[]>;
+  pendingBranchSourceMessageId: string | null;
   messagesEndRef: RefObject<HTMLDivElement | null>;
   onThreadClick: (thread: ThreadMeta) => void;
+  onSelectBranch: (sourceMessageId: string, branchId: string | null) => void;
+  onCreateBranch: (sourceMessageId: string) => void;
   onAssistantPointerUp: () => void;
 }
 
@@ -30,8 +35,12 @@ export default function ConversationView({
   emptySubtitle,
   isLoading,
   threadsMap,
+  branchChipsByMessageId,
+  pendingBranchSourceMessageId,
   messagesEndRef,
   onThreadClick,
+  onSelectBranch,
+  onCreateBranch,
   onAssistantPointerUp,
 }: ConversationViewProps) {
   const [openSourceTray, setOpenSourceTray] = useState<{
@@ -102,6 +111,8 @@ export default function ConversationView({
               isSourceTrayOpen
                 ? openSourceTray?.sourceId ?? replySearchMetadata?.sources[0]?.id ?? null
                 : null;
+            const branchChips = branchChipsByMessageId.get(message.id) || [];
+            const isPendingBranchSource = pendingBranchSourceMessageId === message.id;
 
             return (
               <div
@@ -111,69 +122,108 @@ export default function ConversationView({
                 data-message-role={message.role}
                 onPointerUp={message.role === 'assistant' ? onAssistantPointerUp : undefined}
               >
-                <div className="flex items-baseline justify-between">
-                  <span className="text-xs font-medium tracking-wider text-muted">
-                    {message.role === 'user' ? 'You' : activeName}
-                  </span>
-                  <span className="text-xs text-muted/60">
-                    {message.timestamp.toLocaleTimeString([], {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                  </span>
-                </div>
                 <div
-                  data-message-content="true"
-                  className={`${markdownContentClassName} mt-2 text-base leading-relaxed text-foreground`}
+                  className={`rounded-2xl transition ${
+                    isPendingBranchSource
+                      ? 'bg-foreground/[0.03] px-3 py-3 ring-1 ring-foreground/[0.08]'
+                      : ''
+                  }`}
                 >
-                  <MarkdownWithThreads
-                    content={message.content}
-                    threads={threadsMap.get(message.id) || []}
-                    onThreadClick={onThreadClick}
-                    searchMetadata={replySearchMetadata}
-                    activeCitationSourceId={activeSourceId}
-                    onCitationClick={
-                      hasSources
-                        ? (sourceId) => handleCitationClick(message.id, sourceId)
-                        : undefined
-                    }
-                  />
-                </div>
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-xs font-medium tracking-wider text-muted">
+                      {message.role === 'user' ? 'You' : activeName}
+                    </span>
+                    <span className="text-xs text-muted/60">
+                      {message.timestamp.toLocaleTimeString([], {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </span>
+                  </div>
+                  <div
+                    data-message-content="true"
+                    className={`${markdownContentClassName} mt-2 text-base leading-relaxed text-foreground`}
+                  >
+                    <MarkdownWithThreads
+                      content={message.content}
+                      threads={threadsMap.get(message.id) || []}
+                      onThreadClick={onThreadClick}
+                      searchMetadata={replySearchMetadata}
+                      activeCitationSourceId={activeSourceId}
+                      onCitationClick={
+                        hasSources
+                          ? (sourceId) => handleCitationClick(message.id, sourceId)
+                          : undefined
+                      }
+                    />
+                  </div>
 
-                {hasSources && replySearchMetadata && (
-                  <>
-                    <div className="mt-3">
+                  {hasSources && replySearchMetadata && (
+                    <>
+                      <div className="mt-3">
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleSourcesToggle(
+                              message.id,
+                              replySearchMetadata.sources[0]?.id ?? 1
+                            );
+                          }}
+                          onPointerUp={(event) => event.stopPropagation()}
+                          className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                            isSourceTrayOpen
+                              ? 'border-foreground/15 bg-foreground/[0.05] text-foreground'
+                              : 'border-border-subtle text-muted hover:bg-foreground/[0.04] hover:text-foreground'
+                          }`}
+                        >
+                          Sources {replySearchMetadata.sources.length}
+                        </button>
+                      </div>
+
+                      {isSourceTrayOpen && (
+                        <SearchSourcesTray
+                          searchMetadata={replySearchMetadata}
+                          activeSourceId={activeSourceId}
+                          onSourceSelect={(sourceId) =>
+                            handleTraySourceSelect(message.id, sourceId)
+                          }
+                        />
+                      )}
+                    </>
+                  )}
+
+                  {message.role === 'assistant' && (
+                    <div
+                      className="mt-3 flex flex-wrap items-center gap-2"
+                      onPointerUp={(event) => event.stopPropagation()}
+                    >
+                      {branchChips.map((chip) => (
+                        <button
+                          key={chip.id}
+                          type="button"
+                          onClick={() => onSelectBranch(message.id, chip.branchId)}
+                          className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
+                            chip.isActive
+                              ? 'bg-foreground text-background'
+                              : chip.kind === 'pending'
+                                ? 'border border-dashed border-foreground/[0.18] bg-surface text-foreground'
+                                : 'bg-foreground/[0.05] text-muted hover:bg-foreground/[0.08] hover:text-foreground'
+                          }`}
+                        >
+                          {chip.label}
+                        </button>
+                      ))}
                       <button
                         type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          handleSourcesToggle(
-                            message.id,
-                            replySearchMetadata.sources[0]?.id ?? 1
-                          );
-                        }}
-                        onPointerUp={(event) => event.stopPropagation()}
-                        className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                          isSourceTrayOpen
-                            ? 'border-foreground/15 bg-foreground/[0.05] text-foreground'
-                            : 'border-border-subtle text-muted hover:bg-foreground/[0.04] hover:text-foreground'
-                        }`}
+                        onClick={() => onCreateBranch(message.id)}
+                        className="rounded-full border border-border-subtle bg-surface px-3 py-1.5 text-xs font-medium text-muted transition hover:border-foreground/[0.10] hover:bg-foreground/[0.03] hover:text-foreground"
                       >
-                        Sources {replySearchMetadata.sources.length}
+                        + Branch
                       </button>
                     </div>
-
-                    {isSourceTrayOpen && (
-                      <SearchSourcesTray
-                        searchMetadata={replySearchMetadata}
-                        activeSourceId={activeSourceId}
-                        onSourceSelect={(sourceId) =>
-                          handleTraySourceSelect(message.id, sourceId)
-                        }
-                      />
-                    )}
-                  </>
-                )}
+                  )}
+                </div>
               </div>
             );
           })}
