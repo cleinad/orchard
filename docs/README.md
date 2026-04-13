@@ -13,6 +13,7 @@ Keen is a voice-native AI thinking partner with:
 - live web search
 - multi-conversation chat on the home surface
 - temporary chats for low-commitment exploration
+- transcript-native conversation branching inside a chat
 - inline threads for branching into focused side discussions
 
 At a high level, the product combines a chat interface, memory system, mentor personas, and optional voice/search capabilities.
@@ -44,6 +45,7 @@ If docs conflict, prefer:
 
 - [features/auth-and-route-protection.md](./features/auth-and-route-protection.md): auth model, protected routes, proxy rules, and testing coverage
 - [features/chat-model-selection.md](./features/chat-model-selection.md): model picker behavior, resolution rules, availability rules, and verification
+- [features/conversation-branching.md](./features/conversation-branching.md): branch chips, branch navigator, tree state, persistence model, and runtime isolation rules
 - [features/inline-threads.md](./features/inline-threads.md): text selection, popover behavior, thread panel rules, keyboard behavior, and edge cases
 - [features/live-search.md](./features/live-search.md): live web search behavior, execution flow, and safety constraints
 - [features/memory.md](./features/memory.md): memory system architecture, read/write paths, schema, and API shape
@@ -85,6 +87,7 @@ If you are making changes in this repo:
 
 - start from this file
 - use `docs/features/` as the default behavior reference
+- read [features/conversation-branching.md](./features/conversation-branching.md) before changing `messages.previous_message_id`, `conversation_branches`, branch chips, or the top-right branch navigator
 - check `docs/implementation/` before refactoring sensitive rendering or state logic
 - check test docs before changing memory, model selection, auth, or inline-thread behavior
 - treat dated plan/spec files as context, not authority

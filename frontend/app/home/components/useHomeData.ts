@@ -2,11 +2,14 @@ import { useCallback, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { MentorListItem } from '@/lib/mentors/types';
 import type {
+  BranchSelectionMap,
+  ConversationBranch,
   ConversationListItem,
   Message,
   SidebarMentorGroup,
 } from '@/app/home/types';
 import type { ThreadMeta } from '@/app/home/components/threadTypes';
+import { buildInitialBranchSelections } from '@/app/home/components/conversationTree';
 
 interface ConversationRow {
   id: string;
@@ -207,7 +210,7 @@ export function useHomeData() {
   const loadConversationMessages = useCallback(async (nextConversationId: string) => {
     const { data, error } = await supabase
       .from('messages')
-      .select('id, role, content, created_at')
+      .select('id, role, content, created_at, previous_message_id')
       .eq('conversation_id', nextConversationId)
       .is('thread_id', null)
       .order('created_at', { ascending: true })
@@ -222,12 +225,38 @@ export function useHomeData() {
       role: 'user' | 'assistant';
       content: string;
       created_at: string;
+      previous_message_id: string | null;
     }>).map((message) => ({
       id: message.id,
       role: message.role,
       content: message.content,
       timestamp: new Date(message.created_at),
+      previousMessageId: message.previous_message_id ?? null,
     }));
+
+    const { data: branchRows, error: branchesError } = await supabase
+      .from('conversation_branches')
+      .select('id, source_message_id, entry_message_id, title, is_main, position')
+      .eq('conversation_id', nextConversationId)
+      .order('position', { ascending: true });
+
+    const nextBranches: ConversationBranch[] = branchesError
+      ? []
+      : ((branchRows || []) as Array<{
+          id: string;
+          source_message_id: string;
+          entry_message_id: string;
+          title: string;
+          is_main: boolean;
+          position: number;
+        }>).map((branch) => ({
+          id: branch.id,
+          sourceMessageId: branch.source_message_id,
+          entryMessageId: branch.entry_message_id,
+          title: branch.title,
+          isMain: branch.is_main,
+          position: branch.position,
+        }));
 
     const { data: threadRows, error: threadsError } = await supabase
       .from('threads')
@@ -239,12 +268,16 @@ export function useHomeData() {
 
       return {
         messages: nextMessages,
+        branches: nextBranches,
+        selectedBranchIds: buildInitialBranchSelections(nextBranches) as BranchSelectionMap,
         threadsMap: new Map<string, ThreadMeta[]>(),
       };
     }
 
     return {
       messages: nextMessages,
+      branches: nextBranches,
+      selectedBranchIds: buildInitialBranchSelections(nextBranches) as BranchSelectionMap,
       threadsMap: buildThreadsMap(
         (threadRows || []) as Array<{
           id: string;
