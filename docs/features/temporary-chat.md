@@ -34,7 +34,7 @@ They are intentionally a real no-persistence path, not a "write then delete late
 - Each temporary chat can be selected directly from the sidebar.
 - Each temporary chat can be closed directly from the sidebar.
 - Temporary chats are not associated with mentor rows.
-- Selecting a temporary chat returns the browser URL to `/home`.
+- Selecting a temporary chat returns the browser URL to `/home` and keeps that temporary chat active.
 
 ### Header and composer behavior
 

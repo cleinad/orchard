@@ -103,7 +103,7 @@ Rules:
 - `/home` is also used for local drafts and temporary chats
 - `/home/<conversationId>` is the canonical route for persistent conversations
 - clicking a persistent conversation in the sidebar pushes `/home/<conversationId>`
-- clicking a draft or temporary chat returns the URL to `/home`
+- clicking a draft or temporary chat returns the URL to `/home` while keeping that non-persistent chat selected
 - direct loads of `/home/<conversationId>` hydrate the matching conversation into the home state
 - the first successful send from a draft replaces `/home` with `/home/<conversationId>` instead of adding a fake draft route
 
@@ -214,6 +214,7 @@ Persistent route hydration is now part of the home orchestration layer.
 - `/home` clears route-driven persistent selection and leaves the page in blank, draft, or temporary state
 - `/home/<conversationId>` loads conversation metadata, then message history, then marks that route as hydrated
 - route hydration reuses the same persistent message-loading path as sidebar selection instead of maintaining a separate fetch model
+- non-persistent selections use a one-shot client handoff when leaving `/home/<conversationId>` so drafts and temporary chats remain selected after the route returns to `/home`
 
 ## Chat Route Behavior
 

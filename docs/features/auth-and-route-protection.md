@@ -144,6 +144,7 @@ The auth and route-protection contract now has focused Vitest coverage.
 - protected pages redirect unauthenticated users to `/login`
 - protected-page redirects preserve the original path and query string
 - the `/home`-prefixed `?e2e=...` bypass only applies under the intended test conditions
+- routed `/home/[conversationId]?e2e=...` requests use the same guarded bypass path as `/home?e2e=...`
 - `getSafeRedirectPath()` rejects unsafe or looping redirect targets
 - `POST /api/tts` returns `401` when unauthenticated
 - `POST /api/tts` still validates key and payload behavior after auth succeeds

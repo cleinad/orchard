@@ -60,6 +60,7 @@ Use implementation docs when the feature doc tells you what should happen, but t
 ## Testing Docs
 
 - [testing/README.md](./testing/README.md): central test map, runner commands, focused canaries, and test inventory
+- [testing/home-routing-e2e.md](./testing/home-routing-e2e.md): routed home-chat browser coverage, mocks, and regression targets
 - [testing/inline-threads-e2e.md](./testing/inline-threads-e2e.md): inline-thread end-to-end coverage, fixtures, and regression cases
 - [tests/chat-model-selection-tests.md](./tests/chat-model-selection-tests.md): automated and manual verification for model selection
 - [tests/memory-tests.md](./tests/memory-tests.md): memory test suite map, coverage philosophy, and remaining gaps
