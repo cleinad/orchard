@@ -1,8 +1,16 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { useViewerIdentity } from '@/app/components/useViewerIdentity';
+import {
+  BODY_FONT_OPTIONS,
+  BODY_FONT_STORAGE_KEY,
+  type BodyFontId,
+  applyBodyFont,
+  persistBodyFont,
+  resolveBodyFontId,
+} from '@/lib/body-font';
 import { supabase } from '@/lib/supabase';
 
 export default function SettingsPage() {
@@ -114,6 +122,12 @@ export default function SettingsPage() {
               label="Theme"
               value="Header theme picker"
               hint="Use the picker in the top-right header for now, or replace this row with a permanent control later."
+            />
+            <SettingsRow
+              label="Body font"
+              value=""
+              hint="Applies to reading UI across the app. Code blocks stay monospace."
+              action={<BodyFontSelect />}
             />
             <SettingsRow
               label="Density"
@@ -258,5 +272,48 @@ function ActionButton({
     >
       {children}
     </button>
+  );
+}
+
+function BodyFontSelect() {
+  const [fontId, setFontId] = useState<BodyFontId | null>(null);
+
+  useEffect(() => {
+    setFontId(resolveBodyFontId(localStorage.getItem(BODY_FONT_STORAGE_KEY)));
+  }, []);
+
+  function handleChange(event: React.ChangeEvent<HTMLSelectElement>) {
+    const next = event.target.value as BodyFontId;
+    persistBodyFont(next);
+    applyBodyFont(next);
+    setFontId(next);
+  }
+
+  if (fontId === null) {
+    return (
+      <span className="text-sm text-muted/70" aria-hidden>
+        …
+      </span>
+    );
+  }
+
+  return (
+    <>
+      <label className="sr-only" htmlFor="settings-body-font">
+        Body font
+      </label>
+      <select
+        id="settings-body-font"
+        value={fontId}
+        onChange={handleChange}
+        className="min-w-[11rem] rounded-lg border border-border-subtle bg-surface px-3 py-2 text-sm text-foreground outline-none transition focus:border-foreground/[0.2] focus:ring-2 focus:ring-foreground/10"
+      >
+        {BODY_FONT_OPTIONS.map((option) => (
+          <option key={option.id} value={option.id}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </>
   );
 }
