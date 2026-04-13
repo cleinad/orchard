@@ -112,7 +112,12 @@ interface StoredTemporaryChatSession {
 const TTS_STORAGE_KEY = 'keen-tts-enabled';
 const CHAT_MODEL_STORAGE_KEY = 'keen-chat-model';
 const TEMP_CHAT_STORAGE_KEY = 'keen-home-temp-chats-v1';
+const HOME_SELECTION_HANDOFF_STORAGE_KEY = 'keen-home-selection-handoff-v1';
 const TEMP_CHAT_TITLE = 'Temporary chat';
+
+type HomeSelectionHandoff =
+  | { kind: 'draft'; draft: PersistentDraftChat }
+  | { kind: 'temporary'; tempChatId: string };
 
 function getMentorKey(mentorId: string | null) {
   return mentorId ?? '__keen__';
@@ -183,6 +188,31 @@ function deserializeTemporaryChats(raw: string): TemporaryChatSession[] {
       ])
     ),
   }));
+}
+
+function persistHomeSelectionHandoff(handoff: HomeSelectionHandoff) {
+  window.sessionStorage.setItem(
+    HOME_SELECTION_HANDOFF_STORAGE_KEY,
+    JSON.stringify(handoff)
+  );
+}
+
+function readHomeSelectionHandoff(): HomeSelectionHandoff | null {
+  const stored = window.sessionStorage.getItem(HOME_SELECTION_HANDOFF_STORAGE_KEY);
+  if (!stored) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(stored) as HomeSelectionHandoff;
+  } catch {
+    window.sessionStorage.removeItem(HOME_SELECTION_HANDOFF_STORAGE_KEY);
+    return null;
+  }
+}
+
+function clearHomeSelectionHandoff() {
+  window.sessionStorage.removeItem(HOME_SELECTION_HANDOFF_STORAGE_KEY);
 }
 
 function sortByUpdatedAtDesc<T extends { updatedAt: string }>(items: T[]) {
@@ -339,6 +369,7 @@ function HomePageInner() {
     Array.isArray(params.conversationId) && params.conversationId.length > 0
       ? params.conversationId[0]
       : null;
+  const e2eQueryParam = searchParams.get('e2e');
   const homeE2eFixture = getHomeE2eFixture(searchParams.get('e2e'));
   const isHomeE2eFixture = homeE2eFixture !== null;
 
@@ -476,6 +507,53 @@ function HomePageInner() {
       serializeTemporaryChats(temporaryChats)
     );
   }, [isHomeE2eFixture, temporaryChats]);
+
+  useEffect(() => {
+    if (routeConversationId || selectedChat) {
+      return;
+    }
+
+    const handoff = readHomeSelectionHandoff();
+    if (!handoff) {
+      return;
+    }
+
+    if (handoff.kind === 'temporary') {
+      const matchingTempChat = temporaryChats.find(
+        (chat) => chat.id === handoff.tempChatId
+      );
+      if (!matchingTempChat) {
+        return;
+      }
+
+      const nextSelection: SelectedChat = {
+        kind: 'temporary',
+        tempChatId: handoff.tempChatId,
+      };
+
+      selectedChatRef.current = nextSelection;
+      setSelectedChat(nextSelection);
+      clearHomeSelectionHandoff();
+      return;
+    }
+
+    const nextSelection: SelectedChat = {
+      kind: 'draft',
+      draftId: handoff.draft.id,
+      mentorId: handoff.draft.mentorId,
+    };
+
+    setDraftChats((prev) => {
+      if (prev.some((draft) => draft.id === handoff.draft.id)) {
+        return prev;
+      }
+
+      return [handoff.draft, ...prev];
+    });
+    selectedChatRef.current = nextSelection;
+    setSelectedChat(nextSelection);
+    clearHomeSelectionHandoff();
+  }, [draftChats, routeConversationId, selectedChat, temporaryChats]);
 
   useEffect(() => {
     if (isHomeE2eFixture) {
@@ -775,17 +853,29 @@ function HomePageInner() {
     prepareForChatSwitchRef.current = prepareForChatSwitch;
   }, [prepareForChatSwitch]);
 
+  const buildHomeHref = useCallback(
+    (pathname: string) => {
+      if (!e2eQueryParam) {
+        return pathname;
+      }
+
+      const separator = pathname.includes('?') ? '&' : '?';
+      return `${pathname}${separator}e2e=${encodeURIComponent(e2eQueryParam)}`;
+    },
+    [e2eQueryParam]
+  );
+
   const openHomeWorkspace = useCallback(() => {
     if (!routeConversationId) {
       return;
     }
 
-    router.push('/home', { scroll: false });
-  }, [routeConversationId, router]);
+    router.push(buildHomeHref('/home'), { scroll: false });
+  }, [buildHomeHref, routeConversationId, router]);
 
   const openPersistentConversation = useCallback(
     (conversationId: string, options?: { replace?: boolean }) => {
-      const href = `/home/${encodeURIComponent(conversationId)}`;
+      const href = buildHomeHref(`/home/${encodeURIComponent(conversationId)}`);
 
       if (options?.replace) {
         router.replace(href, { scroll: false });
@@ -794,7 +884,7 @@ function HomePageInner() {
 
       router.push(href, { scroll: false });
     },
-    [router]
+    [buildHomeHref, router]
   );
 
   const handleCreateDraftSelection = useCallback(
@@ -809,10 +899,17 @@ function HomePageInner() {
       prepareForChatSwitch(nextSelection);
       setPersistentMessages([]);
       setPersistentThreadsMap(new Map());
+      if (routeConversationId) {
+        persistHomeSelectionHandoff({
+          kind: 'draft',
+          draft,
+        });
+      }
+      selectedChatRef.current = nextSelection;
       setSelectedChat(nextSelection);
       openHomeWorkspace();
     },
-    [getOrCreateDraft, openHomeWorkspace, prepareForChatSwitch]
+    [getOrCreateDraft, openHomeWorkspace, prepareForChatSwitch, routeConversationId]
   );
 
   const handleCreateTemporaryChat = useCallback(() => {
@@ -837,9 +934,16 @@ function HomePageInner() {
     setPersistentMessages([]);
     setPersistentThreadsMap(new Map());
     setTemporaryChats((prev) => [chat, ...prev]);
+    if (routeConversationId) {
+      persistHomeSelectionHandoff({
+        kind: 'temporary',
+        tempChatId: chat.id,
+      });
+    }
+    selectedChatRef.current = nextSelection;
     setSelectedChat(nextSelection);
     openHomeWorkspace();
-  }, [openHomeWorkspace, prepareForChatSwitch]);
+  }, [openHomeWorkspace, prepareForChatSwitch, routeConversationId]);
 
   const handleSelectTemporaryChat = useCallback(
     (tempChatId: string) => {
@@ -851,10 +955,17 @@ function HomePageInner() {
       prepareForChatSwitch(nextSelection);
       setPersistentMessages([]);
       setPersistentThreadsMap(new Map());
+      if (routeConversationId) {
+        persistHomeSelectionHandoff({
+          kind: 'temporary',
+          tempChatId,
+        });
+      }
+      selectedChatRef.current = nextSelection;
       setSelectedChat(nextSelection);
       openHomeWorkspace();
     },
-    [openHomeWorkspace, prepareForChatSwitch]
+    [openHomeWorkspace, prepareForChatSwitch, routeConversationId]
   );
 
   const handleSelectDraft = useCallback(
@@ -873,10 +984,17 @@ function HomePageInner() {
       prepareForChatSwitch(nextSelection);
       setPersistentMessages([]);
       setPersistentThreadsMap(new Map());
+      if (routeConversationId) {
+        persistHomeSelectionHandoff({
+          kind: 'draft',
+          draft,
+        });
+      }
+      selectedChatRef.current = nextSelection;
       setSelectedChat(nextSelection);
       openHomeWorkspace();
     },
-    [draftChats, openHomeWorkspace, prepareForChatSwitch]
+    [draftChats, openHomeWorkspace, prepareForChatSwitch, routeConversationId]
   );
 
   const handleSelectConversation = useCallback(
@@ -900,6 +1018,7 @@ function HomePageInner() {
 
       if (currentPersistentSelection) {
         prepareForChatSwitchRef.current(null);
+        selectedChatRef.current = null;
         setSelectedChat(null);
         setPersistentMessages([]);
         setPersistentThreadsMap(new Map());

@@ -86,6 +86,16 @@ describe('proxy auth protection', () => {
     expect(mockCreateServerClient).not.toHaveBeenCalled();
   });
 
+  it('bypasses auth for routed /home e2e fixtures when enabled', async () => {
+    process.env.KEEN_E2E_BYPASS_AUTH = '1';
+
+    const response = await proxy(createRequest('/home/conversation-123?e2e=home-routing'));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('location')).toBeNull();
+    expect(mockCreateServerClient).not.toHaveBeenCalled();
+  });
+
   it('does not bypass auth for non-home e2e routes', async () => {
     process.env.KEEN_E2E_BYPASS_AUTH = '1';
     mockCreateServerClient.mockReturnValue(createSupabaseClient(null));
