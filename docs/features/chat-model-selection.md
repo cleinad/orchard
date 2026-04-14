@@ -49,7 +49,7 @@ There are now three layers:
 User picks model in composer dropdown
     |
     v
-selectedModelId state — frontend/app/home/page.tsx
+selectedModelId state — frontend/app/home/[[...conversationId]]/page.tsx
     |
     v
 Persisted to localStorage key "keen-chat-model"
@@ -119,7 +119,7 @@ This exists so model resolution can be verified in:
 | `frontend/lib/models.ts` | Runtime resolver, provider instantiation, availability checks, fallback logic |
 | `frontend/app/api/chat/models/route.ts` | Authenticated endpoint returning available chat model list for the frontend |
 | `frontend/app/api/chat/route.ts` | Validates request `modelId`, resolves final model, returns verification metadata |
-| `frontend/app/home/page.tsx` | Stores selected model, loads model list, sends `modelId`, logs resolved selection |
+| `frontend/app/home/[[...conversationId]]/page.tsx` | Stores selected model, loads model list, sends `modelId`, logs resolved selection |
 | `frontend/app/home/components/ChatComposer.tsx` | Dropdown UI below the composer |
 | `frontend/app/home/components/TextSelectionPopover.tsx` | Passes the active `modelId` for selection follow-ups |
 | `frontend/app/home/components/ThreadPanel.tsx` | Passes the active `modelId` for thread follow-ups |

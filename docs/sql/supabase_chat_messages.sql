@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS public.messages (
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system')),
   content TEXT NOT NULL,
+  search_metadata JSONB,
   created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
 

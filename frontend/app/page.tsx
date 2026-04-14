@@ -148,7 +148,7 @@ export default function Home() {
                     Thread &mdash; Product sync
                   </span>
                 </div>
-                <span className="text-xs tracking-wider text-muted/60 uppercase">
+                <span className="text-xs tracking-wide text-muted/60">
                   Now
                 </span>
               </div>

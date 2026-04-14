@@ -1,5 +1,8 @@
-import type { RefObject } from 'react';
+"use client";
+
+import { useCallback, useState, type RefObject } from 'react';
 import MarkdownWithThreads from '@/app/home/components/MarkdownWithThreads';
+import SearchSourcesTray from '@/app/home/components/SearchSourcesTray';
 import type { ThreadMeta } from '@/app/home/components/threadTypes';
 import type { Message } from '@/app/home/types';
 import type { BranchChip } from '@/app/home/components/conversationTree';
@@ -40,6 +43,42 @@ export default function ConversationView({
   onCreateBranch,
   onAssistantPointerUp,
 }: ConversationViewProps) {
+  const [openSourceTray, setOpenSourceTray] = useState<{
+    messageId: string;
+    sourceId: number | null;
+  } | null>(null);
+
+  const handleCitationClick = useCallback((messageId: string, sourceId: number) => {
+    setOpenSourceTray((current) => {
+      if (current?.messageId === messageId && current.sourceId === sourceId) {
+        return null;
+      }
+
+      return {
+        messageId,
+        sourceId,
+      };
+    });
+  }, []);
+
+  const handleSourcesToggle = useCallback((messageId: string, sourceId: number) => {
+    setOpenSourceTray((current) =>
+      current?.messageId === messageId
+        ? null
+        : {
+            messageId,
+            sourceId,
+          }
+    );
+  }, []);
+
+  const handleTraySourceSelect = useCallback((messageId: string, sourceId: number) => {
+    setOpenSourceTray({
+      messageId,
+      sourceId,
+    });
+  }, []);
+
   return (
     <div className="mx-auto max-w-2xl px-6 pb-4">
       {(loadingLists || listError) && (
@@ -62,6 +101,16 @@ export default function ConversationView({
       ) : (
         <div className="py-8">
           {messages.map((message) => {
+            const replySearchMetadata =
+              message.role === 'assistant' ? message.searchMetadata ?? null : null;
+            const hasSources =
+              replySearchMetadata?.status === 'success'
+              && replySearchMetadata.sources.length > 0;
+            const isSourceTrayOpen = openSourceTray?.messageId === message.id;
+            const activeSourceId =
+              isSourceTrayOpen
+                ? openSourceTray?.sourceId ?? replySearchMetadata?.sources[0]?.id ?? null
+                : null;
             const branchChips = branchChipsByMessageId.get(message.id) || [];
             const isPendingBranchSource = pendingBranchSourceMessageId === message.id;
 
@@ -99,8 +148,50 @@ export default function ConversationView({
                       content={message.content}
                       threads={threadsMap.get(message.id) || []}
                       onThreadClick={onThreadClick}
+                      searchMetadata={replySearchMetadata}
+                      activeCitationSourceId={activeSourceId}
+                      onCitationClick={
+                        hasSources
+                          ? (sourceId) => handleCitationClick(message.id, sourceId)
+                          : undefined
+                      }
                     />
                   </div>
+
+                  {hasSources && replySearchMetadata && (
+                    <>
+                      <div className="mt-3">
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleSourcesToggle(
+                              message.id,
+                              replySearchMetadata.sources[0]?.id ?? 1
+                            );
+                          }}
+                          onPointerUp={(event) => event.stopPropagation()}
+                          className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                            isSourceTrayOpen
+                              ? 'border-foreground/15 bg-foreground/[0.05] text-foreground'
+                              : 'border-border-subtle text-muted hover:bg-foreground/[0.04] hover:text-foreground'
+                          }`}
+                        >
+                          Sources {replySearchMetadata.sources.length}
+                        </button>
+                      </div>
+
+                      {isSourceTrayOpen && (
+                        <SearchSourcesTray
+                          searchMetadata={replySearchMetadata}
+                          activeSourceId={activeSourceId}
+                          onSourceSelect={(sourceId) =>
+                            handleTraySourceSelect(message.id, sourceId)
+                          }
+                        />
+                      )}
+                    </>
+                  )}
 
                   {message.role === 'assistant' && (
                     <div

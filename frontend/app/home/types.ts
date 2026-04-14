@@ -1,8 +1,11 @@
+import type { PersistedSearchMetadata } from '@/lib/chat-search';
+
 export interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
+  searchMetadata?: PersistedSearchMetadata | null;
   previousMessageId: string | null;
 }
 
