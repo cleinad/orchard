@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { createMockSupabase } from '../helpers/mock-supabase';
 
@@ -126,6 +126,10 @@ describe('chat route memory contract', () => {
     delete process.env.TAVILY_API_KEY;
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('passes the authenticated Supabase client into processMemoryV2', async () => {
     const { response, body, supabase } = await runChatRequest(
       { message: 'Hello' },
@@ -250,6 +254,31 @@ describe('chat route memory contract', () => {
         conversationId: 'conv-mentor-1',
         mentorId: 'mentor-1',
         sourceMessageId: 'msg-user-mentor-1',
+      })
+    );
+  });
+
+  it('injects current UTC time and profile name into normal answer generation', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-02T03:04:05.000Z'));
+
+    const { response } = await runChatRequest({
+      message: 'What time is it right now?',
+      chatMode: 'temporary',
+      timezone: 'America/Vancouver',
+    });
+
+    expect(response.status).toBe(200);
+    expect(mockGenerateText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        system: expect.stringContaining(
+          'The current time is 2026-01-01 19:04 (America/Vancouver).'
+        ),
+      })
+    );
+    expect(mockGenerateText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        system: expect.stringContaining("The user's name is Test User."),
       })
     );
   });
