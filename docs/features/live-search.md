@@ -37,10 +37,10 @@ Important behavior:
 User clicks toggle
     |
     v
-searchEnabled state (boolean) — frontend/app/home/page.tsx
+searchEnabled state (boolean) — frontend/app/home/[[...conversationId]]/page.tsx
     |
     v
-POST /api/chat body includes { searchEnabled }
+POST /api/chat body includes { searchEnabled } — same file
     |
     v
 Chat route converts: searchEnabled ? 'required' : 'auto'
@@ -72,6 +72,12 @@ Assistant message persisted with content + search_metadata
 Response includes search status envelope for the latest reply
     |
     v
+Frontend updates lastSearchState — frontend/app/home/[[...conversationId]]/page.tsx
+    |
+    v
+UI shows success/warning indicators — same file
+    |
+    v
 Frontend loads persisted search_metadata for conversation/thread messages
     |
     v
@@ -85,11 +91,11 @@ SearchSourcesTray renders the minimal inline source card
 
 | File | Role |
 |------|------|
-| `frontend/app/home/page.tsx` | Search toggle state, request body construction, and last-reply search status UI |
-| `frontend/app/api/chat/route.ts` | Planner step, search execution, grounded prompt construction, citation cleanup, persistence, and disclosure handling |
+| `frontend/app/home/[[...conversationId]]/page.tsx` | Search toggle, request body construction, `lastSearchState`, and last-reply search status UI |
+| `frontend/app/api/chat/route.ts` | Converts `searchEnabled` to `searchMode`; planner step; search execution; grounded prompts; citation cleanup; persistence; disclosure handling |
 | `frontend/lib/search-citations.ts` | Persisted search metadata shape, source normalization, citation parsing, citation stripping, and validation |
-| `frontend/lib/chat-search.ts` | Response-level search status envelope, warning strings, and disclosure injection |
-| `frontend/lib/tools.ts` | `runWebSearch()` and Tavily integration |
+| `frontend/lib/chat-search.ts` | `SearchMetadata` types, response-level search status envelope, `addSearchInstructions()` for auto mode, warning strings, and disclosure injection |
+| `frontend/lib/tools.ts` | `webSearch` tool definition (Vercel AI SDK `tool()`), `runWebSearch()`, Tavily integration, result sanitization |
 | `frontend/app/home/components/MarkdownWithThreads.tsx` | Compact clickable citation chip rendering inside markdown |
 | `frontend/app/home/components/SearchSourcesTray.tsx` | Minimal reply-level source tray UI |
 | `frontend/app/home/components/useHomeData.ts` | Loads `search_metadata` on reload and strips citation markers from sidebar previews |

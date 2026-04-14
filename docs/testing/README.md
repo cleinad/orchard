@@ -36,7 +36,7 @@ npx vitest run __tests__/path/to/file.test.ts
 
 ### Playwright
 
-Playwright covers browser-level fixture-driven tests.
+Playwright covers browser-level tests, including fixture-driven flows and request-mocked route/navigation coverage.
 
 - Test files: `frontend/e2e/**/*.spec.js`
 - Config: `frontend/playwright.config.js`
@@ -46,6 +46,7 @@ Run from `frontend/`:
 ```bash
 npm run test:e2e
 npm run test:e2e:ui
+npx playwright test e2e/home-routing.spec.js
 npx playwright test e2e/inline-threads.spec.js
 npx playwright test e2e/persistent-inline-threads.spec.js
 ```
@@ -53,7 +54,7 @@ npx playwright test e2e/persistent-inline-threads.spec.js
 Notes:
 
 - the Playwright config starts the Next dev server on `127.0.0.1:3005`
-- Playwright enables `KEEN_E2E_BYPASS_AUTH=1` for `/home?e2e=...` fixture routes only
+- Playwright enables `KEEN_E2E_BYPASS_AUTH=1` for `/home`-prefixed routes that include an `e2e` query param
 
 ## Test Inventory
 
@@ -76,6 +77,7 @@ Notes:
 
 ### Playwright Browser Coverage
 
+- `frontend/e2e/home-routing.spec.js`: direct `/home/[conversationId]` hydration, sidebar route changes, draft promotion, and URL-less temporary-chat transitions
 - `frontend/e2e/inline-threads.spec.js`: inline-thread creation, selection, popover behavior, and keyboard handoff flow
 - `frontend/e2e/persistent-inline-threads.spec.js`: persisted inline-thread reopen behavior and durable offset-based rendering cases
 
@@ -123,6 +125,16 @@ cd frontend
 npx playwright test e2e/inline-threads.spec.js e2e/persistent-inline-threads.spec.js
 ```
 
+### Home Routing
+
+- Doc: [home-routing-e2e.md](./home-routing-e2e.md)
+- Run:
+
+```bash
+cd frontend
+npx playwright test e2e/home-routing.spec.js
+```
+
 ### Live Search And Citations
 
 - Doc: [search-citations-and-source-ui.md](./search-citations-and-source-ui.md)
@@ -138,12 +150,14 @@ npm run test -- __tests__/app/chat-route.test.ts __tests__/app/chat-route-search
 - If you change memory loading, memory writing, memory CRUD, or mentor memory scoping, run the memory canary suite.
 - If you change proxy logic, login redirect handling, protected-route behavior, or TTS auth, run the auth canary suite.
 - If you change model catalog data, provider resolution, or chat model selection UI behavior, run the model-selection tests.
+- If you change home route hydration, sidebar-driven chat navigation, draft promotion, or temporary chat route behavior, run the home-routing Playwright suite.
 - If you change inline threads, selection handling, markdown rendering, or thread panel behavior, run the inline-thread Playwright suite.
 - If you change live search planning, Tavily result normalization, citation persistence, markdown citation chips, or the source tray UI, run the live-search canary suite.
 - If you make broad frontend changes and are unsure, run `npm test` and then `npm run test:e2e` from `frontend/`.
 
 ## Detailed Testing Docs
 
+- [home-routing-e2e.md](./home-routing-e2e.md): routed home-chat browser coverage, mocks, and regression targets
 - [inline-threads-e2e.md](./inline-threads-e2e.md): browser fixtures, mocks, and regression targets for inline threads
 - [search-citations-and-source-ui.md](./search-citations-and-source-ui.md): live-search citation test scope, focused canary, manual checks, and current gaps
 - [../tests/memory-tests.md](../tests/memory-tests.md): memory canary suite map, rationale, and remaining gaps

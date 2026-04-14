@@ -196,8 +196,8 @@ The popover-to-panel handoff is also state-aware:
   - owns concise popover requests and promotion into the thread panel
 - `frontend/app/home/components/ThreadPanel.tsx`
   - owns deep follow-up thread interaction and panel-specific shortcut behavior
-- `frontend/app/home/page.tsx`
-  - wires the popover, thread panel, and thread-state orchestration together
+- `frontend/app/home/[[...conversationId]]/page.tsx`
+  - wires the popover, thread panel, and thread-state orchestration together across `/home` and `/home/<conversationId>`
 - `frontend/app/api/chat/route.ts`
   - supports concise popover requests and non-concise thread-panel requests
 
