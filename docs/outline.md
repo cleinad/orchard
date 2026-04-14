@@ -2,158 +2,134 @@
 
 ## Vision
 
-A voice-native thinking partner that knows your life deeply, thinks with you when you need depth, thinks ahead for you when you're busy, and never acts without your say.
+Keen is a workspace for deep exploration.
 
-**"The mind that knows you."**
+It helps you research a subject over time, branch into new questions, and build understanding without restarting from scratch.
 
----
+## Core Problem
 
-## The Core Problem
+Most tools are built for isolated answers or manual organization.
 
-You're juggling multiple high-context domains (classes, work, clubs, fitness, personal projects). You think out loud. You need something that:
+A generic chat can give you a fast response, but it often loses the thread when the work stretches across multiple sessions, competing hypotheses, or evolving questions.
 
-- Has better memory than you (otherwise what's the point?)
-- Helps you think through problems with real depth (not generic surface-level responses)
-- Proposes ideas, goals, and next steps
-- Helps you actually stick to commitments
-- Works while you're walking, driving, hands-busy
+A note-taking tool preserves information, but it makes you do the organizing, synthesis, and context management yourself.
 
-Current tools fail:
-- **Obsidian/Notion**: Requires sitting down and typing. Doesn't push back or follow up.
-- **ChatGPT voice mode**: Interrupts constantly. Generic responses. No persistent memory.
-- **Todo apps**: Static lists. No context. No thinking partner.
+Research, comparison, and sustained inquiry need something in between:
 
----
+- a place to continue the work over time
+- a safe way to split into separate lines of inquiry
+- access to current or external information when needed
+- enough continuity that you do not have to keep restating the problem
 
-## Two Layers
+## What Keen Is
 
-### Layer 1: Second Brain (Memory)
+Keen is a chat-first workspace for research and exploration.
 
-The foundation. Keen knows your context, history, commitments, and how you think.
+It helps you:
 
-- Stores and retrieves your knowledge across Threads (topics, projects, areas of life)
-- Remembers what you said you'd do
-- Connects dots across domains ("you mentioned burnout Tuesday + skipped gym three times")
-- Your knowledge is always a question away
+- investigate complex subjects across ongoing conversations
+- branch into competing lines of inquiry without collapsing everything into one thread
+- use live search when the work needs current or external information
+- return to previous work and continue with context intact
 
-### Layer 2: Chief of Staff (Agency)
+Keen is designed for understanding, not automation. Its job is to help you explore, compare, and learn deeply, not act on your behalf.
 
-Built on the memory layer. Keen uses what it knows to proactively help you.
+## Core Experience
 
-- Proposes priorities and next actions
-- Follows up on commitments
-- Surfaces what matters before you ask
-- Drafts responses, schedules, plans
-- **Never acts without your approval** (commit gating)
+The core experience is simple:
 
-The second brain is what makes the chief of staff good. A chief of staff without memory is just a generic assistant.
+- start with a subject, question, or line of investigation
+- continue the work across ongoing conversations
+- branch when a new question deserves its own path
+- use live search when external information matters
+- return later and keep going with context intact
 
----
+Keen should not feel like a note-taking system you have to maintain.
 
-## Three Modes
-
-### 1. Explore
-Deep discussion. Get to the bottom of things. Socratic dialogue.
-- "Help me think through whether I should take this contract"
-- "What's the tradeoff between X and Y?"
-- Push back, ask why, challenge assumptions
-
-### 2. Capture
-You're dumping thoughts. Keen structures and remembers.
-- "Just had a call with the client, here's what happened..."
-- "Random idea for the club event..."
-- Auto-routes to the right Thread, extracts key points
-
-### 3. Manage
-Chief of staff mode. Keen proposes, you decide.
-- "Here's what's on your plate today"
-- "You said you'd email Prof X by Friday - draft ready?"
-- "Your contract deadline is tomorrow, should I block focus time?"
-
----
+Conversation is the primary interface. Branching, search, and continuity exist to support deeper inquiry without forcing the user to manually organize everything.
 
 ## Core Concepts
 
-### Thread
+### Workspace
 
-A Thread is a topic, project, or area of knowledge in your life.
+A workspace is a persistent place to investigate a subject over time.
 
-Examples: "CS 401", "Contract Work", "Club Leadership", "Fitness", "Personal Journal"
+It is not just a single chat and not a manual knowledge base. It is the surface where conversations, branches, and previous work accumulate into a stronger understanding of the subject.
 
-Each Thread maintains:
-- **Summary**: Current state in a few bullets
-- **Key insights**: Important conclusions and realizations
-- **Open questions**: Things you're still exploring
-- **Commitments**: Things you said you'd do
-- **Connections**: Links to related Threads
+### Conversation
 
-### Intent Routing
+Conversation is the primary way of working.
 
-Keen automatically determines:
-- Which Thread the conversation belongs to
-- Whether you're exploring, capturing, or managing
-- If ambiguous, asks: "Which Thread is this for?"
+Users research by asking questions, testing explanations, following leads, and returning to unfinished lines of thought.
 
-### Commit Gating
+### Branch
 
-Keen proposes actions but never executes without explicit approval.
-- Builds trust gradually
-- You maintain control and agency
-- Keen learns your preferences through approval/rejection patterns
+A branch is a separate line of inquiry within a conversation.
 
----
+Branches let users explore alternatives, competing explanations, and speculative questions without collapsing everything into one thread.
 
-## Core Product Principles
+Each branch must preserve its own context so exploration stays clean and trustworthy.
 
-- **Voice-first**: Conversation is the primary interface. Talk while walking.
-- **Depth over breadth**: Goes deep on YOUR life, not generic advice.
-- **Memory as context**: The more you talk, the smarter it gets about YOU.
-- **Proactive, not reactive**: Surfaces what matters before you ask.
-- **You stay in control**: Proposes, doesn't impose.
-- **Trust and transparency**: See what was captured, why, and easily edit or remove.
+### Search
 
----
+Search is a supporting capability, not the whole product.
+
+It helps when the work depends on current events, external facts, or additional sources. It should strengthen the investigation with grounding when needed, not replace it.
+
+### Continuity
+
+Keen should make previous work usable.
+
+Users should be able to return to a subject and continue from where they left off without rebuilding the context or re-explaining the problem each time.
+
+## Product Principles
+
+- Chat first. The main way of working is conversation.
+- Depth over speed. The goal is better understanding, not just faster answers.
+- Branch safely. Separate lines of inquiry should stay isolated.
+- Keep the thread. Previous work should carry forward without prompt micromanagement.
+- Ground when needed. Search and sources should support claims when external information matters.
+- Stay simple. Navigation should be straightforward and lightweight.
 
 ## MVP Scope
 
-### Must ship:
+Keen's MVP should prove that sustained research feels better here than in a generic chat tool.
 
-**Voice layer:**
-- Talk → it listens without interrupting
-- Responds with depth (not generic)
-- Basic memory: "what did we talk about yesterday?" works
-- Auto-extracts commitments and action items
+### Must ship
 
-**Visual layer (for review):**
-- Thread view: see past conversations by topic
-- Extracted items: ideas, action items, commitments
-- Today view: "here's what's on your plate"
-- Check things off / mark done
+- ongoing conversations around a subject
+- conversation branching for separate lines of inquiry
+- live search for current or external information
+- straightforward navigation across ongoing chats
+- enough continuity that users can resume work without rebuilding context
 
-### Explicitly NOT in MVP:
+## Not In MVP
 
-- MCP integrations (gcal, email, etc.) — comes later
-- Proactive check-ins / push notifications
-- Mobile app (start web, prove the core)
-- Multi-user collaboration
-- File/document ingestion
-
----
+- autonomous agent behavior
+- chief-of-staff workflows
+- personal life management
+- code-agent positioning
+- automatic synthesis across branches as a core promise
+- rich source management and citation systems
+- voice as the primary product story
+- mentors as the primary product story
 
 ## Success Metrics
 
-**Primary**: Weekly active voice conversations (are you using it?)
+The product is working if users stay with a subject longer and return to it more often.
 
-**Secondary**:
-- Retrieval success rate (did it remember what you needed?)
-- Commitment follow-through (did extracted action items get done?)
-- Returning weekly users
+Primary signals:
 
----
+- users return to the same workspace over time
+- conversations continue instead of restarting from scratch
+- branching is used during real investigation
+- search is used when external grounding is needed
+- users report stronger continuity and understanding than in a generic chat tool
 
-## Long-term Vision
+## Roadmap
 
-1. **Now**: Voice-first capture + memory + basic review UI
-2. **Next**: Chief of staff mode (proactive proposals, follow-ups)
-3. **Later**: MCP integrations (gcal, email, tasks, etc.)
-4. **Eventually**: Mobile app, autonomous execution with approval
+1. Now: make sustained research feel clean, trustworthy, and easy to continue
+2. Next: improve longer investigations with stronger branching, navigation, and continuity
+3. Later: add stronger subject overviews and lightweight synthesis users can influence
+4. Later: add richer source handling and citations
+5. Later: add voice as an additional interface, not the core identity
