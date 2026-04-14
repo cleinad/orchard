@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { MentorListItem } from '@/lib/mentors/types';
+import { parsePersistedSearchMetadata, stripCitationMarkers } from '@/lib/search-citations';
 import type {
   BranchSelectionMap,
   ConversationBranch,
@@ -116,6 +117,27 @@ function buildSidebarGroups(
   return [...activeGroups, ...inactiveGroups];
 }
 
+function mapConversationRowToListItem(
+  row: ConversationRow,
+  mentorSource: MentorListItem[],
+  preview: string
+): ConversationListItem {
+  const mentor = row.mentor_id
+    ? mentorSource.find((entry) => entry.id === row.mentor_id) || null
+    : null;
+
+  return {
+    id: row.id,
+    title: row.title?.trim() || 'New chat',
+    mentor_id: row.mentor_id,
+    updated_at: row.updated_at,
+    created_at: row.created_at,
+    preview: mapConversationPreview(preview),
+    mentor_name: mentor?.name || 'Keen',
+    mentor_accent_color: mentor?.accent_color || null,
+  };
+}
+
 export function useHomeData() {
   const [mentors, setMentors] = useState<MentorListItem[]>([]);
   const [conversations, setConversations] = useState<ConversationListItem[]>([]);
@@ -135,7 +157,6 @@ export function useHomeData() {
   }, []);
 
   const loadConversations = useCallback(async (mentorSource: MentorListItem[]) => {
-    const mentorById = new Map(mentorSource.map((mentor) => [mentor.id, mentor]));
     const { data: conversationRows, error: conversationError } = await supabase
       .from('conversations')
       .select('id, title, mentor_id, updated_at, created_at')
@@ -151,15 +172,18 @@ export function useHomeData() {
       rows.map(async (row) => {
         const { data: latestMessage } = await supabase
           .from('messages')
-          .select('content')
+          .select('content, search_metadata')
           .eq('conversation_id', row.id)
           .order('created_at', { ascending: false })
           .limit(1)
           .maybeSingle();
 
+        const latestSearchMetadata = parsePersistedSearchMetadata(
+          latestMessage?.search_metadata
+        );
         return {
           conversationId: row.id,
-          preview: latestMessage?.content || '',
+          preview: stripCitationMarkers(latestMessage?.content || '', latestSearchMetadata),
         };
       })
     );
@@ -168,21 +192,13 @@ export function useHomeData() {
       previews.map((item) => [item.conversationId, item.preview])
     );
 
-    const nextConversations: ConversationListItem[] = rows.map((row) => {
-      const mentor = row.mentor_id ? mentorById.get(row.mentor_id) : null;
-      const preview = previewByConversationId.get(row.id) || '';
-
-      return {
-        id: row.id,
-        title: row.title?.trim() || 'New chat',
-        mentor_id: row.mentor_id,
-        updated_at: row.updated_at,
-        created_at: row.created_at,
-        preview: mapConversationPreview(preview),
-        mentor_name: mentor?.name || 'Keen',
-        mentor_accent_color: mentor?.accent_color || null,
-      };
-    });
+    const nextConversations: ConversationListItem[] = rows.map((row) =>
+      mapConversationRowToListItem(
+        row,
+        mentorSource,
+        previewByConversationId.get(row.id) || ''
+      )
+    );
 
     setConversations(nextConversations);
     setMentorGroups(buildSidebarGroups(mentorSource, nextConversations));
@@ -210,7 +226,7 @@ export function useHomeData() {
   const loadConversationMessages = useCallback(async (nextConversationId: string) => {
     const { data, error } = await supabase
       .from('messages')
-      .select('id, role, content, created_at, previous_message_id')
+      .select('id, role, content, created_at, search_metadata, previous_message_id')
       .eq('conversation_id', nextConversationId)
       .is('thread_id', null)
       .order('created_at', { ascending: true })
@@ -225,12 +241,14 @@ export function useHomeData() {
       role: 'user' | 'assistant';
       content: string;
       created_at: string;
+      search_metadata?: unknown;
       previous_message_id: string | null;
     }>).map((message) => ({
       id: message.id,
       role: message.role,
       content: message.content,
       timestamp: new Date(message.created_at),
+      searchMetadata: parsePersistedSearchMetadata(message.search_metadata),
       previousMessageId: message.previous_message_id ?? null,
     }));
 
@@ -290,15 +308,29 @@ export function useHomeData() {
     };
   }, []);
 
+  const loadConversationById = useCallback(async (nextConversationId: string) => {
+    const { data, error } = await supabase
+      .from('conversations')
+      .select('id, title, mentor_id, updated_at, created_at')
+      .eq('id', nextConversationId)
+      .single();
+
+    if (error || !data) {
+      throw new Error(error?.message || 'Conversation not found');
+    }
+
+    return mapConversationRowToListItem(data as ConversationRow, mentors, '');
+  }, [mentors]);
+
   return {
     mentors,
-    setMentors,
     conversations,
     mentorGroups,
     loadingLists,
     listError,
     setListError,
     refreshSidebarData,
+    loadConversationById,
     loadConversationMessages,
   };
 }

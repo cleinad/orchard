@@ -57,6 +57,42 @@ test('preserves an in-flight popover request when promoting to the thread panel'
   );
 });
 
+test('preserves an in-flight popover request when dismissing the popover', async ({ page }) => {
+  const response = deferred();
+  const question = 'Why does that happen?';
+
+  await mockChatRoute(page, async (body) => {
+    expect(body.concise).toBe(true);
+    expect(body.message).toBe(question);
+    return response.promise;
+  });
+
+  const { messageId, selectedText } = await gotoHomeFixture(page);
+  await selectTextInMessage(page, messageId, selectedText);
+  await page.getByTestId('selection-popover-input').fill(question);
+  await page.getByTestId('selection-popover-input').press('Enter');
+
+  await expect(page.getByTestId('selection-popover-loading')).toBeVisible();
+  await page.mouse.click(10, 10);
+
+  await expect(page.getByTestId('selection-popover')).toHaveCount(0);
+  await expect(page.getByTestId('thread-panel')).toHaveAttribute('data-state', 'open');
+  await expect(page.getByTestId('thread-panel')).toContainText(question);
+  await expect(page.getByTestId('thread-panel-loading')).toBeVisible();
+  await expect.poll(() => hasPersistentSelectionHighlight(page)).toBe(true);
+
+  response.resolve({
+    message: 'Because microtasks flush before rendering.',
+    userMessageId: 'user-dismiss-1',
+    assistantMessageId: 'assistant-dismiss-1',
+  });
+
+  await expect(page.getByTestId('thread-panel')).toContainText(
+    'Because microtasks flush before rendering.'
+  );
+  await expect.poll(() => hasPersistentSelectionHighlight(page)).toBe(true);
+});
+
 test('seeds a completed popover exchange into the thread panel and preserves follow-up draft input', async ({ page }) => {
   const question = 'Why does that happen?';
   const answer = 'Because the browser drains microtasks before it paints the next frame.';

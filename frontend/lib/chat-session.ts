@@ -1,3 +1,6 @@
+import type { PersistedSearchMetadata } from '@/lib/chat-search';
+import { stripCitationMarkers } from '@/lib/search-citations';
+
 export const CHAT_MODES = ['persistent', 'temporary'] as const;
 export type ChatMode = (typeof CHAT_MODES)[number];
 
@@ -10,11 +13,18 @@ export interface ChatHistoryMessage {
 }
 
 export function toChatHistory(
-  messages: Array<Pick<ChatHistoryMessage, 'role' | 'content'>>
+  messages: Array<
+    Pick<ChatHistoryMessage, 'role' | 'content'> & {
+      searchMetadata?: PersistedSearchMetadata | null;
+    }
+  >
 ): ChatHistoryMessage[] {
   return messages.map((message) => ({
     role: message.role,
-    content: message.content,
+    content:
+      message.role === 'assistant'
+        ? stripCitationMarkers(message.content, message.searchMetadata)
+        : message.content,
   }));
 }
 

@@ -221,7 +221,7 @@ export default function SidePanel({
 
               {temporaryChats.length > 0 && (
                 <>
-                  <div className="px-3 pb-2 pt-4 text-[11px] font-medium uppercase tracking-[0.18em] text-muted/70">
+                  <div className="px-3 pb-2 pt-4 text-[11px] font-medium tracking-wide text-muted/70">
                     Temporary
                   </div>
                   <div className="space-y-1">
@@ -239,7 +239,7 @@ export default function SidePanel({
                             onClick={() => onSelectTemporaryChat(chat.id)}
                             className="flex min-w-0 flex-1 items-center gap-3 text-left"
                           >
-                            <span className="inline-flex items-center rounded-full border border-border-subtle px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-muted/80">
+                            <span className="inline-flex items-center rounded-full border border-border-subtle px-2 py-0.5 text-[10px] font-medium tracking-wide text-muted/80">
                               Temp
                             </span>
                             <span className="min-w-0 flex-1 truncate text-sm text-foreground">
@@ -410,7 +410,7 @@ export default function SidePanel({
                                           : (prev[mentorKey] ?? 3) + 10,
                                     }))
                                   }
-                                  className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted transition-colors hover:text-foreground"
+                                  className="text-[11px] font-medium tracking-wide text-muted transition-colors hover:text-foreground"
                                 >
                                   Show more
                                 </button>
@@ -423,7 +423,7 @@ export default function SidePanel({
                                       [mentorKey]: 3,
                                     }))
                                   }
-                                  className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted transition-colors hover:text-foreground"
+                                  className="text-[11px] font-medium tracking-wide text-muted transition-colors hover:text-foreground"
                                 >
                                   Show less
                                 </button>

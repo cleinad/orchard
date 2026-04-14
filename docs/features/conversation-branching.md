@@ -201,13 +201,13 @@ Current behavior:
 | `frontend/app/home/components/useHomeData.ts` | Loads `previous_message_id` and `conversation_branches` for persistent conversations |
 | `frontend/app/api/chat/route.ts` | Branch-aware request handling, `Main` materialization, branch row creation, and active-path prompt assembly |
 | `frontend/lib/memory-agent.ts` | Memory extraction rules that avoid storing speculative branch exploration as facts |
-| `supabase/migrations/20260411103000_conversation_branches.sql` | Schema changes for `messages.previous_message_id` and `conversation_branches` |
+| `supabase/migrations/20260412043830_conversation_branches.sql` | Schema changes for `messages.previous_message_id` and `conversation_branches` |
 
 ## Database Impact
 
 Branching added a dedicated migration:
 
-- [`20260411103000_conversation_branches.sql`](../../supabase/migrations/20260411103000_conversation_branches.sql)
+- [`20260412043830_conversation_branches.sql`](../../supabase/migrations/20260412043830_conversation_branches.sql)
 
 That migration:
 

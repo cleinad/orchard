@@ -15,17 +15,26 @@ import {
   markdownRemarkPlugins,
 } from "@/lib/markdown";
 import type { ThreadMeta } from "@/app/home/components/threadTypes";
+import type { PersistedSearchMetadata } from "@/lib/chat-search";
+import { splitTextWithCitations } from "@/lib/search-citations";
 
 interface MarkdownWithThreadsProps {
   content: string;
   threads: ThreadMeta[];
   onThreadClick: (thread: ThreadMeta) => void;
+  searchMetadata?: PersistedSearchMetadata | null;
+  activeCitationSourceId?: number | null;
+  onCitationClick?: (sourceId: number) => void;
 }
 
 type PreProps = ComponentPropsWithoutRef<"pre"> & { node?: unknown };
 type SpanProps = ComponentPropsWithoutRef<"span"> & {
   node?: unknown;
   "data-inline-thread-id"?: string;
+};
+type ButtonProps = ComponentPropsWithoutRef<"button"> & {
+  node?: unknown;
+  "data-citation-source-id"?: string;
 };
 
 interface TextMatch {
@@ -266,6 +275,19 @@ function shouldSkipInlineThreadWrapping(node: HastNode) {
   );
 }
 
+function shouldSkipInlineCitationWrapping(node: HastNode) {
+  const classNames = getClassNames(node);
+  return (
+    node.tagName === "pre" ||
+    node.tagName === "math" ||
+    node.tagName === "annotation" ||
+    node.tagName === "button" ||
+    classNames.includes("hljs") ||
+    classNames.some((className) => className.startsWith("katex")) ||
+    typeof node.properties?.["data-inline-thread-id"] === "string"
+  );
+}
+
 function getHastTextLength(node: HastNode): number {
   if (node.type === "text") {
     return node.value?.length ?? 0;
@@ -280,6 +302,18 @@ function createThreadSpanNode(text: string, thread: ThreadMeta): HastNode {
     tagName: "span",
     properties: {
       "data-inline-thread-id": thread.threadId,
+    },
+    children: [{ type: "text", value: text }],
+  };
+}
+
+function createCitationNode(text: string, sourceId: number): HastNode {
+  return {
+    type: "element",
+    tagName: "button",
+    properties: {
+      type: "button",
+      "data-citation-source-id": String(sourceId),
     },
     children: [{ type: "text", value: text }],
   };
@@ -374,19 +408,95 @@ function rehypeInlineThreads(matches: TextMatch[]) {
   };
 }
 
+function splitCitationTextNode(node: HastNode, validSourceIds: ReadonlySet<number>): HastNode[] {
+  const text = node.value ?? "";
+  if (text.length === 0 || validSourceIds.size === 0) {
+    return [node];
+  }
+
+  const parts = splitTextWithCitations(text, validSourceIds);
+  if (parts.length === 1 && parts[0]?.type === "text") {
+    return [node];
+  }
+
+  return parts.map((part) =>
+    part.type === "text"
+      ? { type: "text", value: part.text }
+      : createCitationNode(part.text, part.sourceId)
+  );
+}
+
+function annotateCitationNodes(
+  nodes: HastNode[] | undefined,
+  validSourceIds: ReadonlySet<number>
+): HastNode[] | undefined {
+  if (!nodes || nodes.length === 0 || validSourceIds.size === 0) {
+    return nodes;
+  }
+
+  const nextChildren: HastNode[] = [];
+
+  for (const child of nodes) {
+    if (child.type === "text") {
+      nextChildren.push(...splitCitationTextNode(child, validSourceIds));
+      continue;
+    }
+
+    if (child.type === "element") {
+      if (shouldSkipInlineCitationWrapping(child)) {
+        nextChildren.push(child);
+        continue;
+      }
+
+      nextChildren.push({
+        ...child,
+        children: annotateCitationNodes(child.children, validSourceIds),
+      });
+      continue;
+    }
+
+    nextChildren.push(child);
+  }
+
+  return nextChildren;
+}
+
+function rehypeInlineCitations(validSourceIds: ReadonlySet<number>) {
+  return (tree: HastNode) => {
+    if (validSourceIds.size === 0) {
+      return;
+    }
+
+    tree.children = annotateCitationNodes(tree.children, validSourceIds);
+  };
+}
+
 export default function MarkdownWithThreads({
   content,
   threads,
   onThreadClick,
+  searchMetadata = null,
+  activeCitationSourceId = null,
+  onCitationClick,
 }: MarkdownWithThreadsProps) {
   const matches = normalizeThreadMatches(threads);
   const threadById = new Map(matches.map((match) => [match.thread.threadId, match.thread]));
+  const validCitationSourceIds =
+    searchMetadata?.status === "success" && onCitationClick
+      ? new Set(searchMetadata.sources.map((source) => source.id))
+      : new Set<number>();
   const inlineThreadPlugin =
     [rehypeInlineThreads, matches] as unknown as NonNullable<Options["rehypePlugins"]>[number];
+  const inlineCitationPlugin =
+    [rehypeInlineCitations, validCitationSourceIds] as unknown as NonNullable<
+      Options["rehypePlugins"]
+    >[number];
   const rehypePlugins: NonNullable<Options["rehypePlugins"]> =
-    matches.length > 0
-      ? [...markdownRehypePlugins, inlineThreadPlugin]
-      : markdownRehypePlugins;
+    [
+      ...markdownRehypePlugins,
+      ...(matches.length > 0 ? [inlineThreadPlugin] : []),
+      ...(validCitationSourceIds.size > 0 ? [inlineCitationPlugin] : []),
+    ];
 
   return (
     <ReactMarkdown
@@ -409,6 +519,43 @@ export default function MarkdownWithThreads({
           }
 
           return <span {...props}>{children}</span>;
+        },
+        button: ({ children, ...props }: ButtonProps) => {
+          const sourceId = props["data-citation-source-id"];
+          if (typeof sourceId === "string" && onCitationClick) {
+            const numericSourceId = Number(sourceId);
+            if (Number.isInteger(numericSourceId)) {
+              const {
+                ["data-citation-source-id"]: _ignoredSourceId,
+                type: _ignoredType,
+                ...rest
+              } = props;
+
+              return (
+                <button
+                  {...rest}
+                  type="button"
+                  data-testid="search-citation"
+                  data-source-id={numericSourceId}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onCitationClick(numericSourceId);
+                  }}
+                  onPointerUp={(event) => event.stopPropagation()}
+                  aria-pressed={activeCitationSourceId === numericSourceId}
+                  className={`mx-0.5 inline-flex h-5 min-w-5 translate-y-[-0.05rem] items-center justify-center rounded-full border px-1.5 align-baseline text-[11px] font-medium transition-colors ${
+                    activeCitationSourceId === numericSourceId
+                      ? "border-foreground/20 bg-foreground/[0.08] text-foreground"
+                      : "border-border-subtle text-muted hover:bg-foreground/[0.04] hover:text-foreground"
+                  }`}
+                >
+                  {children}
+                </button>
+              );
+            }
+          }
+
+          return <button {...props}>{children}</button>;
         },
       }}
     >

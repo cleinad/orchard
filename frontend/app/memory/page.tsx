@@ -158,7 +158,7 @@ function FilterChip({
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wide transition ${
+      className={`rounded-full px-2 py-0.5 text-[10px] tracking-wide transition ${
         active
           ? 'bg-stone-800 text-white dark:bg-stone-200 dark:text-stone-900'
           : 'bg-stone-100 text-stone-500 hover:bg-stone-200 dark:bg-stone-800 dark:text-stone-400 dark:hover:bg-stone-700'

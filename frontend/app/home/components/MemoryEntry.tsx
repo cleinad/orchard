@@ -133,7 +133,7 @@ export default function MemoryEntry({ entry, onUpdate, onDelete }: Props) {
     <div className="group border-b border-border-subtle px-4 py-3 transition-colors hover:bg-foreground/[0.03]">
       <p className="text-sm text-foreground/88">{entry.text}</p>
 
-      <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] uppercase tracking-wide">
+      <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] tracking-wide">
         <span className="rounded-full bg-foreground/[0.05] px-2 py-0.5 text-muted">
           {entry.owner_type}
         </span>

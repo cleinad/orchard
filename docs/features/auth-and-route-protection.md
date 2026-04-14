@@ -28,6 +28,7 @@ Every other non-API app page is protected by `frontend/proxy.ts`.
 That includes:
 
 - `/home`
+- `/home/[conversationId]`
 - `/memory`
 - `/mentors`
 - `/settings`
@@ -115,7 +116,7 @@ This avoids the old pattern where a page briefly rendered and only redirected af
 
 ## E2E Bypass
 
-Playwright currently uses a focused bypass for deterministic `/home` fixture tests.
+Playwright currently uses a focused bypass for deterministic home-route fixture tests.
 
 The bypass is active only when all of the following are true:
 
@@ -123,7 +124,7 @@ The bypass is active only when all of the following are true:
 - the request path starts with `/home`
 - the URL includes an `e2e` query param
 
-This bypass exists only to support fixture-driven browser tests on `/home`.
+This bypass exists only to support fixture-driven browser tests on `/home` routes, including routed home variants when needed.
 
 It does not make the rest of the app public, and it should not be treated as the normal auth path.
 
@@ -142,7 +143,8 @@ The auth and route-protection contract now has focused Vitest coverage.
 - public pages stay public without consulting Supabase
 - protected pages redirect unauthenticated users to `/login`
 - protected-page redirects preserve the original path and query string
-- the `/home?e2e=...` bypass only applies under the intended test conditions
+- the `/home`-prefixed `?e2e=...` bypass only applies under the intended test conditions
+- routed `/home/[conversationId]?e2e=...` requests use the same guarded bypass path as `/home?e2e=...`
 - `getSafeRedirectPath()` rejects unsafe or looping redirect targets
 - `POST /api/tts` returns `401` when unauthenticated
 - `POST /api/tts` still validates key and payload behavior after auth succeeds

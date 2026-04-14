@@ -197,7 +197,7 @@ function FilterChip({
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wide transition ${
+      className={`rounded-full px-2 py-0.5 text-[10px] tracking-wide transition ${
         active
           ? 'bg-foreground text-background'
           : 'bg-foreground/[0.05] text-muted hover:bg-foreground/[0.08] hover:text-foreground'

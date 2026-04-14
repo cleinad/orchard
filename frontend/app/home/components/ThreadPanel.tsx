@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { logResolvedChatModel } from "@/app/home/components/logResolvedChatModel";
 import type { Message } from "@/app/home/types";
 import MarkdownWithThreads from "@/app/home/components/MarkdownWithThreads";
+import SearchSourcesTray from "@/app/home/components/SearchSourcesTray";
 import type { ThreadSource } from "@/app/home/components/threadTypes";
 import { markdownContentClassName } from "@/lib/markdown";
 import {
@@ -19,6 +20,7 @@ export interface ThreadMessage {
   role: "user" | "assistant";
   content: string;
   timestamp: Date;
+  searchMetadata?: Message["searchMetadata"];
 }
 
 interface ThreadMessageRow {
@@ -26,6 +28,7 @@ interface ThreadMessageRow {
   role: string;
   content: string;
   created_at: string;
+  search_metadata?: Message["searchMetadata"];
 }
 
 interface ThreadInfo extends ThreadSource {
@@ -60,6 +63,7 @@ function mapThreadMessages(rows: ThreadMessageRow[]): ThreadMessage[] {
     role: message.role as "user" | "assistant",
     content: message.content,
     timestamp: new Date(message.created_at),
+    searchMetadata: message.search_metadata ?? null,
   }));
 }
 
@@ -121,6 +125,10 @@ export default function ThreadPanel({
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
+  const [openSourceTray, setOpenSourceTray] = useState<{
+    messageId: string;
+    sourceId: number | null;
+  } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const isBusy = isLoading || Boolean(loadingQuestion);
@@ -143,6 +151,7 @@ export default function ThreadPanel({
   useEffect(() => {
     if (!thread || !isOpen) {
       setMessages([]);
+      setOpenSourceTray(null);
       return;
     }
 
@@ -296,6 +305,7 @@ export default function ThreadPanel({
           role: "assistant",
           content: data.message,
           timestamp: new Date(),
+          searchMetadata: data.search?.metadata ?? null,
         };
         setMessages((prev) => {
           const updated = data.userMessageId
@@ -391,6 +401,30 @@ export default function ThreadPanel({
     }
   };
 
+  const handleCitationClick = useCallback((messageId: string, sourceId: number) => {
+    setOpenSourceTray((current) => {
+      if (current?.messageId === messageId && current.sourceId === sourceId) {
+        return null;
+      }
+
+      return {
+        messageId,
+        sourceId,
+      };
+    });
+  }, []);
+
+  const handleSourcesToggle = useCallback((messageId: string, sourceId: number) => {
+    setOpenSourceTray((current) =>
+      current?.messageId === messageId
+        ? null
+        : {
+            messageId,
+            sourceId,
+          }
+    );
+  }, []);
+
   return (
     <div
       className="pointer-events-none fixed inset-0 z-50 flex justify-end transition-all duration-300"
@@ -464,8 +498,56 @@ export default function ThreadPanel({
                   content={message.content}
                   threads={[]}
                   onThreadClick={() => {}}
+                  searchMetadata={message.searchMetadata ?? null}
+                  activeCitationSourceId={
+                    openSourceTray?.messageId === message.id
+                      ? openSourceTray.sourceId ?? message.searchMetadata?.sources[0]?.id ?? null
+                      : null
+                  }
+                  onCitationClick={
+                    message.searchMetadata?.status === "success"
+                      ? (sourceId) => handleCitationClick(message.id, sourceId)
+                      : undefined
+                  }
                 />
               </div>
+              {message.searchMetadata?.status === "success"
+                && message.searchMetadata.sources.length > 0 && (
+                  <>
+                    <div className="mt-3">
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleSourcesToggle(
+                            message.id,
+                            message.searchMetadata?.sources[0]?.id ?? 1
+                          );
+                        }}
+                        onPointerUp={(event) => event.stopPropagation()}
+                        className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                          openSourceTray?.messageId === message.id
+                            ? "border-foreground/15 bg-foreground/[0.05] text-foreground"
+                            : "border-border-subtle text-muted hover:bg-foreground/[0.04] hover:text-foreground"
+                        }`}
+                      >
+                        Sources {message.searchMetadata.sources.length}
+                      </button>
+                    </div>
+
+                    {openSourceTray?.messageId === message.id && (
+                      <SearchSourcesTray
+                        searchMetadata={message.searchMetadata}
+                        activeSourceId={
+                          openSourceTray.sourceId ?? message.searchMetadata.sources[0]?.id ?? null
+                        }
+                        onSourceSelect={(sourceId) =>
+                          setOpenSourceTray({ messageId: message.id, sourceId })
+                        }
+                      />
+                    )}
+                  </>
+                )}
             </div>
           ))}
 

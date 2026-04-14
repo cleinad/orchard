@@ -9,6 +9,7 @@ This doc describes the Playwright coverage for the inline-thread workflow on `/h
 - text selection inside assistant messages
 - persistent selection highlighting
 - popover-to-thread-panel promotion with `Ctrl+L`
+- preserving a submitted popover request after click-away or `Escape`
 - draft, loading, and completed handoff states
 - persisted thread reopen behavior from the source message
 - offset-based durable inline thread rendering for tricky content shapes
