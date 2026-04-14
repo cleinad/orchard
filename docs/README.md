@@ -6,23 +6,21 @@ Start here if you need to understand what the app is, how the product is organiz
 
 ## What Keen Is
 
-Keen is a voice-native AI thinking partner with:
+Keen is a chat-first workspace for research and exploration centered on:
 
-- persistent memory
-- specialized mentors
-- live web search
-- multi-conversation chat on the home surface
-- temporary chats for low-commitment exploration
+- ongoing conversations around a subject
+- multi-chat navigation for returning to previous investigations
 - transcript-native conversation branching inside a chat
-- inline threads for branching into focused side discussions
+- live web search for current or external information
+- continuity across conversations so users can build understanding over time
 
-At a high level, the product combines a chat interface, memory system, mentor personas, and optional voice/search capabilities.
+Additional product surfaces like inline threads, temporary chats, and mentors build on top of that core model.
 
 ## How To Use These Docs
 
 Use the docs in this order:
 
-1. Read [outline.md](./outline.md) for product vision, core concepts, and scope.
+1. Read [outline.md](./outline.md) for product vision, workspace model, principles, and MVP scope.
 2. Read [architecture.md](./architecture.md) for the system overview and major technical building blocks.
 3. Read the relevant file in [features](./features/) for the current product behavior of a specific area.
 4. Read [implementation](./implementation/) docs when a feature has non-obvious engineering invariants.
@@ -38,7 +36,7 @@ If docs conflict, prefer:
 
 ## Core Docs
 
-- [outline.md](./outline.md): product vision, user problems, modes, principles, and MVP scope
+- [outline.md](./outline.md): product vision, user problems, core concepts, principles, MVP scope, and roadmap
 - [architecture.md](./architecture.md): technical architecture, data flow, and system model
 
 ## Feature Reference
