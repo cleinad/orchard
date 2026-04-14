@@ -20,6 +20,8 @@ The automated suite currently verifies:
 - valid citation markers like `[1] [2]` split into separate compact citation parts
 - valid citation markers are stripped before assistant text is reused for memory/context
 - invalid citation markers are stripped while valid ones are preserved
+- `/api/chat` planner requests receive the same concise request context used for answer generation, including the saved user name and current local time
+- answer generation receives the same concise request context, with local time derived server-side from the request timezone
 - `auto` mode with no search persists `search_metadata = null`
 - `required` mode with a successful search persists normalized `search_metadata`
 - invalid citation ids are removed before the assistant message is saved
@@ -39,6 +41,7 @@ Run broader suites only if your change spills outside live search, citations, or
 
 Use these checks when changing the citation UI or persistence path:
 
+- Ask a time-sensitive question such as "what time is it?" and confirm the reply uses the current local time for the browser timezone, not a model guess.
 - Send a reply in `Always on` mode and confirm successful search replies show compact clickable citation chips.
 - Click a citation chip and confirm the inline source tray opens under that reply.
 - Click `Sources N` and confirm the same tray opens even when no chip is selected.
