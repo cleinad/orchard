@@ -55,6 +55,7 @@ const SEARCH_PLANNER_SYSTEM_PROMPT = `Decide whether live web search is needed b
 
 Rules:
 - Set shouldSearch=true when freshness, verification, recent events, changing facts, or uncertain external claims matter.
+- Set shouldSearch=false when the request can be answered from server-provided request context alone, such as the current local date/time or the user's saved name.
 - Set shouldSearch=false for personal reflection, brainstorming, writing help, or answers grounded entirely in the conversation.
 - If shouldSearch=true, provide one concise search query.
 - If shouldSearch=false, query must be null.
@@ -67,6 +68,11 @@ const SearchPlanSchema = z.object({
 
 interface ContextMessage extends ChatHistoryMessage {
   searchMetadata: PersistedSearchMetadata | null;
+}
+
+interface ReplyContext {
+  currentTime: string;
+  userName: string | null;
 }
 
 interface ChatRequest {
@@ -83,6 +89,7 @@ interface ChatRequest {
   endOffset?: number;
   concise?: boolean;
   searchEnabled?: boolean;
+  timezone?: string;
   chatMode?: ChatMode;
   memoryMode?: TemporaryMemoryMode;
   history?: ChatHistoryMessage[];
@@ -134,28 +141,87 @@ function getNextBranchPosition(
   return mainMaterialized || hasExistingMainContinuation ? 1 : 0;
 }
 
-function buildSystemPrompt(memoryContext: string): string {
-  if (!memoryContext.trim()) return BASE_SYSTEM_PROMPT;
+function normalizeUserName(userName: string | null | undefined) {
+  const normalized = userName?.replace(/\s+/g, ' ').trim();
+  return normalized ? normalized.slice(0, 120) : null;
+}
 
-  return `${BASE_SYSTEM_PROMPT}
+function normalizeTimeZone(timeZone: string | null | undefined) {
+  const normalized = timeZone?.trim();
+  if (!normalized) return null;
+
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: normalized }).format(new Date());
+    return normalized;
+  } catch {
+    return null;
+  }
+}
+
+function formatCurrentTime(timestamp: Date, timeZone: string | null) {
+  const effectiveTimeZone = timeZone ?? 'UTC';
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: effectiveTimeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(timestamp);
+  const values = new Map(parts.map((part) => [part.type, part.value]));
+
+  return `${values.get('year')}-${values.get('month')}-${values.get('day')} ${values.get('hour')}:${values.get('minute')} (${effectiveTimeZone})`;
+}
+
+function formatReplyContext(replyContext: ReplyContext) {
+  const lines = [`The current time is ${replyContext.currentTime}.`];
+
+  if (replyContext.userName) {
+    lines.unshift(`The user's name is ${replyContext.userName}.`);
+  }
+
+  return lines.join('\n');
+}
+
+function appendReplyContext(basePrompt: string, replyContext: ReplyContext) {
+  return `${basePrompt}
+
+${formatReplyContext(replyContext)}`;
+}
+
+function buildSystemPrompt(memoryContext: string, replyContext: ReplyContext): string {
+  if (!memoryContext.trim()) return appendReplyContext(BASE_SYSTEM_PROMPT, replyContext);
+
+  return appendReplyContext(
+    `${BASE_SYSTEM_PROMPT}
 
 You have memory about this user from previous conversations. Use it naturally — reference what you know as if you simply remember. Never announce that you are reading from memory or mention your memory system.
 
 <user_memory>
 ${memoryContext}
-</user_memory>`;
+</user_memory>`,
+    replyContext
+  );
 }
 
-function buildMentorSystemPrompt(basePrompt: string, memoryContext: string): string {
-  if (!memoryContext.trim()) return basePrompt;
+function buildMentorSystemPrompt(
+  basePrompt: string,
+  memoryContext: string,
+  replyContext: ReplyContext
+): string {
+  if (!memoryContext.trim()) return appendReplyContext(basePrompt, replyContext);
 
-  return `${basePrompt}
+  return appendReplyContext(
+    `${basePrompt}
 
 Use the user's memory naturally. Keep it implicit and never mention a memory system.
 
 <user_memory>
 ${memoryContext}
-</user_memory>`;
+</user_memory>`,
+    replyContext
+  );
 }
 
 function sanitizeSearchQuery(value: string) {
@@ -241,7 +307,8 @@ ${formatSearchResultsForPrompt(searchMetadata)}
 async function planSearch(
   chatModel: ReturnType<typeof getChatModel>,
   messages: ChatHistoryMessage[],
-  latestUserMessage: string
+  latestUserMessage: string,
+  replyContext: ReplyContext
 ) {
   try {
     const conversationWindow = messages
@@ -252,7 +319,7 @@ async function planSearch(
     const { object } = await generateObject({
       model: chatModel,
       system: SEARCH_PLANNER_SYSTEM_PROMPT,
-      prompt: `Latest user message:\n${latestUserMessage.trim()}\n\nRecent conversation:\n${conversationWindow}`,
+      prompt: `Request context:\n${formatReplyContext(replyContext)}\n\nLatest user message:\n${latestUserMessage.trim()}\n\nRecent conversation:\n${conversationWindow}`,
       schema: SearchPlanSchema,
     });
 
@@ -331,6 +398,7 @@ export async function POST(request: NextRequest) {
       endOffset,
       concise,
       searchEnabled = false,
+      timezone,
       chatMode = 'persistent',
       memoryMode = 'use_existing',
       history,
@@ -708,16 +776,22 @@ export async function POST(request: NextRequest) {
           maxItems: isMentorConversation ? 24 : 30,
         })
       : '';
+    const normalizedTimeZone = normalizeTimeZone(timezone);
+    const replyContext: ReplyContext = {
+      currentTime: formatCurrentTime(new Date(), normalizedTimeZone),
+      userName: normalizeUserName(profile?.full_name),
+    };
 
     const searchMode: SearchMode = searchEnabled ? 'required' : 'auto';
     const searchAvailable = Boolean(process.env.TAVILY_API_KEY);
 
     let baseSystemPrompt = isMentorConversation
       ? buildMentorSystemPrompt(
-          buildMentorPrompt(mentor!, profile?.full_name || ''),
-          memoryContext
+          buildMentorPrompt(mentor!),
+          memoryContext,
+          replyContext
         )
-      : buildSystemPrompt(memoryContext);
+      : buildSystemPrompt(memoryContext, replyContext);
 
     const resolvedSelection = resolveChatModelSelection(
       modelId ?? mentor?.model_id ?? null
@@ -807,7 +881,7 @@ Live web search is unavailable in this environment. If the question depends on f
         assistantText = generation.text.trim();
       }
     } else if (searchAvailable) {
-      const searchPlan = await planSearch(chatModel, modelMessages, message);
+      const searchPlan = await planSearch(chatModel, modelMessages, message, replyContext);
 
       if (searchPlan.shouldSearch && searchPlan.query) {
         const searchOutput = await runWebSearch(searchPlan.query);

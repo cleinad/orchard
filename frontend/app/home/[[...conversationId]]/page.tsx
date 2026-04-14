@@ -52,6 +52,7 @@ import {
   type ChatMode,
   type TemporaryMemoryMode,
 } from '@/lib/chat-session';
+import { getBrowserTimeZone } from '@/lib/browser-timezone';
 
 interface ChatResponse {
   message?: string;
@@ -1620,6 +1621,7 @@ function HomePageInner() {
           previousMessageId,
           branchSourceMessageId: branchSourceMessageId ?? undefined,
           searchEnabled,
+          timezone: getBrowserTimeZone(),
           chatMode:
             effectiveSelection.kind === 'temporary' ? 'temporary' : 'persistent',
           ...(effectiveSelection.kind === 'temporary'
