@@ -13,6 +13,7 @@ Keen is a voice-native AI thinking partner with:
 - live web search
 - multi-conversation chat on the home surface
 - temporary chats for low-commitment exploration
+- transcript-native conversation branching inside a chat
 - inline threads for branching into focused side discussions
 
 At a high level, the product combines a chat interface, memory system, mentor personas, and optional voice/search capabilities.
@@ -44,8 +45,9 @@ If docs conflict, prefer:
 
 - [features/auth-and-route-protection.md](./features/auth-and-route-protection.md): auth model, protected routes including `/home/[conversationId]`, proxy rules, and testing coverage
 - [features/chat-model-selection.md](./features/chat-model-selection.md): model picker behavior across routed home chats, resolution rules, availability rules, and verification
+- [features/conversation-branching.md](./features/conversation-branching.md): branch chips, branch navigator, tree state, persistence model, and runtime isolation rules
 - [features/inline-threads.md](./features/inline-threads.md): text selection, popover behavior, thread panel rules, keyboard behavior, and edge cases across `/home` and `/home/[conversationId]`
-- [features/live-search.md](./features/live-search.md): live web search behavior, execution flow, and routed home-surface integration
+- [features/live-search.md](./features/live-search.md): live web search behavior, execution flow, routed home-surface integration, and safety constraints
 - [features/memory.md](./features/memory.md): memory system architecture, read/write paths, schema, and API shape
 - [features/mentors.md](./features/mentors.md): built-in and custom mentors, data model, prompt construction, and API integration
 - [features/multi-chat-home.md](./features/multi-chat-home.md): multi-conversation home behavior, persistent conversation URLs, route hydration, sidebar model, runtime state, and database impact
@@ -62,6 +64,7 @@ Use implementation docs when the feature doc tells you what should happen, but t
 - [testing/README.md](./testing/README.md): central test map, runner commands, focused canaries, and test inventory
 - [testing/home-routing-e2e.md](./testing/home-routing-e2e.md): routed home-chat browser coverage, mocks, and regression targets
 - [testing/inline-threads-e2e.md](./testing/inline-threads-e2e.md): inline-thread end-to-end coverage, fixtures, and regression cases
+- [testing/search-citations-and-source-ui.md](./testing/search-citations-and-source-ui.md): live-search citation coverage, focused canary, manual checks, and current gaps
 - [tests/chat-model-selection-tests.md](./tests/chat-model-selection-tests.md): automated and manual verification for model selection
 - [tests/memory-tests.md](./tests/memory-tests.md): memory test suite map, coverage philosophy, and remaining gaps
 - [features/auth-and-route-protection.md](./features/auth-and-route-protection.md): auth and route-protection testing coverage plus focused command
@@ -86,6 +89,7 @@ If you are making changes in this repo:
 
 - start from this file
 - use `docs/features/` as the default behavior reference
+- read [features/conversation-branching.md](./features/conversation-branching.md) before changing `messages.previous_message_id`, `conversation_branches`, branch chips, or the top-right branch navigator
 - check `docs/implementation/` before refactoring sensitive rendering or state logic
 - check test docs before changing memory, model selection, auth, or inline-thread behavior
 - treat dated plan/spec files as context, not authority

@@ -61,6 +61,7 @@ Notes:
 ### Vitest Route And Server Coverage
 
 - `frontend/__tests__/app/chat-route.test.ts`: `/api/chat` contract coverage, including memory loading, memory writes, and route-level orchestration
+- `frontend/__tests__/app/chat-route-search.test.ts`: live-search planner/search orchestration, `search_metadata` persistence, invalid citation stripping, and clean memory handoff
 - `frontend/__tests__/app/memory-items-routes.test.ts`: memory item CRUD auth, scope filters, normalization, and embedding side effects
 - `frontend/__tests__/app/tts-route.test.ts`: `/api/tts` auth and request/config validation
 - `frontend/__tests__/proxy.test.ts`: page auth protection, login redirects, and the fixture-only E2E bypass guardrails
@@ -72,6 +73,7 @@ Notes:
 - `frontend/__tests__/lib/models.test.ts`: model resolution, provider availability, and fallback behavior
 - `frontend/__tests__/lib/memory-items.test.ts`: deterministic memory normalization and scoring helpers
 - `frontend/__tests__/lib/memory-integration.test.ts`: memory read/write integration behavior with mocked externals
+- `frontend/__tests__/lib/search-citations.test.ts`: persisted source normalization, citation splitting, and citation-marker stripping helpers
 
 ### Playwright Browser Coverage
 
@@ -133,6 +135,16 @@ cd frontend
 npx playwright test e2e/home-routing.spec.js
 ```
 
+### Live Search And Citations
+
+- Doc: [search-citations-and-source-ui.md](./search-citations-and-source-ui.md)
+- Run:
+
+```bash
+cd frontend
+npm run test -- __tests__/app/chat-route.test.ts __tests__/app/chat-route-search.test.ts __tests__/lib/search-citations.test.ts
+```
+
 ## Which Tests To Run
 
 - If you change memory loading, memory writing, memory CRUD, or mentor memory scoping, run the memory canary suite.
@@ -140,12 +152,14 @@ npx playwright test e2e/home-routing.spec.js
 - If you change model catalog data, provider resolution, or chat model selection UI behavior, run the model-selection tests.
 - If you change home route hydration, sidebar-driven chat navigation, draft promotion, or temporary chat route behavior, run the home-routing Playwright suite.
 - If you change inline threads, selection handling, markdown rendering, or thread panel behavior, run the inline-thread Playwright suite.
+- If you change live search planning, Tavily result normalization, citation persistence, markdown citation chips, or the source tray UI, run the live-search canary suite.
 - If you make broad frontend changes and are unsure, run `npm test` and then `npm run test:e2e` from `frontend/`.
 
 ## Detailed Testing Docs
 
 - [home-routing-e2e.md](./home-routing-e2e.md): routed home-chat browser coverage, mocks, and regression targets
 - [inline-threads-e2e.md](./inline-threads-e2e.md): browser fixtures, mocks, and regression targets for inline threads
+- [search-citations-and-source-ui.md](./search-citations-and-source-ui.md): live-search citation test scope, focused canary, manual checks, and current gaps
 - [../tests/memory-tests.md](../tests/memory-tests.md): memory canary suite map, rationale, and remaining gaps
 - [../tests/chat-model-selection-tests.md](../tests/chat-model-selection-tests.md): automated and manual verification for model selection
 - [../features/auth-and-route-protection.md](../features/auth-and-route-protection.md): auth/proxy testing coverage and focused command
