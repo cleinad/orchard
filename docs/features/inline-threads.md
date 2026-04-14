@@ -119,6 +119,8 @@ If a popover is active, the popover’s `Ctrl+L` behavior takes precedence and r
 
 The popover can be dismissed with `Escape`.
 
+If the popover already contains a submitted inline-thread exchange, dismissing it should preserve that thread context by promoting it into the thread panel instead of discarding the in-flight or completed result.
+
 Panel close behavior follows the panel-level keyboard handling and close controls.
 
 ## State Rules And Edge Cases
@@ -137,6 +139,7 @@ This distinction matters because a submitted loading question must not be treate
 Other important rules:
 
 - Replacing the active selection replaces the active popover/thread source context.
+- Dismissing a submitted popover request must not cancel or discard that thread context.
 - Promoting to the thread panel does not sever the source highlight.
 - Persisted threads become reopenable from the message body.
 - Temporary threads remain session-local.
