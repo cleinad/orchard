@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useLayoutEffect } from "react";
+import { useCallback, useState, useRef, useEffect, useLayoutEffect } from "react";
 import { logResolvedChatModel } from "@/app/home/components/logResolvedChatModel";
 import MarkdownWithThreads from "@/app/home/components/MarkdownWithThreads";
 import type { ThreadSource } from "@/app/home/components/threadTypes";
@@ -116,6 +116,7 @@ export default function TextSelectionPopover({
   const [threadId, setThreadId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [submittedQuestion, setSubmittedQuestion] = useState<string | null>(null);
+  const [lastQuestion, setLastQuestion] = useState<string | null>(null);
   const [followUpInput, setFollowUpInput] = useState("");
   const [responseSeedMessages, setResponseSeedMessages] = useState<ThreadMessage[] | null>(null);
   const [responseThreadId, setResponseThreadId] = useState<string | null>(null);
@@ -159,6 +160,7 @@ export default function TextSelectionPopover({
       setThreadId(null);
       setIsLoading(false);
       setSubmittedQuestion(null);
+      setLastQuestion(null);
       setFollowUpInput("");
       setResponseSeedMessages(null);
       setResponseThreadId(null);
@@ -167,17 +169,74 @@ export default function TextSelectionPopover({
     prevSelectionKey.current = key;
   }, [popoverState]);
 
+  const promotePopoverToThread = useCallback((source: ThreadSource) => {
+    const nextThreadId =
+      responseThreadId
+      || threadId
+      || (chatMode === "temporary" ? createTemporaryId("thread") : null);
+    const loadingPrompt = isLoading ? submittedQuestion || lastQuestion : null;
+    const draftInput = response ? followUpInput : customQuestion;
+    const initialMessages = loadingPrompt
+      ? buildPendingMessages(loadingPrompt)
+      : responseSeedMessages
+        || (response && lastQuestion ? buildInitialMessages(lastQuestion, response) : undefined);
+
+    if (loadingPrompt) {
+      handoffRef.current = {
+        selectionKey: `${source.sourceMessageId}:${source.startOffset}:${source.endOffset}`,
+        question: loadingPrompt,
+        threadId: nextThreadId,
+        source,
+      };
+    }
+
+    onGraduateToThread(
+      nextThreadId,
+      source,
+      {
+        draftInput: loadingPrompt ? undefined : draftInput,
+        loadingQuestion: loadingPrompt || undefined,
+        initialMessages,
+      }
+    );
+  }, [
+    chatMode,
+    customQuestion,
+    followUpInput,
+    isLoading,
+    lastQuestion,
+    onGraduateToThread,
+    response,
+    responseSeedMessages,
+    responseThreadId,
+    submittedQuestion,
+    threadId,
+  ]);
+
+  const handleDismiss = useCallback(() => {
+    if (!popoverState) {
+      return;
+    }
+
+    if (isLoading || response !== null || responseSeedMessages) {
+      promotePopoverToThread(popoverState);
+      return;
+    }
+
+    onDismiss();
+  }, [isLoading, onDismiss, popoverState, promotePopoverToThread, response, responseSeedMessages]);
+
   useEffect(() => {
     if (!popoverState || useNativePopover) return;
 
     const handleClickOutside = (e: MouseEvent) => {
       if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
-        onDismiss();
+        handleDismiss();
       }
     };
 
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onDismiss();
+      if (e.key === "Escape") handleDismiss();
     };
 
     const timer = window.setTimeout(() => {
@@ -190,7 +249,7 @@ export default function TextSelectionPopover({
       document.removeEventListener("mousedown", handleClickOutside);
       document.removeEventListener("keydown", handleEscape);
     };
-  }, [popoverState, useNativePopover, onDismiss]);
+  }, [handleDismiss, popoverState, useNativePopover]);
 
   useEffect(() => {
     if (!popoverState || !useNativePopover || !popoverRef.current) return;
@@ -199,7 +258,7 @@ export default function TextSelectionPopover({
     const handleToggle = (event: Event) => {
       const toggleEvent = event as ToggleEvent;
       if (toggleEvent.newState === "closed") {
-        onDismiss();
+        handleDismiss();
       }
     };
 
@@ -208,7 +267,7 @@ export default function TextSelectionPopover({
     return () => {
       popoverEl.removeEventListener("toggle", handleToggle);
     };
-  }, [popoverState, useNativePopover, onDismiss]);
+  }, [handleDismiss, popoverState, useNativePopover]);
 
   useEffect(() => {
     if (!popoverState || !useNativePopover || !popoverRef.current) return;
@@ -239,6 +298,7 @@ export default function TextSelectionPopover({
       chatMode === "temporary" || (chatMode === "persistent" && conversationId);
     if (!canUseChat || !activePopoverState || isLoading) return;
 
+    setLastQuestion(question);
     setIsLoading(true);
     setSubmittedQuestion(question);
     try {
@@ -417,50 +477,14 @@ export default function TextSelectionPopover({
 
       event.preventDefault();
       event.stopPropagation();
-
-      const nextThreadId =
-        responseThreadId
-        || threadId
-        || (chatMode === "temporary" ? createTemporaryId("thread") : null);
-      const loadingPrompt = isLoading ? submittedQuestion : null;
-      const draftInput = response ? followUpInput : customQuestion;
-
-      if (loadingPrompt && popoverState) {
-        handoffRef.current = {
-          selectionKey: `${popoverState.sourceMessageId}:${popoverState.startOffset}:${popoverState.endOffset}`,
-          question: loadingPrompt,
-          threadId: nextThreadId,
-          source: popoverState,
-        };
-      }
-
-      onGraduateToThread(
-        nextThreadId,
-        popoverState,
-        {
-          draftInput: loadingPrompt ? undefined : draftInput,
-          loadingQuestion: loadingPrompt || undefined,
-          initialMessages: loadingPrompt
-            ? buildPendingMessages(loadingPrompt)
-            : responseSeedMessages || undefined,
-        }
-      );
+      promotePopoverToThread(popoverState);
     };
 
     document.addEventListener("keydown", handleOpenThreadShortcut, true);
     return () => document.removeEventListener("keydown", handleOpenThreadShortcut, true);
   }, [
-    chatMode,
-    customQuestion,
-    followUpInput,
-    isLoading,
-    onGraduateToThread,
     popoverState,
-    response,
-    responseSeedMessages,
-    responseThreadId,
-    submittedQuestion,
-    threadId,
+    promotePopoverToThread,
   ]);
 
   useLayoutEffect(() => {
