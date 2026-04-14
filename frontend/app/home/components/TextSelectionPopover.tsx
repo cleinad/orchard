@@ -14,6 +14,7 @@ import {
 } from "@/lib/chat-session";
 import type { ChatModelId } from "@/lib/chat-models";
 import type { ThreadMessage } from "@/app/home/components/ThreadPanel";
+import { getBrowserTimeZone } from "@/lib/browser-timezone";
 
 const LARGE_RESPONSE_CHAR_LIMIT = 350;
 const LARGE_RESPONSE_MAX_HEIGHT = 240;
@@ -322,6 +323,7 @@ export default function TextSelectionPopover({
           endOffset: activePopoverState.endOffset,
           concise: true,
           ...(requestedThreadId ? { threadId: requestedThreadId } : {}),
+          timezone: getBrowserTimeZone(),
           chatMode,
           ...(chatMode === "temporary"
             ? {

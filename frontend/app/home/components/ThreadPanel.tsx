@@ -14,6 +14,7 @@ import {
   type TemporaryMemoryMode,
 } from "@/lib/chat-session";
 import type { ChatModelId } from "@/lib/chat-models";
+import { getBrowserTimeZone } from "@/lib/browser-timezone";
 
 export interface ThreadMessage {
   id: string;
@@ -273,6 +274,7 @@ export default function ThreadPanel({
           startOffset: thread.startOffset,
           endOffset: thread.endOffset,
           ...(requestThreadId ? { threadId: requestThreadId } : {}),
+          timezone: getBrowserTimeZone(),
           chatMode,
           ...(chatMode === "temporary"
             ? {

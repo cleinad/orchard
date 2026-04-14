@@ -132,14 +132,17 @@ describe('chat route search citations', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     delete process.env.TAVILY_API_KEY;
   });
 
   it('persists null search metadata when auto mode does not search', async () => {
     process.env.TAVILY_API_KEY = 'test-key';
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-02T03:04:05.000Z'));
 
     const { response, body, tracker } = await runChatRequest(
-      { message: 'Help me brainstorm names' },
+      { message: 'Help me brainstorm names', timezone: 'America/Vancouver' },
       {
         conversations: {
           rows: [],
@@ -159,6 +162,18 @@ describe('chat route search citations', () => {
       metadata: null,
     });
     expect(mockRunWebSearch).not.toHaveBeenCalled();
+    expect(mockGenerateObject).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: expect.stringContaining(
+          'The current time is 2026-01-01 19:04 (America/Vancouver).'
+        ),
+      })
+    );
+    expect(mockGenerateObject).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: expect.stringContaining("The user's name is Test User."),
+      })
+    );
 
     const assistantInsert = tracker.inserts('messages')[1]?.args as {
       search_metadata?: unknown;
@@ -168,6 +183,8 @@ describe('chat route search citations', () => {
 
   it('persists normalized search metadata and strips invalid citations for required mode', async () => {
     process.env.TAVILY_API_KEY = 'test-key';
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-02T03:04:05.000Z'));
     mockGenerateText
       .mockResolvedValueOnce({ text: 'Grounded answer [1] [9]' })
       .mockResolvedValueOnce({ text: 'Grounded Title' });
@@ -176,6 +193,7 @@ describe('chat route search citations', () => {
       {
         message: 'What changed this week?',
         searchEnabled: true,
+        timezone: 'America/Vancouver',
       },
       {
         conversations: {
@@ -227,6 +245,18 @@ describe('chat route search citations', () => {
       expect.objectContaining({
         conversationId: 'conv-1',
         sourceMessageId: 'msg-user-1',
+      })
+    );
+    expect(mockGenerateText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        system: expect.stringContaining(
+          'The current time is 2026-01-01 19:04 (America/Vancouver).'
+        ),
+      })
+    );
+    expect(mockGenerateText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        system: expect.stringContaining("The user's name is Test User."),
       })
     );
   });

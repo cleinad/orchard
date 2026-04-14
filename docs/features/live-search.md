@@ -6,12 +6,14 @@ Live search lets Keen ground new replies in current web results. Users control t
 
 ## Modes
 
-- **Auto** (default, toggle off): the server runs a short planning step against the latest user message plus a small recent conversation window. If the planner decides search is needed, the server runs one web search, normalizes the sources, and then generates the final answer from that evidence set. If the planner decides search is not needed, the final answer is generated without search.
+- **Auto** (default, toggle off): the server runs a short planning step against the latest user message, a small recent conversation window, and per-reply request context such as the current local time and saved user name. If the planner decides search is needed, the server runs one web search, normalizes the sources, and then generates the final answer from that evidence set. If the planner decides search is not needed, the final answer is generated without search.
 - **Always on** (toggle on): the server always runs web search before generating the reply. If usable sources are returned, the final answer is generated from that normalized source set. If search fails or returns no useful results, Keen still answers and adds a brief disclosure.
 
 Important behavior:
 
 - Final answer generation no longer uses an in-model search tool. Search orchestration is server-owned.
+- Every answer path gets concise request context, limited to `The user's name is ...` when known and `The current time is ...`.
+- Local time is computed server-side from the request's browser timezone when available; invalid or missing timezones fall back to UTC.
 - Successful searched replies can include numeric citations such as `[1]` and `[1] [3]`.
 - Valid citation markers render as separate compact chips in the reply body.
 - Clicking a citation chip or the footer `Sources N` control opens a minimal inline source tray under that reply.
@@ -40,13 +42,16 @@ User clicks toggle
 searchEnabled state (boolean) — frontend/app/home/[[...conversationId]]/page.tsx
     |
     v
-POST /api/chat body includes { searchEnabled } — same file
+POST /api/chat body includes { searchEnabled, timezone? } — same file
     |
     v
 Chat route converts: searchEnabled ? 'required' : 'auto'
     |
     +--- sanitizeHistoryMessages() strips citation markers from prior assistant messages
     |    before memory/context reuse
+    |
+    +--- append per-reply request context
+    |      (current local time from browser timezone + saved user name when available)
     |
     +--- Mode: 'required' --->  runWebSearch(message)
     |                           createPersistedSearchMetadata()
@@ -92,7 +97,8 @@ SearchSourcesTray renders the minimal inline source card
 | File | Role |
 |------|------|
 | `frontend/app/home/[[...conversationId]]/page.tsx` | Search toggle, request body construction, `lastSearchState`, and last-reply search status UI |
-| `frontend/app/api/chat/route.ts` | Converts `searchEnabled` to `searchMode`; planner step; search execution; grounded prompts; citation cleanup; persistence; disclosure handling |
+| `frontend/lib/browser-timezone.ts` | Reads the browser IANA timezone so chat requests can send it to the server |
+| `frontend/app/api/chat/route.ts` | Converts `searchEnabled` to `searchMode`; planner step; per-reply request context injection; search execution; grounded prompts; citation cleanup; persistence; disclosure handling |
 | `frontend/lib/search-citations.ts` | Persisted search metadata shape, source normalization, citation parsing, citation stripping, and validation |
 | `frontend/lib/chat-search.ts` | `SearchMetadata` types, response-level search status envelope, `addSearchInstructions()` for auto mode, warning strings, and disclosure injection |
 | `frontend/lib/tools.ts` | `webSearch` tool definition (Vercel AI SDK `tool()`), `runWebSearch()`, Tavily integration, result sanitization |
@@ -130,20 +136,26 @@ Normalization rules:
 - `search_metadata = null` means no search attempt happened for that reply
 - attempted searches can still persist failure metadata with an empty `sources[]`
 
-### Search Execution
+### Reply Context And Search Execution
+
+- `/api/chat` can receive an optional `timezone` from the browser as an IANA zone string such as `America/Vancouver`.
+- The server validates that timezone and computes the current local date/time for the reply on the server, rather than trusting a client-provided timestamp.
+- Prompt context is intentionally minimal to avoid noise: `The user's name is ...` when `profiles.full_name` is present, plus `The current time is ...`.
+- If the timezone is missing or invalid, the server formats the current time in UTC instead.
 
 **Required mode** (`searchEnabled = true`):
 
 1. `runWebSearch(message)` runs before answer generation when search is available.
 2. The route normalizes the search output into persisted metadata.
 3. Sources are injected into the final prompt inside `<web_search_results>` tags.
-4. The model is instructed to cite only the provided source ids using separate markers like `[1] [3]`.
-5. Invalid citation ids are stripped before the assistant message is saved.
-6. If search is unavailable or unhelpful, the reply is still returned with a disclosure and no source tray UI.
+4. The shared base system prompt also carries the same minimal per-reply request context, including the current local time derived from the request timezone and the saved user name when present.
+5. The model is instructed to cite only the provided source ids using separate markers like `[1] [3]`.
+6. Invalid citation ids are stripped before the assistant message is saved.
+7. If search is unavailable or unhelpful, the reply is still returned with a disclosure and no source tray UI.
 
 **Auto mode** (`searchEnabled = false`):
 
-1. `planSearch()` uses `generateObject()` with a very small schema to decide only `shouldSearch` and `query`.
+1. `planSearch()` uses `generateObject()` with a very small schema plus the same per-reply request context to decide only `shouldSearch` and `query`.
 2. If the planner returns `shouldSearch=false`, the route generates a normal reply and saves `search_metadata = null`.
 3. If the planner returns a query, the route runs one search and follows the same grounded generation path as required mode.
 
