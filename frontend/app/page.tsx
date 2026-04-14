@@ -1,43 +1,14 @@
-import type { CSSProperties } from "react";
+import { marketingBackdropStyle } from "@/lib/marketing-backdrop";
 
 // Subtext: Satoshi (same stack as `lib/body-font.ts`); hero title stays Fraunces via `font-heading`.
 const subtextStyle = {
   fontFamily: '"Satoshi", system-ui, sans-serif',
 };
 
-/**
- * Full-viewport backdrop (fixed + inline styles):
- * - `body` uses theme `--background` (often near-black in dark mode); `absolute inset-0` layers
- *   inside a `min-h-*` wrapper can fail to cover the viewport in some layouts, so the dark body
- *   shows through and the gradient “disappears”.
- * - Inline `backgroundImage` avoids relying on Tailwind arbitrary `bg-[linear-gradient(...)]`
- *   and keeps multi-stop gradients reliable across builds.
- * - `colorScheme: "light"` keeps browser UI heuristics from fighting a light marketing surface
- *   while `html` may still have `color-scheme: dark` from the theme script.
- */
-const landingBackdropStyle: CSSProperties = {
-  position: "fixed",
-  inset: 0,
-  zIndex: 0,
-  pointerEvents: "none",
-  colorScheme: "light",
-  backgroundColor: "#cfe0f4",
-  backgroundImage: [
-    // Soft top highlight (not near-opaque white — that was washing out all blue).
-    "radial-gradient(ellipse 120% 90% at 50% 0%, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0) 55%)",
-    // Side glows (replaces separate blurred divs so we don’t depend on filter/compositing quirks).
-    "radial-gradient(circle at 50% 0%, rgba(124, 147, 184, 0.22) 0%, rgba(124, 147, 184, 0) 72%)",
-    "radial-gradient(circle at 100% 22%, rgba(176, 197, 224, 0.35) 0%, rgba(176, 197, 224, 0) 70%)",
-    "radial-gradient(ellipse at 50% 100%, rgba(159, 182, 212, 0.35) 0%, rgba(159, 182, 212, 0) 72%)",
-    // Base vertical blue wash.
-    "linear-gradient(180deg, #ffffff 0%, #f2f7fd 36%, #b9d0ec 100%)",
-  ].join(", "),
-};
-
 export default function Home() {
   return (
     <div className="relative min-h-[100dvh]" style={{ colorScheme: "light" }}>
-      <div aria-hidden="true" style={landingBackdropStyle} />
+      <div aria-hidden="true" style={marketingBackdropStyle} />
 
       <div className="relative z-10 flex min-h-[100dvh] flex-col px-6 pb-10 pt-7 sm:px-10 sm:pt-9 lg:px-14">
         <header className="flex w-full items-center justify-between">
