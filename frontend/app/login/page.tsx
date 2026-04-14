@@ -121,7 +121,7 @@ export default function LoginPage() {
             <div>
               <label
                 htmlFor="email"
-                className="block text-xs font-medium uppercase tracking-wider text-muted"
+                className="block text-xs font-medium tracking-wide text-muted"
               >
                 Email
               </label>
@@ -140,7 +140,7 @@ export default function LoginPage() {
             <div>
               <label
                 htmlFor="password"
-                className="block text-xs font-medium uppercase tracking-wider text-muted"
+                className="block text-xs font-medium tracking-wide text-muted"
               >
                 Password
               </label>

@@ -423,7 +423,7 @@ export default function MentorDetailPanel({
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block">
-      <span className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-muted">
+      <span className="mb-1.5 block text-xs font-medium tracking-wide text-muted">
         {label}
       </span>
       {children}
