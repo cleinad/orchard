@@ -1,10 +1,5 @@
 import { marketingBackdropStyle } from "@/lib/marketing-backdrop";
 
-// Subtext: Satoshi (same stack as `lib/body-font.ts`); hero title stays Fraunces via `font-heading`.
-const subtextStyle = {
-  fontFamily: '"Satoshi", system-ui, sans-serif',
-};
-
 export default function Home() {
   return (
     <div className="relative min-h-[100dvh]" style={{ colorScheme: "light" }}>
@@ -20,7 +15,7 @@ export default function Home() {
           </a>
           <a
             href="/login"
-            className="text-sm text-neutral-600 transition hover:text-neutral-900"
+            className="font-sans text-sm text-neutral-600 transition hover:text-neutral-900"
           >
             Log in
           </a>
@@ -32,17 +27,15 @@ export default function Home() {
             <h1 className="max-w-4xl font-heading text-[clamp(3.4rem,9vw,6.8rem)] leading-[1.08] tracking-[-0.065em] text-neutral-900">
               A workspace for deep exploration.
             </h1>
-            <p
-              className="mt-6 max-w-2xl text-[1.08rem] leading-[1.7] text-neutral-600 sm:text-[1.22rem]"
-              style={subtextStyle}
-            >
+            {/* Body copy + CTAs: `font-sans` → `--font-sans` → `--font-body` (see globals.css); hero title stays Fraunces via `font-heading`. */}
+            <p className="mt-6 max-w-2xl font-sans text-[1.08rem] leading-[1.7] text-neutral-600 sm:text-[1.22rem]">
               Research deeply, branch into new questions, and build
               understanding over time without restarting from scratch.
             </p>
             <div className="mt-10">
               <a
                 href="/home"
-                className="inline-flex items-center justify-center rounded-full bg-neutral-900 px-6 py-3 text-sm text-white transition hover:opacity-90"
+                className="inline-flex items-center justify-center rounded-full bg-neutral-900 px-6 py-3 font-sans text-sm text-white transition hover:opacity-90"
               >
                 Start exploring
               </a>
