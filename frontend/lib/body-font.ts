@@ -5,9 +5,10 @@ export type BodyFontId = "satoshi" | "newsreader";
 
 export const DEFAULT_BODY_FONT_ID: BodyFontId = "satoshi";
 
+/** Stacks reference `globals.css` (`--font-sans` / `--font-serif`) so one definition stays canonical. */
 export const BODY_FONT_STACK: Record<BodyFontId, string> = {
-  satoshi: '"Satoshi", system-ui, sans-serif',
-  newsreader: "var(--font-body-newsreader), Georgia, serif",
+  satoshi: "var(--font-sans)",
+  newsreader: "var(--font-serif)",
 };
 
 export const BODY_FONT_OPTIONS: { id: BodyFontId; label: string }[] = [
