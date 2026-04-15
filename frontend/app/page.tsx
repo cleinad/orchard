@@ -27,7 +27,7 @@ export default function Home() {
             <h1 className="max-w-4xl font-heading text-[clamp(3.4rem,9vw,6.8rem)] leading-[1.08] tracking-[-0.065em] text-neutral-900">
               A workspace for deep exploration.
             </h1>
-            {/* Body copy + CTAs: `font-sans` → `--font-sans` → `--font-body` (see globals.css); hero title stays Fraunces via `font-heading`. */}
+            {/* Fixed Satoshi via `font-sans`; hero title stays Fraunces (`font-heading`). Use `font-reading` when text should follow the user body-font setting. */}
             <p className="mt-6 max-w-2xl font-sans text-[1.08rem] leading-[1.7] text-neutral-600 sm:text-[1.22rem]">
               Research deeply, branch into new questions, and build
               understanding over time without restarting from scratch.

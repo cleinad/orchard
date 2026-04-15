@@ -8,6 +8,8 @@ Use it when designing or refactoring frontend surfaces so future work stays alig
 
 This is a current design reference, not a historical plan.
 
+**Implementation tokens** (CSS variables and Tailwind class names) live in [tokens.md](./tokens.md).
+
 ## What To Call It
 
 The clearest name for this style is:
@@ -160,30 +162,27 @@ Traits:
 
 `Fraunces` should create authority, not ornament.
 
-### Default utility/body face: `Satoshi`
+In code, use the **`font-heading`** utility (see [tokens.md](./tokens.md)).
 
-Use `Satoshi` for:
+### Reading voice (user-selected body font)
 
-- UI copy
-- form labels
-- buttons
-- supporting text
-- status/error/success messages
-- practical app surfaces
+Most long-form and in-app reading should follow the **user’s reading font** (Satoshi or Newsreader from settings). In implementation that is **`font-reading`**, backed by **`--font-body`**. The global `body` rule already applies this, so you often need no extra class.
 
-This is the default product voice.
+Use for chat transcripts, markdown, settings paragraphs, and any surface where comfort and the user’s preference should win.
 
-### Optional editorial support face: `Newsreader`
+### Fixed product sans: `Satoshi`
 
-Use `Newsreader` only when there is a specific editorial reason:
+Use **`font-sans`** when the piece of UI must **always** be Satoshi, independent of reading-font setting: compact chrome, form labels, buttons, status lines, and marketing lines that should stay in the geometric sans voice.
 
-- longer-form reading surfaces
-- a small amount of atmospheric support copy
-- places where softer literary texture genuinely helps
+### Fixed editorial serif: `Newsreader`
 
-Do not force `Newsreader` onto normal UI text or forms.
+Use **`font-serif`** only when a component must **always** render as Newsreader (for example a deliberate editorial pull quote). If the user has chosen Newsreader as their reading font, normal text still uses **`font-reading`** / **`--font-body`**, not an ad hoc `font-serif` class.
 
-If in doubt, prefer `Satoshi`.
+If in doubt between `font-serif` and `font-reading`, prefer **`font-reading`** for body-scale copy.
+
+### Practical note
+
+The full mapping of CSS variables and Tailwind utilities (`font-reading`, `font-sans`, `font-serif`, `font-heading`) is documented in [tokens.md](./tokens.md).
 
 ## Color And Surface Rules
 
@@ -218,6 +217,8 @@ Avoid:
 For pages where visual stability matters, use explicit light values rather than depending entirely on theme token blending.
 
 This is especially useful on landing and auth pages where the atmosphere needs to be dependable and quiet.
+
+Semantic color tokens are listed in [tokens.md](./tokens.md).
 
 ## Layout Rules
 
