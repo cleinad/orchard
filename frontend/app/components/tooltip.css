@@ -5,6 +5,8 @@
   border: none;
   padding: 5px 10px;
   border-radius: 6px;
+  /* Match `font-sans` in Tailwind: fixed Satoshi stack for UI hints (see docs/design/tokens.md). */
+  font-family: var(--font-sans);
   font-size: 0.8125rem;
   line-height: 1.4;
   width: max-content;

@@ -449,6 +449,38 @@ body {
   animation: shimmer 2s linear infinite;
 }
 
+/* Styled scrollbar for the chat composer textarea */
+.composer-scrollbar {
+  scrollbar-width: thin; /* Firefox */
+  scrollbar-color: transparent transparent;
+  transition: scrollbar-color 0.2s;
+}
+
+.composer-scrollbar:hover,
+.composer-scrollbar:focus {
+  scrollbar-color: color-mix(in srgb, var(--foreground) 22%, transparent) transparent;
+}
+
+/* WebKit (Chrome, Safari, Edge) */
+.composer-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+
+.composer-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.composer-scrollbar::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 9999px;
+  transition: background 0.2s;
+}
+
+.composer-scrollbar:hover::-webkit-scrollbar-thumb,
+.composer-scrollbar:focus::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--foreground) 22%, transparent);
+}
+
 /* ::highlight() styles moved to runtime injection in useHomeThreads (Turbopack parser doesn't support this pseudo-element) */
 
 .text-selection-popover-anchor {
