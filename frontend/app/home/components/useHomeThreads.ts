@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import type { PopoverState } from '@/app/home/components/TextSelectionPopover';
-import type { ThreadMeta, ThreadSource } from '@/app/home/components/threadTypes';
-import type { ThreadMessage } from '@/app/home/components/ThreadPanel';
+import type { ThreadSession, ThreadSource } from '@/app/home/components/threadTypes';
 
 const ACTIVE_SELECTION_HIGHLIGHT = 'keen-active-selection';
-
 const HIGHLIGHT_STYLE_ID = 'keen-active-selection-styles';
 
 /** Inject ::highlight() CSS at runtime; build CSS parser (Turbopack) doesn't support this pseudo-element. */
@@ -20,18 +18,6 @@ function ensureHighlightStylesInjected() {
   background-color: color-mix(in srgb, var(--accent) 36%, transparent);
 }`;
   document.head.appendChild(style);
-}
-
-interface ActiveThread extends ThreadSource {
-  id: string | null;
-}
-
-interface ActiveSelection {
-  anchorRect: PopoverState['anchorRect'];
-  selectedText: string;
-  sourceMessageId: string;
-  startOffset: number;
-  endOffset: number;
 }
 
 function getHighlightRegistry() {
@@ -51,19 +37,27 @@ function getHighlightRegistry() {
   }).highlights ?? null;
 }
 
+interface ActiveSelection {
+  anchorRect: PopoverState['anchorRect'];
+  selectedText: string;
+  sourceMessageId: string;
+  startOffset: number;
+  endOffset: number;
+}
+
+interface CreateThreadSessionOptions {
+  makeActive?: boolean;
+}
+
 export function useHomeThreads(
   learningMode: boolean,
   scrollContainerRef: RefObject<HTMLDivElement | null>
 ) {
   const [popoverState, setPopoverState] = useState<PopoverState | null>(null);
-  const [activeThread, setActiveThread] = useState<ActiveThread | null>(null);
-  const [activeSelection, setActiveSelection] = useState<ActiveSelection | null>(null);
+  const [highlightSource, setHighlightSource] = useState<ThreadSource | null>(null);
   const [threadPanelOpen, setThreadPanelOpen] = useState(false);
-  const [threadPanelInitialMessages, setThreadPanelInitialMessages] =
-    useState<ThreadMessage[] | null>(null);
-  const [threadPanelDraftInput, setThreadPanelDraftInput] = useState<string | null>(null);
-  const [threadPanelLoadingQuestion, setThreadPanelLoadingQuestion] = useState<string | null>(null);
-  const [pendingThreadMessage, setPendingThreadMessage] = useState<string | null>(null);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [threadSessionsById, setThreadSessionsById] = useState<Record<string, ThreadSession>>({});
   const highlightedRangeRef = useRef<Range | null>(null);
   const selectionResolveTimerRef = useRef<number | null>(null);
 
@@ -84,7 +78,6 @@ export function useHomeThreads(
     highlightRegistry.set(ACTIVE_SELECTION_HIGHLIGHT, new Highlight(nextRange));
   }, []);
 
-  // Inject ::highlight() styles at runtime (not parsed by build)
   useEffect(() => {
     ensureHighlightStylesInjected();
   }, []);
@@ -98,23 +91,24 @@ export function useHomeThreads(
     };
   }, [clearPersistentHighlight]);
 
+  const activeSession =
+    activeSessionId
+      ? threadSessionsById[activeSessionId] ?? null
+      : null;
+
   const resetThreadUi = useCallback(() => {
     clearPersistentHighlight();
     setPopoverState(null);
-    setActiveThread(null);
-    setActiveSelection(null);
+    setHighlightSource(null);
     setThreadPanelOpen(false);
-    setThreadPanelInitialMessages(null);
-    setThreadPanelDraftInput(null);
-    setThreadPanelLoadingQuestion(null);
-    setPendingThreadMessage(null);
+    setActiveSessionId(null);
+    setThreadSessionsById({});
   }, [clearPersistentHighlight]);
 
   const dismissPopover = useCallback(() => {
-    clearPersistentHighlight();
-    setActiveSelection(null);
     setPopoverState(null);
-  }, [clearPersistentHighlight]);
+    setHighlightSource(activeSession);
+  }, [activeSession]);
 
   const resolveMessageContentElement = (node: Node) => {
     if (node instanceof Element) {
@@ -231,7 +225,12 @@ export function useHomeThreads(
       endOffset: offsets.endOffset,
     };
 
-    setActiveSelection(nextSelection);
+    setHighlightSource({
+      highlightedText: nextSelection.selectedText,
+      sourceMessageId: nextSelection.sourceMessageId,
+      startOffset: nextSelection.startOffset,
+      endOffset: nextSelection.endOffset,
+    });
     setPopoverState({
       anchorRect: nextSelection.anchorRect,
       highlightedText: nextSelection.selectedText,
@@ -260,14 +259,14 @@ export function useHomeThreads(
   }, [learningMode, resolveActiveSelection]);
 
   useLayoutEffect(() => {
-    if (!activeSelection) {
+    if (!highlightSource) {
       clearPersistentHighlight();
       return;
     }
 
     const scrollContainer = scrollContainerRef.current;
     const messageEl = scrollContainer?.querySelector<HTMLElement>(
-      `[data-message-id="${activeSelection.sourceMessageId}"]`
+      `[data-message-id="${highlightSource.sourceMessageId}"]`
     );
     const messageContentEl = messageEl?.querySelector<HTMLElement>('[data-message-content]');
 
@@ -278,8 +277,8 @@ export function useHomeThreads(
 
     const range = restoreRangeFromOffsets(
       messageContentEl,
-      activeSelection.startOffset,
-      activeSelection.endOffset
+      highlightSource.startOffset,
+      highlightSource.endOffset
     );
 
     if (!range) {
@@ -288,79 +287,93 @@ export function useHomeThreads(
     }
 
     setPersistentHighlight(range);
-  });
+  }, [clearPersistentHighlight, highlightSource, scrollContainerRef, setPersistentHighlight]);
 
-  const handleGraduateToThread = useCallback(
-    (
-      threadId: string | null,
-      source: ThreadSource,
-      options?: {
-        pendingMessage?: string;
-        draftInput?: string;
-        loadingQuestion?: string;
-        initialMessages?: ThreadMessage[];
+  const createThreadSession = useCallback(
+    (session: ThreadSession, options?: CreateThreadSessionOptions) => {
+      setThreadSessionsById((prev) => ({
+        ...prev,
+        [session.sessionId]: session,
+      }));
+
+      if (options?.makeActive) {
+        setActiveSessionId(session.sessionId);
+        setThreadPanelOpen(true);
+        setPopoverState(null);
+        setHighlightSource(session);
       }
-    ) => {
-      setActiveThread({ id: threadId, ...source });
-      setThreadPanelInitialMessages(options?.initialMessages || null);
-      setThreadPanelDraftInput(options?.draftInput ?? null);
-      setThreadPanelLoadingQuestion(options?.loadingQuestion ?? null);
-      setPendingThreadMessage(options?.pendingMessage || null);
-      setThreadPanelOpen(true);
-      setPopoverState(null);
+
+      return session.sessionId;
     },
     []
   );
 
-  const handleThreadClick = useCallback((thread: ThreadMeta) => {
-    clearPersistentHighlight();
-    setPopoverState(null);
-    setActiveSelection(null);
-    setActiveThread({
-      id: thread.threadId,
-      highlightedText: thread.highlightedText,
-      sourceMessageId: thread.sourceMessageId,
-      startOffset: thread.startOffset,
-      endOffset: thread.endOffset,
-    });
-    setThreadPanelInitialMessages(null);
-    setThreadPanelDraftInput(null);
-    setThreadPanelLoadingQuestion(null);
-    setPendingThreadMessage(null);
-    setThreadPanelOpen(true);
-  }, [clearPersistentHighlight]);
+  const updateThreadSession = useCallback(
+    (
+      sessionId: string,
+      updater: (session: ThreadSession) => ThreadSession
+    ) => {
+      setThreadSessionsById((prev) => {
+        const existing = prev[sessionId];
+        if (!existing) {
+          return prev;
+        }
 
-  const clearPendingThreadMessage = useCallback(() => {
-    setPendingThreadMessage(null);
-  }, []);
+        const nextSession = updater(existing);
+        if (nextSession === existing) {
+          return prev;
+        }
+
+        return {
+          ...prev,
+          [sessionId]: nextSession,
+        };
+      });
+    },
+    []
+  );
+
+  const activateThreadSession = useCallback(
+    (sessionId: string) => {
+      const session = threadSessionsById[sessionId];
+      if (!session) {
+        return;
+      }
+
+      setActiveSessionId(sessionId);
+      setThreadPanelOpen(true);
+      setPopoverState(null);
+      setHighlightSource(session);
+    },
+    [threadSessionsById]
+  );
 
   const closeThreadPanel = useCallback(() => {
-    if (!popoverState) {
-      clearPersistentHighlight();
-      setActiveSelection(null);
-    }
     setThreadPanelOpen(false);
-    setActiveThread(null);
-    setThreadPanelInitialMessages(null);
-    setThreadPanelDraftInput(null);
-    setThreadPanelLoadingQuestion(null);
-    setPendingThreadMessage(null);
-  }, [clearPersistentHighlight, popoverState]);
+    setActiveSessionId(null);
+    setHighlightSource(popoverState);
+  }, [popoverState]);
+
+  const findThreadSessionId = useCallback(
+    (threadId: string) => {
+      return Object.values(threadSessionsById).find((session) => session.threadId === threadId)?.sessionId ?? null;
+    },
+    [threadSessionsById]
+  );
 
   return {
     popoverState,
-    activeThread,
+    activeSessionId,
+    activeSession,
     threadPanelOpen,
-    threadPanelInitialMessages,
-    threadPanelDraftInput,
-    threadPanelLoadingQuestion,
-    pendingThreadMessage,
+    threadSessionsById,
     resetThreadUi,
     dismissPopover,
     handlePointerUp,
-    handleGraduateToThread,
-    handleThreadClick,
-    clearPendingThreadMessage,
+    createThreadSession,
+    updateThreadSession,
+    activateThreadSession,
     closeThreadPanel,
+    findThreadSessionId,
   };
 }
