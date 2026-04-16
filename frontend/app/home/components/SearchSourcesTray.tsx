@@ -22,7 +22,7 @@ export default function SearchSourcesTray({
   }
 
   return (
-    <div className="mt-3 rounded-2xl border border-border-subtle bg-surface/80 px-4 py-3 shadow-sm">
+    <div className="mt-3 rounded-2xl border border-border-subtle bg-surface/80 px-4 py-3 font-sans shadow-sm">
       {sources.length > 1 && (
         <div className="mb-3 flex flex-wrap items-center gap-1.5">
           {sources.map((source) => {
@@ -55,7 +55,7 @@ export default function SearchSourcesTray({
       <div className="min-w-0">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-sm font-medium leading-snug text-foreground">
+            <p className="font-reading text-sm font-medium leading-snug text-foreground">
               {selectedSource.title}
             </p>
             <p className="mt-1 text-[11px] uppercase tracking-[0.18em] text-muted/70">
@@ -74,7 +74,7 @@ export default function SearchSourcesTray({
           </a>
         </div>
 
-        <p className="mt-3 text-sm leading-relaxed text-muted">
+        <p className="mt-3 font-reading text-sm leading-relaxed text-muted">
           {selectedSource.snippet}
         </p>
       </div>

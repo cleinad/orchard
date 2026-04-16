@@ -22,8 +22,16 @@
   --ambient-cursor-glow: rgba(160, 184, 214, 0.14);
   --ambient-blob-a: rgba(203, 216, 232, 0.24);
   --ambient-blob-b: rgba(242, 248, 255, 0.82);
-  /* Default; overridden by lib/body-font (`!important` on `html`). */
-  --font-body: "Satoshi", system-ui, sans-serif;
+  /*
+   * Font stacks:
+   * - `--font-sans` / `--font-serif`: fixed Satoshi vs Newsreader (always these faces).
+   * - `--font-body`: user’s reading preference (defaults to sans; overridden by `html[data-body-font]` + `lib/body-font`).
+   */
+  --font-stack-sans: "Satoshi", system-ui, sans-serif;
+  --font-stack-serif: var(--font-body-newsreader), Georgia, serif;
+  --font-sans: var(--font-stack-sans);
+  --font-serif: var(--font-stack-serif);
+  --font-body: var(--font-sans);
   --markdown-inline-code-bg: #f2f6fb;
   --markdown-inline-code-border: rgba(88, 112, 145, 0.18);
   --markdown-code-panel-bg: #f8fbff;
@@ -160,21 +168,25 @@
   --color-muted: var(--muted);
   --color-accent: var(--accent);
   --color-border-subtle: var(--border-subtle);
-  --font-sans: var(--font-body);
+  /* Tailwind: `font-reading` = user body font; `font-sans` / `font-serif` = fixed stacks (see :root). */
+  --font-reading: var(--font-body);
+  --font-sans: var(--font-stack-sans);
+  --font-serif: var(--font-stack-serif);
 }
 
-/* Fallback when JS has not set inline `--font-body` yet. */
+/* Reading font when `data-body-font` is set before inline `applyBodyFont` runs. */
 html[data-body-font="newsreader"] {
-  --font-body: var(--font-body-newsreader), Georgia, serif;
+  --font-body: var(--font-serif);
 }
 
 html[data-body-font="satoshi"] {
-  --font-body: "Satoshi", system-ui, sans-serif;
+  --font-body: var(--font-sans);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
+  /* Default UI text follows the user’s reading font (`--font-body`). */
   font-family: var(--font-body);
 }
 
@@ -435,6 +447,38 @@ body {
 
 .animate-shimmer {
   animation: shimmer 2s linear infinite;
+}
+
+/* Styled scrollbar for the chat composer textarea */
+.composer-scrollbar {
+  scrollbar-width: thin; /* Firefox */
+  scrollbar-color: transparent transparent;
+  transition: scrollbar-color 0.2s;
+}
+
+.composer-scrollbar:hover,
+.composer-scrollbar:focus {
+  scrollbar-color: color-mix(in srgb, var(--foreground) 22%, transparent) transparent;
+}
+
+/* WebKit (Chrome, Safari, Edge) */
+.composer-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+
+.composer-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.composer-scrollbar::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 9999px;
+  transition: background 0.2s;
+}
+
+.composer-scrollbar:hover::-webkit-scrollbar-thumb,
+.composer-scrollbar:focus::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--foreground) 22%, transparent);
 }
 
 /* ::highlight() styles moved to runtime injection in useHomeThreads (Turbopack parser doesn't support this pseudo-element) */

@@ -38,7 +38,8 @@ If docs conflict, prefer:
 
 - [outline.md](./outline.md): product vision, user problems, core concepts, principles, MVP scope, and roadmap
 - [architecture.md](./architecture.md): technical architecture, data flow, and system model
-- [design-language.md](./design-language.md): visual philosophy, typography rules, composition guidance, and UI constraints for future frontend work
+- [design/design-language.md](./design/design-language.md): visual philosophy, typography rules, composition guidance, and UI constraints for future frontend work
+- [design/tokens.md](./design/tokens.md): CSS variables and Tailwind design tokens used in the frontend (typography, color, themes)
 
 ## Feature Reference
 
@@ -87,7 +88,7 @@ These are useful for intent, tradeoffs, and historical context, but they should 
 If you are making changes in this repo:
 
 - start from this file
-- read [design-language.md](./design-language.md) before changing the landing page, auth pages, or any major visual surface
+- read [design/design-language.md](./design/design-language.md) and [design/tokens.md](./design/tokens.md) before changing the landing page, auth pages, typography tokens, or any major visual surface
 - use `docs/features/` as the default behavior reference
 - read [features/conversation-branching.md](./features/conversation-branching.md) before changing `messages.previous_message_id`, `conversation_branches`, branch chips, or the top-right branch navigator
 - check `docs/implementation/` before refactoring sensitive rendering or state logic

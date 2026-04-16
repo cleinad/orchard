@@ -630,6 +630,9 @@ function HomePageInner() {
   const [temporaryChats, setTemporaryChats] = useState<TemporaryChatSession[]>([]);
   const [selectedChat, setSelectedChat] = useState<SelectedChat | null>(null);
   const [sidePanelOpen, setSidePanelOpen] = useState(false);
+  const [sidePanelScrollRequest, setSidePanelScrollRequest] = useState<
+    null | 'temporary' | 'new' | 'all'
+  >(null);
   const [detailMentorSlug, setDetailMentorSlug] = useState<string | null>(null);
   const [detailPanelOpen, setDetailPanelOpen] = useState(false);
   const [createPanelOpen, setCreatePanelOpen] = useState(false);
@@ -1370,6 +1373,47 @@ function HomePageInner() {
     setSelectedChat(nextSelection);
     openHomeWorkspace();
   }, [openHomeWorkspace, prepareForChatSwitch, routeConversationId]);
+
+  const handleRailNewChatKeen = useCallback(() => {
+    handleCreateDraftSelection(null);
+    setSidePanelScrollRequest('new');
+    setSidePanelOpen(true);
+  }, [handleCreateDraftSelection]);
+
+  const handleRailOpenTemporarySection = useCallback(() => {
+    setSidePanelScrollRequest('temporary');
+    setSidePanelOpen(true);
+  }, []);
+
+  const handleRailOpenAllChats = useCallback(() => {
+    setSidePanelScrollRequest('all');
+    setSidePanelOpen(true);
+  }, []);
+
+  useEffect(() => {
+    if (!sidePanelOpen || !sidePanelScrollRequest) {
+      return;
+    }
+
+    const run = () => {
+      const scrollEl = document.getElementById('side-panel-scroll');
+      if (!scrollEl) {
+        return;
+      }
+
+      const sectionId =
+        sidePanelScrollRequest === 'temporary'
+          ? 'side-panel-section-temporary'
+          : sidePanelScrollRequest === 'new'
+            ? 'side-panel-section-new'
+            : 'side-panel-section-all-chats';
+      document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+      setSidePanelScrollRequest(null);
+    };
+
+    requestAnimationFrame(() => requestAnimationFrame(run));
+  }, [sidePanelOpen, sidePanelScrollRequest]);
 
   const handleSelectTemporaryChat = useCallback(
     (tempChatId: string) => {
@@ -2734,14 +2778,14 @@ function HomePageInner() {
       ? 'New chat'
       : activeMentor
         ? `Talk to ${activeMentor.name}`
-        : "What's on your mind?";
+        : 'What are we exploring today?';
   const emptySubtitle = isTemporaryChat
     ? 'Nothing from this chat will be saved.'
     : selectedChat?.kind === 'draft'
       ? activeMentor?.tagline || 'Start a new conversation.'
       : activeMentor
         ? activeMentor.tagline
-        : "I'm Listening";
+        : 'Start typing, or choose a mentor from the grid.';
 
   return (
     <div className="relative flex h-dvh min-h-0 flex-col overflow-hidden bg-background text-foreground">
@@ -2749,7 +2793,7 @@ function HomePageInner() {
 
       <main
         className={`relative flex min-h-0 flex-1 flex-col transition-[padding] duration-300 ease-out ${
-          sidePanelOpen ? 'lg:pl-[380px]' : ''
+          sidePanelOpen ? 'pl-[min(27.25rem,100vw)]' : 'pl-14'
         } ${threadPanelOpen ? 'lg:pr-[460px]' : ''}`}
       >
         <div className="w-full shrink-0 px-6">
@@ -2757,8 +2801,6 @@ function HomePageInner() {
             activeName={activeName}
             isTemporaryChat={isTemporaryChat}
             temporaryMemoryMode={activeTemporaryMemoryMode}
-            isSidePanelOpen={sidePanelOpen}
-            onToggleSidePanel={handleToggleSidePanel}
             onBrowseMentors={() => router.push('/mentors')}
             onCreateTemporaryChat={handleCreateTemporaryChat}
           />
@@ -2844,6 +2886,10 @@ function HomePageInner() {
       <SidePanel
         isOpen={sidePanelOpen}
         onClose={handleCloseSidePanel}
+        onToggleSidePanel={handleToggleSidePanel}
+        onNewChatKeen={handleRailNewChatKeen}
+        onOpenTemporarySection={handleRailOpenTemporarySection}
+        onOpenAllChats={handleRailOpenAllChats}
         mentorGroups={mentorGroups}
         draftChats={draftChats.map((draft) => ({
           id: draft.id,
