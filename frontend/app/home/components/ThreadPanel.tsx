@@ -42,6 +42,7 @@ export default function ThreadPanel({
     ? session?.messages.findLast((message) => message.role === "user")?.content ?? null
     : null;
   const headerTitle = activeQuestion ? toSnippet(activeQuestion) : session?.highlightedText ?? null;
+  const canSend = Boolean(session && !isBusy && session.draftInput.trim().length > 0);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -257,21 +258,36 @@ export default function ThreadPanel({
         </div>
 
         <div className="border-t border-border-subtle px-6 py-4">
-          <input
-            ref={inputRef}
-            data-testid="thread-panel-input"
-            type="text"
-            value={session?.draftInput ?? ""}
-            onChange={(event) => {
-              if (session) {
-                onInputChange(session.sessionId, event.target.value);
-              }
-            }}
-            onKeyDown={handleKeyDown}
-            placeholder={session ? "Ask a follow-up..." : "Select text to start a thread"}
-            disabled={!session}
-            className="w-full rounded-lg bg-foreground/5 px-3 py-2 text-sm text-foreground placeholder-muted/50 outline-none focus:ring-1 focus:ring-foreground/10 disabled:cursor-not-allowed disabled:opacity-60"
-          />
+          <div className="flex items-center gap-3">
+            <input
+              ref={inputRef}
+              data-testid="thread-panel-input"
+              type="text"
+              value={session?.draftInput ?? ""}
+              onChange={(event) => {
+                if (session) {
+                  onInputChange(session.sessionId, event.target.value);
+                }
+              }}
+              onKeyDown={handleKeyDown}
+              placeholder={session ? "Ask a follow-up..." : "Select text to start a thread"}
+              disabled={!session}
+              className="w-full rounded-lg bg-foreground/5 px-3 py-2 text-sm text-foreground placeholder-muted/50 outline-none focus:ring-1 focus:ring-foreground/10 disabled:cursor-not-allowed disabled:opacity-60"
+            />
+            <button
+              type="button"
+              data-testid="thread-panel-send"
+              onClick={() => {
+                if (session) {
+                  onSend(session.sessionId);
+                }
+              }}
+              disabled={!canSend}
+              className="inline-flex h-10 flex-shrink-0 items-center justify-center rounded-lg bg-foreground px-4 text-sm font-medium text-background transition hover:bg-foreground/90 disabled:cursor-not-allowed disabled:bg-foreground/20 disabled:text-foreground/45"
+            >
+              Send
+            </button>
+          </div>
         </div>
       </aside>
     </div>
