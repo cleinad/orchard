@@ -380,7 +380,7 @@ export default function SidePanel({
       <div
         className={`fixed left-0 top-0 z-50 flex h-dvh overflow-hidden border-r border-foreground/[0.06] bg-background transition-[width] duration-300 ease-out dark:border-foreground/[0.08] ${
           isOpen
-            ? 'w-[min(27.25rem,100vw)]'
+            ? 'w-[min(21.8rem,100vw)]'
             : 'w-14'
         }`}
       >
@@ -409,6 +409,8 @@ export default function SidePanel({
                 role="region"
                 aria-label="Conversations and sections"
               >
+                {/* Header rows — flex column with gap-1.5 + h-10 per row to mirror collapsed rail exactly */}
+                <div className="flex flex-col gap-1.5">
                 {/* Chats header — w-14 icon zone mirrors the collapsed rail column exactly */}
                 <Tooltip content="Hide chats" side="right">
                   <button
@@ -416,7 +418,7 @@ export default function SidePanel({
                     onClick={onToggleSidePanel}
                     aria-pressed
                     aria-label="Close conversations"
-                    className="flex w-full items-center py-1.5 text-left transition-colors hover:bg-foreground/[0.04]"
+                    className="flex h-10 w-full items-center text-left transition-colors hover:bg-foreground/[0.04]"
                   >
                     <div className="flex w-14 flex-shrink-0 items-center justify-center">
                       <SidebarPanelIcon className="h-5 w-5 text-foreground" />
@@ -431,7 +433,7 @@ export default function SidePanel({
                     type="button"
                     onClick={onNewChatKeen}
                     aria-label="New chat with Keen"
-                    className="flex w-full items-center py-1.5 text-left transition-colors hover:bg-foreground/[0.04]"
+                    className="flex h-10 w-full items-center text-left transition-colors hover:bg-foreground/[0.04]"
                   >
                     <div className="flex w-14 flex-shrink-0 items-center justify-center">
                       <RailIconNewChat className="h-5 w-5 text-foreground" />
@@ -444,7 +446,7 @@ export default function SidePanel({
                   id="side-panel-section-temporary"
                   className="scroll-mt-2"
                 >
-                  <div className="flex w-full items-center py-1.5">
+                  <div className="flex h-10 w-full items-center">
                     <div className="flex w-14 flex-shrink-0 items-center justify-center">
                       <RailIconTemporary className="h-5 w-5 text-foreground" />
                     </div>
@@ -505,7 +507,7 @@ export default function SidePanel({
                 </div>
 
                 <div id="side-panel-section-all-chats" className="scroll-mt-2">
-                  <div className="flex w-full items-center py-1.5">
+                  <div className="flex h-10 w-full items-center">
                     <div className="flex w-14 flex-shrink-0 items-center justify-center">
                       <RailIconAllChats className="h-5 w-5 text-foreground" />
                     </div>
@@ -513,6 +515,7 @@ export default function SidePanel({
                   </div>
                   <div className="pl-14 pb-6 pr-2">{mentorList}</div>
                 </div>
+                </div>{/* end header rows */}
               </div>
 
             </div>
