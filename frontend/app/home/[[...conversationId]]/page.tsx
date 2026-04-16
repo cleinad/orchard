@@ -1978,7 +1978,7 @@ function HomePageInner() {
 
       <main
         className={`relative flex min-h-0 flex-1 flex-col transition-[padding] duration-300 ease-out ${
-          sidePanelOpen ? 'pl-[min(27.25rem,100vw)]' : 'pl-14'
+          sidePanelOpen ? 'pl-[min(21.8rem,100vw)]' : 'pl-14'
         } ${threadPanelOpen ? 'lg:pr-[460px]' : ''}`}
       >
         <div className="w-full shrink-0 px-6">
@@ -1986,6 +1986,7 @@ function HomePageInner() {
             activeName={activeName}
             isTemporaryChat={isTemporaryChat}
             temporaryMemoryMode={activeTemporaryMemoryMode}
+            loadingLists={loadingLists}
             onBrowseMentors={() => router.push('/mentors')}
             onCreateTemporaryChat={handleCreateTemporaryChat}
           />
@@ -2007,7 +2008,6 @@ function HomePageInner() {
             onSelectBranch={handleSelectBranchFromNavigator}
           />
           <ConversationView
-            loadingLists={loadingLists}
             listError={listError}
             messages={activeMessages}
             activeName={activeName}
