@@ -371,6 +371,8 @@ async function generateConversationTitle(
 }
 
 export async function POST(request: NextRequest) {
+  let activeThreadId: string | null = null;
+
   try {
     const supabase = await createSupabaseServerClient();
 
@@ -514,7 +516,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    let activeThreadId = threadId || null;
+    activeThreadId = threadId || null;
     const normalizedPreviousMessageId =
       typeof previousMessageId === 'string' && previousMessageId.trim().length > 0
         ? previousMessageId.trim()
@@ -1040,7 +1042,10 @@ Live web search is unavailable in this environment. If the question depends on f
   } catch (error) {
     console.error('Chat API error:', error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Internal server error' },
+      {
+        error: error instanceof Error ? error.message : 'Internal server error',
+        ...(activeThreadId ? { threadId: activeThreadId } : {}),
+      },
       { status: 500 }
     );
   }

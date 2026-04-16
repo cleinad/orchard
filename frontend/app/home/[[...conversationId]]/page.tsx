@@ -105,6 +105,12 @@ type ThreadMetaRecord = Record<string, ThreadMeta[]>;
 type ThreadMessagesRecord = Record<string, ThreadMessage[]>;
 type ThreadStatusRecord = Record<string, ThreadSessionStatus>;
 
+interface PersistentThreadRuntime {
+  threadsMap: ThreadMetaRecord;
+  threadMessages: ThreadMessagesRecord;
+  threadStatuses: ThreadStatusRecord;
+}
+
 interface TemporaryChatSession {
   id: string;
   title: string;
@@ -149,6 +155,15 @@ interface StoredTemporaryChatSession {
   threadMessages: Record<string, StoredThreadMessage[]>;
   threadStatuses: ThreadStatusRecord;
 }
+
+interface StoredPersistentThreadRuntime {
+  threadsMap: ThreadMetaRecord;
+  threadMessages: Record<string, StoredThreadMessage[]>;
+  threadStatuses: ThreadStatusRecord;
+}
+
+type PersistentThreadRuntimeRecord = Record<string, PersistentThreadRuntime>;
+type StoredPersistentThreadRuntimeRecord = Record<string, StoredPersistentThreadRuntime>;
 
 function getSelectedChatKey(selection: SelectedChat | null) {
   if (!selection) {
@@ -211,6 +226,7 @@ function mergeReloadedBranchSelections(params: {
 const TTS_STORAGE_KEY = 'keen-tts-enabled';
 const CHAT_MODEL_STORAGE_KEY = 'keen-chat-model';
 const TEMP_CHAT_STORAGE_KEY = 'keen-home-temp-chats-v1';
+const PERSISTENT_THREAD_RUNTIME_STORAGE_KEY = 'keen-persistent-thread-runtime-v1';
 const HOME_SELECTION_HANDOFF_STORAGE_KEY = 'keen-home-selection-handoff-v1';
 const TEMP_CHAT_TITLE = 'Temporary chat';
 
@@ -264,6 +280,14 @@ function fromStoredThreadMessage(message: StoredThreadMessage): ThreadMessage {
   };
 }
 
+function createEmptyPersistentThreadRuntime(): PersistentThreadRuntime {
+  return {
+    threadsMap: {},
+    threadMessages: {},
+    threadStatuses: {},
+  };
+}
+
 function serializeTemporaryChats(chats: TemporaryChatSession[]) {
   const serialized: StoredTemporaryChatSession[] = chats.map((chat) => ({
     ...chat,
@@ -296,6 +320,46 @@ function deserializeTemporaryChats(raw: string): TemporaryChatSession[] {
       ])
     ),
   }));
+}
+
+function serializePersistentThreadRuntimes(runtimes: PersistentThreadRuntimeRecord) {
+  const serialized: StoredPersistentThreadRuntimeRecord = Object.fromEntries(
+    Object.entries(runtimes).map(([conversationId, runtime]) => [
+      conversationId,
+      {
+        threadsMap: runtime.threadsMap,
+        threadStatuses: runtime.threadStatuses,
+        threadMessages: Object.fromEntries(
+          Object.entries(runtime.threadMessages).map(([threadId, messages]) => [
+            threadId,
+            messages.map(toStoredThreadMessage),
+          ])
+        ),
+      },
+    ])
+  );
+
+  return JSON.stringify(serialized);
+}
+
+function deserializePersistentThreadRuntimes(raw: string): PersistentThreadRuntimeRecord {
+  const parsed = JSON.parse(raw) as StoredPersistentThreadRuntimeRecord;
+
+  return Object.fromEntries(
+    Object.entries(parsed).map(([conversationId, runtime]) => [
+      conversationId,
+      {
+        threadsMap: runtime.threadsMap || {},
+        threadStatuses: runtime.threadStatuses || {},
+        threadMessages: Object.fromEntries(
+          Object.entries(runtime.threadMessages || {}).map(([threadId, messages]) => [
+            threadId,
+            messages.map(fromStoredThreadMessage),
+          ])
+        ),
+      },
+    ])
+  );
 }
 
 function persistHomeSelectionHandoff(handoff: HomeSelectionHandoff) {
@@ -331,6 +395,24 @@ function sortByUpdatedAtDesc<T extends { updatedAt: string }>(items: T[]) {
 
 function recordToThreadsMap(record: ThreadMetaRecord | undefined) {
   return new Map<string, ThreadMeta[]>(Object.entries(record || {}));
+}
+
+function mergeThreadsMaps(...maps: Array<Map<string, ThreadMeta[]> | null | undefined>) {
+  let next = new Map<string, ThreadMeta[]>();
+
+  for (const current of maps) {
+    if (!current) {
+      continue;
+    }
+
+    for (const threads of current.values()) {
+      for (const thread of threads) {
+        next = addThreadMetaToMap(next, thread.threadId, thread);
+      }
+    }
+  }
+
+  return next;
 }
 
 function addThreadMetaToMap(
@@ -421,9 +503,8 @@ function toInlineThreadMarker(
   return {
     markerId: thread.threadId,
     threadId: thread.threadId,
-    sessionId: thread.threadId,
+    sessionId: null,
     status,
-    isOptimistic: false,
     highlightedText: thread.highlightedText,
     sourceMessageId: thread.sourceMessageId,
     startOffset: thread.startOffset,
@@ -437,7 +518,6 @@ function toSessionThreadMarker(session: ThreadSession): InlineThreadMarker {
     threadId: session.threadId,
     sessionId: session.sessionId,
     status: session.status,
-    isOptimistic: session.threadId === null,
     highlightedText: session.highlightedText,
     sourceMessageId: session.sourceMessageId,
     startOffset: session.startOffset,
@@ -544,6 +624,8 @@ function HomePageInner() {
   const [persistentThreadsMap, setPersistentThreadsMap] = useState<Map<string, ThreadMeta[]>>(
     new Map()
   );
+  const [persistentThreadRuntimes, setPersistentThreadRuntimes] =
+    useState<PersistentThreadRuntimeRecord>({});
   const [draftChats, setDraftChats] = useState<PersistentDraftChat[]>([]);
   const [temporaryChats, setTemporaryChats] = useState<TemporaryChatSession[]>([]);
   const [selectedChat, setSelectedChat] = useState<SelectedChat | null>(null);
@@ -651,6 +733,10 @@ function HomePageInner() {
           (conversation) => conversation.id === selectedChat.conversationId
         ) || null
       : null;
+  const selectedPersistentThreadRuntime =
+    selectedChat?.kind === 'persistent'
+      ? persistentThreadRuntimes[selectedChat.conversationId] ?? createEmptyPersistentThreadRuntime()
+      : null;
 
   const activeMentorId =
     selectedChat?.kind === 'temporary' ? null : selectedChat?.mentorId ?? null;
@@ -691,11 +777,19 @@ function HomePageInner() {
   const activeThreadsMap = isTemporaryChat
     ? recordToThreadsMap(selectedTemporaryChat?.threadsMap)
     : selectedChat?.kind === 'persistent'
-      ? persistentThreadsMap
+      ? mergeThreadsMaps(
+          persistentThreadsMap,
+          recordToThreadsMap(selectedPersistentThreadRuntime?.threadsMap)
+        )
       : new Map<string, ThreadMeta[]>();
+  const activeThreadStatuses = isTemporaryChat
+    ? selectedTemporaryChat?.threadStatuses
+    : selectedChat?.kind === 'persistent'
+      ? selectedPersistentThreadRuntime?.threadStatuses
+      : undefined;
   const activeThreadMarkersMap = buildInlineThreadMarkersMap({
     persistedThreadsMap: activeThreadsMap,
-    threadStatuses: selectedTemporaryChat?.threadStatuses,
+    threadStatuses: activeThreadStatuses,
     threadSessionsById,
   });
   const branchChipsByMessageId = new Map(
@@ -745,6 +839,7 @@ function HomePageInner() {
   const selectedChatRef = useRef<SelectedChat | null>(null);
   const selectedDraftChatRef = useRef<PersistentDraftChat | null>(null);
   const persistentSelectedBranchIdsRef = useRef<BranchSelectionMap>({});
+  const persistentThreadRuntimesRef = useRef<PersistentThreadRuntimeRecord>({});
   const draftChatsRef = useRef<PersistentDraftChat[]>([]);
   const threadSessionsRef = useRef<Record<string, ThreadSession>>({});
   const prepareForChatSwitchRef = useRef<(nextSelection: SelectedChat | null) => void>(
@@ -754,6 +849,7 @@ function HomePageInner() {
   // Keep refs aligned with latest render (draft promotion + branch merge reads these).
   selectedChatRef.current = selectedChat;
   persistentSelectedBranchIdsRef.current = persistentSelectedBranchIds;
+  persistentThreadRuntimesRef.current = persistentThreadRuntimes;
   draftChatsRef.current = draftChats;
   threadSessionsRef.current = threadSessionsById;
 
@@ -790,6 +886,32 @@ function HomePageInner() {
       serializeTemporaryChats(temporaryChats)
     );
   }, [isHomeE2eFixture, temporaryChats]);
+
+  useEffect(() => {
+    const stored = window.sessionStorage.getItem(PERSISTENT_THREAD_RUNTIME_STORAGE_KEY);
+    if (!stored) {
+      return;
+    }
+
+    try {
+      setPersistentThreadRuntimes(deserializePersistentThreadRuntimes(stored));
+    } catch (error) {
+      console.error('Failed to restore persistent thread runtime:', error);
+      window.sessionStorage.removeItem(PERSISTENT_THREAD_RUNTIME_STORAGE_KEY);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (Object.keys(persistentThreadRuntimes).length === 0) {
+      window.sessionStorage.removeItem(PERSISTENT_THREAD_RUNTIME_STORAGE_KEY);
+      return;
+    }
+
+    window.sessionStorage.setItem(
+      PERSISTENT_THREAD_RUNTIME_STORAGE_KEY,
+      serializePersistentThreadRuntimes(persistentThreadRuntimes)
+    );
+  }, [persistentThreadRuntimes]);
 
   useEffect(() => {
     if (routeConversationId || selectedChat) {
@@ -1469,6 +1591,27 @@ function HomePageInner() {
     [updateTemporaryChat]
   );
 
+  const updatePersistentThreadRuntime = useCallback(
+    (
+      conversationId: string,
+      updater: (runtime: PersistentThreadRuntime) => PersistentThreadRuntime
+    ) => {
+      setPersistentThreadRuntimes((prev) => {
+        const existing = prev[conversationId] ?? createEmptyPersistentThreadRuntime();
+        const nextRuntime = updater(existing);
+        if (nextRuntime === existing) {
+          return prev;
+        }
+
+        return {
+          ...prev,
+          [conversationId]: nextRuntime,
+        };
+      });
+    },
+    []
+  );
+
   const setSelectedTemporaryThreadMessagesForThread = useCallback(
     (threadId: string, nextMessages: ThreadMessage[]) => {
       if (selectedChat?.kind !== 'temporary') {
@@ -1478,6 +1621,26 @@ function HomePageInner() {
       setTemporaryThreadMessages(selectedChat.tempChatId, threadId, nextMessages);
     },
     [selectedChat, setTemporaryThreadMessages]
+  );
+
+  const setPersistentThreadMessages = useCallback(
+    (conversationId: string, threadId: string, nextMessages: ThreadMessage[]) => {
+      updatePersistentThreadRuntime(conversationId, (runtime) => {
+        const nextThreadMessages = { ...runtime.threadMessages };
+
+        if (nextMessages.length === 0) {
+          delete nextThreadMessages[threadId];
+        } else {
+          nextThreadMessages[threadId] = nextMessages;
+        }
+
+        return {
+          ...runtime,
+          threadMessages: nextThreadMessages,
+        };
+      });
+    },
+    [updatePersistentThreadRuntime]
   );
 
   const setTemporaryThreadStatus = useCallback(
@@ -1494,6 +1657,19 @@ function HomePageInner() {
     [updateTemporaryChat]
   );
 
+  const setPersistentThreadStatus = useCallback(
+    (conversationId: string, threadId: string, status: ThreadSessionStatus) => {
+      updatePersistentThreadRuntime(conversationId, (runtime) => ({
+        ...runtime,
+        threadStatuses: {
+          ...runtime.threadStatuses,
+          [threadId]: status,
+        },
+      }));
+    },
+    [updatePersistentThreadRuntime]
+  );
+
   const setSelectedTemporaryThreadStatusForThread = useCallback(
     (threadId: string, status: ThreadSessionStatus) => {
       if (selectedChat?.kind !== 'temporary') {
@@ -1505,20 +1681,46 @@ function HomePageInner() {
     [selectedChat, setTemporaryThreadStatus]
   );
 
+  const addTemporaryThreadMeta = useCallback(
+    (tempChatId: string, threadId: string, source: ThreadSource) => {
+      updateTemporaryChat(tempChatId, (chat) => ({
+        ...chat,
+        threadsMap: addThreadMetaToRecord(chat.threadsMap, threadId, source),
+        updatedAt: new Date().toISOString(),
+      }));
+    },
+    [updateTemporaryChat]
+  );
+
+  const addPersistentThreadMeta = useCallback(
+    (conversationId: string, threadId: string, source: ThreadSource) => {
+      updatePersistentThreadRuntime(conversationId, (runtime) => ({
+        ...runtime,
+        threadsMap: addThreadMetaToRecord(runtime.threadsMap, threadId, source),
+      }));
+
+      if (
+        selectedChatRef.current?.kind === 'persistent'
+        && selectedChatRef.current.conversationId === conversationId
+      ) {
+        setPersistentThreadsMap((prev) => addThreadMetaToMap(prev, threadId, source));
+      }
+    },
+    [updatePersistentThreadRuntime]
+  );
+
   const addThreadMeta = useCallback(
     (threadId: string, source: ThreadSource) => {
       if (selectedChat?.kind === 'temporary') {
-        updateTemporaryChat(selectedChat.tempChatId, (chat) => ({
-          ...chat,
-          threadsMap: addThreadMetaToRecord(chat.threadsMap, threadId, source),
-          updatedAt: new Date().toISOString(),
-        }));
+        addTemporaryThreadMeta(selectedChat.tempChatId, threadId, source);
         return;
       }
 
-      setPersistentThreadsMap((prev) => addThreadMetaToMap(prev, threadId, source));
+      if (selectedChat?.kind === 'persistent') {
+        addPersistentThreadMeta(selectedChat.conversationId, threadId, source);
+      }
     },
-    [selectedChat, updateTemporaryChat]
+    [addPersistentThreadMeta, addTemporaryThreadMeta, selectedChat]
   );
 
   const buildThreadSession = useCallback(
@@ -1540,6 +1742,43 @@ function HomePageInner() {
     []
   );
 
+  const persistThreadResult = useCallback(
+    (
+      params: {
+        selection: SelectedChat;
+        source: ThreadSource;
+      },
+      threadId: string | null,
+      nextMessages: ThreadMessage[],
+      status: ThreadSessionStatus
+    ) => {
+      if (!threadId) {
+        return;
+      }
+
+      if (params.selection.kind === 'temporary') {
+        addTemporaryThreadMeta(params.selection.tempChatId, threadId, params.source);
+        setTemporaryThreadMessages(params.selection.tempChatId, threadId, nextMessages);
+        setTemporaryThreadStatus(params.selection.tempChatId, threadId, status);
+        return;
+      }
+
+      if (params.selection.kind === 'persistent') {
+        addPersistentThreadMeta(params.selection.conversationId, threadId, params.source);
+        setPersistentThreadMessages(params.selection.conversationId, threadId, nextMessages);
+        setPersistentThreadStatus(params.selection.conversationId, threadId, status);
+      }
+    },
+    [
+      addPersistentThreadMeta,
+      addTemporaryThreadMeta,
+      setPersistentThreadMessages,
+      setPersistentThreadStatus,
+      setTemporaryThreadMessages,
+      setTemporaryThreadStatus,
+    ]
+  );
+
   const sendThreadRequest = useCallback(
     async (params: {
       sessionId: string;
@@ -1548,8 +1787,46 @@ function HomePageInner() {
       source: ThreadSource;
       requestThreadId: string | null;
       previousMessages: ThreadMessage[];
+      optimisticMessages: ThreadMessage[];
       optimisticUserMessageId: string;
     }) => {
+      const finalizeThreadState = (options: {
+        status: ThreadSessionStatus;
+        threadId: string | null;
+        assistantMessage: ThreadMessage;
+        resolvedUserMessageId?: string | null;
+      }) => {
+        const latestSession = threadSessionsRef.current[params.sessionId];
+        const reconciledMessages = (latestSession?.messages ?? params.optimisticMessages).map(
+          (message) =>
+            message.id === params.optimisticUserMessageId && options.resolvedUserMessageId
+              ? { ...message, id: options.resolvedUserMessageId }
+              : message
+        );
+        const nextMessages = [...reconciledMessages, options.assistantMessage];
+        const nextThreadId = options.threadId ?? latestSession?.threadId ?? null;
+
+        if (latestSession) {
+          updateThreadSession(params.sessionId, () => ({
+            ...latestSession,
+            threadId: nextThreadId,
+            status: options.status,
+            isHydrating: false,
+            messages: nextMessages,
+          }));
+        }
+
+        persistThreadResult(
+          {
+            selection: params.selection,
+            source: params.source,
+          },
+          nextThreadId,
+          nextMessages,
+          options.status
+        );
+      };
+
       try {
         const response = await fetch('/api/chat', {
           method: 'POST',
@@ -1584,143 +1861,65 @@ function HomePageInner() {
 
         const data = (await response.json()) as ChatResponse;
         logResolvedChatModel(data, 'thread');
+        const resolvedThreadId =
+          typeof data.threadId === 'string' && data.threadId.length > 0
+            ? data.threadId
+            : params.requestThreadId;
 
-        const latestSession = threadSessionsRef.current[params.sessionId];
-        if (!latestSession) {
+        if (!response.ok || data.error || !data.message) {
+          finalizeThreadState({
+            status: 'error',
+            threadId: resolvedThreadId,
+            assistantMessage: {
+              id:
+                params.selection.kind === 'temporary'
+                  ? createTemporaryId('message')
+                  : (Date.now() + 1).toString(),
+              role: 'assistant',
+              content: data.error || 'Something went wrong.',
+              timestamp: new Date(),
+            },
+            resolvedUserMessageId: data.userMessageId,
+          });
           return;
         }
 
-        if (!response.ok || data.error || !data.message) {
-          const errorMessage: ThreadMessage = {
+        finalizeThreadState({
+          status: 'ready',
+          threadId: resolvedThreadId,
+          assistantMessage: {
+            id:
+              params.selection.kind === 'temporary'
+                ? createTemporaryId('message')
+                : data.assistantMessageId || (Date.now() + 1).toString(),
+            role: 'assistant',
+            content: data.message,
+            timestamp: new Date(),
+            searchMetadata: data.search?.metadata ?? null,
+          },
+          resolvedUserMessageId: data.userMessageId,
+        });
+      } catch {
+        finalizeThreadState({
+          status: 'error',
+          threadId: params.requestThreadId,
+          assistantMessage: {
             id:
               params.selection.kind === 'temporary'
                 ? createTemporaryId('message')
                 : (Date.now() + 1).toString(),
             role: 'assistant',
-            content: data.error || 'Something went wrong.',
+            content: 'Something went wrong.',
             timestamp: new Date(),
-          };
-          const nextMessages = [...latestSession.messages, errorMessage];
-
-          updateThreadSession(params.sessionId, () => ({
-            ...latestSession,
-            status: 'error',
-            isHydrating: false,
-            messages: nextMessages,
-          }));
-
-          if (params.selection.kind === 'temporary' && latestSession.threadId) {
-            setTemporaryThreadMessages(
-              params.selection.tempChatId,
-              latestSession.threadId,
-              nextMessages
-            );
-            setTemporaryThreadStatus(
-              params.selection.tempChatId,
-              latestSession.threadId,
-              'error'
-            );
-          }
-
-          return;
-        }
-
-        const resolvedThreadId =
-          typeof data.threadId === 'string' && data.threadId.length > 0
-            ? data.threadId
-            : params.requestThreadId;
-        const assistantMessage: ThreadMessage = {
-          id:
-            params.selection.kind === 'temporary'
-              ? createTemporaryId('message')
-              : data.assistantMessageId || (Date.now() + 1).toString(),
-          role: 'assistant',
-          content: data.message,
-          timestamp: new Date(),
-          searchMetadata: data.search?.metadata ?? null,
-        };
-        const nextMessages = [
-          ...latestSession.messages.map((message) =>
-            message.id === params.optimisticUserMessageId && data.userMessageId
-              ? { ...message, id: data.userMessageId }
-              : message
-          ),
-          assistantMessage,
-        ];
-
-        updateThreadSession(params.sessionId, () => ({
-          ...latestSession,
-          threadId: resolvedThreadId ?? latestSession.threadId,
-          status: 'ready',
-          isHydrating: false,
-          messages: nextMessages,
-        }));
-
-        if (params.selection.kind === 'temporary' && (resolvedThreadId ?? latestSession.threadId)) {
-          const temporaryThreadId = resolvedThreadId ?? latestSession.threadId!;
-          setTemporaryThreadMessages(
-            params.selection.tempChatId,
-            temporaryThreadId,
-            nextMessages
-          );
-          setTemporaryThreadStatus(
-            params.selection.tempChatId,
-            temporaryThreadId,
-            'ready'
-          );
-        }
-
-        if (
-          params.selection.kind === 'persistent'
-          && resolvedThreadId
-          && isSameSelectedChat(selectedChatRef.current, params.selection)
-        ) {
-          setPersistentThreadsMap((prev) => addThreadMetaToMap(prev, resolvedThreadId, params.source));
-        }
-      } catch {
-        const latestSession = threadSessionsRef.current[params.sessionId];
-        if (!latestSession) {
-          return;
-        }
-
-        const errorMessage: ThreadMessage = {
-          id:
-            params.selection.kind === 'temporary'
-              ? createTemporaryId('message')
-              : (Date.now() + 1).toString(),
-          role: 'assistant',
-          content: 'Something went wrong.',
-          timestamp: new Date(),
-        };
-        const nextMessages = [...latestSession.messages, errorMessage];
-
-        updateThreadSession(params.sessionId, () => ({
-          ...latestSession,
-          status: 'error',
-          isHydrating: false,
-          messages: nextMessages,
-        }));
-
-        if (params.selection.kind === 'temporary' && latestSession.threadId) {
-          setTemporaryThreadMessages(
-            params.selection.tempChatId,
-            latestSession.threadId,
-            nextMessages
-          );
-          setTemporaryThreadStatus(
-            params.selection.tempChatId,
-            latestSession.threadId,
-            'error'
-          );
-        }
+          },
+        });
       }
     },
     [
       activeMessages,
       activeTemporaryMemoryMode,
+      persistThreadResult,
       selectedModelId,
-      setTemporaryThreadMessages,
-      setTemporaryThreadStatus,
       updateThreadSession,
     ]
   );
@@ -1773,6 +1972,7 @@ function HomePageInner() {
         source,
         requestThreadId,
         previousMessages: [],
+        optimisticMessages: session.messages,
         optimisticUserMessageId: userMessage.id,
       });
     },
@@ -1882,6 +2082,7 @@ function HomePageInner() {
         source: session,
         requestThreadId,
         previousMessages: session.messages,
+        optimisticMessages: nextMessages,
         optimisticUserMessageId: userMessage.id,
       });
     },
@@ -1929,12 +2130,20 @@ function HomePageInner() {
         return;
       }
 
+      const persistentRuntime =
+        selectedChat?.kind === 'persistent'
+          ? persistentThreadRuntimesRef.current[selectedChat.conversationId]
+          : null;
+      const storedMessages = persistentRuntime?.threadMessages[thread.threadId] ?? [];
+      const storedStatus = persistentRuntime?.threadStatuses[thread.threadId] ?? 'ready';
       const sessionId = `persisted:${thread.threadId}`;
       createThreadSession(
         buildThreadSession(thread, {
           sessionId,
           threadId: thread.threadId,
-          isHydrating: true,
+          status: storedStatus,
+          messages: storedMessages,
+          isHydrating: storedMessages.length === 0,
         }),
         { makeActive: true }
       );
@@ -1975,6 +2184,7 @@ function HomePageInner() {
       createThreadSession,
       findThreadSessionId,
       selectedChat?.kind,
+      selectedChat?.kind === 'persistent' ? selectedChat.conversationId : null,
       selectedTemporaryChat?.threadMessages,
       selectedTemporaryChat?.threadStatuses,
       updateThreadSession,

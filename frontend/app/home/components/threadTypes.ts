@@ -35,5 +35,4 @@ export interface InlineThreadMarker extends ThreadSource {
   threadId: string | null;
   sessionId: string | null;
   status: ThreadSessionStatus;
-  isOptimistic: boolean;
 }
