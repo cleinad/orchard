@@ -386,7 +386,7 @@ export default function SidePanel({
       >
         {/* Rail icons — always mounted, faded out when panel is open so the width transition has no DOM swap */}
         <nav
-          className={`absolute inset-y-0 left-0 flex w-14 flex-shrink-0 flex-col bg-background transition-opacity duration-200 ${
+          className={`absolute inset-y-0 left-0 flex w-14 flex-shrink-0 flex-col bg-background transition-opacity duration-300 ${
             isOpen ? 'pointer-events-none opacity-0' : 'opacity-100'
           }`}
           aria-label="Chat navigation"
@@ -397,7 +397,7 @@ export default function SidePanel({
 
         {/* Expanded panel — always mounted, faded in when open */}
         <div
-          className={`flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden transition-opacity duration-200 ${
+          className={`flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden transition-opacity duration-300 ${
             isOpen ? 'opacity-100' : 'pointer-events-none opacity-0'
           }`}
         >
