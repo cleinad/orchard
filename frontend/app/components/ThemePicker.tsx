@@ -141,7 +141,7 @@ export default function ThemePicker() {
         aria-expanded={isOpen}
         aria-haspopup="dialog"
         onClick={togglePopover}
-        className={`inline-flex h-8 items-center gap-1.5 rounded-full border px-2.5 text-[13px] font-medium transition ${
+        className={`inline-flex h-8 items-center gap-1.5 rounded-full border px-2.5 font-sans text-[13px] font-medium transition ${
           isOpen
             ? "border-black/[0.08] bg-foreground/[0.055] text-foreground dark:border-white/[0.08]"
             : "border-transparent bg-background text-foreground/82 hover:bg-foreground/[0.035] hover:text-foreground"
@@ -168,7 +168,7 @@ export default function ThemePicker() {
           setIsOpen(toggleEvent.newState === "open");
         }}
       >
-        <div className="w-[min(18.5rem,calc(100vw-1rem))] rounded-[1.2rem] bg-background p-1.5 text-foreground shadow-[0_16px_36px_rgba(15,23,42,0.12)] ring-1 ring-black/[0.06] dark:shadow-[0_18px_40px_rgba(0,0,0,0.28)] dark:ring-white/[0.06]">
+        <div className="w-[min(18.5rem,calc(100vw-1rem))] rounded-[1.2rem] bg-background p-1.5 font-sans text-foreground shadow-[0_16px_36px_rgba(15,23,42,0.12)] ring-1 ring-black/[0.06] dark:shadow-[0_18px_40px_rgba(0,0,0,0.28)] dark:ring-white/[0.06]">
           <div className="px-2.5 pb-1.5 pt-1">
             <p className="text-[11px] font-medium text-muted/75">
               Themes
