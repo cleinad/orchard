@@ -84,11 +84,10 @@ test('reopens a persisted inline thread from the source message', async ({ page 
   const { messageId, selectedText } = await gotoHomeFixture(page, 'inline-threads-persistent');
   await selectTextInMessage(page, messageId, selectedText);
   await page.getByTestId('selection-popover-input').fill(question);
-  await page.keyboard.press('Control+L');
+  await page.getByTestId('selection-popover-input').press('Enter');
 
-  await expect(page.getByTestId('thread-panel')).toHaveAttribute('data-state', 'open');
-  await page.getByTestId('thread-panel-input').press('Enter');
   await expect(page.getByTestId('thread-panel')).toContainText(answer);
+  await expect(page.getByTestId('inline-thread-link')).toHaveCount(1);
 
   await page.keyboard.press('Control+L');
   await expect(page.getByTestId('thread-panel')).toHaveAttribute('data-state', 'closed');
