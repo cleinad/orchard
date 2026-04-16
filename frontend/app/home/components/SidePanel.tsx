@@ -405,48 +405,52 @@ export default function SidePanel({
             <div className="side-panel-scroll-area relative min-h-0 flex-1">
               <div
                 id="side-panel-scroll"
-                className="side-panel-scroll h-full overflow-y-auto pb-6"
+                className="side-panel-scroll h-full overflow-y-auto pt-4 pb-6"
                 role="region"
                 aria-label="Conversations and sections"
               >
-                {/* Chats header — toggle button + title aligned in one row */}
-                <div className="px-2 pt-2 pb-1">
-                  <Tooltip content="Hide chats" side="right">
-                    <button
-                      type="button"
-                      onClick={onToggleSidePanel}
-                      aria-pressed
-                      aria-label="Close conversations"
-                      className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-foreground/[0.04]"
-                    >
+                {/* Chats header — w-14 icon zone mirrors the collapsed rail column exactly */}
+                <Tooltip content="Hide chats" side="right">
+                  <button
+                    type="button"
+                    onClick={onToggleSidePanel}
+                    aria-pressed
+                    aria-label="Close conversations"
+                    className="flex w-full items-center py-1.5 text-left transition-colors hover:bg-foreground/[0.04]"
+                  >
+                    <div className="flex w-14 flex-shrink-0 items-center justify-center">
                       <SidebarPanelIcon className="h-5 w-5 text-foreground" />
-                      <h2 className="font-sans text-lg font-semibold text-foreground">Chats</h2>
-                    </button>
-                  </Tooltip>
-                </div>
+                    </div>
+                    <h2 className="font-sans text-lg font-semibold text-foreground">Chats</h2>
+                  </button>
+                </Tooltip>
 
-                {/* Full-width new chat row — icon + label as one clickable surface */}
-                <div id="side-panel-section-new" className="scroll-mt-2 px-2 py-1">
+                {/* New chat row — same w-14 icon zone */}
+                <div id="side-panel-section-new" className="scroll-mt-2">
                   <button
                     type="button"
                     onClick={onNewChatKeen}
                     aria-label="New chat with Keen"
-                    className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-foreground/[0.04]"
+                    className="flex w-full items-center py-1.5 text-left transition-colors hover:bg-foreground/[0.04]"
                   >
-                    <RailIconNewChat className="h-5 w-5 text-foreground" />
+                    <div className="flex w-14 flex-shrink-0 items-center justify-center">
+                      <RailIconNewChat className="h-5 w-5 text-foreground" />
+                    </div>
                     <span className="font-sans text-sm font-medium text-foreground">New chat</span>
                   </button>
                 </div>
 
                 <div
                   id="side-panel-section-temporary"
-                  className="scroll-mt-2 px-2 py-1"
+                  className="scroll-mt-2"
                 >
-                  <div className="flex items-center gap-3 px-3 py-2.5">
-                    <RailIconTemporary className="h-5 w-5 text-foreground" />
+                  <div className="flex w-full items-center py-1.5">
+                    <div className="flex w-14 flex-shrink-0 items-center justify-center">
+                      <RailIconTemporary className="h-5 w-5 text-foreground" />
+                    </div>
                     <span className="font-sans text-sm font-medium text-foreground">Temporary</span>
                   </div>
-                  <div className="pl-2 pr-2">
+                  <div className="pl-14 pr-2">
                     {temporaryChats.length > 0 ? (
                       <div className="space-y-1">
                         {temporaryChats.map((chat) => {
@@ -500,12 +504,14 @@ export default function SidePanel({
                   </div>
                 </div>
 
-                <div id="side-panel-section-all-chats" className="scroll-mt-2 px-2 py-1">
-                  <div className="flex items-center gap-3 px-3 py-2.5">
-                    <RailIconAllChats className="h-5 w-5 text-foreground" />
+                <div id="side-panel-section-all-chats" className="scroll-mt-2">
+                  <div className="flex w-full items-center py-1.5">
+                    <div className="flex w-14 flex-shrink-0 items-center justify-center">
+                      <RailIconAllChats className="h-5 w-5 text-foreground" />
+                    </div>
                     <span className="font-sans text-sm font-medium text-foreground">All chats</span>
                   </div>
-                  <div className="pb-6">{mentorList}</div>
+                  <div className="pl-14 pb-6 pr-2">{mentorList}</div>
                 </div>
               </div>
 
