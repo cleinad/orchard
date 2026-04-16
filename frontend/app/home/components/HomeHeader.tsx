@@ -19,8 +19,6 @@ type HomeHeaderProps = {
   activeName: string;
   isTemporaryChat: boolean;
   temporaryMemoryMode: TemporaryMemoryMode;
-  isSidePanelOpen: boolean;
-  onToggleSidePanel: () => void;
   onBrowseMentors: () => void;
   onCreateTemporaryChat: () => void;
 };
@@ -29,8 +27,6 @@ export default function HomeHeader({
   activeName,
   isTemporaryChat,
   temporaryMemoryMode,
-  isSidePanelOpen,
-  onToggleSidePanel,
   onBrowseMentors,
   onCreateTemporaryChat,
 }: HomeHeaderProps) {
@@ -42,33 +38,11 @@ export default function HomeHeader({
   return (
     <header className="flex h-16 items-center justify-between">
       <div className="flex min-w-0 items-center gap-3">
-        <button
-          type="button"
-          onClick={onToggleSidePanel}
-          aria-label="Toggle conversations"
-          aria-expanded={isSidePanelOpen}
-          className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-muted transition hover:text-foreground"
-        >
-          <svg
-            className="h-5 w-5"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M3.75 6.75h16.5M3.75 12h16.5M3.75 17.25h16.5"
-            />
-          </svg>
-        </button>
-
         <div className="min-w-0">
           <div className="mt-1 flex items-center gap-2">
             <span className="truncate font-heading text-xl text-foreground">{activeName}</span>
             {isTemporaryChat && (
-              <div className="flex items-center gap-1.5 text-[11px] font-medium text-muted">
+              <div className="flex items-center gap-1.5 font-sans text-[11px] font-medium text-muted">
                 <span className="whitespace-nowrap">Temporary</span>
                 <span aria-hidden="true" className="text-muted/70">
                   /
