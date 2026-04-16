@@ -91,6 +91,7 @@ Key behavior:
 - Older sessions keep running in the background.
 - Background completions do not steal panel focus.
 - Draft input is preserved per session when the active panel switches to another thread.
+- Follow-up messages can be sent with `Enter` or the panel send button.
 
 This means the panel follows the latest explicit user action, not completion order.
 
@@ -143,11 +144,13 @@ The interaction model is the same in both modes, but persistence differs.
 - A real thread id is attached once the server returns it.
 - Persisted threads become reopenable from the originating assistant message.
 - Persisted thread linkage is anchored by `startOffset` and `endOffset`, not by substring matching on `highlightedText`.
+- Client-side thread runtime is cached per conversation so error markers and reopenable thread state survive panel teardown, chat switching, and same-tab reloads after the thread id is known.
 
 ### Temporary chat
 
 - Thread ids are client-generated.
 - Thread metadata, thread messages, and thread status stay in local client state.
+- Background thread completions still write back to the originating temporary chat even if the user switches to another chat before the answer returns.
 - The interaction works the same way from the user’s perspective, but nothing is stored durably in the backend.
 
 ## Implementation Notes
@@ -164,6 +167,8 @@ Important concepts:
   - determines which thread the visible `ThreadPanel` is rendering
 - **Inline thread markers**
   - merge persisted thread metadata with optimistic session markers for transcript rendering
+- **Persistent thread runtime cache**
+  - preserves per-thread status and client-side messages for persisted threads after the active session is torn down
 
 The selection lifecycle is intentionally decoupled from raw browser selection timing. The app resolves the selection after the browser settles it, then clears native selection and relies on its own highlight state.
 
@@ -200,7 +205,10 @@ Important verified behaviors:
 - submitting from the popover opens the thread panel immediately
 - inline markers appear immediately in `loading` state
 - background thread completion does not steal the panel
+- temporary-thread results survive switching to another chat before the response resolves
 - failed threads keep an `error` marker and remain reopenable
+- persistent error markers survive same-tab reload and reopen with cached thread state
+- thread-panel follow-ups can be sent with the clickable send button
 - persisted inline thread links reattach correctly for ordered-list markers, repeated-text selections, and bullet-list selections
 
 Current constraint:

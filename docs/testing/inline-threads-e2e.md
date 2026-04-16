@@ -12,7 +12,10 @@ This doc describes the Playwright coverage for the inline-thread workflow on `/h
 - immediate submit-to-panel behavior from the popover
 - multi-session panel ownership
 - optimistic inline marker lifecycle: `loading`, `ready`, and `error`
+- temporary-thread persistence across chat switching while a response is in flight
+- clickable send-button follow-ups from the thread panel
 - persisted thread reopen behavior from the source message
+- persistent error-marker durability across same-tab reloads
 - offset-based durable inline thread rendering for tricky content shapes
 
 ## How To Run
@@ -69,7 +72,10 @@ The focused suite currently exercises:
 - submitting a popover question opens the thread panel immediately
 - a submitted thread gets an inline marker immediately in `loading` state
 - the newest submitted thread owns the panel while earlier threads finish in the background
+- temporary thread results surviving a chat switch before the answer resolves
+- follow-up sending through the thread-panel send button
 - failed threads keep an `error` marker and can be reopened
+- persisted error markers surviving reload and reopening with cached client-side thread state
 - persisted threads reopen from the source message without duplicating the inline marker
 - ordered-list selections where the visible highlighted text includes a marker such as `3.`
 - repeated-text selections where offsets must target the correct occurrence
