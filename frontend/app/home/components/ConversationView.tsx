@@ -3,7 +3,7 @@
 import { useCallback, useState, type RefObject } from 'react';
 import MarkdownWithThreads from '@/app/home/components/MarkdownWithThreads';
 import SearchSourcesTray from '@/app/home/components/SearchSourcesTray';
-import type { ThreadMeta } from '@/app/home/components/threadTypes';
+import type { InlineThreadMarker } from '@/app/home/components/threadTypes';
 import type { Message } from '@/app/home/types';
 import type { BranchChip } from '@/app/home/components/conversationTree';
 import { markdownContentClassName } from '@/lib/markdown';
@@ -16,11 +16,11 @@ interface ConversationViewProps {
   emptyTitle: string;
   emptySubtitle: string;
   isLoading: boolean;
-  threadsMap: Map<string, ThreadMeta[]>;
+  threadsMap: Map<string, InlineThreadMarker[]>;
   branchChipsByMessageId: Map<string, BranchChip[]>;
   pendingBranchSourceMessageId: string | null;
   messagesEndRef: RefObject<HTMLDivElement | null>;
-  onThreadClick: (thread: ThreadMeta) => void;
+  onThreadClick: (thread: InlineThreadMarker) => void;
   onSelectBranch: (sourceMessageId: string, branchId: string | null) => void;
   onCreateBranch: (sourceMessageId: string) => void;
   onAssistantPointerUp: () => void;
