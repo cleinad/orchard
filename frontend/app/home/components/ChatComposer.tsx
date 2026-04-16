@@ -193,7 +193,7 @@ export default function ChatComposer({
         </div>
 
         <form onSubmit={onSubmit} className="relative">
-          <div className="flex items-end gap-2 rounded-lg bg-surface px-3 py-1.5 shadow-sm ring-1 ring-border-subtle">
+          <div className="relative rounded-lg bg-surface shadow-sm ring-1 ring-border-subtle">
             <textarea
               ref={textareaRef}
               value={input}
@@ -202,11 +202,12 @@ export default function ChatComposer({
               placeholder={micActive ? 'Listening...' : `Message ${activeName}...`}
               disabled={isLoading}
               rows={1}
-              className="self-center min-h-10 min-w-0 flex-1 resize-none bg-transparent py-1.5 font-sans text-sm leading-relaxed text-foreground placeholder-muted/50 outline-none disabled:cursor-not-allowed disabled:opacity-50"
+              className="composer-scrollbar w-full min-h-10 min-w-0 resize-none bg-transparent pl-3 pr-[5.5rem] py-2.5 font-sans text-sm leading-relaxed text-foreground placeholder-muted/50 outline-none disabled:cursor-not-allowed disabled:opacity-50 overflow-y-auto"
               style={{ maxHeight: '200px' }}
             />
 
-            <div className="flex flex-none items-center gap-2 self-end pb-0.5">
+            {/* Buttons pinned to bottom-right, so scrollbar sits to their left at the far right of the card */}
+            <div className="absolute bottom-1.5 right-2 flex flex-none items-center gap-2">
               <button
                 type="button"
                 onClick={onToggleMic}
