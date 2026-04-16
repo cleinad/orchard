@@ -21,7 +21,14 @@ import { useHomeData } from '@/app/home/components/useHomeData';
 import { useHomeThreads } from '@/app/home/components/useHomeThreads';
 import { useHomeVoice } from '@/app/home/components/useHomeVoice';
 import { usePersistedString } from '@/app/home/components/usePersistedString';
-import type { ThreadMeta, ThreadSource } from '@/app/home/components/threadTypes';
+import type {
+  InlineThreadMarker,
+  ThreadMessage,
+  ThreadMeta,
+  ThreadSession,
+  ThreadSessionStatus,
+  ThreadSource,
+} from '@/app/home/components/threadTypes';
 import type { SearchMetadata } from '@/lib/chat-search';
 import { stripCitationMarkers } from '@/lib/search-citations';
 import {
@@ -37,7 +44,7 @@ import MentorDetailPanel from '@/app/home/components/MentorDetailPanel';
 import CreateMentorPanel from '@/app/home/components/CreateMentorPanel';
 import { LearningModeProvider, useLearningMode } from '@/app/home/components/LearningModeContext';
 import TextSelectionPopover from '@/app/home/components/TextSelectionPopover';
-import ThreadPanel, { type ThreadMessage } from '@/app/home/components/ThreadPanel';
+import ThreadPanel from '@/app/home/components/ThreadPanel';
 import type {
   BranchSelectionMap,
   ConversationBranch,
@@ -96,6 +103,7 @@ interface PersistentDraftChat {
 
 type ThreadMetaRecord = Record<string, ThreadMeta[]>;
 type ThreadMessagesRecord = Record<string, ThreadMessage[]>;
+type ThreadStatusRecord = Record<string, ThreadSessionStatus>;
 
 interface TemporaryChatSession {
   id: string;
@@ -108,6 +116,7 @@ interface TemporaryChatSession {
   selectedBranchIds: BranchSelectionMap;
   threadsMap: ThreadMetaRecord;
   threadMessages: ThreadMessagesRecord;
+  threadStatuses: ThreadStatusRecord;
 }
 
 interface StoredMessage {
@@ -138,6 +147,7 @@ interface StoredTemporaryChatSession {
   selectedBranchIds: BranchSelectionMap;
   threadsMap: ThreadMetaRecord;
   threadMessages: Record<string, StoredThreadMessage[]>;
+  threadStatuses: ThreadStatusRecord;
 }
 
 function getSelectedChatKey(selection: SelectedChat | null) {
@@ -278,6 +288,7 @@ function deserializeTemporaryChats(raw: string): TemporaryChatSession[] {
     branches: Array.isArray(chat.branches) ? chat.branches : [],
     selectedBranchIds: chat.selectedBranchIds || {},
     threadsMap: chat.threadsMap || {},
+    threadStatuses: chat.threadStatuses || {},
     threadMessages: Object.fromEntries(
       Object.entries(chat.threadMessages || {}).map(([threadId, messages]) => [
         threadId,
@@ -322,10 +333,6 @@ function recordToThreadsMap(record: ThreadMetaRecord | undefined) {
   return new Map<string, ThreadMeta[]>(Object.entries(record || {}));
 }
 
-function recordToThreadMessagesMap(record: ThreadMessagesRecord | undefined) {
-  return new Map<string, ThreadMessage[]>(Object.entries(record || {}));
-}
-
 function addThreadMetaToMap(
   prev: Map<string, ThreadMeta[]>,
   threadId: string,
@@ -364,6 +371,117 @@ function addThreadMetaToRecord(
       { threadId, ...source },
     ],
   };
+}
+
+function mapThreadMessages(rows: Array<{
+  id: string;
+  role: string;
+  content: string;
+  created_at: string;
+  search_metadata?: Message['searchMetadata'];
+}>): ThreadMessage[] {
+  return rows.map((message) => ({
+    id: message.id,
+    role: message.role as 'user' | 'assistant',
+    content: message.content,
+    timestamp: new Date(message.created_at),
+    searchMetadata: message.search_metadata ?? null,
+  }));
+}
+
+function mergeThreadMessages(
+  serverMessages: ThreadMessage[],
+  localMessages: ThreadMessage[]
+): ThreadMessage[] {
+  const merged = [...serverMessages];
+  const isOptimisticId = (id: string) => /^\d+$/.test(id);
+
+  for (const localMessage of localMessages) {
+    const alreadyExists = merged.some(
+      (serverMessage) =>
+        serverMessage.id === localMessage.id ||
+        (isOptimisticId(localMessage.id)
+          && serverMessage.role === localMessage.role
+          && serverMessage.content === localMessage.content
+          && Math.abs(serverMessage.timestamp.getTime() - localMessage.timestamp.getTime()) < 5_000)
+    );
+
+    if (!alreadyExists) {
+      merged.push(localMessage);
+    }
+  }
+
+  return merged.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+}
+
+function toInlineThreadMarker(
+  thread: ThreadMeta,
+  status: ThreadSessionStatus = 'ready'
+): InlineThreadMarker {
+  return {
+    markerId: thread.threadId,
+    threadId: thread.threadId,
+    sessionId: thread.threadId,
+    status,
+    isOptimistic: false,
+    highlightedText: thread.highlightedText,
+    sourceMessageId: thread.sourceMessageId,
+    startOffset: thread.startOffset,
+    endOffset: thread.endOffset,
+  };
+}
+
+function toSessionThreadMarker(session: ThreadSession): InlineThreadMarker {
+  return {
+    markerId: session.threadId ?? session.sessionId,
+    threadId: session.threadId,
+    sessionId: session.sessionId,
+    status: session.status,
+    isOptimistic: session.threadId === null,
+    highlightedText: session.highlightedText,
+    sourceMessageId: session.sourceMessageId,
+    startOffset: session.startOffset,
+    endOffset: session.endOffset,
+  };
+}
+
+function buildInlineThreadMarkersMap(params: {
+  persistedThreadsMap: Map<string, ThreadMeta[]>;
+  threadStatuses?: ThreadStatusRecord;
+  threadSessionsById: Record<string, ThreadSession>;
+}) {
+  const markersByMessageId = new Map<string, Map<string, InlineThreadMarker>>();
+
+  const upsertMarker = (messageId: string, marker: InlineThreadMarker) => {
+    const existingForMessage = markersByMessageId.get(messageId) || new Map<string, InlineThreadMarker>();
+    const dedupeKey = marker.threadId
+      ? `thread:${marker.threadId}`
+      : `session:${marker.sessionId ?? marker.markerId}`;
+    existingForMessage.set(dedupeKey, marker);
+    markersByMessageId.set(messageId, existingForMessage);
+  };
+
+  for (const [messageId, threads] of params.persistedThreadsMap.entries()) {
+    for (const thread of threads) {
+      const status = params.threadStatuses?.[thread.threadId] ?? 'ready';
+      upsertMarker(messageId, toInlineThreadMarker(thread, status));
+    }
+  }
+
+  for (const session of Object.values(params.threadSessionsById)) {
+    upsertMarker(session.sourceMessageId, toSessionThreadMarker(session));
+  }
+
+  return new Map<string, InlineThreadMarker[]>(
+    Array.from(markersByMessageId.entries()).map(([messageId, markers]) => [
+      messageId,
+      Array.from(markers.values()).sort(
+        (a, b) =>
+          a.startOffset - b.startOffset
+          || (b.endOffset - b.startOffset) - (a.endOffset - a.startOffset)
+      ),
+    ])
+  );
 }
 
 function findLatestConversationForMentor(
@@ -506,19 +624,17 @@ function HomePageInner() {
   const containerRef = useRef<HTMLDivElement>(null);
   const {
     popoverState,
-    activeThread,
+    activeSession,
     threadPanelOpen,
-    threadPanelInitialMessages,
-    threadPanelDraftInput,
-    threadPanelLoadingQuestion,
-    pendingThreadMessage,
+    threadSessionsById,
     resetThreadUi,
     dismissPopover,
     handlePointerUp,
-    handleGraduateToThread,
-    handleThreadClick,
-    clearPendingThreadMessage,
+    createThreadSession,
+    updateThreadSession,
+    activateThreadSession,
     closeThreadPanel,
+    findThreadSessionId,
   } = useHomeThreads(learningMode, containerRef);
   const [userHasScrolled, setUserHasScrolled] = useState(false);
   const selectedDraftChat =
@@ -577,13 +693,11 @@ function HomePageInner() {
     : selectedChat?.kind === 'persistent'
       ? persistentThreadsMap
       : new Map<string, ThreadMeta[]>();
-  const activeTemporaryThreadMessagesMap = recordToThreadMessagesMap(
-    selectedTemporaryChat?.threadMessages
-  );
-  const activeTemporaryThreadMessages =
-    activeThread?.id && selectedTemporaryChat
-      ? selectedTemporaryChat.threadMessages[activeThread.id] ?? null
-      : null;
+  const activeThreadMarkersMap = buildInlineThreadMarkersMap({
+    persistedThreadsMap: activeThreadsMap,
+    threadStatuses: selectedTemporaryChat?.threadStatuses,
+    threadSessionsById,
+  });
   const branchChipsByMessageId = new Map(
     activeMessages
       .filter((message) => message.role === 'assistant')
@@ -632,6 +746,7 @@ function HomePageInner() {
   const selectedDraftChatRef = useRef<PersistentDraftChat | null>(null);
   const persistentSelectedBranchIdsRef = useRef<BranchSelectionMap>({});
   const draftChatsRef = useRef<PersistentDraftChat[]>([]);
+  const threadSessionsRef = useRef<Record<string, ThreadSession>>({});
   const prepareForChatSwitchRef = useRef<(nextSelection: SelectedChat | null) => void>(
     () => {}
   );
@@ -640,6 +755,7 @@ function HomePageInner() {
   selectedChatRef.current = selectedChat;
   persistentSelectedBranchIdsRef.current = persistentSelectedBranchIds;
   draftChatsRef.current = draftChats;
+  threadSessionsRef.current = threadSessionsById;
 
   useEffect(() => {
     if (isHomeE2eFixture) {
@@ -915,6 +1031,7 @@ function HomePageInner() {
           selectedBranchIds: {},
           threadsMap: Object.fromEntries(fixtureThreads.entries()) as ThreadMetaRecord,
           threadMessages: {},
+          threadStatuses: {},
         },
       ]);
       setSelectedChat({
@@ -1107,6 +1224,7 @@ function HomePageInner() {
       selectedBranchIds: {},
       threadsMap: {},
       threadMessages: {},
+      threadStatuses: {},
     };
 
     const nextSelection: SelectedChat = {
@@ -1330,13 +1448,9 @@ function HomePageInner() {
     ]
   );
 
-  const setTemporaryThreadMessagesForThread = useCallback(
-    (threadId: string, nextMessages: ThreadMessage[]) => {
-      if (selectedChat?.kind !== 'temporary') {
-        return;
-      }
-
-      updateTemporaryChat(selectedChat.tempChatId, (chat) => {
+  const setTemporaryThreadMessages = useCallback(
+    (tempChatId: string, threadId: string, nextMessages: ThreadMessage[]) => {
+      updateTemporaryChat(tempChatId, (chat) => {
         const nextThreadMessages = { ...chat.threadMessages };
 
         if (nextMessages.length === 0) {
@@ -1348,10 +1462,47 @@ function HomePageInner() {
         return {
           ...chat,
           threadMessages: nextThreadMessages,
+          updatedAt: new Date().toISOString(),
         };
       });
     },
-    [selectedChat, updateTemporaryChat]
+    [updateTemporaryChat]
+  );
+
+  const setSelectedTemporaryThreadMessagesForThread = useCallback(
+    (threadId: string, nextMessages: ThreadMessage[]) => {
+      if (selectedChat?.kind !== 'temporary') {
+        return;
+      }
+
+      setTemporaryThreadMessages(selectedChat.tempChatId, threadId, nextMessages);
+    },
+    [selectedChat, setTemporaryThreadMessages]
+  );
+
+  const setTemporaryThreadStatus = useCallback(
+    (tempChatId: string, threadId: string, status: ThreadSessionStatus) => {
+      updateTemporaryChat(tempChatId, (chat) => ({
+        ...chat,
+        threadStatuses: {
+          ...chat.threadStatuses,
+          [threadId]: status,
+        },
+        updatedAt: new Date().toISOString(),
+      }));
+    },
+    [updateTemporaryChat]
+  );
+
+  const setSelectedTemporaryThreadStatusForThread = useCallback(
+    (threadId: string, status: ThreadSessionStatus) => {
+      if (selectedChat?.kind !== 'temporary') {
+        return;
+      }
+
+      setTemporaryThreadStatus(selectedChat.tempChatId, threadId, status);
+    },
+    [selectedChat, setTemporaryThreadStatus]
   );
 
   const addThreadMeta = useCallback(
@@ -1360,6 +1511,7 @@ function HomePageInner() {
         updateTemporaryChat(selectedChat.tempChatId, (chat) => ({
           ...chat,
           threadsMap: addThreadMetaToRecord(chat.threadsMap, threadId, source),
+          updatedAt: new Date().toISOString(),
         }));
         return;
       }
@@ -1367,6 +1519,466 @@ function HomePageInner() {
       setPersistentThreadsMap((prev) => addThreadMetaToMap(prev, threadId, source));
     },
     [selectedChat, updateTemporaryChat]
+  );
+
+  const buildThreadSession = useCallback(
+    (
+      source: ThreadSource,
+      overrides?: Partial<Pick<ThreadSession, 'sessionId' | 'threadId' | 'status' | 'messages' | 'draftInput' | 'isHydrating'>>
+    ): ThreadSession => ({
+      sessionId: overrides?.sessionId ?? createTemporaryId('thread-session'),
+      threadId: overrides?.threadId ?? null,
+      status: overrides?.status ?? 'ready',
+      messages: overrides?.messages ?? [],
+      draftInput: overrides?.draftInput ?? '',
+      isHydrating: overrides?.isHydrating ?? false,
+      highlightedText: source.highlightedText,
+      sourceMessageId: source.sourceMessageId,
+      startOffset: source.startOffset,
+      endOffset: source.endOffset,
+    }),
+    []
+  );
+
+  const sendThreadRequest = useCallback(
+    async (params: {
+      sessionId: string;
+      question: string;
+      selection: SelectedChat;
+      source: ThreadSource;
+      requestThreadId: string | null;
+      previousMessages: ThreadMessage[];
+      optimisticUserMessageId: string;
+    }) => {
+      try {
+        const response = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message: params.question,
+            conversationId:
+              params.selection.kind === 'persistent'
+                ? params.selection.conversationId
+                : undefined,
+            mentorId:
+              params.selection.kind === 'temporary'
+                ? undefined
+                : params.selection.mentorId ?? undefined,
+            modelId: selectedModelId,
+            sourceMessageId: params.source.sourceMessageId,
+            highlightedText: params.source.highlightedText,
+            startOffset: params.source.startOffset,
+            endOffset: params.source.endOffset,
+            ...(params.requestThreadId ? { threadId: params.requestThreadId } : {}),
+            timezone: getBrowserTimeZone(),
+            chatMode: params.selection.kind === 'temporary' ? 'temporary' : 'persistent',
+            ...(params.selection.kind === 'temporary'
+              ? {
+                  memoryMode: activeTemporaryMemoryMode,
+                  history: toChatHistory(activeMessages),
+                  threadHistory: toChatHistory(params.previousMessages),
+                }
+              : {}),
+          }),
+        });
+
+        const data = (await response.json()) as ChatResponse;
+        logResolvedChatModel(data, 'thread');
+
+        const latestSession = threadSessionsRef.current[params.sessionId];
+        if (!latestSession) {
+          return;
+        }
+
+        if (!response.ok || data.error || !data.message) {
+          const errorMessage: ThreadMessage = {
+            id:
+              params.selection.kind === 'temporary'
+                ? createTemporaryId('message')
+                : (Date.now() + 1).toString(),
+            role: 'assistant',
+            content: data.error || 'Something went wrong.',
+            timestamp: new Date(),
+          };
+          const nextMessages = [...latestSession.messages, errorMessage];
+
+          updateThreadSession(params.sessionId, () => ({
+            ...latestSession,
+            status: 'error',
+            isHydrating: false,
+            messages: nextMessages,
+          }));
+
+          if (params.selection.kind === 'temporary' && latestSession.threadId) {
+            setTemporaryThreadMessages(
+              params.selection.tempChatId,
+              latestSession.threadId,
+              nextMessages
+            );
+            setTemporaryThreadStatus(
+              params.selection.tempChatId,
+              latestSession.threadId,
+              'error'
+            );
+          }
+
+          return;
+        }
+
+        const resolvedThreadId =
+          typeof data.threadId === 'string' && data.threadId.length > 0
+            ? data.threadId
+            : params.requestThreadId;
+        const assistantMessage: ThreadMessage = {
+          id:
+            params.selection.kind === 'temporary'
+              ? createTemporaryId('message')
+              : data.assistantMessageId || (Date.now() + 1).toString(),
+          role: 'assistant',
+          content: data.message,
+          timestamp: new Date(),
+          searchMetadata: data.search?.metadata ?? null,
+        };
+        const nextMessages = [
+          ...latestSession.messages.map((message) =>
+            message.id === params.optimisticUserMessageId && data.userMessageId
+              ? { ...message, id: data.userMessageId }
+              : message
+          ),
+          assistantMessage,
+        ];
+
+        updateThreadSession(params.sessionId, () => ({
+          ...latestSession,
+          threadId: resolvedThreadId ?? latestSession.threadId,
+          status: 'ready',
+          isHydrating: false,
+          messages: nextMessages,
+        }));
+
+        if (params.selection.kind === 'temporary' && (resolvedThreadId ?? latestSession.threadId)) {
+          const temporaryThreadId = resolvedThreadId ?? latestSession.threadId!;
+          setTemporaryThreadMessages(
+            params.selection.tempChatId,
+            temporaryThreadId,
+            nextMessages
+          );
+          setTemporaryThreadStatus(
+            params.selection.tempChatId,
+            temporaryThreadId,
+            'ready'
+          );
+        }
+
+        if (
+          params.selection.kind === 'persistent'
+          && resolvedThreadId
+          && isSameSelectedChat(selectedChatRef.current, params.selection)
+        ) {
+          setPersistentThreadsMap((prev) => addThreadMetaToMap(prev, resolvedThreadId, params.source));
+        }
+      } catch {
+        const latestSession = threadSessionsRef.current[params.sessionId];
+        if (!latestSession) {
+          return;
+        }
+
+        const errorMessage: ThreadMessage = {
+          id:
+            params.selection.kind === 'temporary'
+              ? createTemporaryId('message')
+              : (Date.now() + 1).toString(),
+          role: 'assistant',
+          content: 'Something went wrong.',
+          timestamp: new Date(),
+        };
+        const nextMessages = [...latestSession.messages, errorMessage];
+
+        updateThreadSession(params.sessionId, () => ({
+          ...latestSession,
+          status: 'error',
+          isHydrating: false,
+          messages: nextMessages,
+        }));
+
+        if (params.selection.kind === 'temporary' && latestSession.threadId) {
+          setTemporaryThreadMessages(
+            params.selection.tempChatId,
+            latestSession.threadId,
+            nextMessages
+          );
+          setTemporaryThreadStatus(
+            params.selection.tempChatId,
+            latestSession.threadId,
+            'error'
+          );
+        }
+      }
+    },
+    [
+      activeMessages,
+      activeTemporaryMemoryMode,
+      selectedModelId,
+      setTemporaryThreadMessages,
+      setTemporaryThreadStatus,
+      updateThreadSession,
+    ]
+  );
+
+  const submitThreadQuestion = useCallback(
+    (source: ThreadSource, question: string) => {
+      const trimmedQuestion = question.trim();
+      if (!trimmedQuestion || !selectedChat) {
+        return;
+      }
+
+      const selection = selectedChat;
+      if (selection.kind !== 'temporary' && selection.kind !== 'persistent') {
+        return;
+      }
+
+      if (selection.kind === 'persistent' && !activeConversationId) {
+        return;
+      }
+
+      const requestThreadId =
+        selection.kind === 'temporary' ? createTemporaryId('thread') : null;
+      const userMessage: ThreadMessage = {
+        id:
+          selection.kind === 'temporary'
+            ? createTemporaryId('message')
+            : Date.now().toString(),
+        role: 'user',
+        content: trimmedQuestion,
+        timestamp: new Date(),
+      };
+      const session = buildThreadSession(source, {
+        threadId: requestThreadId,
+        status: 'loading',
+        messages: [userMessage],
+      });
+
+      createThreadSession(session, { makeActive: true });
+
+      if (selection.kind === 'temporary' && requestThreadId) {
+        addThreadMeta(requestThreadId, source);
+        setSelectedTemporaryThreadMessagesForThread(requestThreadId, session.messages);
+        setSelectedTemporaryThreadStatusForThread(requestThreadId, 'loading');
+      }
+
+      void sendThreadRequest({
+        sessionId: session.sessionId,
+        question: trimmedQuestion,
+        selection,
+        source,
+        requestThreadId,
+        previousMessages: [],
+        optimisticUserMessageId: userMessage.id,
+      });
+    },
+    [
+      activeConversationId,
+      addThreadMeta,
+      buildThreadSession,
+      createThreadSession,
+      selectedChat,
+      sendThreadRequest,
+      setSelectedTemporaryThreadMessagesForThread,
+      setSelectedTemporaryThreadStatusForThread,
+    ]
+  );
+
+  const openThreadDraft = useCallback(
+    (source: ThreadSource, draftInput: string) => {
+      const trimmedDraft = draftInput.trim();
+      if (!trimmedDraft || !selectedChat) {
+        return;
+      }
+
+      const selection = selectedChat;
+      if (selection.kind !== 'temporary' && selection.kind !== 'persistent') {
+        return;
+      }
+
+      if (selection.kind === 'persistent' && !activeConversationId) {
+        return;
+      }
+
+      createThreadSession(
+        buildThreadSession(source, {
+          draftInput: trimmedDraft,
+        }),
+        { makeActive: true }
+      );
+    },
+    [activeConversationId, buildThreadSession, createThreadSession, selectedChat]
+  );
+
+  const handleThreadPanelInputChange = useCallback(
+    (sessionId: string, value: string) => {
+      updateThreadSession(sessionId, (session) => ({
+        ...session,
+        draftInput: value,
+      }));
+    },
+    [updateThreadSession]
+  );
+
+  const handleSendThreadMessage = useCallback(
+    (sessionId: string, overrideContent?: string) => {
+      const session = threadSessionsRef.current[sessionId];
+      if (!session || session.status === 'loading' || session.isHydrating || !selectedChat) {
+        return;
+      }
+
+      const selection = selectedChat;
+      if (selection.kind !== 'temporary' && selection.kind !== 'persistent') {
+        return;
+      }
+
+      if (selection.kind === 'persistent' && !activeConversationId) {
+        return;
+      }
+
+      const content = overrideContent?.trim() || session.draftInput.trim();
+      if (!content) {
+        return;
+      }
+
+      const requestThreadId =
+        session.threadId ?? (selection.kind === 'temporary' ? createTemporaryId('thread') : null);
+      const userMessage: ThreadMessage = {
+        id:
+          selection.kind === 'temporary'
+            ? createTemporaryId('message')
+            : Date.now().toString(),
+        role: 'user',
+        content,
+        timestamp: new Date(),
+      };
+      const nextMessages = [...session.messages, userMessage];
+
+      updateThreadSession(sessionId, () => ({
+        ...session,
+        threadId: requestThreadId ?? session.threadId,
+        status: 'loading',
+        draftInput: '',
+        isHydrating: false,
+        messages: nextMessages,
+      }));
+
+      if (selection.kind === 'temporary' && requestThreadId) {
+        if (!session.threadId) {
+          addThreadMeta(requestThreadId, session);
+        }
+        setSelectedTemporaryThreadMessagesForThread(requestThreadId, nextMessages);
+        setSelectedTemporaryThreadStatusForThread(requestThreadId, 'loading');
+      }
+
+      void sendThreadRequest({
+        sessionId,
+        question: content,
+        selection,
+        source: session,
+        requestThreadId,
+        previousMessages: session.messages,
+        optimisticUserMessageId: userMessage.id,
+      });
+    },
+    [
+      activeConversationId,
+      addThreadMeta,
+      selectedChat,
+      sendThreadRequest,
+      setSelectedTemporaryThreadMessagesForThread,
+      setSelectedTemporaryThreadStatusForThread,
+      updateThreadSession,
+    ]
+  );
+
+  const handleThreadMarkerClick = useCallback(
+    async (thread: InlineThreadMarker) => {
+      if (thread.sessionId && threadSessionsRef.current[thread.sessionId]) {
+        activateThreadSession(thread.sessionId);
+        return;
+      }
+
+      if (thread.threadId) {
+        const existingSessionId = findThreadSessionId(thread.threadId);
+        if (existingSessionId) {
+          activateThreadSession(existingSessionId);
+          return;
+        }
+      }
+
+      if (selectedChat?.kind === 'temporary' && thread.threadId) {
+        const storedMessages = selectedTemporaryChat?.threadMessages[thread.threadId] ?? [];
+        const storedStatus = selectedTemporaryChat?.threadStatuses[thread.threadId] ?? 'ready';
+        createThreadSession(
+          buildThreadSession(thread, {
+            threadId: thread.threadId,
+            status: storedStatus,
+            messages: storedMessages,
+          }),
+          { makeActive: true }
+        );
+        return;
+      }
+
+      if (!thread.threadId) {
+        return;
+      }
+
+      const sessionId = `persisted:${thread.threadId}`;
+      createThreadSession(
+        buildThreadSession(thread, {
+          sessionId,
+          threadId: thread.threadId,
+          isHydrating: true,
+        }),
+        { makeActive: true }
+      );
+
+      try {
+        const response = await fetch(`/api/threads/${thread.threadId}/messages`);
+        if (!response.ok) {
+          throw new Error('Failed to load thread messages');
+        }
+
+        const data = await response.json();
+        const nextMessages = mapThreadMessages(
+          (data.messages || []) as Array<{
+            id: string;
+            role: string;
+            content: string;
+            created_at: string;
+            search_metadata?: Message['searchMetadata'];
+          }>
+        );
+
+        updateThreadSession(sessionId, (session) => ({
+          ...session,
+          messages: mergeThreadMessages(nextMessages, session.messages),
+          isHydrating: false,
+          status: session.status === 'error' ? session.status : 'ready',
+        }));
+      } catch {
+        updateThreadSession(sessionId, (session) => ({
+          ...session,
+          isHydrating: false,
+        }));
+      }
+    },
+    [
+      activateThreadSession,
+      buildThreadSession,
+      createThreadSession,
+      findThreadSessionId,
+      selectedChat?.kind,
+      selectedTemporaryChat?.threadMessages,
+      selectedTemporaryChat?.threadStatuses,
+      updateThreadSession,
+    ]
   );
 
   const updateSelectedTemporaryMemoryMode = useCallback(
@@ -1891,13 +2503,6 @@ function HomePageInner() {
     transcription.interimTranscript,
   ]);
 
-  const handleThreadCreated = useCallback(
-    (threadId: string, source: ThreadSource) => {
-      addThreadMeta(threadId, source);
-    },
-    [addThreadMeta]
-  );
-
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const textToSend = input.trim();
@@ -1972,28 +2577,20 @@ function HomePageInner() {
             emptyTitle={emptyTitle}
             emptySubtitle={emptySubtitle}
             isLoading={isActiveConversationLoading}
-            threadsMap={activeThreadsMap}
+            threadsMap={activeThreadMarkersMap}
             branchChipsByMessageId={branchChipsByMessageId}
             pendingBranchSourceMessageId={pendingBranch?.sourceMessageId ?? null}
             messagesEndRef={messagesEndRef}
-            onThreadClick={handleThreadClick}
+            onThreadClick={handleThreadMarkerClick}
             onSelectBranch={handleSelectBranch}
             onCreateBranch={handleCreateBranch}
             onAssistantPointerUp={handlePointerUp}
           />
           <TextSelectionPopover
             popoverState={popoverState}
-            chatMode={chatMode}
-            conversationId={activeConversationId}
-            mentorId={activeMentorId}
-            modelId={selectedModelId}
-            memoryMode={activeTemporaryMemoryMode}
-            history={activeMessages}
-            temporaryThreadMessages={activeTemporaryThreadMessagesMap}
-            onTemporaryThreadMessagesChange={setTemporaryThreadMessagesForThread}
             onDismiss={dismissPopover}
-            onThreadCreated={handleThreadCreated}
-            onGraduateToThread={handleGraduateToThread}
+            onSubmitQuestion={submitThreadQuestion}
+            onOpenThreadDraft={openThreadDraft}
           />
         </div>
 
@@ -2116,23 +2713,11 @@ function HomePageInner() {
 
       <ThreadPanel
         isOpen={threadPanelOpen}
-        thread={activeThread}
-        chatMode={chatMode}
-        conversationId={activeConversationId}
-        mentorId={activeMentorId}
-        modelId={selectedModelId}
-        memoryMode={activeTemporaryMemoryMode}
-        conversationMessages={activeMessages}
-        initialMessages={threadPanelInitialMessages}
-        temporaryMessages={activeTemporaryThreadMessages}
+        session={activeSession}
         temporaryChatEnabled={isTemporaryChat}
-        draftInput={threadPanelDraftInput}
-        loadingQuestion={threadPanelLoadingQuestion}
-        pendingMessage={pendingThreadMessage}
-        onTemporaryMessagesChange={setTemporaryThreadMessagesForThread}
-        onPendingMessageConsumed={clearPendingThreadMessage}
-        onThreadCreated={handleThreadCreated}
         suspendCloseShortcut={Boolean(popoverState)}
+        onInputChange={handleThreadPanelInputChange}
+        onSend={handleSendThreadMessage}
         onClose={closeThreadPanel}
       />
     </div>
