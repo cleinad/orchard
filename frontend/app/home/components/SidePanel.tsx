@@ -65,7 +65,7 @@ function formatDate(input: string): string {
 }
 
 const railIconButtonClass =
-  'relative z-10 inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-md text-foreground/50 transition-colors hover:bg-foreground/[0.04] hover:text-foreground';
+  'relative z-10 inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-md text-foreground transition-colors hover:bg-foreground/[0.04]';
 
 export default function SidePanel({
   isOpen,
@@ -331,7 +331,7 @@ export default function SidePanel({
           aria-pressed={isOpen}
           aria-label={isOpen ? 'Close conversations' : 'Open conversations'}
         >
-          <SidebarPanelIcon className="h-5 w-5" />
+          <SidebarPanelIcon className="h-5 w-5 text-foreground" />
         </button>
       </Tooltip>
       <Tooltip content="New chat (Keen)" side="right">
@@ -341,7 +341,7 @@ export default function SidePanel({
           className={railIconButtonClass}
           aria-label="New chat with Keen"
         >
-          <RailIconNewChat />
+          <RailIconNewChat className="h-5 w-5 text-foreground" />
         </button>
       </Tooltip>
       <Tooltip content="Temporary" side="right">
@@ -351,7 +351,7 @@ export default function SidePanel({
           className={railIconButtonClass}
           aria-label="Temporary chats"
         >
-          <RailIconTemporary />
+          <RailIconTemporary className="h-5 w-5 text-foreground" />
         </button>
       </Tooltip>
       <Tooltip content="All chats" side="right">
@@ -361,15 +361,11 @@ export default function SidePanel({
           className={railIconButtonClass}
           aria-label="All chats"
         >
-          <RailIconAllChats />
+          <RailIconAllChats className="h-5 w-5 text-foreground" />
         </button>
       </Tooltip>
     </>
   );
-
-  const panelSurfaceStyle = {
-    background: 'color-mix(in srgb, var(--surface) 94%, transparent)',
-  } as const;
 
   return (
     <>
@@ -384,22 +380,27 @@ export default function SidePanel({
       <div
         className={`fixed left-0 top-0 z-50 flex h-dvh overflow-hidden border-r border-foreground/[0.06] bg-background transition-[width] duration-300 ease-out dark:border-foreground/[0.08] ${
           isOpen
-            ? 'w-[min(27.25rem,100vw)] shadow-[8px_0_32px_-20px_rgba(15,23,42,0.06)] dark:shadow-[8px_0_32px_-20px_rgba(0,0,0,0.25)]'
+            ? 'w-[min(27.25rem,100vw)]'
             : 'w-14'
         }`}
       >
-        {!isOpen ? (
-          <nav
-            className="relative flex w-14 flex-shrink-0 flex-col bg-background"
-            aria-label="Chat navigation"
-          >
-            <div className="flex flex-1 flex-col items-center gap-1.5 py-4">{railIcons}</div>
-          </nav>
-        ) : (
-          <div
-            className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden"
-            style={panelSurfaceStyle}
-          >
+        {/* Rail icons — always mounted, faded out when panel is open so the width transition has no DOM swap */}
+        <nav
+          className={`absolute inset-y-0 left-0 flex w-14 flex-shrink-0 flex-col bg-background transition-opacity duration-200 ${
+            isOpen ? 'pointer-events-none opacity-0' : 'opacity-100'
+          }`}
+          aria-label="Chat navigation"
+          aria-hidden={isOpen}
+        >
+          <div className="flex flex-1 flex-col items-center gap-1.5 py-4">{railIcons}</div>
+        </nav>
+
+        {/* Expanded panel — always mounted, faded in when open */}
+        <div
+          className={`flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden transition-opacity duration-200 ${
+            isOpen ? 'opacity-100' : 'pointer-events-none opacity-0'
+          }`}
+        >
             {/* One surface: paired icon + section rows (no vertical rule between icon column and body). */}
             <div className="side-panel-scroll-area relative min-h-0 flex-1">
               <div
@@ -508,13 +509,6 @@ export default function SidePanel({
                 </div>
               </div>
 
-              <div
-                className="pointer-events-none absolute inset-x-0 top-0 h-3"
-                style={{
-                  background:
-                    'linear-gradient(to bottom, color-mix(in srgb, var(--surface) 94%, transparent), transparent)',
-                }}
-              />
             </div>
 
             <div className="border-t border-border-subtle px-4 py-2">
@@ -561,7 +555,6 @@ export default function SidePanel({
               </div>
             </div>
         </div>
-        )}
       </div>
 
       <style jsx>{`
