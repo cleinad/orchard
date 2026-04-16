@@ -181,6 +181,22 @@ function getSelectedChatKey(selection: SelectedChat | null) {
   return `temporary:${selection.tempChatId}`;
 }
 
+const BLANK_COMPOSER_KEY = 'blank:keen';
+
+function getComposerStateKey(selection: SelectedChat | null) {
+  return getSelectedChatKey(selection) ?? BLANK_COMPOSER_KEY;
+}
+
+function deleteRecordKey<T>(record: Record<string, T>, key: string) {
+  if (!(key in record)) {
+    return record;
+  }
+
+  const next = { ...record };
+  delete next[key];
+  return next;
+}
+
 function isSameSelectedChat(a: SelectedChat | null, b: SelectedChat | null) {
   const aKey = getSelectedChatKey(a);
   return aKey !== null && aKey === getSelectedChatKey(b);
@@ -226,6 +242,7 @@ function mergeReloadedBranchSelections(params: {
 const TTS_STORAGE_KEY = 'keen-tts-enabled';
 const CHAT_MODEL_STORAGE_KEY = 'keen-chat-model';
 const TEMP_CHAT_STORAGE_KEY = 'keen-home-temp-chats-v1';
+const COMPOSER_DRAFT_INPUTS_STORAGE_KEY = 'keen-home-composer-draft-inputs-v1';
 const PERSISTENT_THREAD_RUNTIME_STORAGE_KEY = 'keen-persistent-thread-runtime-v1';
 const HOME_SELECTION_HANDOFF_STORAGE_KEY = 'keen-home-selection-handoff-v1';
 const TEMP_CHAT_TITLE = 'Temporary chat';
@@ -597,10 +614,12 @@ export default function HomePage() {
 }
 
 function HomePageInner() {
-  const [input, setInput] = useState('');
-  const [pendingChatRequest, setPendingChatRequest] = useState<PendingChatRequest | null>(
-    null
-  );
+  const [composerDraftInputsByChatKey, setComposerDraftInputsByChatKey] = useState<
+    Record<string, string>
+  >({});
+  const [pendingChatRequestsByChatKey, setPendingChatRequestsByChatKey] = useState<
+    Record<string, PendingChatRequest>
+  >({});
   const [searchEnabled, setSearchEnabled] = useState(false);
   const [selectedModelId, setSelectedModelId] = usePersistedString<ChatModelId>(
     CHAT_MODEL_STORAGE_KEY,
@@ -616,7 +635,9 @@ function HomePageInner() {
       isDefault: option.id === DEFAULT_CHAT_MODEL_ID,
     }))
   );
-  const [lastSearchState, setLastSearchState] = useState<SearchMetadata | null>(null);
+  const [searchStatesByChatKey, setSearchStatesByChatKey] = useState<
+    Record<string, SearchMetadata | null>
+  >({});
   const [persistentMessages, setPersistentMessages] = useState<Message[]>([]);
   const [persistentBranches, setPersistentBranches] = useState<ConversationBranch[]>([]);
   const [persistentSelectedBranchIds, setPersistentSelectedBranchIds] =
@@ -638,7 +659,6 @@ function HomePageInner() {
   const [createPanelOpen, setCreatePanelOpen] = useState(false);
   const [pendingBranch, setPendingBranch] = useState<PendingBranchTarget | null>(null);
   const [branchNavigatorOpen, setBranchNavigatorOpen] = useState(false);
-  const isLoading = pendingChatRequest !== null;
 
   const handleToggleSidePanel = useCallback(() => {
     setSidePanelOpen((previousOpen) => !previousOpen);
@@ -777,6 +797,23 @@ function HomePageInner() {
     selectedBranchIds: activeSelectedBranchIds,
     pendingBranch,
   });
+  const composerStateSelection: SelectedChat | null = selectedChat ?? (
+    routeConversationId
+      ? {
+          kind: 'persistent',
+          conversationId: routeConversationId,
+          mentorId: null,
+        }
+      : null
+  );
+  const activeComposerStateKey = getComposerStateKey(composerStateSelection);
+  const input = composerDraftInputsByChatKey[activeComposerStateKey] ?? '';
+  const activePendingChatRequest =
+    selectedChat
+      ? pendingChatRequestsByChatKey[getSelectedChatKey(selectedChat)!] ?? null
+      : null;
+  const isLoading = activePendingChatRequest !== null;
+  const activeSearchState = searchStatesByChatKey[activeComposerStateKey] ?? null;
   const activeThreadsMap = isTemporaryChat
     ? recordToThreadsMap(selectedTemporaryChat?.threadsMap)
     : selectedChat?.kind === 'persistent'
@@ -830,9 +867,8 @@ function HomePageInner() {
     ? 'Keen'
     : selectedConversation?.mentor_name || activeMentor?.name || 'Keen';
   const isActiveConversationLoading =
-    pendingChatRequest !== null
-    && isSameSelectedChat(pendingChatRequest.selection, selectedChat)
-    && activeMessages.some((message) => message.id === pendingChatRequest.userMessageId);
+    activePendingChatRequest !== null
+    && activeMessages.some((message) => message.id === activePendingChatRequest.userMessageId);
 
   const autoSendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mentorSlugHandledRef = useRef(false);
@@ -844,6 +880,9 @@ function HomePageInner() {
   const persistentSelectedBranchIdsRef = useRef<BranchSelectionMap>({});
   const persistentThreadRuntimesRef = useRef<PersistentThreadRuntimeRecord>({});
   const draftChatsRef = useRef<PersistentDraftChat[]>([]);
+  const temporaryChatsRef = useRef<TemporaryChatSession[]>([]);
+  const composerDraftInputsRef = useRef<Record<string, string>>({});
+  const pendingChatRequestsRef = useRef<Record<string, PendingChatRequest>>({});
   const threadSessionsRef = useRef<Record<string, ThreadSession>>({});
   const prepareForChatSwitchRef = useRef<(nextSelection: SelectedChat | null) => void>(
     () => {}
@@ -854,7 +893,149 @@ function HomePageInner() {
   persistentSelectedBranchIdsRef.current = persistentSelectedBranchIds;
   persistentThreadRuntimesRef.current = persistentThreadRuntimes;
   draftChatsRef.current = draftChats;
+  temporaryChatsRef.current = temporaryChats;
+  composerDraftInputsRef.current = composerDraftInputsByChatKey;
+  pendingChatRequestsRef.current = pendingChatRequestsByChatKey;
   threadSessionsRef.current = threadSessionsById;
+
+  const setComposerInputForSelection = useCallback(
+    (selection: SelectedChat | null, value: string) => {
+      const key = getComposerStateKey(selection);
+
+      setComposerDraftInputsByChatKey((prev) => {
+        if (value.length === 0) {
+          return deleteRecordKey(prev, key);
+        }
+
+        if (prev[key] === value) {
+          return prev;
+        }
+
+        return {
+          ...prev,
+          [key]: value,
+        };
+      });
+    },
+    []
+  );
+
+  const clearComposerInputForSelection = useCallback((selection: SelectedChat | null) => {
+    const key = getComposerStateKey(selection);
+    setComposerDraftInputsByChatKey((prev) => deleteRecordKey(prev, key));
+  }, []);
+
+  const setSearchStateForSelection = useCallback(
+    (selection: SelectedChat | null, value: SearchMetadata | null) => {
+      const key = getComposerStateKey(selection);
+
+      setSearchStatesByChatKey((prev) => {
+        if (value === null) {
+          return deleteRecordKey(prev, key);
+        }
+
+        return {
+          ...prev,
+          [key]: value,
+        };
+      });
+    },
+    []
+  );
+
+  const clearSearchStateForSelection = useCallback((selection: SelectedChat | null) => {
+    const key = getComposerStateKey(selection);
+    setSearchStatesByChatKey((prev) => deleteRecordKey(prev, key));
+  }, []);
+
+  const setPendingChatRequestForSelection = useCallback(
+    (selection: SelectedChat, request: PendingChatRequest | null) => {
+      const key = getSelectedChatKey(selection);
+
+      if (!key) {
+        return;
+      }
+
+      setPendingChatRequestsByChatKey((prev) => {
+        if (request === null) {
+          return deleteRecordKey(prev, key);
+        }
+
+        return {
+          ...prev,
+          [key]: request,
+        };
+      });
+    },
+    []
+  );
+
+  const clearPendingChatRequestForSelection = useCallback((selection: SelectedChat) => {
+    setPendingChatRequestForSelection(selection, null);
+  }, [setPendingChatRequestForSelection]);
+
+  const moveComposerInputBetweenSelections = useCallback(
+    (
+      fromSelection: SelectedChat | null,
+      toSelection: SelectedChat | null,
+      options?: { preserveTarget?: boolean }
+    ) => {
+      const fromKey = getComposerStateKey(fromSelection);
+      const toKey = getComposerStateKey(toSelection);
+
+      if (fromKey === toKey) {
+        return;
+      }
+
+      setComposerDraftInputsByChatKey((prev) => {
+        if (!(fromKey in prev)) {
+          return prev;
+        }
+
+        if (options?.preserveTarget && toKey in prev) {
+          return prev;
+        }
+
+        const next = {
+          ...prev,
+          [toKey]: prev[fromKey],
+        };
+        delete next[fromKey];
+        return next;
+      });
+    },
+    []
+  );
+
+  useEffect(() => {
+    const stored = window.sessionStorage.getItem(COMPOSER_DRAFT_INPUTS_STORAGE_KEY);
+    if (!stored) {
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(stored) as Record<string, unknown>;
+      const restoredDrafts = Object.fromEntries(
+        Object.entries(parsed).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+      );
+      setComposerDraftInputsByChatKey(restoredDrafts);
+    } catch (error) {
+      console.error('Failed to restore composer drafts:', error);
+      window.sessionStorage.removeItem(COMPOSER_DRAFT_INPUTS_STORAGE_KEY);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (Object.keys(composerDraftInputsByChatKey).length === 0) {
+      window.sessionStorage.removeItem(COMPOSER_DRAFT_INPUTS_STORAGE_KEY);
+      return;
+    }
+
+    window.sessionStorage.setItem(
+      COMPOSER_DRAFT_INPUTS_STORAGE_KEY,
+      JSON.stringify(composerDraftInputsByChatKey)
+    );
+  }, [composerDraftInputsByChatKey]);
 
   useEffect(() => {
     if (isHomeE2eFixture) {
@@ -1128,9 +1309,10 @@ function HomePageInner() {
     stopMic();
     resetThreadUi();
     setPendingBranch(null);
-    setInput('');
-    setPendingChatRequest(null);
-    setLastSearchState(null);
+    window.sessionStorage.removeItem(COMPOSER_DRAFT_INPUTS_STORAGE_KEY);
+    setComposerDraftInputsByChatKey({});
+    setPendingChatRequestsByChatKey({});
+    setSearchStatesByChatKey({});
     setUserHasScrolled(false);
     setListError(null);
     setDraftChats([]);
@@ -1244,20 +1426,22 @@ function HomePageInner() {
     (nextSelection: SelectedChat | null) => {
       tts.stop();
       stopMic();
-    resetThreadUi();
-    setPendingBranch(null);
-    setBranchNavigatorOpen(false);
-    setInput('');
-    setLastSearchState(null);
-    setUserHasScrolled(false);
+      resetThreadUi();
+      setPendingBranch(null);
+      setBranchNavigatorOpen(false);
+      setUserHasScrolled(false);
 
       const currentSelection = selectedChatRef.current;
       const currentDraft = selectedDraftChatRef.current;
+      const currentInput = currentSelection
+        ? composerDraftInputsRef.current[getComposerStateKey(currentSelection)] ?? ''
+        : '';
 
       if (
         currentSelection?.kind === 'draft' &&
         currentDraft &&
         currentDraft.messages.length === 0 &&
+        currentInput.length === 0 &&
         !(
           nextSelection?.kind === 'draft' &&
           nextSelection.draftId === currentDraft.id
@@ -1266,9 +1450,19 @@ function HomePageInner() {
         setDraftChats((prev) =>
           prev.filter((draft) => draft.id !== currentDraft.id)
         );
+        clearComposerInputForSelection(currentSelection);
+        clearSearchStateForSelection(currentSelection);
+        clearPendingChatRequestForSelection(currentSelection);
       }
     },
-    [resetThreadUi, stopMic, tts]
+    [
+      clearComposerInputForSelection,
+      clearPendingChatRequestForSelection,
+      clearSearchStateForSelection,
+      resetThreadUi,
+      stopMic,
+      tts,
+    ]
   );
 
   useEffect(() => {
@@ -1319,6 +1513,9 @@ function HomePageInner() {
       };
 
       prepareForChatSwitch(nextSelection);
+      if (mentorId === null && selectedChatRef.current === null) {
+        moveComposerInputBetweenSelections(null, nextSelection, { preserveTarget: true });
+      }
       setPersistentMessages([]);
       setPersistentBranches([]);
       setPersistentSelectedBranchIds({});
@@ -1333,7 +1530,13 @@ function HomePageInner() {
       setSelectedChat(nextSelection);
       openHomeWorkspace();
     },
-    [getOrCreateDraft, openHomeWorkspace, prepareForChatSwitch, routeConversationId]
+    [
+      getOrCreateDraft,
+      moveComposerInputBetweenSelections,
+      openHomeWorkspace,
+      prepareForChatSwitch,
+      routeConversationId,
+    ]
   );
 
   const handleCreateTemporaryChat = useCallback(() => {
@@ -1575,8 +1778,15 @@ function HomePageInner() {
 
   const handleCloseTemporaryChat = useCallback(
     (tempChatId: string) => {
+      const closedSelection: SelectedChat = {
+        kind: 'temporary',
+        tempChatId,
+      };
       const remaining = temporaryChats.filter((chat) => chat.id !== tempChatId);
       setTemporaryChats(remaining);
+      clearComposerInputForSelection(closedSelection);
+      clearSearchStateForSelection(closedSelection);
+      clearPendingChatRequestForSelection(closedSelection);
 
       if (
         selectedChat?.kind !== 'temporary' ||
@@ -1605,6 +1815,9 @@ function HomePageInner() {
       setPersistentThreadsMap(new Map());
     },
     [
+      clearComposerInputForSelection,
+      clearPendingChatRequestForSelection,
+      clearSearchStateForSelection,
       conversations,
       handleSelectConversation,
       handleSelectTemporaryChat,
@@ -2340,7 +2553,10 @@ function HomePageInner() {
   );
 
   const sendMessage = useCallback(async (content: string) => {
-    if (!content.trim() || isLoading) return;
+    const messageText = content.trim();
+    if (!messageText) {
+      return;
+    }
 
     if (autoSendTimerRef.current) {
       clearTimeout(autoSendTimerRef.current);
@@ -2350,7 +2566,6 @@ function HomePageInner() {
 
     const now = new Date();
     const nextUpdatedAt = now.toISOString();
-    const messageText = content.trim();
 
     let effectiveSelection = selectedChat;
     let effectiveDraft = selectedDraftChat;
@@ -2368,6 +2583,11 @@ function HomePageInner() {
         mentorId: null,
       };
       setSelectedChat(effectiveSelection);
+    }
+
+    const effectiveSelectionKey = getSelectedChatKey(effectiveSelection);
+    if (!effectiveSelectionKey || pendingChatRequestsRef.current[effectiveSelectionKey]) {
+      return;
     }
 
     const userMessage: Message = {
@@ -2461,12 +2681,12 @@ function HomePageInner() {
     }
 
     setPendingBranch(null);
-    setInput('');
-    setPendingChatRequest({
+    clearComposerInputForSelection(selectedChat);
+    setPendingChatRequestForSelection(effectiveSelection, {
       selection: effectiveSelection,
       userMessageId: userMessage.id,
     });
-    setLastSearchState(null);
+    clearSearchStateForSelection(effectiveSelection);
     setUserHasScrolled(false);
 
     try {
@@ -2502,6 +2722,10 @@ function HomePageInner() {
       const data = (await response.json()) as ChatResponse;
       logResolvedChatModel(data, 'composer');
 
+      const canApplyTemporaryResponse =
+        effectiveSelection.kind !== 'temporary'
+        || temporaryChatsRef.current.some((chat) => chat.id === effectiveSelection.tempChatId);
+
       if (!response.ok || data.error) {
         const errorMessage: Message = {
           id:
@@ -2515,6 +2739,10 @@ function HomePageInner() {
         };
 
         if (effectiveSelection.kind === 'temporary') {
+          if (!canApplyTemporaryResponse) {
+            return;
+          }
+
           updateTemporaryChat(effectiveSelection.tempChatId, (chat) => ({
             ...chat,
             messages: [...chat.messages, errorMessage],
@@ -2534,7 +2762,22 @@ function HomePageInner() {
         return;
       }
 
-      setLastSearchState(data.search ?? null);
+      const promotedSelection =
+        effectiveSelection.kind === 'draft' && effectiveDraft && data.conversationId
+          ? {
+              kind: 'persistent' as const,
+              conversationId: data.conversationId,
+              mentorId: effectiveDraft.mentorId,
+            }
+          : null;
+
+      if (promotedSelection) {
+        moveComposerInputBetweenSelections(effectiveSelection, promotedSelection);
+        clearSearchStateForSelection(effectiveSelection);
+        setSearchStateForSelection(promotedSelection, data.search ?? null);
+      } else if (canApplyTemporaryResponse) {
+        setSearchStateForSelection(effectiveSelection, data.search ?? null);
+      }
 
       const responseText =
         data.message?.trim() || 'Something went wrong. The assistant returned an empty response.';
@@ -2547,10 +2790,17 @@ function HomePageInner() {
         content: responseText,
         timestamp: new Date(),
         searchMetadata: data.search?.metadata ?? null,
-        previousMessageId: data.userMessageId || userMessage.id,
+        previousMessageId:
+          effectiveSelection.kind === 'temporary'
+            ? userMessage.id
+            : data.userMessageId || userMessage.id,
       };
 
       if (effectiveSelection.kind === 'temporary') {
+        if (!canApplyTemporaryResponse) {
+          return;
+        }
+
         updateTemporaryChat(effectiveSelection.tempChatId, (chat) => ({
           ...chat,
           title:
@@ -2584,18 +2834,13 @@ function HomePageInner() {
         if (!isHomeE2eFixture) {
           await refreshSidebarData();
         }
-      } else if (effectiveDraft && data.conversationId) {
-        const nextPersistentSelection: SelectedChat = {
-          kind: 'persistent',
-          conversationId: data.conversationId,
-          mentorId: effectiveDraft.mentorId,
-        };
+      } else if (effectiveDraft && promotedSelection) {
         const latestDraftSelections =
           draftChatsRef.current.find((draft) => draft.id === effectiveDraft.id)
             ?.selectedBranchIds ?? effectiveDraft.selectedBranchIds;
 
         if (isSameSelectedChat(selectedChatRef.current, effectiveSelection)) {
-          const loadedConversation = await loadConversationMessages(data.conversationId);
+          const loadedConversation = await loadConversationMessages(promotedSelection.conversationId);
 
           if (isSameSelectedChat(selectedChatRef.current, effectiveSelection)) {
             const mergedSelections = mergeReloadedBranchSelections({
@@ -2610,20 +2855,29 @@ function HomePageInner() {
             setPersistentBranches(loadedConversation.branches);
             setPersistentSelectedBranchIds(mergedSelections);
             setPersistentThreadsMap(loadedConversation.threadsMap);
-            setSelectedChat(nextPersistentSelection);
           }
         }
 
-        setDraftChats((prev) => prev.filter((draft) => draft.id !== effectiveDraft!.id));
-        hydratedRouteConversationIdRef.current = data.conversationId;
-        setSelectedChat(nextPersistentSelection);
-        openPersistentConversation(data.conversationId, { replace: true });
+        setDraftChats((prev) => prev.filter((draft) => draft.id !== effectiveDraft.id));
+
+        if (isSameSelectedChat(selectedChatRef.current, effectiveSelection)) {
+          hydratedRouteConversationIdRef.current = promotedSelection.conversationId;
+          selectedChatRef.current = promotedSelection;
+          setSelectedChat(promotedSelection);
+          openPersistentConversation(promotedSelection.conversationId, { replace: true });
+        }
+
         if (!isHomeE2eFixture) {
           await refreshSidebarData();
         }
       }
 
-      if (ttsEnabled && responseText && !responseText.startsWith('Something went wrong')) {
+      if (
+        ttsEnabled
+        && responseText
+        && !responseText.startsWith('Something went wrong')
+        && canApplyTemporaryResponse
+      ) {
         tts.speak(stripCitationMarkers(responseText, assistantMessage.searchMetadata));
       }
     } catch {
@@ -2638,7 +2892,15 @@ function HomePageInner() {
         previousMessageId: userMessage.id,
       };
 
+      const canApplyTemporaryResponse =
+        effectiveSelection.kind !== 'temporary'
+        || temporaryChatsRef.current.some((chat) => chat.id === effectiveSelection.tempChatId);
+
       if (effectiveSelection.kind === 'temporary') {
+        if (!canApplyTemporaryResponse) {
+          return;
+        }
+
         updateTemporaryChat(effectiveSelection.tempChatId, (chat) => ({
           ...chat,
           messages: [...chat.messages, errorMessage],
@@ -2656,30 +2918,35 @@ function HomePageInner() {
         }));
       }
     } finally {
-      setPendingChatRequest(null);
+      clearPendingChatRequestForSelection(effectiveSelection);
     }
   }, [
+    activeMessages,
+    clearComposerInputForSelection,
+    clearPendingChatRequestForSelection,
+    clearSearchStateForSelection,
     getOrCreateDraft,
-    isLoading,
-    loadConversationMessages,
-    selectedModelId,
     isHomeE2eFixture,
-    refreshSidebarData,
-    searchEnabled,
+    loadConversationMessages,
+    moveComposerInputBetweenSelections,
+    openPersistentConversation,
     pendingBranch,
     persistentBranches,
     persistentMessages,
     persistentSelectedBranchIds,
+    refreshSidebarData,
+    searchEnabled,
     selectedChat,
     selectedDraftChat,
+    selectedModelId,
     selectedTemporaryChat,
+    setPendingChatRequestForSelection,
+    setSearchStateForSelection,
     transcription,
     tts,
     ttsEnabled,
     updateDraftChat,
     updateTemporaryChat,
-    openPersistentConversation,
-    activeMessages,
   ]);
 
   useEffect(() => {
@@ -2864,14 +3131,14 @@ function HomePageInner() {
           transcriptionStatus={transcription.status}
           microphoneStatus={microphone.status}
           microphoneErrorMessage={microphone.errorMessage}
-          searchWarning={lastSearchState?.warning ?? null}
+          searchWarning={activeSearchState?.warning ?? null}
           isTtsLoading={tts.isLoading}
           isTtsPlaying={tts.isPlaying}
           textareaRef={textareaRef}
           waveformRef={visualization.lineRef}
           waveformGlowRef={visualization.glowRef}
           waveformContainerRef={visualization.visualRef}
-          onInputChange={setInput}
+          onInputChange={(value) => setComposerInputForSelection(composerStateSelection, value)}
           onModelChange={setSelectedModelId}
           onToggleMic={toggleMic}
           onToggleTts={toggleTtsEnabled}
