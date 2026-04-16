@@ -124,6 +124,93 @@ test('the latest submitted thread owns the panel while earlier threads finish in
   );
 });
 
+test('temporary thread results persist if you switch chats before the answer resolves', async ({ page }) => {
+  const question = 'What should I watch for here?';
+  const answer = 'Watch for microtasks finishing before paint, even if you leave the chat.';
+  const response = deferred();
+
+  await mockChatRoute(page, async (body) => {
+    expect(body.message).toBe(question);
+    return response.promise;
+  });
+
+  const { messageId } = await gotoHomeFixture(page);
+  await selectTextInMessage(page, messageId, PRIMARY_SELECTION_TEXT);
+  await page.getByTestId('selection-popover-input').fill(question);
+  await page.getByTestId('selection-popover-input').press('Enter');
+
+  await expect(
+    page.locator('[data-testid="inline-thread-link"][data-thread-status="loading"]')
+  ).toContainText(PRIMARY_SELECTION_TEXT);
+
+  await page.getByLabel('New temporary chat').click();
+  await expect(page.getByRole('heading', { name: 'Temporary chat' })).toBeVisible();
+
+  response.resolve({
+    message: answer,
+    userMessageId: 'temp-switch-user-1',
+    assistantMessageId: 'temp-switch-assistant-1',
+  });
+
+  const temporaryChatButtons = page.getByRole('button', { name: /^Temp Temporary chat/ });
+  await expect(temporaryChatButtons).toHaveCount(2);
+  await temporaryChatButtons.first().evaluate((button) => button.click());
+
+  const readyMarker = page.locator(
+    '[data-testid="inline-thread-link"][data-thread-status="ready"]'
+  );
+  await expect(readyMarker).toContainText(PRIMARY_SELECTION_TEXT);
+
+  await readyMarker.click();
+  await expect(page.getByTestId('thread-panel')).toContainText(question);
+  await expect(page.getByTestId('thread-panel')).toContainText(answer);
+});
+
+test('thread panel follow-ups can be sent with the send button', async ({ page }) => {
+  const firstQuestion = 'Why does that happen?';
+  const followUp = 'What does that change in React?';
+  const seenMessages = [];
+
+  await mockChatRoute(page, async (body) => {
+    seenMessages.push(body.message);
+
+    if (body.message === firstQuestion) {
+      return {
+        message: 'Because microtasks flush before rendering.',
+        userMessageId: 'send-button-user-1',
+        assistantMessageId: 'send-button-assistant-1',
+      };
+    }
+
+    if (body.message === followUp) {
+      return {
+        message: 'It lets state updates settle before the browser paints.',
+        userMessageId: 'send-button-user-2',
+        assistantMessageId: 'send-button-assistant-2',
+      };
+    }
+
+    throw new Error(`Unexpected thread question: ${body.message}`);
+  });
+
+  const { messageId, selectedText } = await gotoHomeFixture(page);
+  await selectTextInMessage(page, messageId, selectedText);
+  await page.getByTestId('selection-popover-input').fill(firstQuestion);
+  await page.getByTestId('selection-popover-input').press('Enter');
+
+  await expect(page.getByTestId('thread-panel')).toContainText(
+    'Because microtasks flush before rendering.'
+  );
+
+  await page.getByTestId('thread-panel-input').fill(followUp);
+  await page.getByTestId('thread-panel-send').click();
+
+  await expect(page.getByTestId('thread-panel')).toContainText(
+    'It lets state updates settle before the browser paints.'
+  );
+  expect(seenMessages).toEqual([firstQuestion, followUp]);
+});
+
 test('a failed thread keeps an error marker and can be reopened', async ({ page }) => {
   const question = 'Why is this failing?';
 
