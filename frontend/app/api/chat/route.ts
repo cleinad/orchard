@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { after } from 'next/server';
-import { generateObject, generateText } from 'ai';
+import { generateObject, generateText, streamText, createUIMessageStream, createUIMessageStreamResponse } from 'ai';
 import { z } from 'zod';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
 import { loadMemoryContextV2 } from '@/lib/memory-reader';
@@ -836,209 +836,178 @@ export async function POST(request: NextRequest) {
       content: messageItem.content,
     }));
 
+    // Resolve the final system prompt and search metadata before streaming begins.
+    // Search planning (which may call the LLM once) must complete before we open the stream.
     let search = createNotAttemptedSearchMetadata(searchMode);
     let persistedSearchMetadata: PersistedSearchMetadata | null = null;
-    let assistantText = '';
-    let finalRetrySystemPrompt = `${baseSystemPrompt}
-
-Reply to the user's latest message directly. Do not return an empty response.`;
+    let finalSystemPrompt = `${baseSystemPrompt}\n\nReply to the user's latest message directly. Do not return an empty response.`;
 
     if (searchMode === 'required') {
       if (searchAvailable) {
         const searchOutput = await runWebSearch(message);
         persistedSearchMetadata = createPersistedSearchMetadata(searchMode, searchOutput);
         search = createSearchMetadataFromPersisted(searchMode, persistedSearchMetadata);
-
-        const groundedSystemPrompt = buildGroundedSearchSystemPrompt(
-          baseSystemPrompt,
-          persistedSearchMetadata
-        );
-        finalRetrySystemPrompt = `${groundedSystemPrompt}
-
-Reply directly in 2 to 4 sentences. Do not return an empty response.`;
-
-        const generation = await generateText({
-          model: chatModel,
-          system: groundedSystemPrompt,
-          messages: modelMessages,
-        });
-
-        assistantText = generation.text.trim();
+        const groundedPrompt = buildGroundedSearchSystemPrompt(baseSystemPrompt, persistedSearchMetadata);
+        finalSystemPrompt = `${groundedPrompt}\n\nReply directly in 2 to 4 sentences. Do not return an empty response.`;
       } else {
-        search = createFailedSearchMetadata(
-          searchMode,
-          'missing_config',
-          sanitizeSearchQuery(message) || null
-        );
-        finalRetrySystemPrompt = `${baseSystemPrompt}
-
-Live web search is unavailable in this environment. If the question depends on fresh information, say that briefly and answer with an appropriate caveat. Do not return an empty response.`;
-
-        const generation = await generateText({
-          model: chatModel,
-          system: finalRetrySystemPrompt,
-          messages: modelMessages,
-        });
-
-        assistantText = generation.text.trim();
+        search = createFailedSearchMetadata(searchMode, 'missing_config', sanitizeSearchQuery(message) || null);
+        finalSystemPrompt = `${baseSystemPrompt}\n\nLive web search is unavailable in this environment. If the question depends on fresh information, say that briefly and answer with an appropriate caveat. Do not return an empty response.`;
       }
     } else if (searchAvailable) {
       const searchPlan = await planSearch(chatModel, modelMessages, message, replyContext);
-
       if (searchPlan.shouldSearch && searchPlan.query) {
         const searchOutput = await runWebSearch(searchPlan.query);
         persistedSearchMetadata = createPersistedSearchMetadata(searchMode, searchOutput);
         search = createSearchMetadataFromPersisted(searchMode, persistedSearchMetadata);
-
-        const groundedSystemPrompt = buildGroundedSearchSystemPrompt(
-          baseSystemPrompt,
-          persistedSearchMetadata
-        );
-        finalRetrySystemPrompt = `${groundedSystemPrompt}
-
-Reply directly to the user's latest message. Do not return an empty response.`;
-
-        const generation = await generateText({
-          model: chatModel,
-          system: groundedSystemPrompt,
-          messages: modelMessages,
-        });
-
-        assistantText = generation.text.trim();
-      } else {
-        const generation = await generateText({
-          model: chatModel,
-          system: baseSystemPrompt,
-          messages: modelMessages,
-        });
-
-        assistantText = generation.text.trim();
+        const groundedPrompt = buildGroundedSearchSystemPrompt(baseSystemPrompt, persistedSearchMetadata);
+        finalSystemPrompt = `${groundedPrompt}\n\nReply directly to the user's latest message. Do not return an empty response.`;
       }
     } else {
-      finalRetrySystemPrompt = `${baseSystemPrompt}
-
-Live web search is unavailable in this environment. If the question depends on fresh information, say that briefly and answer with an appropriate caveat. Do not return an empty response.`;
-
-      const generation = await generateText({
-        model: chatModel,
-        system: finalRetrySystemPrompt,
-        messages: modelMessages,
-      });
-
-      assistantText = generation.text.trim();
+      finalSystemPrompt = `${baseSystemPrompt}\n\nLive web search is unavailable in this environment. If the question depends on fresh information, say that briefly and answer with an appropriate caveat. Do not return an empty response.`;
     }
 
-    if (!assistantText) {
-      console.warn('[chat] empty response after generation', {
-        conversationId: activeConversationId,
-        searchMode,
-        searchAvailable,
-        searchStatus: search.status,
-      });
-
-      const fallbackGeneration = await generateText({
-        model: chatModel,
-        system: finalRetrySystemPrompt,
-        messages: modelMessages,
-      });
-
-      assistantText = fallbackGeneration.text.trim();
-    }
-
-    if (!assistantText) {
-      assistantText =
-        searchMode === 'required'
-          ? search.status === 'success'
-            ? "I found current sources for that, but I couldn't turn them into a reply. Please try again."
-            : "I couldn't complete a grounded reply for that. Live search was unavailable or didn't return useful results."
-          : "I couldn't generate a reply for that. Please try again.";
-    }
-
-    const normalizedAssistantText =
-      persistedSearchMetadata?.status === 'success'
-        ? stripInvalidCitationMarkers(assistantText, persistedSearchMetadata)
-        : assistantText;
-    const assistantResponse = applySearchDisclosure(normalizedAssistantText, search);
-    const cleanAssistantResponse = sanitizeAssistantContentForReuse(
-      assistantResponse,
-      persistedSearchMetadata
-    );
-
-    let assistantMessageId: string | null = null;
-    if (!isTemporaryChat) {
-      const { data: assistantMessageRow, error: assistantMsgError } = await supabase
-        .from('messages')
-        .insert({
-          conversation_id: activeConversationId,
-          user_id: user.id,
-          role: 'assistant',
-          content: assistantResponse,
-          search_metadata: search.metadata,
-          ...(activeThreadId
-            ? { thread_id: activeThreadId, parent_message_id: sourceMessageId || null }
-            : { previous_message_id: latestUserMessageId }),
-        })
-        .select('id')
-        .single();
-
-      if (assistantMsgError) {
-        console.error('Error saving assistant message:', assistantMsgError);
-      }
-
-      assistantMessageId = assistantMessageRow?.id ?? null;
-    }
-
-    if (!isTemporaryChat) {
-      const memoryMessages = messages.map(({ role, content }) => ({ role, content }));
-
-      after(async () => {
-        try {
-          await processMemoryV2(supabase, user.id, memoryMessages, cleanAssistantResponse, {
-            conversationId: activeConversationId,
-            mentorId: mentor?.id ?? null,
-            sourceMessageId: latestUserMessageId,
-            sourceRole: 'user',
-          });
-        } catch (err) {
-          console.error('[Memory V2] Error:', err);
-        }
-      });
-    }
-
-    let conversationTitle: string | null = null;
+    // Capture loop variables for use inside onFinish (which runs asynchronously after the stream closes).
+    const capturedSearch = search;
+    const capturedPersistedSearchMetadata = persistedSearchMetadata;
+    const capturedMessages = messages;
     const shouldGenerateTitle =
       !activeThreadId &&
       ((isTemporaryChat && sanitizedHistory.length === 0) ||
         (!isTemporaryChat && createdConversation));
 
-    if (shouldGenerateTitle) {
-      conversationTitle = await generateConversationTitle(message, cleanAssistantResponse);
+    // createUIMessageStream lets us pipe streamText output and send a custom
+    // metadata data-part to the client once onFinish has run.
+    const uiStream = createUIMessageStream({
+      execute: ({ writer }) => {
+        const result = streamText({
+          model: chatModel,
+          system: finalSystemPrompt,
+          messages: modelMessages,
+          onFinish: async ({ text }) => {
+            let rawText = text.trim();
 
-      if (!isTemporaryChat && activeConversationId && conversationTitle) {
-        const { error: titleError } = await supabase
-          .from('conversations')
-          .update({ title: conversationTitle })
-          .eq('id', activeConversationId)
-          .eq('user_id', user.id);
+            if (!rawText) {
+              console.warn('[chat] empty response after streaming generation', {
+                conversationId: activeConversationId,
+                searchMode,
+                searchAvailable,
+                searchStatus: capturedSearch.status,
+              });
 
-        if (titleError) {
-          console.error('Failed to save conversation title:', titleError);
-        }
-      }
-    }
+              try {
+                const fallbackGeneration = await generateText({
+                  model: chatModel,
+                  system: finalSystemPrompt,
+                  messages: modelMessages,
+                });
 
-    return NextResponse.json({
-      message: assistantResponse,
-      conversationId: activeConversationId,
-      conversationTitle,
-      mentorId: mentor?.id ?? null,
-      threadId: activeThreadId,
-      userMessageId: latestUserMessageId,
-      assistantMessageId,
-      resolvedModelId: resolvedSelection.id,
-      resolvedProvider: resolvedSelection.provider,
-      search,
+                rawText = fallbackGeneration.text.trim();
+              } catch (retryError) {
+                console.error('[chat] retry after empty streamed response failed', retryError);
+              }
+            }
+
+            // Fall back to a static string if the model returned nothing.
+            const assistantText = rawText || (
+              searchMode === 'required'
+                ? capturedSearch.status === 'success'
+                  ? "I found current sources for that, but I couldn't turn them into a reply. Please try again."
+                  : "I couldn't complete a grounded reply for that. Live search was unavailable or didn't return useful results."
+                : "I couldn't generate a reply for that. Please try again."
+            );
+
+            const normalizedText =
+              capturedPersistedSearchMetadata?.status === 'success'
+                ? stripInvalidCitationMarkers(assistantText, capturedPersistedSearchMetadata)
+                : assistantText;
+            const assistantResponse = applySearchDisclosure(normalizedText, capturedSearch);
+            const cleanAssistantResponse = sanitizeAssistantContentForReuse(
+              assistantResponse,
+              capturedPersistedSearchMetadata
+            );
+
+            let assistantMessageId: string | null = null;
+            if (!isTemporaryChat) {
+              const { data: assistantMessageRow, error: assistantMsgError } = await supabase
+                .from('messages')
+                .insert({
+                  conversation_id: activeConversationId,
+                  user_id: user.id,
+                  role: 'assistant',
+                  content: assistantResponse,
+                  search_metadata: capturedSearch.metadata,
+                  ...(activeThreadId
+                    ? { thread_id: activeThreadId, parent_message_id: sourceMessageId || null }
+                    : { previous_message_id: latestUserMessageId }),
+                })
+                .select('id')
+                .single();
+
+              if (assistantMsgError) {
+                console.error('Error saving assistant message:', assistantMsgError);
+              }
+
+              assistantMessageId = assistantMessageRow?.id ?? null;
+            }
+
+            if (!isTemporaryChat) {
+              const memoryMessages = capturedMessages.map(({ role, content }) => ({ role, content }));
+              after(async () => {
+                try {
+                  await processMemoryV2(supabase, user.id, memoryMessages, cleanAssistantResponse, {
+                    conversationId: activeConversationId,
+                    mentorId: mentor?.id ?? null,
+                    sourceMessageId: latestUserMessageId,
+                    sourceRole: 'user',
+                  });
+                } catch (err) {
+                  console.error('[Memory V2] Error:', err);
+                }
+              });
+            }
+
+            let conversationTitle: string | null = null;
+            if (shouldGenerateTitle) {
+              conversationTitle = await generateConversationTitle(message, cleanAssistantResponse);
+
+              if (!isTemporaryChat && activeConversationId && conversationTitle) {
+                const { error: titleError } = await supabase
+                  .from('conversations')
+                  .update({ title: conversationTitle })
+                  .eq('id', activeConversationId)
+                  .eq('user_id', user.id);
+
+                if (titleError) {
+                  console.error('Failed to save conversation title:', titleError);
+                }
+              }
+            }
+
+            // Send response metadata as a custom data-part after text streaming is done.
+            writer.write({
+              type: 'data-chatMeta',
+              data: {
+                message: assistantResponse,
+                conversationId: activeConversationId,
+                conversationTitle: conversationTitle ?? null,
+                mentorId: mentor?.id ?? null,
+                threadId: activeThreadId,
+                userMessageId: latestUserMessageId,
+                assistantMessageId,
+                resolvedModelId: resolvedSelection.id,
+                resolvedProvider: resolvedSelection.provider,
+                search: capturedSearch,
+              },
+            });
+          },
+        });
+
+        // Pipe the streamText output into the UI message stream.
+        writer.merge(result.toUIMessageStream());
+      },
     });
+
+    return createUIMessageStreamResponse({ stream: uiStream });
   } catch (error) {
     console.error('Chat API error:', error);
     return NextResponse.json(

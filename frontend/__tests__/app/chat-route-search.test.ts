@@ -5,6 +5,7 @@ import { createMockSupabase } from '../helpers/mock-supabase';
 const mockAfter = vi.fn((callback: () => unknown) => callback());
 const mockGenerateText = vi.fn();
 const mockGenerateObject = vi.fn();
+const mockStreamText = vi.fn();
 const mockCreateSupabaseServerClient = vi.fn();
 const mockLoadMemoryContextV2 = vi.fn();
 const mockProcessMemoryV2 = vi.fn();
@@ -19,9 +20,86 @@ vi.mock('next/server', async (importOriginal) => {
   };
 });
 
+function toSseLine(part: Record<string, unknown>) {
+  return `data: ${JSON.stringify(part)}\n\n`;
+}
+
+function createMockUIMessageStream({
+  execute,
+}: {
+  execute: (params: {
+    writer: {
+      write: (part: Record<string, unknown>) => void;
+      merge: (_stream: unknown) => void;
+    };
+  }) => Promise<void> | void;
+}) {
+  return new ReadableStream({
+    async start(controller) {
+      const encoder = new TextEncoder();
+      const pendingMerges: Promise<unknown>[] = [];
+      const writer = {
+        write: (part: Record<string, unknown>) => {
+          controller.enqueue(encoder.encode(toSseLine(part)));
+        },
+        merge: (stream: unknown) => {
+          if (
+            stream
+            && typeof stream === 'object'
+            && '__pending' in stream
+            && stream.__pending instanceof Promise
+          ) {
+            pendingMerges.push(stream.__pending);
+          }
+        },
+      };
+
+      await execute({ writer });
+      await Promise.all(pendingMerges);
+      controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+      controller.close();
+    },
+  });
+}
+
+async function readMockChatResponse(response: Response) {
+  const contentType = response.headers.get('content-type') ?? '';
+  if (contentType.includes('text/event-stream')) {
+    const body = await response.text();
+    let metadata: Record<string, unknown> = {};
+
+    for (const line of body.split('\n')) {
+      if (!line.startsWith('data: ')) continue;
+      const payload = line.slice(6).trim();
+      if (!payload || payload === '[DONE]') continue;
+
+      const event = JSON.parse(payload) as Record<string, unknown>;
+      if (event.type === 'data-chatMeta' && event.data) {
+        metadata = event.data as Record<string, unknown>;
+      }
+    }
+
+    return metadata;
+  }
+
+  return response.json() as Promise<Record<string, unknown>>;
+}
+
 vi.mock('ai', () => ({
   generateText: (...args: unknown[]) => mockGenerateText(...args),
   generateObject: (...args: unknown[]) => mockGenerateObject(...args),
+  streamText: (...args: unknown[]) => mockStreamText(...args),
+  createUIMessageStream: ({
+    execute,
+  }: {
+    execute: (params: { writer: { write: (part: Record<string, unknown>) => void; merge: (_stream: unknown) => void } }) => Promise<void> | void;
+  }) => createMockUIMessageStream({ execute }),
+  createUIMessageStreamResponse: ({ stream }: { stream: ReadableStream }) => {
+    return new Response(stream, {
+      status: 200,
+      headers: { 'content-type': 'text/event-stream' },
+    });
+  },
 }));
 
 vi.mock('@/lib/supabase-server', () => ({
@@ -95,7 +173,7 @@ async function runChatRequest(
   });
 
   const response = await POST(request);
-  const json = await response.json();
+  const json = await readMockChatResponse(response);
 
   return { response, body: json, tracker };
 }
@@ -103,6 +181,13 @@ async function runChatRequest(
 describe('chat route search citations', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockStreamText.mockImplementation(({ onFinish }: { onFinish?: (result: { text: string }) => Promise<void> }) => {
+      return {
+        toUIMessageStream: () => ({
+          __pending: onFinish?.({ text: 'Assistant reply' }) ?? Promise.resolve(),
+        }),
+      };
+    });
     mockGenerateText.mockResolvedValue({ text: 'Assistant reply' });
     mockGenerateObject.mockResolvedValue({
       object: {
@@ -185,9 +270,14 @@ describe('chat route search citations', () => {
     process.env.TAVILY_API_KEY = 'test-key';
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-01-02T03:04:05.000Z'));
-    mockGenerateText
-      .mockResolvedValueOnce({ text: 'Grounded answer [1] [9]' })
-      .mockResolvedValueOnce({ text: 'Grounded Title' });
+    mockStreamText.mockImplementation(({ onFinish }: { onFinish?: (result: { text: string }) => Promise<void> }) => {
+      return {
+        toUIMessageStream: () => ({
+          __pending: onFinish?.({ text: 'Grounded answer [1] [9]' }) ?? Promise.resolve(),
+        }),
+      };
+    });
+    mockGenerateText.mockResolvedValue({ text: 'Grounded Title' });
 
     const { response, body, tracker } = await runChatRequest(
       {
@@ -247,14 +337,14 @@ describe('chat route search citations', () => {
         sourceMessageId: 'msg-user-1',
       })
     );
-    expect(mockGenerateText).toHaveBeenCalledWith(
+    expect(mockStreamText).toHaveBeenCalledWith(
       expect.objectContaining({
         system: expect.stringContaining(
           'The current time is 2026-01-01 19:04 (America/Vancouver).'
         ),
       })
     );
-    expect(mockGenerateText).toHaveBeenCalledWith(
+    expect(mockStreamText).toHaveBeenCalledWith(
       expect.objectContaining({
         system: expect.stringContaining("The user's name is Test User."),
       })

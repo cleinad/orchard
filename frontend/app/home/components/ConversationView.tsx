@@ -156,9 +156,14 @@ export default function ConversationView({
                           : undefined
                       }
                     />
+                    {/* Blinking cursor shown while the stream is still arriving */}
+                    {message.isStreaming && (
+                      <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-foreground/50 align-middle" />
+                    )}
                   </div>
 
-                  {hasSources && replySearchMetadata && (
+                  {/* Sources and branch controls are suppressed while streaming */}
+                  {!message.isStreaming && hasSources && replySearchMetadata && (
                     <>
                       <div className="mt-3">
                         <button
@@ -193,7 +198,7 @@ export default function ConversationView({
                     </>
                   )}
 
-                  {message.role === 'assistant' && (
+                  {!message.isStreaming && message.role === 'assistant' && (
                     <div
                       className="mt-3 flex flex-wrap items-center gap-2"
                       onPointerUp={(event) => event.stopPropagation()}
@@ -228,7 +233,8 @@ export default function ConversationView({
             );
           })}
 
-          {isLoading && (
+          {/* Bouncing dots only while waiting for the first token (no streaming message yet) */}
+          {isLoading && !messages.some((m) => m.isStreaming) && (
             <div className="py-4 font-sans">
               <span className="text-xs font-medium tracking-wider text-muted">
                 {activeName}

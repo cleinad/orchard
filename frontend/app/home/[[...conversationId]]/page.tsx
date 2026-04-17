@@ -75,6 +75,67 @@ interface ChatResponse {
   error?: string;
 }
 
+/**
+ * Reads an AI SDK v6 UI message stream response (SSE format).
+ * Calls onChunk with each text delta as tokens arrive.
+ * Returns the metadata object sent in the final data-chatMeta part.
+ *
+ * Relevant SSE event types (data: {...} JSON objects):
+ *   text-delta   — { type: "text-delta", delta: "..." }
+ *   data-chatMeta — { type: "data-chatMeta", data: { ...ChatResponse } }
+ *   error        — { type: "error", errorText: "..." }
+ */
+async function readChatStream(
+  response: Response,
+  onChunk: (delta: string) => void
+): Promise<ChatResponse> {
+  if (!response.body) {
+    throw new Error('No response body');
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let metadata: ChatResponse = {};
+  let buffer = '';
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      // Keep the last (potentially incomplete) line in the buffer
+      buffer = lines.pop() ?? '';
+
+      for (const line of lines) {
+        // SSE data lines start with "data: "
+        if (!line.startsWith('data: ')) continue;
+        const payload = line.slice(6).trim();
+        if (!payload || payload === '[DONE]') continue;
+
+        try {
+          const event = JSON.parse(payload) as Record<string, unknown>;
+
+          if (event.type === 'text-delta' && typeof event.delta === 'string') {
+            if (event.delta) onChunk(event.delta);
+          } else if (event.type === 'data-chatMeta' && event.data) {
+            metadata = event.data as ChatResponse;
+          } else if (event.type === 'error' && typeof event.errorText === 'string') {
+            metadata = { error: event.errorText };
+          }
+        } catch {
+          // Ignore malformed SSE lines
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  return metadata;
+}
+
 interface ChatModelsResponse {
   models?: ChatModelListItem[];
   error?: string;
@@ -1903,7 +1964,11 @@ function HomePageInner() {
           }),
         });
 
-        const data = (await response.json()) as ChatResponse;
+        // Drain the stream but discard text chunks — threads don't stream in place.
+        const data = response.ok
+          ? await readChatStream(response, () => {})
+          : (await response.json()) as ChatResponse;
+
         logResolvedChatModel(data, 'thread');
         const resolvedThreadId =
           typeof data.threadId === 'string' && data.threadId.length > 0
@@ -2469,6 +2534,109 @@ function HomePageInner() {
     setLastSearchState(null);
     setUserHasScrolled(false);
 
+    // Optimistic streaming message — shown immediately, content grows as chunks arrive.
+    const streamingMessageId =
+      effectiveSelection.kind === 'temporary'
+        ? createTemporaryId('message')
+        : `streaming-${Date.now()}`;
+    const streamingMessage: Message = {
+      id: streamingMessageId,
+      role: 'assistant',
+      content: '',
+      timestamp: new Date(),
+      previousMessageId: userMessage.id,
+      isStreaming: true,
+    };
+
+    const addStreamingMessage = <T extends { messages: Message[] }>(chat: T): T => ({
+      ...chat,
+      messages: [...chat.messages, streamingMessage],
+    });
+
+    if (effectiveSelection.kind === 'temporary') {
+      updateTemporaryChat(effectiveSelection.tempChatId, (chat) => ({
+        ...addStreamingMessage(chat),
+        updatedAt: new Date().toISOString(),
+      }));
+    } else if (effectiveSelection.kind === 'persistent') {
+      if (isSameSelectedChat(selectedChatRef.current, effectiveSelection)) {
+        setPersistentMessages((prev) => [...prev, streamingMessage]);
+      }
+    } else if (effectiveDraft) {
+      updateDraftChat(effectiveDraft.id, (draft) => addStreamingMessage(draft));
+    }
+
+    // Append each text delta to the streaming message in state.
+    const appendChunk = (delta: string) => {
+      if (effectiveSelection.kind === 'temporary') {
+        updateTemporaryChat(effectiveSelection.tempChatId, (chat) => ({
+          ...chat,
+          messages: chat.messages.map((m) =>
+            m.id === streamingMessageId ? { ...m, content: m.content + delta } : m
+          ),
+        }));
+      } else if (effectiveSelection.kind === 'persistent') {
+        if (isSameSelectedChat(selectedChatRef.current, effectiveSelection)) {
+          setPersistentMessages((prev) =>
+            prev.map((m) =>
+              m.id === streamingMessageId ? { ...m, content: m.content + delta } : m
+            )
+          );
+        }
+      } else if (effectiveDraft) {
+        updateDraftChat(effectiveDraft.id, (draft) => ({
+          ...draft,
+          messages: draft.messages.map((m) =>
+            m.id === streamingMessageId ? { ...m, content: m.content + delta } : m
+          ),
+        }));
+      }
+    };
+
+    // Remove the temporary streaming message and replace it with the final committed one.
+    const replaceStreamingMessage = (finalMessage: Message) => {
+      if (effectiveSelection.kind === 'temporary') {
+        updateTemporaryChat(effectiveSelection.tempChatId, (chat) => ({
+          ...chat,
+          messages: chat.messages.map((m) =>
+            m.id === streamingMessageId ? finalMessage : m
+          ),
+        }));
+      } else if (effectiveSelection.kind === 'persistent') {
+        if (isSameSelectedChat(selectedChatRef.current, effectiveSelection)) {
+          setPersistentMessages((prev) =>
+            prev.map((m) => (m.id === streamingMessageId ? finalMessage : m))
+          );
+        }
+      } else if (effectiveDraft) {
+        updateDraftChat(effectiveDraft.id, (draft) => ({
+          ...draft,
+          messages: draft.messages.map((m) =>
+            m.id === streamingMessageId ? finalMessage : m
+          ),
+        }));
+      }
+    };
+
+    // Remove the streaming placeholder entirely (used on error paths).
+    const removeStreamingMessage = () => {
+      if (effectiveSelection.kind === 'temporary') {
+        updateTemporaryChat(effectiveSelection.tempChatId, (chat) => ({
+          ...chat,
+          messages: chat.messages.filter((m) => m.id !== streamingMessageId),
+        }));
+      } else if (effectiveSelection.kind === 'persistent') {
+        if (isSameSelectedChat(selectedChatRef.current, effectiveSelection)) {
+          setPersistentMessages((prev) => prev.filter((m) => m.id !== streamingMessageId));
+        }
+      } else if (effectiveDraft) {
+        updateDraftChat(effectiveDraft.id, (draft) => ({
+          ...draft,
+          messages: draft.messages.filter((m) => m.id !== streamingMessageId),
+        }));
+      }
+    };
+
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
@@ -2499,10 +2667,10 @@ function HomePageInner() {
         }),
       });
 
-      const data = (await response.json()) as ChatResponse;
-      logResolvedChatModel(data, 'composer');
-
-      if (!response.ok || data.error) {
+      if (!response.ok) {
+        // Non-streaming error response (e.g. 401, 500 before stream starts)
+        const data = (await response.json()) as ChatResponse;
+        removeStreamingMessage();
         const errorMessage: Message = {
           id:
             effectiveSelection.kind === 'temporary'
@@ -2534,6 +2702,42 @@ function HomePageInner() {
         return;
       }
 
+      const data = await readChatStream(response, appendChunk);
+      logResolvedChatModel(data, 'composer');
+
+      if (data.error) {
+        removeStreamingMessage();
+        const errorMessage: Message = {
+          id:
+            effectiveSelection.kind === 'temporary'
+              ? createTemporaryId('message')
+              : (Date.now() + 1).toString(),
+          role: 'assistant',
+          content: `Something went wrong. ${data.error}`.trim(),
+          timestamp: new Date(),
+          previousMessageId: userMessage.id,
+        };
+
+        if (effectiveSelection.kind === 'temporary') {
+          updateTemporaryChat(effectiveSelection.tempChatId, (chat) => ({
+            ...chat,
+            messages: [...chat.messages, errorMessage],
+            updatedAt: new Date().toISOString(),
+          }));
+        } else if (effectiveSelection.kind === 'persistent') {
+          if (isSameSelectedChat(selectedChatRef.current, effectiveSelection)) {
+            setPersistentMessages((prev) => [...prev, errorMessage]);
+          }
+        } else if (effectiveDraft) {
+          updateDraftChat(effectiveDraft.id, (draft) => ({
+            ...draft,
+            messages: [...draft.messages, errorMessage],
+            updatedAt: new Date().toISOString(),
+          }));
+        }
+        return;
+      }
+
       setLastSearchState(data.search ?? null);
 
       const responseText =
@@ -2541,14 +2745,18 @@ function HomePageInner() {
       const assistantMessage: Message = {
         id:
           effectiveSelection.kind === 'temporary'
-            ? createTemporaryId('message')
+            ? streamingMessageId
             : data.assistantMessageId || (Date.now() + 1).toString(),
         role: 'assistant',
         content: responseText,
         timestamp: new Date(),
         searchMetadata: data.search?.metadata ?? null,
         previousMessageId: data.userMessageId || userMessage.id,
+        isStreaming: false,
       };
+
+      // Replace the streaming placeholder with the final message (correct ID + metadata).
+      replaceStreamingMessage(assistantMessage);
 
       if (effectiveSelection.kind === 'temporary') {
         updateTemporaryChat(effectiveSelection.tempChatId, (chat) => ({
@@ -2556,7 +2764,6 @@ function HomePageInner() {
           title:
             data.conversationTitle ||
             fallbackChatTitleFromMessage(messageText, TEMP_CHAT_TITLE),
-          messages: [...chat.messages, assistantMessage],
           updatedAt: new Date().toISOString(),
         }));
       } else if (effectiveSelection.kind === 'persistent') {
@@ -2627,34 +2834,18 @@ function HomePageInner() {
         tts.speak(stripCitationMarkers(responseText, assistantMessage.searchMetadata));
       }
     } catch {
-      const errorMessage: Message = {
+      // Replace the streaming placeholder with a static error message.
+      replaceStreamingMessage({
         id:
           effectiveSelection.kind === 'temporary'
-            ? createTemporaryId('message')
+            ? streamingMessageId
             : (Date.now() + 1).toString(),
         role: 'assistant',
         content: 'Sorry, there was an error processing your message.',
         timestamp: new Date(),
         previousMessageId: userMessage.id,
-      };
-
-      if (effectiveSelection.kind === 'temporary') {
-        updateTemporaryChat(effectiveSelection.tempChatId, (chat) => ({
-          ...chat,
-          messages: [...chat.messages, errorMessage],
-          updatedAt: new Date().toISOString(),
-        }));
-      } else if (effectiveSelection.kind === 'persistent') {
-        if (isSameSelectedChat(selectedChatRef.current, effectiveSelection)) {
-          setPersistentMessages((prev) => [...prev, errorMessage]);
-        }
-      } else if (effectiveDraft) {
-        updateDraftChat(effectiveDraft.id, (draft) => ({
-          ...draft,
-          messages: [...draft.messages, errorMessage],
-          updatedAt: new Date().toISOString(),
-        }));
-      }
+        isStreaming: false,
+      });
     } finally {
       setPendingChatRequest(null);
     }
