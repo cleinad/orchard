@@ -9,7 +9,6 @@ import type { BranchChip } from '@/app/home/components/conversationTree';
 import { markdownContentClassName } from '@/lib/markdown';
 
 interface ConversationViewProps {
-  loadingLists: boolean;
   listError: string | null;
   messages: Message[];
   activeName: string;
@@ -27,7 +26,6 @@ interface ConversationViewProps {
 }
 
 export default function ConversationView({
-  loadingLists,
   listError,
   messages,
   activeName,
@@ -81,9 +79,9 @@ export default function ConversationView({
 
   return (
     <div className="mx-auto max-w-2xl px-6 pb-4">
-      {(loadingLists || listError) && (
+      {listError && (
         <div className="mb-4 rounded-lg bg-surface px-4 py-2 font-sans text-xs text-muted shadow-sm">
-          {loadingLists ? 'Loading chats and mentors...' : listError}
+          {listError}
         </div>
       )}
 
