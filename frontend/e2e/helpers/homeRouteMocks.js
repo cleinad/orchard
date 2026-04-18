@@ -36,6 +36,7 @@ async function mockHomeDataRoutes(page, state) {
     mentors: [],
     conversations: [],
     messagesByConversationId: {},
+    branchesByConversationId: {},
     threadsByConversationId: {},
     chatModels: DEFAULT_CHAT_MODELS,
     ...state,
@@ -124,6 +125,16 @@ async function mockHomeDataRoutes(page, state) {
     }
 
     await fulfillJson(route, messages);
+  });
+
+  await page.route('**/rest/v1/conversation_branches*', async (route) => {
+    const url = new URL(route.request().url());
+    const conversationId = parseEqFilter(url.searchParams.get('conversation_id'));
+    const branches = conversationId
+      ? resolvedState.branchesByConversationId[conversationId] || []
+      : [];
+
+    await fulfillJson(route, branches);
   });
 
   await page.route('**/rest/v1/threads*', async (route) => {

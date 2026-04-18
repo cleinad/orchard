@@ -467,6 +467,7 @@ export default function SidePanel({
                               <button
                                 type="button"
                                 onClick={() => onSelectTemporaryChat(chat.id)}
+                                aria-label={`Temp ${chat.title}`}
                                 className="flex min-w-0 flex-1 items-center gap-3 text-left"
                               >
                                 <span className="min-w-0 flex-1 truncate font-sans text-sm text-foreground">

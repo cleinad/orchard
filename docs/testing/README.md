@@ -80,6 +80,7 @@ Notes:
 
 ### Playwright Browser Coverage
 
+- `frontend/e2e/conversation-map.spec.js`: split-pane map behavior, branch-route activation, transcript scroll sync, stable node layout, zoom, resize, mobile takeover, and map/thread interaction boundaries
 - `frontend/e2e/home-routing.spec.js`: direct `/home/[conversationId]` hydration, sidebar route changes, draft promotion, and URL-less temporary-chat transitions
 - `frontend/e2e/inline-threads.spec.js`: inline-thread creation, selection, popover behavior, and keyboard handoff flow
 - `frontend/e2e/persistent-inline-threads.spec.js`: persisted inline-thread reopen behavior and durable offset-based rendering cases
@@ -139,6 +140,16 @@ cd frontend
 npx playwright test e2e/home-routing.spec.js
 ```
 
+### Conversation Map
+
+- Doc: [../features/conversation-branching.md](../features/conversation-branching.md)
+- Run:
+
+```bash
+cd frontend
+npx playwright test e2e/conversation-map.spec.js
+```
+
 ### Search Mode And Citations
 
 - Doc: [search-citations-and-source-ui.md](./search-citations-and-source-ui.md)
@@ -156,6 +167,7 @@ npm run test:e2e -- e2e/search-mode.spec.js
 - If you change memory loading, memory writing, memory CRUD, or mentor memory scoping, run the memory canary suite.
 - If you change proxy logic, login redirect handling, protected-route behavior, or TTS auth, run the auth canary suite.
 - If you change model catalog data, provider resolution, or chat model selection UI behavior, run the model-selection tests.
+- If you change conversation-map layout, branch-route activation, transcript/map scroll sync, map resize behavior, or mobile map takeover behavior, run the conversation-map Playwright suite.
 - If you change home route hydration, routed loading UI, sidebar-driven chat navigation, draft promotion, or temporary chat route behavior, run the home-routing Playwright suite.
 - If you change inline threads, selection handling, markdown rendering, or thread panel behavior, run the inline-thread Playwright suite.
 - If you change Search mode routing, provider normalization, citation persistence, markdown citation chips, or the source tray UI, run the search canary suite.
