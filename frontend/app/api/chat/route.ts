@@ -21,6 +21,7 @@ import {
   stripInvalidCitationMarkers,
 } from '@/lib/search-citations';
 import { runSearchPipeline } from '@/lib/search/pipeline';
+import { createSearchTelemetry } from '@/lib/search/telemetry';
 import { buildMentorPrompt } from '@/lib/mentors/prompts';
 import type {
   ChatHistoryMessage,
@@ -797,8 +798,20 @@ export async function POST(request: NextRequest) {
 Reply to the user's latest message directly. Do not return an empty response.`;
 
     if (searchMode === 'required') {
+      const searchTraceId = crypto.randomUUID();
+      const searchTelemetry = createSearchTelemetry({
+        traceId: searchTraceId,
+        conversationId: activeConversationId,
+        query: message,
+      });
+      const searchStartedAt = Date.now();
+
+      searchTelemetry.logRequestStarted({ searchMode });
+
       try {
-        const searchOutput = await runSearchPipeline(message);
+        const searchOutput = await runSearchPipeline(message, {
+          telemetry: searchTelemetry,
+        });
         search = createSearchMetadataFromOutput(searchOutput, searchMode);
         persistedSearchMetadata = search.metadata;
 
@@ -817,6 +830,10 @@ Reply directly in 2 to 4 sentences. Do not return an empty response.`;
 
         assistantText = generation.text.trim();
       } catch (error) {
+        searchTelemetry.logPipelineFailed({
+          durationMs: Date.now() - searchStartedAt,
+          error,
+        });
         console.error('[chat] search pipeline failed', error);
         search = createFailedSearchMetadata(
           searchMode,

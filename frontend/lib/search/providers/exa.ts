@@ -68,6 +68,7 @@ function buildSnippet(result: ExaSearchResult) {
 export async function searchExa(route: SearchRoute): Promise<SearchProviderResult> {
   const apiKey = process.env.EXA_API_KEY;
   const query = sanitizeQuery(route.query);
+  const requestedResultCount = getResultCount(route);
 
   if (!apiKey) {
     return {
@@ -75,6 +76,11 @@ export async function searchExa(route: SearchRoute): Promise<SearchProviderResul
       status: 'missing_config',
       results: [],
       error: 'EXA_API_KEY is not configured',
+      metrics: {
+        attempted: false,
+        httpStatus: null,
+        requestedResultCount,
+      },
     };
   }
 
@@ -88,7 +94,7 @@ export async function searchExa(route: SearchRoute): Promise<SearchProviderResul
       body: JSON.stringify({
         query,
         type: 'auto',
-        numResults: getResultCount(route),
+        numResults: requestedResultCount,
         ...(route.exaCategory ? { category: route.exaCategory } : {}),
         ...(buildStartPublishedDate(route.freshness)
           ? { startPublishedDate: buildStartPublishedDate(route.freshness) }
@@ -109,6 +115,11 @@ export async function searchExa(route: SearchRoute): Promise<SearchProviderResul
         status: 'upstream_error',
         results: [],
         error: `Exa search failed (${response.status})`,
+        metrics: {
+          attempted: true,
+          httpStatus: response.status,
+          requestedResultCount,
+        },
       };
     }
 
@@ -148,6 +159,11 @@ export async function searchExa(route: SearchRoute): Promise<SearchProviderResul
         status: 'no_results',
         results: [],
         error: 'Exa returned no useful results',
+        metrics: {
+          attempted: true,
+          httpStatus: response.status,
+          requestedResultCount,
+        },
       };
     }
 
@@ -156,6 +172,11 @@ export async function searchExa(route: SearchRoute): Promise<SearchProviderResul
       status: 'success',
       results,
       error: null,
+      metrics: {
+        attempted: true,
+        httpStatus: response.status,
+        requestedResultCount,
+      },
     };
   } catch (error) {
     const errorName = error instanceof Error ? error.name : 'UnknownError';
@@ -166,6 +187,11 @@ export async function searchExa(route: SearchRoute): Promise<SearchProviderResul
         : 'upstream_error',
       results: [],
       error: error instanceof Error ? error.message : 'Exa search unavailable',
+      metrics: {
+        attempted: true,
+        httpStatus: null,
+        requestedResultCount,
+      },
     };
   }
 }

@@ -1,5 +1,6 @@
 import { classifySearchQuery } from '@/lib/search/router';
 import { rerankSearchCandidates } from '@/lib/search/rerank';
+import type { SearchTelemetry } from '@/lib/search/telemetry';
 import type {
   SearchPipelineOutput,
   SearchProviderResult,
@@ -65,19 +66,78 @@ export async function runSearchPipeline(
   dependencies: {
     braveSearch?: (route: SearchRoute) => Promise<SearchProviderResult>;
     exaSearch?: (route: SearchRoute) => Promise<SearchProviderResult>;
+    telemetry?: SearchTelemetry;
   } = {}
 ): Promise<SearchPipelineOutput> {
+  const startedAt = Date.now();
   const route = classifySearchQuery(query);
   const braveSearch = dependencies.braveSearch ?? searchBrave;
   const exaSearch = dependencies.exaSearch ?? searchExa;
+  const telemetry = dependencies.telemetry;
+
+  telemetry?.logRouteSelected(route);
 
   const providerTasks = route.providers.map((provider) => {
+    const providerStartedAt = Date.now();
+
     switch (provider) {
       case 'exa':
-        return exaSearch(route);
+        return exaSearch(route)
+          .then((result) => {
+            telemetry?.logProviderFinished({
+              provider: result.provider,
+              status: result.status,
+              attempted: result.metrics?.attempted ?? true,
+              durationMs: Date.now() - providerStartedAt,
+              httpStatus: result.metrics?.httpStatus ?? null,
+              requestedResultCount: result.metrics?.requestedResultCount ?? null,
+              usefulResultCount: result.results.length,
+              error: result.error,
+            });
+            return result;
+          })
+          .catch((error) => {
+            telemetry?.logProviderFinished({
+              provider,
+              status: 'upstream_error',
+              attempted: true,
+              durationMs: Date.now() - providerStartedAt,
+              httpStatus: null,
+              requestedResultCount: null,
+              usefulResultCount: 0,
+              error: error instanceof Error ? error.message : 'Provider request failed',
+            });
+            throw error;
+          });
       case 'brave':
       default:
-        return braveSearch(route);
+        return braveSearch(route)
+          .then((result) => {
+            telemetry?.logProviderFinished({
+              provider: result.provider,
+              status: result.status,
+              attempted: result.metrics?.attempted ?? true,
+              durationMs: Date.now() - providerStartedAt,
+              httpStatus: result.metrics?.httpStatus ?? null,
+              requestedResultCount: result.metrics?.requestedResultCount ?? null,
+              usefulResultCount: result.results.length,
+              error: result.error,
+            });
+            return result;
+          })
+          .catch((error) => {
+            telemetry?.logProviderFinished({
+              provider,
+              status: 'upstream_error',
+              attempted: true,
+              durationMs: Date.now() - providerStartedAt,
+              httpStatus: null,
+              requestedResultCount: null,
+              usefulResultCount: 0,
+              error: error instanceof Error ? error.message : 'Provider request failed',
+            });
+            throw error;
+          });
     }
   });
 
@@ -85,11 +145,13 @@ export async function runSearchPipeline(
   const allCandidates = dedupeCandidates(providerResults);
   const ranked = rerankSearchCandidates(allCandidates, route);
   const visibleResults = ranked.slice(0, Math.min(MAX_VISIBLE_SOURCES, visibleSourceCount(route, ranked.length)));
+  const outboundRequestCount = providerResults.filter(
+    (result) => result.metrics?.attempted ?? true
+  ).length;
+  const failedProviderCount = providerResults.filter((result) => result.status !== 'success').length;
 
   if (visibleResults.length > 0) {
-    const failedProviderCount = providerResults.filter((result) => result.status !== 'success').length;
-
-    return {
+    const output: SearchPipelineOutput = {
       status: failedProviderCount > 0 ? 'partial' : 'success',
       profile: route.profile,
       query: route.query,
@@ -105,9 +167,30 @@ export async function runSearchPipeline(
       })),
       ...(failedProviderCount > 0 ? { error: 'One or more providers failed' } : {}),
     };
+
+    telemetry?.logPipelineCompleted({
+      profile: output.profile,
+      status: output.status,
+      providers: output.providers,
+      plannedProviderCount: route.providers.length,
+      outboundRequestCount,
+      failedProviderCount,
+      dedupedCount: allCandidates.length,
+      rankedCount: ranked.length,
+      visibleCount: visibleResults.length,
+      durationMs: Date.now() - startedAt,
+      providerSummaries: providerResults.map((result) => ({
+        provider: result.provider,
+        status: result.status,
+        attempted: result.metrics?.attempted ?? true,
+        usefulResultCount: result.results.length,
+      })),
+    });
+
+    return output;
   }
 
-  return {
+  const output: SearchPipelineOutput = {
     status: resolveFailureStatus(providerResults),
     profile: route.profile,
     query: route.query,
@@ -115,4 +198,25 @@ export async function runSearchPipeline(
     results: [],
     error: providerResults.map((result) => result.error).filter(Boolean).join('; ') || undefined,
   };
+
+  telemetry?.logPipelineCompleted({
+    profile: output.profile,
+    status: output.status,
+    providers: output.providers,
+    plannedProviderCount: route.providers.length,
+    outboundRequestCount,
+    failedProviderCount,
+    dedupedCount: allCandidates.length,
+    rankedCount: ranked.length,
+    visibleCount: 0,
+    durationMs: Date.now() - startedAt,
+    providerSummaries: providerResults.map((result) => ({
+      provider: result.provider,
+      status: result.status,
+      attempted: result.metrics?.attempted ?? true,
+      usefulResultCount: result.results.length,
+    })),
+  });
+
+  return output;
 }

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { runSearchPipeline } from '@/lib/search/pipeline';
+import type { SearchTelemetry } from '@/lib/search/telemetry';
 import type { SearchProviderResult, SearchRoute } from '@/lib/search/types';
 
 function makeProviderResult(
@@ -55,6 +56,71 @@ describe('search pipeline', () => {
     expect(result.status).toBe('success');
     expect(result.providers).toEqual(['brave', 'exa']);
     expect(result.results).toHaveLength(2);
+  });
+
+  it('emits telemetry for route selection, provider completion, and pipeline completion', async () => {
+    const telemetry: SearchTelemetry = {
+      logRequestStarted: vi.fn(),
+      logRouteSelected: vi.fn(),
+      logProviderFinished: vi.fn(),
+      logPipelineCompleted: vi.fn(),
+      logPipelineFailed: vi.fn(),
+    };
+
+    const result = await runSearchPipeline('official OpenAI docs pricing', {
+      telemetry,
+      braveSearch: async () =>
+        makeProviderResult('brave', {
+          results: [
+            makeCandidate({
+              url: 'https://platform.openai.com/docs/pricing',
+              domain: 'platform.openai.com',
+              sourceType: 'docs',
+              authorityScoreHint: 3,
+            }),
+          ],
+          metrics: {
+            attempted: true,
+            httpStatus: 200,
+            requestedResultCount: 12,
+          },
+        }),
+      exaSearch: async () =>
+        makeProviderResult('exa', {
+          results: [
+            makeCandidate({
+              provider: 'exa',
+              url: 'https://openai.com/pricing',
+              domain: 'openai.com',
+              sourceType: 'official',
+              authorityScoreHint: 3,
+            }),
+          ],
+          metrics: {
+            attempted: true,
+            httpStatus: 200,
+            requestedResultCount: 8,
+          },
+        }),
+    });
+
+    expect(result.status).toBe('success');
+    expect(telemetry.logRouteSelected).toHaveBeenCalledWith(
+      expect.objectContaining({
+        profile: 'official_priority',
+        providers: ['brave', 'exa'],
+      })
+    );
+    expect(telemetry.logProviderFinished).toHaveBeenCalledTimes(2);
+    expect(telemetry.logPipelineCompleted).toHaveBeenCalledWith(
+      expect.objectContaining({
+        profile: 'official_priority',
+        status: 'success',
+        plannedProviderCount: 2,
+        outboundRequestCount: 2,
+        visibleCount: 2,
+      })
+    );
   });
 
   it('returns partial when one provider fails but the other provides usable evidence', async () => {

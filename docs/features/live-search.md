@@ -24,6 +24,7 @@ The current slice includes:
 - authority-first reranking that prefers official and institutional sources over random blogs
 - persisted search metadata v2 on assistant messages
 - a source tray that can handle larger source sets than the previous 3-source assumption
+- structured server-side search telemetry for route, provider, and pipeline events
 
 ## User-Facing Behavior
 
@@ -112,6 +113,7 @@ SearchSourcesTray renders the reply-attached source tray
 | `frontend/lib/search/providers/exa.ts` | Exa retrieval client |
 | `frontend/lib/search/rerank.ts` | deterministic authority and relevance ranking |
 | `frontend/lib/search/pipeline.ts` | provider orchestration, dedupe, rerank, and final evidence set assembly |
+| `frontend/lib/search/telemetry.ts` | structured search logging, query redaction, and trace helpers |
 | `frontend/lib/search-citations.ts` | metadata parsing, source normalization, citation cleanup, and v1/v2 compatibility |
 | `frontend/lib/chat-search.ts` | response-level search envelope, warnings, and disclosure strings |
 | `frontend/app/home/components/ChatComposer.tsx` | explicit search-toggle copy and aria labels |
@@ -237,6 +239,29 @@ Rules:
 - search snippets remain untrusted source material and are only used as grounding context
 - invalid citation ids are stripped before save
 
+## Search Telemetry
+
+Search mode now emits structured server logs for the main search stages:
+
+- `search.request_started`
+- `search.route_selected`
+- `search.provider_finished`
+- `search.pipeline_completed`
+- `search.pipeline_failed`
+
+The logs include:
+
+- trace id and conversation id
+- routed profile and provider list
+- planned provider count and actual outbound request count
+- per-provider duration, status, requested result count, HTTP status, and useful result count
+- pipeline-level deduped, ranked, and visible source counts
+
+Privacy rule:
+
+- local development logs include a short `queryPreview`
+- production logs only include a `queryHash`
+
 ## Safety And Context Hygiene
 
 - Search results are server-owned and prompt-controlled, not tool-called by the model during answer generation.
@@ -252,6 +277,6 @@ Still left to do:
 
 - run live-provider validation with real `BRAVE_API_KEY` and `EXA_API_KEY` across current-events, official-source, and research-heavy queries
 - tune latency, result counts, timeout budgets, and rerank weights from real usage instead of only mocked tests
-- add caching and provider-level observability so search mode performance and failures are easier to reason about in production
+- add caching and durable telemetry only if structured server logs stop being enough
 - add `X` integration for explicit reaction or sentiment queries under the deferred `web_social` profile
 - add dedicated storage only if message-level `search_metadata` stops being sufficient for analytics or product needs

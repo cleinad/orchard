@@ -54,11 +54,18 @@ export interface SearchRoute {
   exaCategory: 'research paper' | 'news' | null;
 }
 
+export interface SearchProviderMetrics {
+  attempted: boolean;
+  httpStatus: number | null;
+  requestedResultCount: number | null;
+}
+
 export interface SearchProviderResult {
   provider: SearchProvider;
   status: Exclude<SearchPipelineStatus, 'partial'>;
   results: SearchCandidate[];
   error: string | null;
+  metrics?: SearchProviderMetrics;
 }
 
 export interface SearchPipelineOutput {

@@ -74,6 +74,7 @@ Notes:
 - `frontend/__tests__/lib/memory-items.test.ts`: deterministic memory normalization and scoring helpers
 - `frontend/__tests__/lib/memory-integration.test.ts`: memory read/write integration behavior with mocked externals
 - `frontend/__tests__/lib/search-citations.test.ts`: persisted source normalization, citation splitting, and citation-marker stripping helpers
+- `frontend/__tests__/lib/search-telemetry.test.ts`: structured search logging redaction and event payload rules
 - `frontend/__tests__/lib/search-router.test.ts`: deterministic query classification for freshness, research, official-priority, and social intent
 - `frontend/__tests__/lib/search-pipeline.test.ts`: provider orchestration, fallback, dedupe, and authority-aware reranking
 
@@ -146,6 +147,7 @@ npx playwright test e2e/home-routing.spec.js
 ```bash
 cd frontend
 npm run test -- __tests__/app/chat-route.test.ts __tests__/app/chat-route-search.test.ts __tests__/lib/search-citations.test.ts __tests__/lib/search-router.test.ts __tests__/lib/search-pipeline.test.ts
+npm run test -- __tests__/lib/search-telemetry.test.ts
 npm run test:e2e -- e2e/search-mode.spec.js
 ```
 

@@ -61,11 +61,12 @@ Search mode has shipped its first provider-backed slice:
 - deterministic internal routing with no extra model hop
 - `Brave + Exa` retrieval pipeline
 - persisted v2 source metadata with a larger reply-attached source tray
+- structured server-side search telemetry for route, provider, and pipeline events
 
 Still left to do:
 
 - validate and tune the live provider stack with real `BRAVE_API_KEY` and `EXA_API_KEY`
-- add caching and observability once real traffic patterns are clearer
+- add caching and durable telemetry only if structured server logs stop being enough
 - add `X`-backed retrieval for explicit reaction or sentiment queries
 - revisit storage only if message-level `search_metadata` becomes too limiting
 

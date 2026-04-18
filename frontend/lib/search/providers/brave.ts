@@ -49,6 +49,7 @@ function buildSnippet(result: BraveWebResult) {
 export async function searchBrave(route: SearchRoute): Promise<SearchProviderResult> {
   const apiKey = process.env.BRAVE_API_KEY;
   const query = sanitizeQuery(route.query);
+  const requestedResultCount = getResultCount(route);
 
   if (!apiKey) {
     return {
@@ -56,13 +57,18 @@ export async function searchBrave(route: SearchRoute): Promise<SearchProviderRes
       status: 'missing_config',
       results: [],
       error: 'BRAVE_API_KEY is not configured',
+      metrics: {
+        attempted: false,
+        httpStatus: null,
+        requestedResultCount,
+      },
     };
   }
 
   try {
     const params = new URLSearchParams({
       q: query,
-      count: String(getResultCount(route)),
+      count: String(requestedResultCount),
       extra_snippets: 'true',
     });
 
@@ -85,6 +91,11 @@ export async function searchBrave(route: SearchRoute): Promise<SearchProviderRes
         status: 'upstream_error',
         results: [],
         error: `Brave search failed (${response.status})`,
+        metrics: {
+          attempted: true,
+          httpStatus: response.status,
+          requestedResultCount,
+        },
       };
     }
 
@@ -124,6 +135,11 @@ export async function searchBrave(route: SearchRoute): Promise<SearchProviderRes
         status: 'no_results',
         results: [],
         error: 'Brave returned no useful results',
+        metrics: {
+          attempted: true,
+          httpStatus: response.status,
+          requestedResultCount,
+        },
       };
     }
 
@@ -132,6 +148,11 @@ export async function searchBrave(route: SearchRoute): Promise<SearchProviderRes
       status: 'success',
       results,
       error: null,
+      metrics: {
+        attempted: true,
+        httpStatus: response.status,
+        requestedResultCount,
+      },
     };
   } catch (error) {
     const errorName = error instanceof Error ? error.name : 'UnknownError';
@@ -142,6 +163,11 @@ export async function searchBrave(route: SearchRoute): Promise<SearchProviderRes
         : 'upstream_error',
       results: [],
       error: error instanceof Error ? error.message : 'Brave search unavailable',
+      metrics: {
+        attempted: true,
+        httpStatus: null,
+        requestedResultCount,
+      },
     };
   }
 }

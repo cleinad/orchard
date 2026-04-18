@@ -10,6 +10,7 @@ Companion docs:
 ## Current Automated Coverage
 
 - `frontend/__tests__/lib/search-citations.test.ts`
+- `frontend/__tests__/lib/search-telemetry.test.ts`
 - `frontend/__tests__/lib/search-router.test.ts`
 - `frontend/__tests__/lib/search-pipeline.test.ts`
 - `frontend/__tests__/app/chat-route.test.ts`
@@ -25,6 +26,7 @@ The automated suite now verifies:
 - `partial` grounded results still count as usable source-backed metadata
 - deterministic router classification for freshness, research, official-priority, and social-intent queries
 - pipeline fallback, dedupe, and reranking behavior
+- telemetry query redaction in production and structured search event payloads
 - official sources outrank random blogs in the final evidence set
 - research sources outrank forums for evidence-heavy queries
 - `/api/chat` never uses planner-driven auto search anymore
@@ -39,6 +41,7 @@ From `frontend/`:
 
 ```bash
 npm run test -- __tests__/lib/search-citations.test.ts __tests__/lib/search-router.test.ts __tests__/lib/search-pipeline.test.ts
+npm run test -- __tests__/lib/search-telemetry.test.ts
 npm run test -- __tests__/app/chat-route.test.ts __tests__/app/chat-route-search.test.ts
 npm run test:e2e -- e2e/search-mode.spec.js
 ```
@@ -65,4 +68,5 @@ Use these checks when changing the search pipeline or citation UI:
 - There is still no dedicated unit test for `SearchSourcesTray` or `ConversationView`; current UI confidence comes from e2e coverage plus the citation helper tests.
 - The suite does not hit live Brave or Exa APIs in CI; provider behavior is covered with deterministic mocks.
 - Live-provider smoke testing and latency tuning still need to be done manually with real API keys before search mode can be considered production-tuned.
+- Search telemetry is currently server-log based only; there is no durable analytics table for historical search inspection yet.
 - `X` integration is intentionally out of scope until the `Brave + Exa` stack is stable.
