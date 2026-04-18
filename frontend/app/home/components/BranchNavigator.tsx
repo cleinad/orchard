@@ -100,7 +100,7 @@ export default function BranchNavigator({
               </svg>
             </span>
             <span className="min-w-0">
-              <span className="block text-[11px] font-semibold uppercase tracking-[0.18em] text-muted">
+              <span className="block text-[11px] font-semibold tracking-[0.18em] text-muted">
                 Branches
               </span>
               <span className="block text-sm font-medium text-foreground">
@@ -116,7 +116,7 @@ export default function BranchNavigator({
             >
               <div className="flex items-center justify-between border-b border-border-subtle px-4 py-3">
                 <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted">
+                  <p className="text-[11px] font-semibold tracking-[0.18em] text-muted">
                     Branch Navigator
                   </p>
                   <p className="mt-1 text-sm font-medium text-foreground">
@@ -162,7 +162,7 @@ export default function BranchNavigator({
                         className="w-full text-left"
                       >
                         <div className="flex items-center justify-between gap-3">
-                          <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted">
+                          <span className="text-[11px] font-semibold tracking-[0.18em] text-muted">
                             Fork {index + 1}
                           </span>
                           <span className="text-[11px] text-muted">Jump</span>

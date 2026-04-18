@@ -58,7 +58,7 @@ export default function SearchSourcesTray({
             <p className="text-sm font-medium leading-snug text-foreground">
               {selectedSource.title}
             </p>
-            <p className="mt-1 text-[11px] uppercase tracking-[0.18em] text-muted/70">
+            <p className="mt-1 text-[11px] tracking-[0.18em] text-muted/70">
               {selectedSource.domain}
             </p>
           </div>
