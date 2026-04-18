@@ -3,6 +3,8 @@ const REPEATED_TEXT = 'before paint';
 const REPEATED_CONTENT =
   'One update can happen before paint, and another can also happen before paint when microtasks keep draining.';
 const BULLET_LIST_TEXT = 'microtasks can delay visible paint until queued work finishes';
+const CONVERSATION_MAP_SELECTED_TEXT =
+  'microtasks drain before the browser is allowed to paint';
 
 const FIXTURE_CONFIGS = {
   'inline-threads': {
@@ -28,6 +30,10 @@ const FIXTURE_CONFIGS = {
   'inline-threads-bullet-list': {
     messageId: 'assistant-inline-threads-bullet-list-fixture',
     selectedText: BULLET_LIST_TEXT,
+  },
+  'conversation-map-temporary': {
+    messageId: 'map-main-assistant',
+    selectedText: CONVERSATION_MAP_SELECTED_TEXT,
   },
 };
 

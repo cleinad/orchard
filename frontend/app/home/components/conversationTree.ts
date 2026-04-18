@@ -4,11 +4,18 @@ import type {
   Message,
 } from '@/app/home/types';
 import {
+  buildChildrenByPreviousId,
+  getActualBranchesForSource,
+  getActivePathMessages as getProjectedActivePathMessages,
+  getDefaultBranch,
+  getFirstChildMessage,
+  normalizeMessages,
+  sortBranches,
+} from '@/app/home/components/conversationMapModel';
+import {
   createTemporaryId,
   fallbackChatTitleFromMessage,
 } from '@/lib/chat-session';
-
-const ROOT_KEY = '__root__';
 
 export interface PendingBranchTarget {
   sourceMessageId: string;
@@ -22,94 +29,6 @@ export interface BranchChip {
   kind: 'branch' | 'pending' | 'fallback-main';
   branchId: string | null;
   isActive: boolean;
-}
-
-function sortMessages(messages: Message[]) {
-  return [...messages].sort((a, b) => {
-    const byTime = a.timestamp.getTime() - b.timestamp.getTime();
-    if (byTime !== 0) {
-      return byTime;
-    }
-
-    return a.id.localeCompare(b.id);
-  });
-}
-
-function sortBranches(branches: ConversationBranch[]) {
-  return [...branches].sort((a, b) => {
-    if (a.sourceMessageId !== b.sourceMessageId) {
-      return a.sourceMessageId.localeCompare(b.sourceMessageId);
-    }
-
-    if (a.isMain !== b.isMain) {
-      return a.isMain ? -1 : 1;
-    }
-
-    if (a.position !== b.position) {
-      return a.position - b.position;
-    }
-
-    return a.id.localeCompare(b.id);
-  });
-}
-
-function normalizeMessages(messages: Message[]) {
-  const sorted = sortMessages(messages);
-  const rootCount = sorted.filter((message) => message.previousMessageId === null).length;
-  const hasAnyPreviousPointer = sorted.some((message) => message.previousMessageId !== null);
-
-  if (hasAnyPreviousPointer && rootCount <= 1) {
-    return sorted.map((message) => ({
-      ...message,
-      previousMessageId: message.previousMessageId ?? null,
-    }));
-  }
-
-  return sorted.map((message, index) => ({
-    ...message,
-    previousMessageId: index === 0 ? null : sorted[index - 1].id,
-  }));
-}
-
-function buildChildrenByPreviousId(messages: Message[]) {
-  const map = new Map<string, Message[]>();
-
-  for (const message of messages) {
-    const key = message.previousMessageId ?? ROOT_KEY;
-    const existing = map.get(key);
-
-    if (existing) {
-      existing.push(message);
-    } else {
-      map.set(key, [message]);
-    }
-  }
-
-  return map;
-}
-
-function getActualBranchesForSource(
-  branches: ConversationBranch[],
-  sourceMessageId: string
-) {
-  return sortBranches(
-    branches.filter((branch) => branch.sourceMessageId === sourceMessageId)
-  );
-}
-
-function getDefaultBranch(branches: ConversationBranch[]) {
-  return (
-    branches.find((branch) => branch.isMain) ||
-    sortBranches(branches)[0] ||
-    null
-  );
-}
-
-function getFirstChildMessage(
-  childrenByPreviousId: Map<string, Message[]>,
-  sourceMessageId: string
-) {
-  return childrenByPreviousId.get(sourceMessageId)?.[0] ?? null;
 }
 
 export function buildInitialBranchSelections(
@@ -154,48 +73,12 @@ export function getActivePathMessages(params: {
   selectedBranchIds: BranchSelectionMap;
   pendingBranch: PendingBranchTarget | null;
 }) {
-  const normalizedMessages = normalizeMessages(params.messages);
-  const messageById = new Map(normalizedMessages.map((message) => [message.id, message]));
-  const childrenByPreviousId = buildChildrenByPreviousId(normalizedMessages);
-  const path: Message[] = [];
-  const seen = new Set<string>();
-
-  let current = childrenByPreviousId.get(ROOT_KEY)?.[0] ?? null;
-
-  while (current && !seen.has(current.id)) {
-    path.push(current);
-    seen.add(current.id);
-
-    if (
-      current.role === 'assistant'
-      && params.pendingBranch?.sourceMessageId === current.id
-    ) {
-      break;
-    }
-
-    let nextMessage: Message | null = null;
-    if (current.role === 'assistant') {
-      const branches = getActualBranchesForSource(params.branches, current.id);
-      if (branches.length > 0) {
-        const selectedBranchId =
-          params.selectedBranchIds[current.id] ?? getDefaultBranch(branches)?.id ?? null;
-        const selectedBranch =
-          branches.find((branch) => branch.id === selectedBranchId) ??
-          getDefaultBranch(branches);
-        if (selectedBranch) {
-          nextMessage = messageById.get(selectedBranch.entryMessageId) ?? null;
-        }
-      }
-    }
-
-    if (!nextMessage) {
-      nextMessage = getFirstChildMessage(childrenByPreviousId, current.id);
-    }
-
-    current = nextMessage;
-  }
-
-  return path;
+  return getProjectedActivePathMessages({
+    messages: params.messages,
+    branches: params.branches,
+    selectedBranchIds: params.selectedBranchIds,
+    pendingBranchSourceMessageId: params.pendingBranch?.sourceMessageId ?? null,
+  });
 }
 
 export function getBranchChipsForMessage(params: {

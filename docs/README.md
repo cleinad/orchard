@@ -45,7 +45,7 @@ If docs conflict, prefer:
 
 - [features/auth-and-route-protection.md](./features/auth-and-route-protection.md): auth model, protected routes including `/home/[conversationId]`, proxy rules, and testing coverage
 - [features/chat-model-selection.md](./features/chat-model-selection.md): model picker behavior across routed home chats, resolution rules, availability rules, and verification
-- [features/conversation-branching.md](./features/conversation-branching.md): branch chips, branch navigator, tree state, persistence model, and runtime isolation rules
+- [features/conversation-branching.md](./features/conversation-branching.md): branch chips, conversation map, tree state, persistence model, and runtime isolation rules
 - [features/inline-threads.md](./features/inline-threads.md): text selection, popover behavior, thread panel rules, keyboard behavior, and edge cases across `/home` and `/home/[conversationId]`
 - [features/live-search.md](./features/live-search.md): explicit search-mode behavior, provider-backed retrieval pipeline, persisted source metadata, and safety constraints
 - [features/memory.md](./features/memory.md): memory system architecture, read/write paths, schema, and API shape
@@ -110,7 +110,7 @@ If you are making changes in this repo:
 - start from this file
 - read [design/design-language.md](./design/design-language.md) and [design/tokens.md](./design/tokens.md) before changing the landing page, auth pages, typography tokens, or any major visual surface
 - use `docs/features/` as the default behavior reference
-- read [features/conversation-branching.md](./features/conversation-branching.md) before changing `messages.previous_message_id`, `conversation_branches`, branch chips, or the top-right branch navigator
+- read [features/conversation-branching.md](./features/conversation-branching.md) before changing `messages.previous_message_id`, `conversation_branches`, branch chips, or conversation-map routing/state
 - check `docs/implementation/` before refactoring sensitive rendering or state logic
 - check test docs before changing memory, model selection, auth, or inline-thread behavior
 - treat dated plan/spec files as context, not authority
