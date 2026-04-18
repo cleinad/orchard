@@ -1,4 +1,8 @@
-import type { Message } from '@/app/home/types';
+import type {
+  BranchSelectionMap,
+  ConversationBranch,
+  Message,
+} from '@/app/home/types';
 import type { ThreadMeta } from '@/app/home/components/threadTypes';
 import type { ChatMode } from '@/lib/chat-session';
 
@@ -7,6 +11,8 @@ export interface HomeE2eFixture {
   chatMode: ChatMode;
   conversationId: string | null;
   messages: Message[];
+  branches?: ConversationBranch[];
+  selectedBranchIds?: BranchSelectionMap;
   threads?: ThreadMeta[];
 }
 
@@ -27,6 +33,112 @@ const INLINE_THREADS_REPEATED_SECOND_OFFSET = INLINE_THREADS_REPEATED_CONTENT.in
 const INLINE_THREADS_BULLET_LIST_TEXT =
   'microtasks can delay visible paint until queued work finishes';
 const INLINE_THREADS_BULLET_LIST_CONTENT = `- ${INLINE_THREADS_BULLET_LIST_TEXT}`;
+const CONVERSATION_MAP_MESSAGES: Message[] = [
+  {
+    id: 'map-user-root',
+    role: 'user',
+    content: 'Give me two ways to explain delayed browser paint.',
+    timestamp: new Date('2026-04-15T09:00:00.000Z'),
+    previousMessageId: null,
+  },
+  {
+    id: 'map-assistant-root',
+    role: 'assistant',
+    content: 'We can explain it as event-loop scheduling or as render-pipeline coordination.',
+    timestamp: new Date('2026-04-15T09:00:10.000Z'),
+    previousMessageId: 'map-user-root',
+  },
+  {
+    id: 'map-main-user',
+    role: 'user',
+    content: 'Start with the event-loop explanation.',
+    timestamp: new Date('2026-04-15T09:00:20.000Z'),
+    previousMessageId: 'map-assistant-root',
+  },
+  {
+    id: 'map-main-assistant',
+    role: 'assistant',
+    content: 'In the event loop, microtasks drain before the browser is allowed to paint.',
+    timestamp: new Date('2026-04-15T09:00:30.000Z'),
+    previousMessageId: 'map-main-user',
+  },
+  {
+    id: 'map-alt-user',
+    role: 'user',
+    content: 'Take the render-pipeline route instead.',
+    timestamp: new Date('2026-04-15T09:00:40.000Z'),
+    previousMessageId: 'map-assistant-root',
+  },
+  {
+    id: 'map-alt-assistant',
+    role: 'assistant',
+    content: 'Paint is deferred while layout, style, and queued microtasks are still unsettled.',
+    timestamp: new Date('2026-04-15T09:00:50.000Z'),
+    previousMessageId: 'map-alt-user',
+  },
+  {
+    id: 'map-alt-nested-main-user',
+    role: 'user',
+    content: 'Now make that explanation more technical.',
+    timestamp: new Date('2026-04-15T09:01:00.000Z'),
+    previousMessageId: 'map-alt-assistant',
+  },
+  {
+    id: 'map-alt-nested-main-assistant',
+    role: 'assistant',
+    content: 'The renderer cannot commit a frame while pending microtasks can still mutate the DOM.',
+    timestamp: new Date('2026-04-15T09:01:10.000Z'),
+    previousMessageId: 'map-alt-nested-main-user',
+  },
+  {
+    id: 'map-alt-nested-alt-user',
+    role: 'user',
+    content: 'Make it more visual instead.',
+    timestamp: new Date('2026-04-15T09:01:20.000Z'),
+    previousMessageId: 'map-alt-assistant',
+  },
+  {
+    id: 'map-alt-nested-alt-assistant',
+    role: 'assistant',
+    content: 'Imagine the frame waiting backstage while queued reactions keep rewriting the scene.',
+    timestamp: new Date('2026-04-15T09:01:30.000Z'),
+    previousMessageId: 'map-alt-nested-alt-user',
+  },
+];
+const CONVERSATION_MAP_BRANCHES: ConversationBranch[] = [
+  {
+    id: 'map-branch-main',
+    sourceMessageId: 'map-assistant-root',
+    entryMessageId: 'map-main-user',
+    title: 'Main',
+    isMain: true,
+    position: 0,
+  },
+  {
+    id: 'map-branch-render-pipeline',
+    sourceMessageId: 'map-assistant-root',
+    entryMessageId: 'map-alt-user',
+    title: 'Render pipeline',
+    isMain: false,
+    position: 1,
+  },
+  {
+    id: 'map-branch-technical',
+    sourceMessageId: 'map-alt-assistant',
+    entryMessageId: 'map-alt-nested-main-user',
+    title: 'Technical',
+    isMain: true,
+    position: 0,
+  },
+  {
+    id: 'map-branch-visual',
+    sourceMessageId: 'map-alt-assistant',
+    entryMessageId: 'map-alt-nested-alt-user',
+    title: 'Visual',
+    isMain: false,
+    position: 1,
+  },
+];
 
 const FIXTURE_MESSAGES: Record<
   'temporary' | 'persistent' | 'orderedList' | 'repeatedText' | 'bulletList',
@@ -136,6 +248,17 @@ const HOME_E2E_FIXTURES: Record<string, HomeE2eFixture> = {
         endOffset: INLINE_THREADS_BULLET_LIST_TEXT.length + 1,
       },
     ],
+  },
+  'conversation-map-temporary': {
+    key: 'conversation-map-temporary',
+    chatMode: 'temporary',
+    conversationId: null,
+    messages: CONVERSATION_MAP_MESSAGES,
+    branches: CONVERSATION_MAP_BRANCHES,
+    selectedBranchIds: {
+      'map-assistant-root': 'map-branch-main',
+      'map-alt-assistant': 'map-branch-technical',
+    },
   },
 };
 

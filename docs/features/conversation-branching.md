@@ -8,7 +8,7 @@ It covers:
 
 - how full-reply branches differ from inline threads
 - how branch creation and branch switching work in the transcript
-- how the top-right branch navigator works
+- how the conversation map works across desktop and mobile
 - how branch state is represented in client state and persisted data
 - which runtime invariants must hold to avoid context bleed and UI confusion
 
@@ -75,25 +75,45 @@ Rules:
 - content above that reply does not change
 - older assistant replies can be forked later, not just the current head
 
-### Branch navigator
+### Conversation map
 
-Longer conversations also expose a lightweight branch navigator in the top-right of the chat pane.
+Longer conversations expose a `Map` control in the top-right of the chat pane.
 
-Peek state:
+Availability:
 
-- appears only when the current active path contains at least one branch point
+- appears only when the selected conversation has at least one real branch point
 - stays available while the transcript scrolls
-- shows a compact branch-point count
+- keeps per-conversation camera position and pane width in local state
 
-Expanded state:
+Desktop behavior:
 
-- opens as an overlay, not a docked pane
-- lists branch points from the current active path only
-- each entry shows a short preview of the assistant reply plus its branch chips
-- clicking the entry jumps the transcript to that fork point
-- clicking a chip there also switches the active branch and jumps to that point
+- opens as a split pane beside the transcript
+- the divider can be resized horizontally
+- the map renders the full conversation tree, not just the current active path
+- turn depth stays vertically stable while horizontal spacing adapts to subtree growth
+- sibling branches spread symmetrically around the main route instead of reusing rigid fixed columns
+- connector lines are softly diagonal or curved so the tree can expand without stacked right-angle elbows
+- each visible node is one merged turn card that combines the user prompt and assistant reply
+- prompt context stays visible in the card, while the assistant preview remains the dominant content
+- branch titles are not shown in the map UI
+- zoom changes scale only; it does not collapse turns into summary placeholders
+- the current transcript position is highlighted while scrolling
 
-The navigator is intentionally an outline-style overview, not a graph or map view.
+Mobile behavior:
+
+- opens as a full-screen takeover
+- closes after route navigation so focus returns to the transcript
+
+Navigation behavior:
+
+- clicking any node activates the full route needed to reach that message
+- route activation updates all fork selections between the root and the target node
+- after activation, the transcript scrolls to the corresponding turn in the transcript
+- desktop hover and keyboard focus show a local floating preview beside the node
+- the preview closes as soon as the pointer leaves the node
+- the floating preview renders markdown visually but is not an interactive reading surface
+- the map and inline-thread panel are mutually exclusive surfaces
+- opening inline-thread UI closes the map to avoid overlapping navigation surfaces
 
 ### Sidebar and navigation boundaries
 
@@ -134,7 +154,7 @@ Key concepts:
 - `activeMessages`
   - one visible transcript path derived from the message tree plus `selectedBranchIds`
 
-The canonical tree helpers live in `frontend/app/home/components/conversationTree.ts`.
+The canonical tree helpers live in `frontend/app/home/components/conversationTree.ts` and `frontend/app/home/components/conversationMapModel.ts`.
 
 ### Prompt and response isolation
 
@@ -194,10 +214,13 @@ Current behavior:
 
 | File | Role |
 |------|------|
-| `frontend/app/home/page.tsx` | Home-screen orchestration for branch state, active path projection, pending branch state, branch-scoped loading, and navigator wiring |
-| `frontend/app/home/components/conversationTree.ts` | Canonical tree helpers for path projection, chip derivation, and optimistic branch creation |
+| `frontend/app/home/[[...conversationId]]/page.tsx` | Home-screen orchestration for branch state, active path projection, map layout, transcript sync, and branch-scoped loading |
+| `frontend/app/home/components/conversationTree.ts` | Canonical tree helpers for transcript path projection, chip derivation, and optimistic branch creation |
+| `frontend/app/home/components/conversationMapModel.ts` | Pure conversation-tree projection for merged turn cards, edges, active-path state, and route selection patches |
+| `frontend/app/home/components/ConversationMap.tsx` | Hybrid SVG + HTML renderer for the tree, pan/zoom camera, local hover preview, and node selection UI |
+| `frontend/app/home/components/ConversationMapToggle.tsx` | Home header entry point for opening the map |
+| `frontend/app/home/components/useConversationMapState.ts` | Per-conversation map open state, split ratio, and camera persistence |
 | `frontend/app/home/components/ConversationView.tsx` | Transcript rendering, branch chip UI, and pending branch highlighting |
-| `frontend/app/home/components/BranchNavigator.tsx` | Top-right branch indicator and overlay navigator |
 | `frontend/app/home/components/useHomeData.ts` | Loads `previous_message_id` and `conversation_branches` for persistent conversations |
 | `frontend/app/api/chat/route.ts` | Branch-aware request handling, `Main` materialization, branch row creation, and active-path prompt assembly |
 | `frontend/lib/memory-agent.ts` | Memory extraction rules that avoid storing speculative branch exploration as facts |
@@ -223,8 +246,9 @@ These are current limits, not bugs:
 
 - branch rename UI is not implemented yet
 - branches do not appear in the sidebar
-- the branch navigator is an outline overlay, not a graph view
-- the future map view is out of scope for the current implementation
+- the map is navigation-only and does not support branch rename or editing flows
+- branch titles remain internal metadata and are not surfaced in the map UI
+- the map closes when inline-thread UI opens instead of coexisting side by side
 
 ## Historical References
 
@@ -233,3 +257,4 @@ Use these for intent and future scope, not as the primary behavior source:
 - [`docs/superpowers/specs/2026-04-11-conversation-tree-design.md`](../superpowers/specs/2026-04-11-conversation-tree-design.md)
 - [`docs/superpowers/specs/2026-04-11-conversation-tree-testing.md`](../superpowers/specs/2026-04-11-conversation-tree-testing.md)
 - [`docs/superpowers/specs/2026-04-11-conversation-tree-map-view.md`](../superpowers/specs/2026-04-11-conversation-tree-map-view.md)
+- [`docs/superpowers/specs/2026-04-15-conversation-map-split-pane-design.md`](../superpowers/specs/2026-04-15-conversation-map-split-pane-design.md)

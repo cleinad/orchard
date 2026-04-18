@@ -5,10 +5,13 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import HomeBackground from '@/app/home/components/HomeBackground';
 import HomeHeader from '@/app/home/components/HomeHeader';
 import ChatComposer from '@/app/home/components/ChatComposer';
-import BranchNavigator, {
-  type BranchNavigatorItem,
-} from '@/app/home/components/BranchNavigator';
+import ConversationMap from '@/app/home/components/ConversationMap';
 import ConversationView from '@/app/home/components/ConversationView';
+import {
+  buildConversationMapModel,
+  getMapNavigationAnchorMessageId,
+  getRouteSelectionPatch,
+} from '@/app/home/components/conversationMapModel';
 import {
   applyUserMessageToTree,
   createPendingBranchTarget,
@@ -19,6 +22,7 @@ import {
 import { logResolvedChatModel } from '@/app/home/components/logResolvedChatModel';
 import { useHomeData } from '@/app/home/components/useHomeData';
 import { useHomeThreads } from '@/app/home/components/useHomeThreads';
+import { useConversationMapState } from '@/app/home/components/useConversationMapState';
 import { useHomeVoice } from '@/app/home/components/useHomeVoice';
 import { usePersistedString } from '@/app/home/components/usePersistedString';
 import type {
@@ -79,6 +83,10 @@ interface ChatModelsResponse {
   models?: ChatModelListItem[];
   error?: string;
 }
+
+const MAP_SCROLL_TOP_OFFSET = 104;
+const TRANSCRIPT_NAVIGATION_LOCK_MS = 700;
+const JUMP_TO_MESSAGE_MAX_ATTEMPTS = 8;
 
 type SelectedChat =
   | { kind: 'persistent'; conversationId: string; mentorId: string | null }
@@ -658,7 +666,8 @@ function HomePageInner() {
   const [detailPanelOpen, setDetailPanelOpen] = useState(false);
   const [createPanelOpen, setCreatePanelOpen] = useState(false);
   const [pendingBranch, setPendingBranch] = useState<PendingBranchTarget | null>(null);
-  const [branchNavigatorOpen, setBranchNavigatorOpen] = useState(false);
+  const [currentMapMessageId, setCurrentMapMessageId] = useState<string | null>(null);
+  const [isDesktopViewport, setIsDesktopViewport] = useState(false);
 
   const handleToggleSidePanel = useCallback(() => {
     setSidePanelOpen((previousOpen) => !previousOpen);
@@ -701,6 +710,18 @@ function HomePageInner() {
   const homeE2eFixture = getHomeE2eFixture(searchParams.get('e2e'));
   const isHomeE2eFixture = homeE2eFixture !== null;
 
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(min-width: 1024px)');
+    const syncViewport = () => {
+      setIsDesktopViewport(mediaQuery.matches);
+    };
+
+    syncViewport();
+    mediaQuery.addEventListener('change', syncViewport);
+
+    return () => mediaQuery.removeEventListener('change', syncViewport);
+  }, []);
+
   const {
     mentors,
     conversations,
@@ -727,6 +748,11 @@ function HomePageInner() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const splitPaneRef = useRef<HTMLDivElement>(null);
+  const userHasScrolledRef = useRef(false);
+  const programmaticTranscriptNavigationRef = useRef(false);
+  const transcriptNavigationTimeoutRef = useRef<number | null>(null);
+  const transcriptNavigationEndHandlerRef = useRef<EventListener | null>(null);
   const {
     popoverState,
     activeSession,
@@ -756,6 +782,17 @@ function HomePageInner() {
           (conversation) => conversation.id === selectedChat.conversationId
         ) || null
       : null;
+  const selectedChatKey = getSelectedChatKey(selectedChat);
+  const {
+    isOpen: conversationMapOpen,
+    viewState: conversationMapViewState,
+    followModePaused: conversationMapFollowModePaused,
+    setOpen: setConversationMapOpen,
+    toggleOpen: toggleConversationMapOpen,
+    updateViewState: updateConversationMapViewState,
+    setFollowModePaused: setConversationMapFollowModePaused,
+    clampSplitRatio,
+  } = useConversationMapState(selectedChatKey);
   const selectedPersistentThreadRuntime =
     selectedChat?.kind === 'persistent'
       ? persistentThreadRuntimes[selectedChat.conversationId] ?? createEmptyPersistentThreadRuntime()
@@ -797,6 +834,15 @@ function HomePageInner() {
     selectedBranchIds: activeSelectedBranchIds,
     pendingBranch,
   });
+  const conversationMapModel = buildConversationMapModel({
+    messages: activeConversationMessages,
+    branches: activeConversationBranches,
+    selectedBranchIds: activeSelectedBranchIds,
+    pendingBranchSourceMessageId: pendingBranch?.sourceMessageId ?? null,
+    currentMessageId: currentMapMessageId,
+    zoom: conversationMapViewState.zoom,
+  });
+  const hasConversationMap = conversationMapModel.branchPointIds.size > 0;
   const composerStateSelection: SelectedChat | null = selectedChat ?? (
     routeConversationId
       ? {
@@ -847,22 +893,6 @@ function HomePageInner() {
       ] as const)
       .filter(([, chips]) => chips.length > 0)
   );
-  const branchNavigatorItems: BranchNavigatorItem[] = activeMessages
-    .filter((message) => message.role === 'assistant')
-    .map((message) => {
-      const chips = branchChipsByMessageId.get(message.id) || [];
-
-      if (chips.length === 0) {
-        return null;
-      }
-
-      return {
-        sourceMessageId: message.id,
-        preview: message.content,
-        chips,
-      };
-    })
-    .filter((item): item is BranchNavigatorItem => item !== null);
   const activeName = isTemporaryChat
     ? 'Keen'
     : selectedConversation?.mentor_name || activeMentor?.name || 'Keen';
@@ -897,6 +927,57 @@ function HomePageInner() {
   composerDraftInputsRef.current = composerDraftInputsByChatKey;
   pendingChatRequestsRef.current = pendingChatRequestsByChatKey;
   threadSessionsRef.current = threadSessionsById;
+
+  useEffect(() => {
+    userHasScrolledRef.current = userHasScrolled;
+  }, [userHasScrolled]);
+
+  const setUserHasScrolledState = useCallback((nextValue: boolean) => {
+    userHasScrolledRef.current = nextValue;
+    setUserHasScrolled((current) => (current === nextValue ? current : nextValue));
+  }, []);
+
+  const endProgrammaticTranscriptNavigation = useCallback(() => {
+    programmaticTranscriptNavigationRef.current = false;
+
+    if (transcriptNavigationTimeoutRef.current !== null) {
+      window.clearTimeout(transcriptNavigationTimeoutRef.current);
+      transcriptNavigationTimeoutRef.current = null;
+    }
+
+    const container = containerRef.current;
+    const scrollEndHandler = transcriptNavigationEndHandlerRef.current;
+    if (container && scrollEndHandler) {
+      container.removeEventListener('scrollend', scrollEndHandler);
+    }
+
+    transcriptNavigationEndHandlerRef.current = null;
+  }, []);
+
+  const beginProgrammaticTranscriptNavigation = useCallback(() => {
+    const container = containerRef.current;
+    endProgrammaticTranscriptNavigation();
+    programmaticTranscriptNavigationRef.current = true;
+
+    if (container) {
+      const handleScrollEnd: EventListener = () => {
+        endProgrammaticTranscriptNavigation();
+      };
+
+      transcriptNavigationEndHandlerRef.current = handleScrollEnd;
+      container.addEventListener('scrollend', handleScrollEnd, { once: true });
+    }
+
+    transcriptNavigationTimeoutRef.current = window.setTimeout(() => {
+      endProgrammaticTranscriptNavigation();
+    }, TRANSCRIPT_NAVIGATION_LOCK_MS);
+  }, [endProgrammaticTranscriptNavigation]);
+
+  useEffect(() => {
+    return () => {
+      endProgrammaticTranscriptNavigation();
+    };
+  }, [endProgrammaticTranscriptNavigation]);
 
   const setComposerInputForSelection = useCallback(
     (selection: SelectedChat | null, value: string) => {
@@ -1168,10 +1249,16 @@ function HomePageInner() {
   }, [selectedDraftChat]);
 
   useEffect(() => {
-    if (branchNavigatorItems.length === 0 && branchNavigatorOpen) {
-      setBranchNavigatorOpen(false);
+    if (!hasConversationMap && conversationMapOpen) {
+      setConversationMapOpen(false);
     }
-  }, [branchNavigatorItems.length, branchNavigatorOpen]);
+  }, [conversationMapOpen, hasConversationMap, setConversationMapOpen]);
+
+  useEffect(() => {
+    if (popoverState || threadPanelOpen) {
+      setConversationMapOpen(false);
+    }
+  }, [popoverState, setConversationMapOpen, threadPanelOpen]);
 
   useEffect(() => {
     if (isHomeE2eFixture || mentorSlugHandledRef.current || routeConversationId) return;
@@ -1210,23 +1297,78 @@ function HomePageInner() {
     isHomeE2eFixture,
   ]);
 
-  const scrollToBottom = useCallback(() => {
-    if (!userHasScrolled && messagesEndRef.current) {
+  useEffect(() => {
+    // Follow transcript growth only when new messages land. Scroll-state
+    // transitions should not pull the pane back to the end.
+    if (!userHasScrolledRef.current && messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [userHasScrolled]);
+  }, [activeMessages]);
 
-  useEffect(() => {
-    scrollToBottom();
-  }, [activeMessages, scrollToBottom]);
+  const updateCurrentVisibleMapMessage = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) {
+      return;
+    }
+
+    const messageElements = Array.from(
+      container.querySelectorAll<HTMLElement>('[data-message-id]')
+    );
+    if (messageElements.length === 0) {
+      setCurrentMapMessageId(null);
+      return;
+    }
+
+    const containerRect = container.getBoundingClientRect();
+    const anchorY = containerRect.top + Math.min(container.clientHeight * 0.34, 240);
+    let bestId = messageElements[messageElements.length - 1]?.dataset.messageId ?? null;
+    let bestScore = Number.POSITIVE_INFINITY;
+
+    messageElements.forEach((element) => {
+      const rect = element.getBoundingClientRect();
+      if (rect.bottom < containerRect.top + 24 || rect.top > containerRect.bottom - 24) {
+        return;
+      }
+
+      const score =
+        rect.top <= anchorY && rect.bottom >= anchorY
+          ? 0
+          : Math.min(Math.abs(rect.top - anchorY), Math.abs(rect.bottom - anchorY));
+
+      if (score < bestScore) {
+        bestScore = score;
+        bestId = element.dataset.messageId ?? bestId;
+      }
+    });
+
+    setCurrentMapMessageId(bestId);
+  }, []);
 
   const handleScroll = () => {
     const container = containerRef.current;
     if (!container) return;
-    const isAtBottom =
-      container.scrollHeight - container.scrollTop - container.clientHeight < 100;
-    setUserHasScrolled(!isAtBottom);
+
+    if (!programmaticTranscriptNavigationRef.current) {
+      const isAtBottom =
+        container.scrollHeight - container.scrollTop - container.clientHeight < 100;
+      setUserHasScrolledState(!isAtBottom);
+    }
+
+    updateCurrentVisibleMapMessage();
   };
+
+  useEffect(() => {
+    if (activeMessages.length === 0) {
+      setCurrentMapMessageId(null);
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      updateCurrentVisibleMapMessage();
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeMessages, updateCurrentVisibleMapMessage]);
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -1313,7 +1455,8 @@ function HomePageInner() {
     setComposerDraftInputsByChatKey({});
     setPendingChatRequestsByChatKey({});
     setSearchStatesByChatKey({});
-    setUserHasScrolled(false);
+    endProgrammaticTranscriptNavigation();
+    setUserHasScrolledState(false);
     setListError(null);
     setDraftChats([]);
 
@@ -1334,8 +1477,8 @@ function HomePageInner() {
           createdAt: now,
           updatedAt: now,
           messages: homeE2eFixture.messages,
-          branches: [],
-          selectedBranchIds: {},
+          branches: homeE2eFixture.branches || [],
+          selectedBranchIds: homeE2eFixture.selectedBranchIds || {},
           threadsMap: Object.fromEntries(fixtureThreads.entries()) as ThreadMetaRecord,
           threadMessages: {},
           threadStatuses: {},
@@ -1350,8 +1493,8 @@ function HomePageInner() {
 
     setTemporaryChats([]);
     setPersistentMessages(homeE2eFixture.messages);
-    setPersistentBranches([]);
-    setPersistentSelectedBranchIds({});
+    setPersistentBranches(homeE2eFixture.branches || []);
+    setPersistentSelectedBranchIds(homeE2eFixture.selectedBranchIds || {});
     setPersistentThreadsMap(buildFixtureThreadsMap(homeE2eFixture.threads || []));
     setSelectedChat({
       kind: 'persistent',
@@ -1360,8 +1503,10 @@ function HomePageInner() {
       mentorId: null,
     });
   }, [
+    endProgrammaticTranscriptNavigation,
     homeE2eFixture,
     resetThreadUi,
+    setUserHasScrolledState,
     setListError,
     stopMic,
     tts,
@@ -1428,8 +1573,9 @@ function HomePageInner() {
       stopMic();
       resetThreadUi();
       setPendingBranch(null);
-      setBranchNavigatorOpen(false);
-      setUserHasScrolled(false);
+      setConversationMapOpen(false);
+      endProgrammaticTranscriptNavigation();
+      setUserHasScrolledState(false);
 
       const currentSelection = selectedChatRef.current;
       const currentDraft = selectedDraftChatRef.current;
@@ -1459,7 +1605,10 @@ function HomePageInner() {
       clearComposerInputForSelection,
       clearPendingChatRequestForSelection,
       clearSearchStateForSelection,
+      endProgrammaticTranscriptNavigation,
       resetThreadUi,
+      setConversationMapOpen,
+      setUserHasScrolledState,
       stopMic,
       tts,
     ]
@@ -2463,50 +2612,59 @@ function HomePageInner() {
   );
 
   const updateDraftBranchSelection = useCallback(
-    (draftId: string, sourceMessageId: string, branchId: string) => {
+    (draftId: string, nextSelections: BranchSelectionMap) => {
       updateDraftChat(draftId, (draft) => ({
         ...draft,
         selectedBranchIds: {
           ...draft.selectedBranchIds,
-          [sourceMessageId]: branchId,
+          ...nextSelections,
         },
       }));
     },
     [updateDraftChat]
   );
 
-  const updateActiveBranchSelection = useCallback(
-    (sourceMessageId: string, branchId: string) => {
+  const updateActiveBranchSelections = useCallback(
+    (nextSelections: BranchSelectionMap) => {
       if (selectedChat?.kind === 'temporary') {
         updateTemporaryChat(selectedChat.tempChatId, (chat) => ({
           ...chat,
           selectedBranchIds: {
             ...chat.selectedBranchIds,
-            [sourceMessageId]: branchId,
+            ...nextSelections,
           },
         }));
         return;
       }
 
       if (selectedChat?.kind === 'draft') {
-        updateDraftBranchSelection(selectedChat.draftId, sourceMessageId, branchId);
+        updateDraftBranchSelection(selectedChat.draftId, nextSelections);
         return;
       }
 
       if (selectedChat?.kind === 'persistent') {
         setPersistentSelectedBranchIds((prev) => ({
           ...prev,
-          [sourceMessageId]: branchId,
+          ...nextSelections,
         }));
       }
     },
     [selectedChat, updateDraftBranchSelection, updateTemporaryChat]
   );
 
+  const updateActiveBranchSelection = useCallback(
+    (sourceMessageId: string, branchId: string) => {
+      updateActiveBranchSelections({
+        [sourceMessageId]: branchId,
+      });
+    },
+    [updateActiveBranchSelections]
+  );
+
   const handleCreateBranch = useCallback((sourceMessageId: string) => {
     setPendingBranch(createPendingBranchTarget(sourceMessageId));
-    setUserHasScrolled(false);
-  }, []);
+    setUserHasScrolledState(false);
+  }, [setUserHasScrolledState]);
 
   const jumpToMessage = useCallback((messageId: string) => {
     const selector =
@@ -2514,11 +2672,32 @@ function HomePageInner() {
         ? `[data-message-id="${CSS.escape(messageId)}"]`
         : `[data-message-id="${messageId.replace(/["\\]/g, '\\$&')}"]`;
 
-    setUserHasScrolled(true);
+    setUserHasScrolledState(true);
+    let attempts = 0;
 
     const scrollToTarget = () => {
-      const target = containerRef.current?.querySelector<HTMLElement>(selector);
-      target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      const container = containerRef.current;
+      const target = container?.querySelector<HTMLElement>(selector);
+      if (!container || !target) {
+        if (typeof window !== 'undefined' && attempts < JUMP_TO_MESSAGE_MAX_ATTEMPTS) {
+          attempts += 1;
+          window.requestAnimationFrame(scrollToTarget);
+        }
+        return;
+      }
+
+      beginProgrammaticTranscriptNavigation();
+      const containerRect = container.getBoundingClientRect();
+      const targetRect = target.getBoundingClientRect();
+      const nextTop = Math.max(
+        0,
+        container.scrollTop + (targetRect.top - containerRect.top) - MAP_SCROLL_TOP_OFFSET
+      );
+
+      container.scrollTo({
+        top: nextTop,
+        behavior: 'smooth',
+      });
     };
 
     if (typeof window !== 'undefined') {
@@ -2527,7 +2706,7 @@ function HomePageInner() {
     }
 
     scrollToTarget();
-  }, []);
+  }, [beginProgrammaticTranscriptNavigation, setUserHasScrolledState]);
 
   const handleSelectBranch = useCallback(
     (sourceMessageId: string, branchId: string | null) => {
@@ -2539,17 +2718,92 @@ function HomePageInner() {
         setPendingBranch(null);
       }
 
-      setUserHasScrolled(false);
+      setUserHasScrolledState(false);
     },
-    [pendingBranch, updateActiveBranchSelection]
+    [pendingBranch, setUserHasScrolledState, updateActiveBranchSelection]
   );
 
-  const handleSelectBranchFromNavigator = useCallback(
-    (sourceMessageId: string, branchId: string | null) => {
-      handleSelectBranch(sourceMessageId, branchId);
-      jumpToMessage(sourceMessageId);
+  const handleSelectMessageFromMap = useCallback(
+    (messageId: string) => {
+      const routeSelections = getRouteSelectionPatch({
+        messages: activeConversationMessages,
+        branches: activeConversationBranches,
+        targetMessageId: messageId,
+      });
+
+      if (Object.keys(routeSelections).length > 0) {
+        updateActiveBranchSelections(routeSelections);
+      }
+
+      setPendingBranch(null);
+      jumpToMessage(
+        getMapNavigationAnchorMessageId({
+          messages: activeConversationMessages,
+          targetMessageId: messageId,
+        }) ?? messageId
+      );
+
+      if (!isDesktopViewport) {
+        setConversationMapOpen(false);
+      }
     },
-    [handleSelectBranch, jumpToMessage]
+    [
+      activeConversationBranches,
+      activeConversationMessages,
+      isDesktopViewport,
+      jumpToMessage,
+      setConversationMapOpen,
+      updateActiveBranchSelections,
+    ]
+  );
+
+  const handleToggleConversationMap = useCallback(() => {
+    if (!conversationMapOpen) {
+      if (threadPanelOpen) {
+        closeThreadPanel()
+      }
+
+      if (popoverState) {
+        dismissPopover()
+      }
+    }
+
+    toggleConversationMapOpen()
+  }, [
+    closeThreadPanel,
+    conversationMapOpen,
+    dismissPopover,
+    popoverState,
+    threadPanelOpen,
+    toggleConversationMapOpen,
+  ])
+
+  const handleStartMapResize = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const container = splitPaneRef.current;
+      if (!container) {
+        return;
+      }
+
+      const rect = container.getBoundingClientRect();
+
+      const handlePointerMove = (moveEvent: PointerEvent) => {
+        const nextMapRatio = clampSplitRatio((rect.right - moveEvent.clientX) / rect.width);
+        updateConversationMapViewState({
+          splitRatio: nextMapRatio,
+        });
+      };
+
+      const handlePointerUp = () => {
+        window.removeEventListener('pointermove', handlePointerMove);
+        window.removeEventListener('pointerup', handlePointerUp);
+      };
+
+      window.addEventListener('pointermove', handlePointerMove);
+      window.addEventListener('pointerup', handlePointerUp);
+      event.preventDefault();
+    },
+    [clampSplitRatio, updateConversationMapViewState]
   );
 
   const sendMessage = useCallback(async (content: string) => {
@@ -2687,7 +2941,7 @@ function HomePageInner() {
       userMessageId: userMessage.id,
     });
     clearSearchStateForSelection(effectiveSelection);
-    setUserHasScrolled(false);
+    setUserHasScrolledState(false);
 
     try {
       const response = await fetch('/api/chat', {
@@ -2942,6 +3196,7 @@ function HomePageInner() {
     selectedTemporaryChat,
     setPendingChatRequestForSelection,
     setSearchStateForSelection,
+    setUserHasScrolledState,
     transcription,
     tts,
     ttsEnabled,
@@ -3071,46 +3326,87 @@ function HomePageInner() {
             loadingLists={loadingLists}
             onBrowseMentors={() => router.push('/mentors')}
             onCreateTemporaryChat={handleCreateTemporaryChat}
+            conversationMapBranchPointCount={conversationMapModel.branchPointIds.size}
+            conversationMapOpen={conversationMapOpen}
+            onToggleConversationMap={handleToggleConversationMap}
           />
         </div>
 
-        <div
-          data-testid="home-scroll-container"
-          ref={containerRef}
-          onScroll={handleScroll}
-          className="relative min-h-0 flex-1 overflow-y-auto"
-          style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(0,0,0,0.08) transparent' }}
-        >
-          <BranchNavigator
-            items={branchNavigatorItems}
-            isOpen={branchNavigatorOpen}
-            onToggle={() => setBranchNavigatorOpen((prev) => !prev)}
-            onClose={() => setBranchNavigatorOpen(false)}
-            onJumpToMessage={jumpToMessage}
-            onSelectBranch={handleSelectBranchFromNavigator}
-          />
-          <ConversationView
-            listError={listError}
-            messages={activeMessages}
-            activeName={activeName}
-            emptyTitle={emptyTitle}
-            emptySubtitle={emptySubtitle}
-            isLoading={isActiveConversationLoading}
-            threadsMap={activeThreadMarkersMap}
-            branchChipsByMessageId={branchChipsByMessageId}
-            pendingBranchSourceMessageId={pendingBranch?.sourceMessageId ?? null}
-            messagesEndRef={messagesEndRef}
-            onThreadClick={handleThreadMarkerClick}
-            onSelectBranch={handleSelectBranch}
-            onCreateBranch={handleCreateBranch}
-            onAssistantPointerUp={handlePointerUp}
-          />
-          <TextSelectionPopover
-            popoverState={popoverState}
-            onDismiss={dismissPopover}
-            onSubmitQuestion={submitThreadQuestion}
-            onOpenThreadDraft={openThreadDraft}
-          />
+        <div className="relative min-h-0 flex-1">
+          <div
+            ref={splitPaneRef}
+            className="flex h-full min-h-0"
+          >
+            <div
+              data-testid="home-scroll-container"
+              ref={containerRef}
+              onScroll={handleScroll}
+              className="relative min-h-0 flex-1 overflow-y-auto"
+              style={{
+                scrollbarWidth: 'thin',
+                scrollbarColor: 'rgba(0,0,0,0.08) transparent',
+                flexBasis:
+                  conversationMapOpen && hasConversationMap && isDesktopViewport
+                    ? `calc(${(1 - conversationMapViewState.splitRatio) * 100}% - 0.5rem)`
+                    : undefined,
+              }}
+            >
+              <ConversationView
+                listError={listError}
+                messages={activeMessages}
+                activeName={activeName}
+                emptyTitle={emptyTitle}
+                emptySubtitle={emptySubtitle}
+                isLoading={isActiveConversationLoading}
+                threadsMap={activeThreadMarkersMap}
+                branchChipsByMessageId={branchChipsByMessageId}
+                pendingBranchSourceMessageId={pendingBranch?.sourceMessageId ?? null}
+                messagesEndRef={messagesEndRef}
+                onThreadClick={handleThreadMarkerClick}
+                onSelectBranch={handleSelectBranch}
+                onCreateBranch={handleCreateBranch}
+                onAssistantPointerUp={handlePointerUp}
+              />
+              <TextSelectionPopover
+                popoverState={popoverState}
+                onDismiss={dismissPopover}
+                onSubmitQuestion={submitThreadQuestion}
+                onOpenThreadDraft={openThreadDraft}
+              />
+            </div>
+
+            {conversationMapOpen && hasConversationMap && isDesktopViewport && (
+              <>
+                <div className="pointer-events-none relative z-10 hidden w-4 shrink-0 lg:block">
+                  <div className="absolute left-1/2 top-8 h-[calc(100%-4rem)] w-px -translate-x-1/2 bg-border-subtle" />
+                  <div
+                    data-testid="conversation-map-resize-handle"
+                    onPointerDown={handleStartMapResize}
+                    className="pointer-events-auto absolute left-1/2 top-1/2 h-16 w-2 -translate-x-1/2 -translate-y-1/2 cursor-col-resize rounded-full bg-foreground/[0.08]"
+                  />
+                </div>
+                <div
+                  className="hidden min-h-0 lg:block"
+                  style={{
+                    flexBasis: `${conversationMapViewState.splitRatio * 100}%`,
+                  }}
+                >
+                  <ConversationMap
+                    model={conversationMapModel}
+                    currentMessageId={currentMapMessageId}
+                    viewState={conversationMapViewState}
+                    followModePaused={conversationMapFollowModePaused}
+                    testId="conversation-map-desktop"
+                    variant="desktop"
+                    onClose={() => setConversationMapOpen(false)}
+                    onSelectMessage={handleSelectMessageFromMap}
+                    onViewStateChange={updateConversationMapViewState}
+                    onFollowModePausedChange={setConversationMapFollowModePaused}
+                  />
+                </div>
+              </>
+            )}
+          </div>
         </div>
 
         <ChatComposer
@@ -3148,6 +3444,23 @@ function HomePageInner() {
           onSubmit={handleSubmit}
           onKeyDown={handleKeyDown}
         />
+
+        {conversationMapOpen && hasConversationMap && !isDesktopViewport && (
+          <div className="fixed inset-0 z-50 bg-background/92 p-3 backdrop-blur-sm lg:hidden">
+            <ConversationMap
+              model={conversationMapModel}
+              currentMessageId={currentMapMessageId}
+              viewState={conversationMapViewState}
+              followModePaused={conversationMapFollowModePaused}
+              testId="conversation-map-mobile"
+              variant="mobile"
+              onClose={() => setConversationMapOpen(false)}
+              onSelectMessage={handleSelectMessageFromMap}
+              onViewStateChange={updateConversationMapViewState}
+              onFollowModePausedChange={setConversationMapFollowModePaused}
+            />
+          </div>
+        )}
       </main>
 
       <SidePanel

@@ -184,6 +184,21 @@ If in doubt between `font-serif` and `font-reading`, prefer **`font-reading`** f
 
 The full mapping of CSS variables and Tailwind utilities (`font-reading`, `font-sans`, `font-serif`, `font-heading`) is documented in [tokens.md](./tokens.md).
 
+### Product chrome stays in sentence case
+
+Do not use full caps in Keen product UI.
+
+This applies to:
+
+- headers
+- section labels
+- metadata
+- buttons
+- navigation chrome
+- empty states
+
+If a label needs more clarity or emphasis, solve it with spacing, weight, contrast, or position instead of capitalization.
+
 ## Color And Surface Rules
 
 ### Default tone
