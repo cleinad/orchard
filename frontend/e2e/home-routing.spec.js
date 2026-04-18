@@ -1,5 +1,5 @@
 const { test, expect } = require('@playwright/test');
-const { mockChatRoute } = require('./helpers/chatMocks');
+const { deferred, mockChatRoute } = require('./helpers/chatMocks');
 const { mockHomeDataRoutes } = require('./helpers/homeRouteMocks');
 
 function createConversation({
@@ -30,6 +30,18 @@ function createMessage({
     content,
     created_at: createdAt,
   };
+}
+
+async function ensureConversationsOpen(page) {
+  const rail = page.locator('nav[aria-hidden]').first();
+  const sidePanel = page.locator('[role="region"][aria-label="Conversations and sections"]').first();
+
+  if ((await rail.getAttribute('aria-hidden')) !== 'true') {
+    await page.getByRole('button', { name: 'Open conversations' }).first().click();
+    await expect(rail).toHaveAttribute('aria-hidden', 'true');
+  }
+
+  return sidePanel;
 }
 
 test('hydrates a persistent conversation on direct /home/[conversationId] entry', async ({ page }) => {
@@ -66,7 +78,7 @@ test('hydrates a persistent conversation on direct /home/[conversationId] entry'
 
   await expect(page).toHaveURL(new RegExp(`/home/${conversationId}\\?e2e=home-routing-direct$`));
   await expect(page.getByText(question)).toBeVisible();
-  await expect(page.getByText(answer)).toBeVisible();
+  await expect(page.getByText(answer)).toBeVisible({ timeout: 10000 });
 });
 
 test('clicking a saved chat updates the URL and loads the persistent conversation', async ({ page }) => {
@@ -94,9 +106,8 @@ test('clicking a saved chat updates the URL and loads the persistent conversatio
   });
 
   await page.goto('/home?e2e=home-routing-click');
-  await page.getByLabel('Toggle conversations').click();
 
-  const sidePanel = page.locator('aside');
+  const sidePanel = await ensureConversationsOpen(page);
   await sidePanel.getByRole('button', { name: /^Keen$/ }).click();
   await sidePanel.getByRole('button', { name: new RegExp(title) }).click();
 
@@ -156,10 +167,9 @@ test('the first draft send replaces /home with the new persistent conversation r
   });
 
   await page.goto('/home?e2e=home-routing-draft');
-  await page.getByLabel('Toggle conversations').click();
 
-  const sidePanel = page.locator('aside');
-  await sidePanel.getByLabel('New chat with Keen').click();
+  const sidePanel = await ensureConversationsOpen(page);
+  await sidePanel.locator('#side-panel-section-new').getByRole('button', { name: 'New chat with Keen' }).click();
   await expect(page).toHaveURL(new RegExp('/home\\?e2e=home-routing-draft$'));
 
   const composer = page.getByPlaceholder('Message Keen...');
@@ -170,6 +180,299 @@ test('the first draft send replaces /home with the new persistent conversation r
     new RegExp(`/home/${conversationId}\\?e2e=home-routing-draft$`)
   );
   await expect(page.getByText(answer)).toBeVisible();
+});
+
+test('unsent composer text is preserved per persistent chat', async ({ page }) => {
+  const firstConversationId = 'conversation-chat-scoped-input-1';
+  const secondConversationId = 'conversation-chat-scoped-input-2';
+
+  await mockHomeDataRoutes(page, {
+    conversations: [
+      createConversation({
+        id: firstConversationId,
+        title: 'Chat One',
+        updatedAt: '2026-04-12T12:40:00.000Z',
+      }),
+      createConversation({
+        id: secondConversationId,
+        title: 'Chat Two',
+        updatedAt: '2026-04-12T12:39:00.000Z',
+      }),
+    ],
+    messagesByConversationId: {
+      [firstConversationId]: [],
+      [secondConversationId]: [],
+    },
+  });
+
+  await page.goto(
+    "/home/" + firstConversationId + "?e2e=home-routing-chat-scoped-input"
+  );
+
+  const composer = page.getByPlaceholder('Message Keen...');
+  await composer.fill('Draft for chat one');
+
+  const sidePanel = await ensureConversationsOpen(page);
+  await sidePanel.getByRole('button', { name: /Chat Two/ }).click();
+
+  await expect(page).toHaveURL(
+    new RegExp("/home/" + secondConversationId + "\\?e2e=home-routing-chat-scoped-input$")
+  );
+
+  const secondComposer = page.getByPlaceholder('Message Keen...');
+  await secondComposer.fill('Draft for chat two');
+
+  const reopenedSidePanel = await ensureConversationsOpen(page);
+  await reopenedSidePanel.getByRole('button', { name: /Chat One/ }).click();
+  await expect(page).toHaveURL(
+    new RegExp("/home/" + firstConversationId + "\\?e2e=home-routing-chat-scoped-input$")
+  );
+  await expect(page.getByPlaceholder('Message Keen...')).toHaveValue('Draft for chat one');
+
+  const reopenedSidePanelAgain = await ensureConversationsOpen(page);
+  await reopenedSidePanelAgain.getByRole('button', { name: /Chat Two/ }).click();
+  await expect(page.getByPlaceholder('Message Keen...')).toHaveValue('Draft for chat two');
+});
+
+test('the same chat stays editable while its response is in flight', async ({ page }) => {
+  const conversationId = 'conversation-pending-editable';
+  const firstQuestion = 'Explain dispatch density.';
+  const nextTurnDraft = 'Use Sonnet for the next turn.';
+  const answer = 'Dispatch density improves matching efficiency.';
+  const response = deferred();
+  const state = await mockHomeDataRoutes(page, {
+    conversations: [
+      createConversation({
+        id: conversationId,
+        title: 'Dispatch Density',
+      }),
+    ],
+    messagesByConversationId: {
+      [conversationId]: [],
+    },
+    chatModels: [
+      {
+        id: 'gpt-5.4',
+        label: 'GPT 5.4',
+        provider: 'openai',
+        available: true,
+        isDefault: true,
+      },
+      {
+        id: 'claude-sonnet-4-6',
+        label: 'Sonnet 4.6',
+        provider: 'anthropic',
+        available: true,
+        isDefault: false,
+      },
+    ],
+  });
+
+  await mockChatRoute(page, async (body) => {
+    expect(body.message).toBe(firstQuestion);
+    state.messagesByConversationId[conversationId] = [
+      createMessage({
+        id: 'message-pending-editable-user-1',
+        role: 'user',
+        content: firstQuestion,
+        createdAt: '2026-04-12T12:50:01.000Z',
+      }),
+      createMessage({
+        id: 'message-pending-editable-assistant-1',
+        role: 'assistant',
+        content: answer,
+        createdAt: '2026-04-12T12:50:02.000Z',
+      }),
+    ];
+
+    return response.promise;
+  });
+
+  await page.goto(
+    "/home/" + conversationId + "?e2e=home-routing-pending-editable"
+  );
+
+  const composer = page.getByPlaceholder('Message Keen...');
+  await composer.fill(firstQuestion);
+  await composer.press('Enter');
+
+  await composer.fill(nextTurnDraft);
+  await expect(composer).toHaveValue(nextTurnDraft);
+
+  const modelPicker = page.getByRole('button', { name: /Chat model: GPT 5\.4/ });
+  await modelPicker.click();
+  await page.getByRole('menuitemradio', { name: /Sonnet 4\.6/ }).click();
+  await expect(page.getByRole('button', { name: /Chat model: Sonnet 4\.6/ })).toBeVisible();
+
+  response.resolve({
+    message: answer,
+    userMessageId: 'message-pending-editable-user-1',
+    assistantMessageId: 'message-pending-editable-assistant-1',
+  });
+
+  await expect(page.getByText(answer)).toBeVisible({ timeout: 10000 });
+  await expect(composer).toHaveValue(nextTurnDraft);
+});
+
+test('a second chat can send while another chat is still in flight', async ({ page }) => {
+  const firstConversationId = 'conversation-concurrent-first';
+  const firstQuestion = 'What improves last-mile efficiency?';
+  const firstAnswer = 'Dense demand reduces idle routing.';
+  const secondQuestion = 'Can temporary chats send right now?';
+  const secondAnswer = 'Yes, temporary chats can send while another chat is processing.';
+  const firstResponse = deferred();
+  const seenMessages = [];
+  const state = await mockHomeDataRoutes(page, {
+    conversations: [
+      createConversation({
+        id: firstConversationId,
+        title: 'Last-Mile Efficiency',
+      }),
+    ],
+    messagesByConversationId: {
+      [firstConversationId]: [],
+    },
+  });
+
+  await mockChatRoute(page, async (body) => {
+    seenMessages.push(body.message);
+
+    if (body.message === firstQuestion) {
+      state.messagesByConversationId[firstConversationId] = [
+        createMessage({
+          id: 'message-concurrent-first-user-1',
+          role: 'user',
+          content: firstQuestion,
+          createdAt: '2026-04-12T13:00:01.000Z',
+        }),
+        createMessage({
+          id: 'message-concurrent-first-assistant-1',
+          role: 'assistant',
+          content: firstAnswer,
+          createdAt: '2026-04-12T13:00:02.000Z',
+        }),
+      ];
+
+      return firstResponse.promise;
+    }
+
+    if (body.message === secondQuestion) {
+      expect(body.chatMode).toBe('temporary');
+      return {
+        message: secondAnswer,
+        userMessageId: 'message-concurrent-temp-user-1',
+        assistantMessageId: 'message-concurrent-temp-assistant-1',
+      };
+    }
+
+    throw new Error('Unexpected chat message: ' + body.message);
+  });
+
+  await page.goto(
+    '/home/' + firstConversationId + '?e2e=home-routing-concurrent-send'
+  );
+
+  const firstComposer = page.getByPlaceholder('Message Keen...');
+  await firstComposer.fill(firstQuestion);
+  await firstComposer.press('Enter');
+
+  await page.getByLabel('New temporary chat').click();
+  await expect(page).toHaveURL(new RegExp('/home\\?e2e=home-routing-concurrent-send$'));
+
+  const temporaryComposer = page.getByPlaceholder('Message Keen...');
+  await temporaryComposer.fill(secondQuestion);
+  await temporaryComposer.press('Enter');
+
+  await expect(page.getByText(secondAnswer)).toBeVisible({ timeout: 10000 });
+  expect(seenMessages).toEqual([firstQuestion, secondQuestion]);
+
+  firstResponse.resolve({
+    message: firstAnswer,
+    userMessageId: 'message-concurrent-first-user-1',
+    assistantMessageId: 'message-concurrent-first-assistant-1',
+  });
+
+  await expect(page).toHaveURL(new RegExp('/home\\?e2e=home-routing-concurrent-send$'));
+});
+
+test('background draft promotion does not steal focus from the chat you switched to', async ({ page }) => {
+  const savedConversationId = 'conversation-stays-selected';
+  const promotedConversationId = 'conversation-promoted-in-background';
+  const firstQuestion = 'Start a new investigation for me.';
+  const promotedAnswer = 'The draft can finish in the background.';
+  const response = deferred();
+  const state = await mockHomeDataRoutes(page, {
+    conversations: [
+      createConversation({
+        id: savedConversationId,
+        title: 'Saved Conversation',
+      }),
+    ],
+    messagesByConversationId: {
+      [savedConversationId]: [
+        createMessage({
+          id: 'message-saved-conversation-assistant-1',
+          role: 'assistant',
+          content: 'Stay focused on this conversation.',
+          createdAt: '2026-04-12T13:10:00.000Z',
+        }),
+      ],
+    },
+  });
+
+  await mockChatRoute(page, async (body) => {
+    expect(body.message).toBe(firstQuestion);
+    state.conversations.unshift(
+      createConversation({
+        id: promotedConversationId,
+        title: 'Background Draft',
+        updatedAt: '2026-04-12T13:10:02.000Z',
+        createdAt: '2026-04-12T13:10:01.000Z',
+      })
+    );
+    state.messagesByConversationId[promotedConversationId] = [
+      createMessage({
+        id: 'message-background-draft-user-1',
+        role: 'user',
+        content: firstQuestion,
+        createdAt: '2026-04-12T13:10:01.000Z',
+      }),
+      createMessage({
+        id: 'message-background-draft-assistant-1',
+        role: 'assistant',
+        content: promotedAnswer,
+        createdAt: '2026-04-12T13:10:02.000Z',
+      }),
+    ];
+
+    return response.promise;
+  });
+
+  await page.goto('/home?e2e=home-routing-background-draft');
+
+  const composer = page.getByPlaceholder('Message Keen...');
+  await composer.fill(firstQuestion);
+  await composer.press('Enter');
+
+  const sidePanel = await ensureConversationsOpen(page);
+  await sidePanel.getByRole('button', { name: /Saved Conversation/ }).click();
+  await expect(page).toHaveURL(
+    new RegExp('/home/' + savedConversationId + '\\?e2e=home-routing-background-draft$')
+  );
+  await expect(page.getByText('Stay focused on this conversation.')).toBeVisible();
+
+  response.resolve({
+    conversationId: promotedConversationId,
+    conversationTitle: 'Background Draft',
+    userMessageId: 'message-background-draft-user-1',
+    assistantMessageId: 'message-background-draft-assistant-1',
+    message: promotedAnswer,
+  });
+
+  await expect(page).toHaveURL(
+    new RegExp('/home/' + savedConversationId + '\\?e2e=home-routing-background-draft$')
+  );
+  await expect(page.getByText('Stay focused on this conversation.')).toBeVisible();
 });
 
 test('temporary chats stay on /home when switching away from a persistent route', async ({ page }) => {
@@ -195,7 +498,7 @@ test('temporary chats stay on /home when switching away from a persistent route'
     },
   });
 
-  await page.goto(`/home/${conversationId}?e2e=home-routing-temporary`);
+  await page.goto('/home/' + conversationId + '?e2e=home-routing-temporary');
 
   await expect(page.getByText(answer)).toBeVisible();
   await page.getByLabel('New temporary chat').click();

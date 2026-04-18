@@ -25,8 +25,8 @@ export default function HomeBackground() {
     };
 
     cursorPosRef.current = {
-      x: window.innerWidth * 0.5,
-      y: window.innerHeight * 0.35,
+      x: window.innerWidth * 0.85,
+      y: window.innerHeight * 0.15,
     };
     update();
 
@@ -52,10 +52,6 @@ export default function HomeBackground() {
         }}
       />
 
-      <div
-        className="absolute -left-40 -top-40 h-96 w-96 rounded-full blur-3xl"
-        style={{ background: "var(--ambient-blob-a)" }}
-      />
       <div
         className="absolute -bottom-32 -right-32 h-80 w-80 rounded-full blur-3xl"
         style={{ background: "var(--ambient-blob-b)" }}

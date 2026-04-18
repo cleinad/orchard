@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { after } from 'next/server';
-import { generateObject, generateText } from 'ai';
-import { z } from 'zod';
+import { generateText } from 'ai';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
 import { loadMemoryContextV2 } from '@/lib/memory-reader';
 import { processMemoryV2 } from '@/lib/memory-agent';
@@ -11,17 +10,18 @@ import {
   applySearchDisclosure,
   createFailedSearchMetadata,
   createNotAttemptedSearchMetadata,
-  createSearchMetadataFromPersisted,
-  type PersistedSearchMetadata,
+  createSearchMetadataFromOutput,
   type SearchMode,
 } from '@/lib/chat-search';
 import {
-  createPersistedSearchMetadata,
+  hasUsableSearchSources,
+  type PersistedSearchMetadata,
   parsePersistedSearchMetadata,
   stripCitationMarkers,
   stripInvalidCitationMarkers,
 } from '@/lib/search-citations';
-import { runWebSearch } from '@/lib/tools';
+import { runSearchPipeline } from '@/lib/search/pipeline';
+import { createSearchTelemetry } from '@/lib/search/telemetry';
 import { buildMentorPrompt } from '@/lib/mentors/prompts';
 import type {
   ChatHistoryMessage,
@@ -50,21 +50,6 @@ When the user is:
 Keep responses conversational and focused. This is a voice conversation - avoid walls of text, bullet dumps, or overly formal language.
 When appropriate, answer questions directly without snarky validation or introductions. You can be more direct and less summarative at times because this is a conversation with a human.
 Exercise your judgement on when to be more direct and when to be more conversational, you are to be an excellent communicator.`;
-
-const SEARCH_PLANNER_SYSTEM_PROMPT = `Decide whether live web search is needed before answering the user's latest message.
-
-Rules:
-- Set shouldSearch=true when freshness, verification, recent events, changing facts, or uncertain external claims matter.
-- Set shouldSearch=false when the request can be answered from server-provided request context alone, such as the current local date/time or the user's saved name.
-- Set shouldSearch=false for personal reflection, brainstorming, writing help, or answers grounded entirely in the conversation.
-- If shouldSearch=true, provide one concise search query.
-- If shouldSearch=false, query must be null.
-- Do not answer the user.`;
-
-const SearchPlanSchema = z.object({
-  shouldSearch: z.boolean(),
-  query: z.string().nullable(),
-});
 
 interface ContextMessage extends ChatHistoryMessage {
   searchMetadata: PersistedSearchMetadata | null;
@@ -271,14 +256,24 @@ function sanitizeHistoryMessages(input: unknown, maxItems: number): ContextMessa
 }
 
 function formatSearchResultsForPrompt(searchMetadata: PersistedSearchMetadata): string {
-  if (searchMetadata.status !== 'success' || searchMetadata.sources.length === 0) {
+  if (!hasUsableSearchSources(searchMetadata)) {
     return '';
   }
 
   return searchMetadata.sources
     .map(
       (source) =>
-        `[${source.id}] ${source.title}\nDomain: ${source.domain}\nURL: ${source.url}\nSnippet: ${source.snippet}`
+        [
+          `[${source.id}] ${source.title}`,
+          `Domain: ${source.domain}`,
+          `URL: ${source.url}`,
+          source.provider ? `Provider: ${source.provider}` : null,
+          source.sourceType ? `Source Type: ${source.sourceType}` : null,
+          source.publishedAt ? `Published At: ${source.publishedAt}` : null,
+          `Snippet: ${source.snippet}`,
+        ]
+          .filter(Boolean)
+          .join('\n')
     )
     .join('\n\n');
 }
@@ -287,7 +282,7 @@ function buildGroundedSearchSystemPrompt(
   basePrompt: string,
   searchMetadata: PersistedSearchMetadata
 ): string {
-  if (searchMetadata.status !== 'success') {
+  if (!hasUsableSearchSources(searchMetadata)) {
     return `${basePrompt}
 
 Live web search was attempted for this reply, but it did not produce usable grounding. If the answer depends on fresh information, say that briefly and answer with an appropriate caveat.`;
@@ -302,46 +297,6 @@ When you use a source, cite it using separate numeric markers like [1] or [1] [3
 <web_search_results query="${searchMetadata.query ?? ''}">
 ${formatSearchResultsForPrompt(searchMetadata)}
 </web_search_results>`;
-}
-
-async function planSearch(
-  chatModel: ReturnType<typeof getChatModel>,
-  messages: ChatHistoryMessage[],
-  latestUserMessage: string,
-  replyContext: ReplyContext
-) {
-  try {
-    const conversationWindow = messages
-      .slice(-6)
-      .map((message) => `${message.role}: ${message.content}`)
-      .join('\n\n');
-
-    const { object } = await generateObject({
-      model: chatModel,
-      system: SEARCH_PLANNER_SYSTEM_PROMPT,
-      prompt: `Request context:\n${formatReplyContext(replyContext)}\n\nLatest user message:\n${latestUserMessage.trim()}\n\nRecent conversation:\n${conversationWindow}`,
-      schema: SearchPlanSchema,
-    });
-
-    if (!object.shouldSearch) {
-      return {
-        shouldSearch: false,
-        query: null,
-      };
-    }
-
-    const query = sanitizeSearchQuery(object.query || latestUserMessage);
-    return {
-      shouldSearch: query.length > 0,
-      query: query || null,
-    };
-  } catch (error) {
-    console.warn('[chat] search planner failed', error);
-    return {
-      shouldSearch: false,
-      query: null,
-    };
-  }
 }
 
 async function generateConversationTitle(
@@ -371,6 +326,8 @@ async function generateConversationTitle(
 }
 
 export async function POST(request: NextRequest) {
+  let activeThreadId: string | null = null;
+
   try {
     const supabase = await createSupabaseServerClient();
 
@@ -514,7 +471,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    let activeThreadId = threadId || null;
+    activeThreadId = threadId || null;
     const normalizedPreviousMessageId =
       typeof previousMessageId === 'string' && previousMessageId.trim().length > 0
         ? previousMessageId.trim()
@@ -782,8 +739,7 @@ export async function POST(request: NextRequest) {
       userName: normalizeUserName(profile?.full_name),
     };
 
-    const searchMode: SearchMode = searchEnabled ? 'required' : 'auto';
-    const searchAvailable = Boolean(process.env.TAVILY_API_KEY);
+    const searchMode: SearchMode = searchEnabled ? 'required' : 'off';
 
     let baseSystemPrompt = isMentorConversation
       ? buildMentorSystemPrompt(
@@ -842,15 +798,26 @@ export async function POST(request: NextRequest) {
 Reply to the user's latest message directly. Do not return an empty response.`;
 
     if (searchMode === 'required') {
-      if (searchAvailable) {
-        const searchOutput = await runWebSearch(message);
-        persistedSearchMetadata = createPersistedSearchMetadata(searchMode, searchOutput);
-        search = createSearchMetadataFromPersisted(searchMode, persistedSearchMetadata);
+      const searchTraceId = crypto.randomUUID();
+      const searchTelemetry = createSearchTelemetry({
+        traceId: searchTraceId,
+        conversationId: activeConversationId,
+        query: message,
+      });
+      const searchStartedAt = Date.now();
 
-        const groundedSystemPrompt = buildGroundedSearchSystemPrompt(
-          baseSystemPrompt,
-          persistedSearchMetadata
-        );
+      searchTelemetry.logRequestStarted({ searchMode });
+
+      try {
+        const searchOutput = await runSearchPipeline(message, {
+          telemetry: searchTelemetry,
+        });
+        search = createSearchMetadataFromOutput(searchOutput, searchMode);
+        persistedSearchMetadata = search.metadata;
+
+        const groundedSystemPrompt = persistedSearchMetadata
+          ? buildGroundedSearchSystemPrompt(baseSystemPrompt, persistedSearchMetadata)
+          : baseSystemPrompt;
         finalRetrySystemPrompt = `${groundedSystemPrompt}
 
 Reply directly in 2 to 4 sentences. Do not return an empty response.`;
@@ -862,10 +829,15 @@ Reply directly in 2 to 4 sentences. Do not return an empty response.`;
         });
 
         assistantText = generation.text.trim();
-      } else {
+      } catch (error) {
+        searchTelemetry.logPipelineFailed({
+          durationMs: Date.now() - searchStartedAt,
+          error,
+        });
+        console.error('[chat] search pipeline failed', error);
         search = createFailedSearchMetadata(
           searchMode,
-          'missing_config',
+          'upstream_error',
           sanitizeSearchQuery(message) || null
         );
         finalRetrySystemPrompt = `${baseSystemPrompt}
@@ -880,43 +852,7 @@ Live web search is unavailable in this environment. If the question depends on f
 
         assistantText = generation.text.trim();
       }
-    } else if (searchAvailable) {
-      const searchPlan = await planSearch(chatModel, modelMessages, message, replyContext);
-
-      if (searchPlan.shouldSearch && searchPlan.query) {
-        const searchOutput = await runWebSearch(searchPlan.query);
-        persistedSearchMetadata = createPersistedSearchMetadata(searchMode, searchOutput);
-        search = createSearchMetadataFromPersisted(searchMode, persistedSearchMetadata);
-
-        const groundedSystemPrompt = buildGroundedSearchSystemPrompt(
-          baseSystemPrompt,
-          persistedSearchMetadata
-        );
-        finalRetrySystemPrompt = `${groundedSystemPrompt}
-
-Reply directly to the user's latest message. Do not return an empty response.`;
-
-        const generation = await generateText({
-          model: chatModel,
-          system: groundedSystemPrompt,
-          messages: modelMessages,
-        });
-
-        assistantText = generation.text.trim();
-      } else {
-        const generation = await generateText({
-          model: chatModel,
-          system: baseSystemPrompt,
-          messages: modelMessages,
-        });
-
-        assistantText = generation.text.trim();
-      }
     } else {
-      finalRetrySystemPrompt = `${baseSystemPrompt}
-
-Live web search is unavailable in this environment. If the question depends on fresh information, say that briefly and answer with an appropriate caveat. Do not return an empty response.`;
-
       const generation = await generateText({
         model: chatModel,
         system: finalRetrySystemPrompt,
@@ -930,7 +866,6 @@ Live web search is unavailable in this environment. If the question depends on f
       console.warn('[chat] empty response after generation', {
         conversationId: activeConversationId,
         searchMode,
-        searchAvailable,
         searchStatus: search.status,
       });
 
@@ -946,14 +881,14 @@ Live web search is unavailable in this environment. If the question depends on f
     if (!assistantText) {
       assistantText =
         searchMode === 'required'
-          ? search.status === 'success'
+          ? search.status === 'success' || search.status === 'partial'
             ? "I found current sources for that, but I couldn't turn them into a reply. Please try again."
-            : "I couldn't complete a grounded reply for that. Live search was unavailable or didn't return useful results."
+            : "I couldn't complete a grounded reply for that. Search mode was unavailable or didn't return useful results."
           : "I couldn't generate a reply for that. Please try again.";
     }
 
     const normalizedAssistantText =
-      persistedSearchMetadata?.status === 'success'
+      hasUsableSearchSources(persistedSearchMetadata)
         ? stripInvalidCitationMarkers(assistantText, persistedSearchMetadata)
         : assistantText;
     const assistantResponse = applySearchDisclosure(normalizedAssistantText, search);
@@ -1040,7 +975,10 @@ Live web search is unavailable in this environment. If the question depends on f
   } catch (error) {
     console.error('Chat API error:', error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Internal server error' },
+      {
+        error: error instanceof Error ? error.message : 'Internal server error',
+        ...(activeThreadId ? { threadId: activeThreadId } : {}),
+      },
       { status: 500 }
     );
   }

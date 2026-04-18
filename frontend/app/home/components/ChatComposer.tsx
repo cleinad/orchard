@@ -102,7 +102,7 @@ export default function ChatComposer({
     <div className="mx-auto w-full max-w-2xl px-4">
       <div className="shrink-0 pb-2 pt-2">
         {temporaryChatEnabled && showTemporaryIntro && (
-          <div className="mb-3 rounded-2xl border border-border-subtle bg-foreground/[0.04] px-4 py-4 text-foreground shadow-sm">
+          <div className="mb-3 rounded-2xl border border-border-subtle bg-foreground/[0.04] px-4 py-4 font-sans text-foreground shadow-sm">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-sm font-medium">Temporary chat is on.</p>
@@ -147,7 +147,7 @@ export default function ChatComposer({
         )}
 
         {hasTranscript && !isLoading && (
-          <div className="mb-3 rounded-lg bg-surface px-4 py-2 text-sm text-muted shadow-sm">
+          <div className="mb-3 rounded-lg bg-surface px-4 py-2 font-sans text-sm text-muted shadow-sm">
             <span className="text-xs font-medium tracking-wider text-muted/60">
               Listening
             </span>
@@ -193,20 +193,20 @@ export default function ChatComposer({
         </div>
 
         <form onSubmit={onSubmit} className="relative">
-          <div className="flex items-end gap-2 rounded-lg bg-surface px-3 py-1.5 shadow-sm ring-1 ring-border-subtle">
+          <div className="relative rounded-lg bg-surface shadow-sm ring-1 ring-border-subtle">
             <textarea
               ref={textareaRef}
               value={input}
               onChange={(event) => onInputChange(event.target.value)}
               onKeyDown={onKeyDown}
               placeholder={micActive ? 'Listening...' : `Message ${activeName}...`}
-              disabled={isLoading}
               rows={1}
-              className="self-center min-h-10 flex-1 min-w-0 resize-none bg-transparent py-1.5 text-sm leading-relaxed text-foreground placeholder-muted/50 outline-none disabled:cursor-not-allowed disabled:opacity-50"
+              className="composer-scrollbar w-full min-h-10 min-w-0 resize-none bg-transparent pl-3 pr-[5.5rem] py-2.5 font-sans text-sm leading-relaxed text-foreground placeholder-muted/50 outline-none disabled:cursor-not-allowed disabled:opacity-50 overflow-y-auto"
               style={{ maxHeight: '200px' }}
             />
 
-            <div className="flex flex-none items-center gap-2 self-end pb-0.5">
+            {/* Buttons pinned to bottom-right, so scrollbar sits to their left at the far right of the card */}
+            <div className="absolute bottom-1.5 right-2 flex flex-none items-center gap-2">
               <button
                 type="button"
                 onClick={onToggleMic}
@@ -310,17 +310,16 @@ export default function ChatComposer({
               <Tooltip
                 content={
                   searchEnabled
-                    ? 'Live Search: always grounds replies with live web results'
-                    : 'Live Search: lets the model decide when search is needed'
+                    ? 'Search mode on: Keen will ground this reply with live sources'
+                    : 'Search mode off: Keen will answer without live retrieval'
                 }
                 side="bottom"
               >
                 <button
                   type="button"
                   aria-pressed={searchEnabled}
-                  aria-label={searchEnabled ? 'Live search always on' : 'Live search auto'}
+                  aria-label={searchEnabled ? 'Search mode on' : 'Search mode off'}
                   onClick={onToggleSearch}
-                  disabled={isLoading}
                   className={`flex h-7 w-7 items-center justify-center rounded-md border transition-colors ${
                     searchEnabled
                       ? 'border-foreground/[0.10] bg-foreground/[0.05] text-foreground'
@@ -382,19 +381,19 @@ export default function ChatComposer({
             <ChatModelPicker
               chatModels={chatModels}
               selectedModelId={selectedModelId}
-              disabled={isLoading || !hasAvailableChatModels}
+              disabled={!hasAvailableChatModels}
               onChange={onModelChange}
             />
           </div>
 
           {searchWarning && (
-            <div className="mt-2 rounded-lg border border-amber-300/70 bg-amber-50 px-3 py-2 text-xs text-amber-900 shadow-sm dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100">
+            <div className="mt-2 rounded-lg border border-amber-300/70 bg-amber-50 px-3 py-2 font-sans text-xs text-amber-900 shadow-sm dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100">
               {searchWarning}
             </div>
           )}
         </form>
 
-        <div className="mt-2 flex items-center justify-between px-4 text-xs text-muted/60">
+        <div className="mt-2 flex items-center justify-between px-4 font-sans text-xs text-muted/60">
           <div className="flex items-center gap-3">
             {micActive && (
               <span className="flex items-center gap-1.5">
@@ -408,12 +407,12 @@ export default function ChatComposer({
         </div>
 
         {microphoneStatus === 'blocked' && (
-          <p className="mt-2 text-center text-xs text-muted">
+          <p className="mt-2 text-center font-sans text-xs text-muted">
             Microphone permission denied. Check browser settings.
           </p>
         )}
         {microphoneStatus === 'error' && microphoneErrorMessage && (
-          <p className="mt-2 text-center text-xs text-rose-500">
+          <p className="mt-2 text-center font-sans text-xs text-rose-500">
             {microphoneErrorMessage}
           </p>
         )}

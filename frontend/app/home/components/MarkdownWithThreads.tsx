@@ -14,14 +14,14 @@ import {
   markdownRehypePlugins,
   markdownRemarkPlugins,
 } from "@/lib/markdown";
-import type { ThreadMeta } from "@/app/home/components/threadTypes";
+import type { InlineThreadMarker } from "@/app/home/components/threadTypes";
 import type { PersistedSearchMetadata } from "@/lib/chat-search";
 import { splitTextWithCitations } from "@/lib/search-citations";
 
 interface MarkdownWithThreadsProps {
   content: string;
-  threads: ThreadMeta[];
-  onThreadClick: (thread: ThreadMeta) => void;
+  threads: InlineThreadMarker[];
+  onThreadClick: (thread: InlineThreadMarker) => void;
   searchMetadata?: PersistedSearchMetadata | null;
   activeCitationSourceId?: number | null;
   onCitationClick?: (sourceId: number) => void;
@@ -40,7 +40,7 @@ type ButtonProps = ComponentPropsWithoutRef<"button"> & {
 interface TextMatch {
   start: number;
   end: number;
-  thread: ThreadMeta;
+  thread: InlineThreadMarker;
 }
 
 interface CursorRef {
@@ -201,21 +201,31 @@ function ThreadIndicator({
   onClick,
 }: {
   children: ReactNode;
-  thread: ThreadMeta;
-  onClick: (thread: ThreadMeta) => void;
+  thread: InlineThreadMarker;
+  onClick: (thread: InlineThreadMarker) => void;
 }) {
+  const statusClassName =
+    thread.status === "loading"
+      ? "bg-sky-200/45 text-sky-950 ring-sky-500/25 hover:bg-sky-200/70 hover:ring-sky-500/40 dark:bg-sky-300/15 dark:text-sky-100 dark:ring-sky-300/20 dark:hover:bg-sky-300/25"
+      : thread.status === "error"
+        ? "bg-rose-200/45 text-rose-950 ring-rose-500/25 hover:bg-rose-200/70 hover:ring-rose-500/40 dark:bg-rose-300/15 dark:text-rose-100 dark:ring-rose-300/20 dark:hover:bg-rose-300/25"
+        : "bg-amber-200/45 text-stone-950 ring-amber-500/25 hover:bg-amber-200/70 hover:ring-amber-500/40 dark:bg-amber-300/15 dark:text-amber-100 dark:ring-amber-300/20 dark:hover:bg-amber-300/25";
+
   return (
     <span
       role="button"
       tabIndex={0}
       data-testid="inline-thread-link"
-      data-thread-id={thread.threadId}
+      data-thread-id={thread.threadId ?? ""}
+      data-thread-marker-id={thread.markerId}
+      data-thread-session-id={thread.sessionId ?? ""}
+      data-thread-status={thread.status}
       data-source-message-id={thread.sourceMessageId}
       onClick={() => onClick(thread)}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") onClick(thread);
       }}
-      className="box-decoration-clone cursor-pointer rounded-[0.35rem] bg-amber-200/45 px-1 py-0.5 font-medium text-stone-950 ring-1 ring-amber-500/25 transition-colors hover:bg-amber-200/70 hover:ring-amber-500/40 dark:bg-amber-300/15 dark:text-amber-100 dark:ring-amber-300/20 dark:hover:bg-amber-300/25"
+      className={`box-decoration-clone cursor-pointer rounded-[0.35rem] px-1 py-0.5 font-medium ring-1 transition-colors ${statusClassName}`}
       title="View thread"
     >
       {children}
@@ -223,7 +233,7 @@ function ThreadIndicator({
   );
 }
 
-function normalizeThreadMatches(threads: ThreadMeta[]): TextMatch[] {
+function normalizeThreadMatches(threads: InlineThreadMarker[]): TextMatch[] {
   const normalizedThreads = [...threads]
     .filter((thread) => thread.endOffset > thread.startOffset)
     .sort(
@@ -296,12 +306,12 @@ function getHastTextLength(node: HastNode): number {
   return (node.children || []).reduce((total, child) => total + getHastTextLength(child), 0);
 }
 
-function createThreadSpanNode(text: string, thread: ThreadMeta): HastNode {
+function createThreadSpanNode(text: string, thread: InlineThreadMarker): HastNode {
   return {
     type: "element",
     tagName: "span",
     properties: {
-      "data-inline-thread-id": thread.threadId,
+      "data-inline-thread-id": thread.markerId,
     },
     children: [{ type: "text", value: text }],
   };
@@ -480,7 +490,7 @@ export default function MarkdownWithThreads({
   onCitationClick,
 }: MarkdownWithThreadsProps) {
   const matches = normalizeThreadMatches(threads);
-  const threadById = new Map(matches.map((match) => [match.thread.threadId, match.thread]));
+  const threadById = new Map(matches.map((match) => [match.thread.markerId, match.thread]));
   const validCitationSourceIds =
     searchMetadata?.status === "success" && onCitationClick
       ? new Set(searchMetadata.sources.map((source) => source.id))

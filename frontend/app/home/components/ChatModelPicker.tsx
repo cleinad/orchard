@@ -83,7 +83,7 @@ export default function ChatModelPicker({
         aria-haspopup="menu"
         onClick={togglePopover}
         disabled={disabledState}
-        className={`inline-flex h-8 min-w-[9.25rem] items-center justify-between gap-2 rounded-full border px-3 text-left font-medium transition ${
+        className={`inline-flex h-8 min-w-[9.25rem] items-center justify-between gap-2 rounded-full border px-3 text-left font-sans font-medium transition ${
           isOpen
             ? 'border-foreground/[0.08] bg-foreground/[0.055] text-foreground'
             : 'border-transparent bg-background text-foreground/88 hover:bg-foreground/[0.035] hover:text-foreground'
@@ -130,7 +130,7 @@ export default function ChatModelPicker({
           setIsOpen(toggleEvent.newState === 'open');
         }}
       >
-        <div className="w-[min(16.5rem,calc(100vw-1rem))] rounded-[1.2rem] bg-background p-1.5 text-foreground shadow-[0_16px_36px_rgba(15,23,42,0.12)] ring-1 ring-black/[0.06] dark:shadow-[0_18px_40px_rgba(0,0,0,0.28)] dark:ring-white/[0.06]">
+        <div className="w-[min(16.5rem,calc(100vw-1rem))] rounded-[1.2rem] bg-background p-1.5 font-sans text-foreground shadow-[0_16px_36px_rgba(15,23,42,0.12)] ring-1 ring-black/[0.06] dark:shadow-[0_18px_40px_rgba(0,0,0,0.28)] dark:ring-white/[0.06]">
           <div className="px-2.5 pb-1.5 pt-1">
             <p className="text-[11px] font-medium text-muted/75">
               Chat model

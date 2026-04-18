@@ -84,11 +84,10 @@ test('reopens a persisted inline thread from the source message', async ({ page 
   const { messageId, selectedText } = await gotoHomeFixture(page, 'inline-threads-persistent');
   await selectTextInMessage(page, messageId, selectedText);
   await page.getByTestId('selection-popover-input').fill(question);
-  await page.keyboard.press('Control+L');
+  await page.getByTestId('selection-popover-input').press('Enter');
 
-  await expect(page.getByTestId('thread-panel')).toHaveAttribute('data-state', 'open');
-  await page.getByTestId('thread-panel-input').press('Enter');
   await expect(page.getByTestId('thread-panel')).toContainText(answer);
+  await expect(page.getByTestId('inline-thread-link')).toHaveCount(1);
 
   await page.keyboard.press('Control+L');
   await expect(page.getByTestId('thread-panel')).toHaveAttribute('data-state', 'closed');
@@ -100,6 +99,60 @@ test('reopens a persisted inline thread from the source message', async ({ page 
   await expect(page.getByTestId('thread-panel')).toHaveAttribute('data-state', 'open');
   await expect(page.getByTestId('thread-panel')).toContainText(question);
   await expect(page.getByTestId('thread-panel')).toContainText(answer);
+});
+
+test('persistent error markers survive reload and reopen with cached thread state', async ({ page }) => {
+  const question = 'Why did this request fail?';
+  const errorMessage = 'Thread request failed.';
+
+  await mockChatRoute(page, async (body) => {
+    expect(body.message).toBe(question);
+    return {
+      status: 500,
+      json: {
+        error: errorMessage,
+        threadId: 'persisted-thread-error-1',
+      },
+    };
+  });
+
+  await mockThreadMessagesRoute(page, async ({ threadId }) => {
+    expect(threadId).toBe('persisted-thread-error-1');
+    return {
+      messages: [
+        {
+          id: 'persisted-error-user-1',
+          role: 'user',
+          content: question,
+          created_at: '2026-04-05T09:40:01.000Z',
+        },
+      ],
+    };
+  });
+
+  const { messageId, selectedText } = await gotoHomeFixture(page, 'inline-threads-persistent');
+  await selectTextInMessage(page, messageId, selectedText);
+  await page.getByTestId('selection-popover-input').fill(question);
+  await page.getByTestId('selection-popover-input').press('Enter');
+
+  const errorMarker = page.locator(
+    '[data-testid="inline-thread-link"][data-thread-id="persisted-thread-error-1"][data-thread-status="error"]'
+  );
+  await expect(errorMarker).toContainText(selectedText);
+  await expect(page.getByTestId('thread-panel')).toContainText(errorMessage);
+
+  await page.reload();
+  await page.waitForSelector(`[data-message-id="${messageId}"]`);
+
+  const reloadedErrorMarker = page.locator(
+    '[data-testid="inline-thread-link"][data-thread-id="persisted-thread-error-1"][data-thread-status="error"]'
+  );
+  await expect(reloadedErrorMarker).toContainText(selectedText);
+
+  await reloadedErrorMarker.click();
+  await expect(page.getByTestId('thread-panel')).toHaveAttribute('data-state', 'open');
+  await expect(page.getByTestId('thread-panel')).toContainText(question);
+  await expect(page.getByTestId('thread-panel')).toContainText(errorMessage);
 });
 
 test('renders a persisted inline thread from offsets when highlighted text includes a list marker', async ({ page }) => {

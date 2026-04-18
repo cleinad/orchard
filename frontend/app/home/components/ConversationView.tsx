@@ -3,31 +3,30 @@
 import { useCallback, useState, type RefObject } from 'react';
 import MarkdownWithThreads from '@/app/home/components/MarkdownWithThreads';
 import SearchSourcesTray from '@/app/home/components/SearchSourcesTray';
-import type { ThreadMeta } from '@/app/home/components/threadTypes';
+import type { InlineThreadMarker } from '@/app/home/components/threadTypes';
 import type { Message } from '@/app/home/types';
 import type { BranchChip } from '@/app/home/components/conversationTree';
 import { markdownContentClassName } from '@/lib/markdown';
+import { hasUsableSearchSources } from '@/lib/search-citations';
 
 interface ConversationViewProps {
-  loadingLists: boolean;
   listError: string | null;
   messages: Message[];
   activeName: string;
   emptyTitle: string;
   emptySubtitle: string;
   isLoading: boolean;
-  threadsMap: Map<string, ThreadMeta[]>;
+  threadsMap: Map<string, InlineThreadMarker[]>;
   branchChipsByMessageId: Map<string, BranchChip[]>;
   pendingBranchSourceMessageId: string | null;
   messagesEndRef: RefObject<HTMLDivElement | null>;
-  onThreadClick: (thread: ThreadMeta) => void;
+  onThreadClick: (thread: InlineThreadMarker) => void;
   onSelectBranch: (sourceMessageId: string, branchId: string | null) => void;
   onCreateBranch: (sourceMessageId: string) => void;
   onAssistantPointerUp: () => void;
 }
 
 export default function ConversationView({
-  loadingLists,
   listError,
   messages,
   activeName,
@@ -81,9 +80,9 @@ export default function ConversationView({
 
   return (
     <div className="mx-auto max-w-2xl px-6 pb-4">
-      {(loadingLists || listError) && (
-        <div className="mb-4 rounded-lg bg-surface px-4 py-2 text-xs text-muted shadow-sm">
-          {loadingLists ? 'Loading chats and mentors...' : listError}
+      {listError && (
+        <div className="mb-4 rounded-lg bg-surface px-4 py-2 font-sans text-xs text-muted shadow-sm">
+          {listError}
         </div>
       )}
 
@@ -93,7 +92,7 @@ export default function ConversationView({
             <h1 className="font-heading text-3xl text-foreground sm:text-4xl">
               {emptyTitle}
             </h1>
-            <p className="mt-4 max-w-md text-md font-medium leading-relaxed text-muted">
+            <p className="mt-4 max-w-md font-sans text-md font-medium leading-relaxed text-muted">
               {emptySubtitle}
             </p>
           </div>
@@ -103,9 +102,7 @@ export default function ConversationView({
           {messages.map((message) => {
             const replySearchMetadata =
               message.role === 'assistant' ? message.searchMetadata ?? null : null;
-            const hasSources =
-              replySearchMetadata?.status === 'success'
-              && replySearchMetadata.sources.length > 0;
+            const hasSources = hasUsableSearchSources(replySearchMetadata);
             const isSourceTrayOpen = openSourceTray?.messageId === message.id;
             const activeSourceId =
               isSourceTrayOpen
@@ -129,7 +126,7 @@ export default function ConversationView({
                       : ''
                   }`}
                 >
-                  <div className="flex items-baseline justify-between">
+                  <div className="flex items-baseline justify-between font-sans">
                     <span className="text-xs font-medium tracking-wider text-muted">
                       {message.role === 'user' ? 'You' : activeName}
                     </span>
@@ -171,7 +168,7 @@ export default function ConversationView({
                             );
                           }}
                           onPointerUp={(event) => event.stopPropagation()}
-                          className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                          className={`inline-flex items-center rounded-full border px-3 py-1 font-sans text-xs font-medium transition-colors ${
                             isSourceTrayOpen
                               ? 'border-foreground/15 bg-foreground/[0.05] text-foreground'
                               : 'border-border-subtle text-muted hover:bg-foreground/[0.04] hover:text-foreground'
@@ -203,7 +200,7 @@ export default function ConversationView({
                           key={chip.id}
                           type="button"
                           onClick={() => onSelectBranch(message.id, chip.branchId)}
-                          className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
+                          className={`rounded-full px-3 py-1.5 font-sans text-xs font-medium transition ${
                             chip.isActive
                               ? 'bg-foreground text-background'
                               : chip.kind === 'pending'
@@ -217,7 +214,7 @@ export default function ConversationView({
                       <button
                         type="button"
                         onClick={() => onCreateBranch(message.id)}
-                        className="rounded-full border border-border-subtle bg-surface px-3 py-1.5 text-xs font-medium text-muted transition hover:border-foreground/[0.10] hover:bg-foreground/[0.03] hover:text-foreground"
+                        className="rounded-full border border-border-subtle bg-surface px-3 py-1.5 font-sans text-xs font-medium text-muted transition hover:border-foreground/[0.10] hover:bg-foreground/[0.03] hover:text-foreground"
                       >
                         + Branch
                       </button>
@@ -229,7 +226,7 @@ export default function ConversationView({
           })}
 
           {isLoading && (
-            <div className="py-4">
+            <div className="py-4 font-sans">
               <span className="text-xs font-medium tracking-wider text-muted">
                 {activeName}
               </span>

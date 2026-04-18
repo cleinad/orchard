@@ -1,71 +1,88 @@
-# Live Search
+# Search Mode
 
 ## Overview
 
-Live search lets Keen ground new replies in current web results. Users control this with the toggle below the chat input.
+Search mode lets Keen ground a reply in fresh external sources when the user explicitly turns search on.
 
-## Modes
+This doc is the source of truth for the shipped v1 search behavior and the near-term follow-up work.
 
-- **Auto** (default, toggle off): the server runs a short planning step against the latest user message, a small recent conversation window, and per-reply request context such as the current local time and saved user name. If the planner decides search is needed, the server runs one web search, normalizes the sources, and then generates the final answer from that evidence set. If the planner decides search is not needed, the final answer is generated without search.
-- **Always on** (toggle on): the server always runs web search before generating the reply. If usable sources are returned, the final answer is generated from that normalized source set. If search fails or returns no useful results, Keen still answers and adds a brief disclosure.
+Search is now explicit-only:
 
-Important behavior:
+- when search is off, Keen answers without live retrieval
+- when search is on, Keen always runs the server-owned retrieval pipeline before generating the reply
 
-- Final answer generation no longer uses an in-model search tool. Search orchestration is server-owned.
-- Every answer path gets concise request context, limited to `The user's name is ...` when known and `The current time is ...`.
-- Local time is computed server-side from the request's browser timezone when available; invalid or missing timezones fall back to UTC.
-- Successful searched replies can include numeric citations such as `[1]` and `[1] [3]`.
-- Valid citation markers render as separate compact chips in the reply body.
-- Clicking a citation chip or the footer `Sources N` control opens a minimal inline source tray under that reply.
-- The source tray shows the stored source title, domain, snippet, and an `Open source` link.
-- Assistant messages persist `search_metadata`, so citation chips and the source tray survive reloads for newly generated replies.
-- Older messages with no `search_metadata` render exactly as before and do not show empty source UI.
+The UI still exposes a single simple toggle, but the backend chooses the retrieval mix internally based on the query.
 
-## UI Feedback
+## Shipped V1 Scope
 
-- A pill-shaped toggle shows the current mode (`Auto` or `Always on`) with a search icon.
-- Helper text explains the active mode on `sm+` screens.
-- After each response, a status indicator shows:
-  - success: `Last reply grounded with N live sources`
-  - warning: `Live search did not find useful results for the last reply` or `Live search was unavailable for the last reply`
-- Citation chips and the reply-level source tray only appear when the saved message `search_metadata.status === 'success'` and at least one source is present.
-- The toggle is disabled while the model is loading.
+The current slice includes:
 
-## Implementation
+- one visible `Search` toggle with no hidden auto-search path
+- deterministic routing with no second LLM call
+- `Brave` as the broad web backbone
+- `Exa` as the higher-quality and research-oriented augmentation layer
+- authority-first reranking that prefers official and institutional sources over random blogs
+- persisted search metadata v2 on assistant messages
+- a source tray that can handle larger source sets than the previous 3-source assumption
+- structured server-side search telemetry for route, provider, and pipeline events
 
-### Data Flow
+## User-Facing Behavior
+
+- The composer toggle is a simple `Search` on/off control.
+- Search mode is off by default.
+- Turning search on does not expose multiple visible search modes.
+- Replies generated in search mode can include numeric citations such as `[1]` and `[1] [3]`.
+- Clicking a citation chip or the reply footer `Sources N` opens the reply-attached source tray.
+- Source metadata is persisted on assistant messages, so citations and sources survive reloads.
+
+## Internal Search Profiles
+
+The user does not see these, but the backend routes searched queries into one primary profile:
+
+- `fresh_web`
+- `research_backed`
+- `official_priority`
+- `web_social`
+
+Current v1 implementation ships:
+
+- `Brave` as the broad web backbone
+- `Exa` as research and higher-quality augmentation
+
+The approved `web_social` profile and `X` integration are deferred until the core `Brave + Exa` pipeline is stable.
+
+## Current Execution Flow
 
 ```
-User clicks toggle
+User toggles Search on
     |
     v
 searchEnabled state (boolean) — frontend/app/home/[[...conversationId]]/page.tsx
     |
     v
-POST /api/chat body includes { searchEnabled, timezone? } — same file
+POST /api/chat includes { searchEnabled, timezone? }
     |
     v
-Chat route converts: searchEnabled ? 'required' : 'auto'
+Chat route maps:
+  searchEnabled = false -> mode 'off'
+  searchEnabled = true  -> mode 'required'
     |
-    +--- sanitizeHistoryMessages() strips citation markers from prior assistant messages
-    |    before memory/context reuse
+    +--- sanitizeHistoryMessages() strips citation markers
+    |    before prior assistant text is reused
     |
     +--- append per-reply request context
     |      (current local time from browser timezone + saved user name when available)
     |
-    +--- Mode: 'required' --->  runWebSearch(message)
-    |                           createPersistedSearchMetadata()
+    +--- Mode: 'required' ---> runSearchPipeline(message)
+    |                           classifySearchQuery()
+    |                           provider retrieval in parallel
+    |                           dedupe
+    |                           rerank
+    |                           createPersistedSearchMetadataV2()
     |                           buildGroundedSearchSystemPrompt()
     |                           generateText()
     |
-    +--- Mode: 'auto' -------> planSearch()
-    |                           if shouldSearch:
-    |                             runWebSearch(plannedQuery)
-    |                             createPersistedSearchMetadata()
-    |                             buildGroundedSearchSystemPrompt()
-    |                             generateText()
-    |                           else:
-    |                             generateText() without search
+    +--- Mode: 'off' --------> generateText() without retrieval
     |
     v
 stripInvalidCitationMarkers() removes bad ids before save
@@ -77,92 +94,191 @@ Assistant message persisted with content + search_metadata
 Response includes search status envelope for the latest reply
     |
     v
-Frontend updates lastSearchState — frontend/app/home/[[...conversationId]]/page.tsx
+Frontend updates the last-reply search state
     |
     v
-UI shows success/warning indicators — same file
+MarkdownWithThreads renders citation chips
     |
     v
-Frontend loads persisted search_metadata for conversation/thread messages
-    |
-    v
-MarkdownWithThreads renders compact citation chips
-    |
-    v
-SearchSourcesTray renders the minimal inline source card
+SearchSourcesTray renders the reply-attached source tray
 ```
 
-### Key Files
+## Key Files
 
 | File | Role |
 |------|------|
-| `frontend/app/home/[[...conversationId]]/page.tsx` | Search toggle, request body construction, `lastSearchState`, and last-reply search status UI |
-| `frontend/lib/browser-timezone.ts` | Reads the browser IANA timezone so chat requests can send it to the server |
-| `frontend/app/api/chat/route.ts` | Converts `searchEnabled` to `searchMode`; planner step; per-reply request context injection; search execution; grounded prompts; citation cleanup; persistence; disclosure handling |
-| `frontend/lib/search-citations.ts` | Persisted search metadata shape, source normalization, citation parsing, citation stripping, and validation |
-| `frontend/lib/chat-search.ts` | `SearchMetadata` types, response-level search status envelope, `addSearchInstructions()` for auto mode, warning strings, and disclosure injection |
-| `frontend/lib/tools.ts` | `webSearch` tool definition (Vercel AI SDK `tool()`), `runWebSearch()`, Tavily integration, result sanitization |
-| `frontend/app/home/components/MarkdownWithThreads.tsx` | Compact clickable citation chip rendering inside markdown |
-| `frontend/app/home/components/SearchSourcesTray.tsx` | Minimal reply-level source tray UI |
-| `frontend/app/home/components/useHomeData.ts` | Loads `search_metadata` on reload and strips citation markers from sidebar previews |
-| `frontend/app/api/threads/[threadId]/messages/route.ts` | Includes `search_metadata` when thread messages are fetched |
+| `frontend/app/api/chat/route.ts` | explicit-only search execution, grounded prompt construction, persistence, and disclosures |
+| `frontend/lib/search/router.ts` | deterministic query routing with no secondary model call |
+| `frontend/lib/search/providers/brave.ts` | Brave retrieval client |
+| `frontend/lib/search/providers/exa.ts` | Exa retrieval client |
+| `frontend/lib/search/rerank.ts` | deterministic authority and relevance ranking |
+| `frontend/lib/search/pipeline.ts` | provider orchestration, dedupe, rerank, and final evidence set assembly |
+| `frontend/lib/search/telemetry.ts` | structured search logging, query redaction, and trace helpers |
+| `frontend/lib/search-citations.ts` | metadata parsing, source normalization, citation cleanup, and v1/v2 compatibility |
+| `frontend/lib/chat-search.ts` | response-level search envelope, warnings, and disclosure strings |
+| `frontend/app/home/components/ChatComposer.tsx` | explicit search-toggle copy and aria labels |
+| `frontend/app/home/components/MarkdownWithThreads.tsx` | clickable citation chip rendering |
+| `frontend/app/home/components/SearchSourcesTray.tsx` | larger-source-set reply tray UI |
+| `frontend/app/home/components/useHomeData.ts` | persisted message loading and preview cleanup |
 
-### Persisted Search Metadata
+## Routing Rules
 
-Assistant messages store a compact JSON blob on `public.messages.search_metadata`:
+The router is deterministic and does not use another LLM.
+
+High-level precedence:
+
+1. explicit social or reaction intent -> `web_social`
+2. explicit research or evidence intent -> `research_backed`
+3. explicit docs, filing, pricing, release-notes, or official-source intent -> `official_priority`
+4. freshness or current-events intent -> `fresh_web`
+5. fallback in search mode -> `fresh_web`
+
+Examples:
+
+- `latest climate summit updates` -> `fresh_web`
+- `what does the evidence say about creatine and cognition` -> `research_backed`
+- `official sources only for Anthropic release notes` -> `official_priority`
+
+## Provider Strategy
+
+### Brave
+
+Brave is the default backbone for:
+
+- broad web retrieval
+- current events and recent updates
+- official product pages, docs, changelogs, and company announcements
+
+### Exa
+
+Exa is used when better source quality is needed, especially for:
+
+- evidence-heavy queries
+- research-backed queries
+- official-priority queries where a second high-quality source family helps
+
+## Source Quality Rules
+
+Keen globally prefers higher-authority sources for factual claims:
+
+1. official docs, company pages, government pages, filings, primary announcements
+2. peer-reviewed or institutional research sources
+3. major reporting and high-quality analysis
+4. specialist blogs and independent technical writeups
+5. forums, Reddit, low-authority summaries, and random blogs
+6. social posts
+
+Important constraints:
+
+- official sources outrank random blogs by default
+- research-heavy queries boost papers and institutional sources
+- user-generated sources are strongly demoted unless the query explicitly asks for sentiment or reactions
+- dedupe and diversity rules prevent the final set from becoming many copies of the same story
+
+## Persisted Metadata
+
+Search replies persist `search_metadata` on `public.messages`.
+
+Legacy v1 rows are still readable. New writes use v2:
 
 ```ts
-type PersistedSearchMetadata = {
-  version: 1;
-  mode: 'auto' | 'required';
-  status: 'success' | 'no_results' | 'missing_config' | 'timeout' | 'upstream_error';
+type PersistedSearchMetadataV2 = {
+  version: 2;
+  mode: 'required';
+  profile: 'fresh_web' | 'research_backed' | 'web_social' | 'official_priority';
+  status:
+    | 'success'
+    | 'partial'
+    | 'no_results'
+    | 'missing_config'
+    | 'timeout'
+    | 'upstream_error';
   query: string | null;
+  providers: Array<'brave' | 'exa' | 'x'>;
   sources: Array<{
     id: number;
     title: string;
     url: string;
     domain: string;
     snippet: string;
+    provider: 'brave' | 'exa' | 'x' | null;
+    sourceType:
+      | 'official'
+      | 'docs'
+      | 'research'
+      | 'news'
+      | 'government'
+      | 'social'
+      | 'forum'
+      | 'video'
+      | 'other'
+      | null;
+    publishedAt: string | null;
   }>;
 };
 ```
 
-Normalization rules:
+Rules:
 
-- at most 3 persisted sources
-- duplicate source URLs are dropped while preserving stable numeric ids
-- `domain` is derived server-side from the source URL
-- snippets are trimmed to a compact stored length
-- `search_metadata = null` means no search attempt happened for that reply
-- attempted searches can still persist failure metadata with an empty `sources[]`
+- `search_metadata = null` means search did not run for that reply
+- `status = 'partial'` means some providers failed but grounding still succeeded
+- the citation UI activates whenever usable grounded sources are present
+- source ids remain stable and numeric for citation rendering
 
-### Reply Context And Search Execution
+## Source UI
 
-- `/api/chat` can receive an optional `timezone` from the browser as an IANA zone string such as `America/Vancouver`.
-- The server validates that timezone and computes the current local date/time for the reply on the server, rather than trusting a client-provided timestamp.
-- Prompt context is intentionally minimal to avoid noise: `The user's name is ...` when `profiles.full_name` is present, plus `The current time is ...`.
-- If the timezone is missing or invalid, the server formats the current time in UTC instead.
+- Citation chips stay inline in the assistant reply.
+- The reply footer still exposes `Sources N`.
+- The tray now scales beyond the original 3-source assumption by using a scrollable source list plus a detail panel.
+- The source surface stays attached to the reply and does not become a modal browser.
 
-**Required mode** (`searchEnabled = true`):
+## Failure Handling
 
-1. `runWebSearch(message)` runs before answer generation when search is available.
-2. The route normalizes the search output into persisted metadata.
-3. Sources are injected into the final prompt inside `<web_search_results>` tags.
-4. The shared base system prompt also carries the same minimal per-reply request context, including the current local time derived from the request timezone and the saved user name when present.
-5. The model is instructed to cite only the provided source ids using separate markers like `[1] [3]`.
-6. Invalid citation ids are stripped before the assistant message is saved.
-7. If search is unavailable or unhelpful, the reply is still returned with a disclosure and no source tray UI.
+- if one provider succeeds and another fails, Keen still answers with `partial` search metadata
+- if all providers fail or return no useful sources, Keen still answers with a disclosure
+- search snippets remain untrusted source material and are only used as grounding context
+- invalid citation ids are stripped before save
 
-**Auto mode** (`searchEnabled = false`):
+## Search Telemetry
 
-1. `planSearch()` uses `generateObject()` with a very small schema plus the same per-reply request context to decide only `shouldSearch` and `query`.
-2. If the planner returns `shouldSearch=false`, the route generates a normal reply and saves `search_metadata = null`.
-3. If the planner returns a query, the route runs one search and follows the same grounded generation path as required mode.
+Search mode now emits structured server logs for the main search stages:
 
-### Safety And Constraints
+- `search.request_started`
+- `search.route_selected`
+- `search.provider_finished`
+- `search.pipeline_completed`
+- `search.pipeline_failed`
 
-- Search snippets are treated as untrusted source material and are only used as grounding context.
-- The final answer prompt allows only numeric source ids from the normalized source list.
-- Invalid citation ids are stripped before the assistant message is saved.
-- Citation markers are stripped from assistant text before memory extraction, sidebar previews, TTS, and future model-context reuse.
-- The citation/source UI only applies to newly generated replies with saved `search_metadata`; older replies are not backfilled.
+The logs include:
+
+- trace id and conversation id
+- routed profile and provider list
+- planned provider count and actual outbound request count
+- per-provider duration, status, requested result count, HTTP status, and useful result count
+- pipeline-level deduped, ranked, and visible source counts
+
+Privacy rule:
+
+- local development logs include a short `queryPreview`
+- production logs only include a `queryHash`
+
+## Safety And Context Hygiene
+
+- Search results are server-owned and prompt-controlled, not tool-called by the model during answer generation.
+- Only the reranked evidence set is passed into the grounded prompt.
+- Citation markers are stripped before assistant text is reused for memory extraction, previews, TTS, or future context reuse.
+- Older replies with no `search_metadata` remain unchanged and do not render empty source UI.
+
+## Remaining Work
+
+The current implementation is intentionally a first slice, not the final search system.
+
+Still left to do:
+
+- run live-provider validation with real `BRAVE_API_KEY` and `EXA_API_KEY` across current-events, official-source, and research-heavy queries
+- tune latency, result counts, timeout budgets, and rerank weights from real usage instead of only mocked tests
+- add caching and durable telemetry only if structured server logs stop being enough
+- add `X` integration for explicit reaction or sentiment queries under the deferred `web_social` profile
+- add dedicated storage only if message-level `search_metadata` stops being sufficient for analytics or product needs
+
+For the current manual workflow, use [Search Tuning Playbook](../testing/search-tuning-playbook.md).
