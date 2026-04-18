@@ -4,6 +4,7 @@ const { mockHomeDataRoutes } = require('./helpers/homeRouteMocks');
 const { selectTextInMessage } = require('./helpers/selectText');
 
 const conversationId = 'conversation-map-persistent';
+const crowdedConversationId = 'conversation-map-crowded';
 const ROOT_QUESTION = 'Give me two ways to explain delayed browser paint.';
 const ROOT_REPLY =
   'We can explain it as event-loop scheduling or as render-pipeline coordination.';
@@ -197,6 +198,149 @@ function createConversationMapState() {
   };
 }
 
+function createCrowdedConversationMapState() {
+  return {
+    conversations: [
+      createConversation({
+        id: crowdedConversationId,
+        title: 'Conversation Map Crowded Layout',
+      }),
+    ],
+    messagesByConversationId: {
+      [crowdedConversationId]: [
+        createMessage({
+          id: 'crowded-user-root',
+          role: 'user',
+          content: 'Show me two routes and then branch both of them.',
+          createdAt: '2026-04-15T10:00:00.000Z',
+          previousMessageId: null,
+        }),
+        createMessage({
+          id: 'crowded-assistant-root',
+          role: 'assistant',
+          content: 'We can take a primary route or an alternate route first.',
+          createdAt: '2026-04-15T10:00:10.000Z',
+          previousMessageId: 'crowded-user-root',
+        }),
+        createMessage({
+          id: 'crowded-main-user',
+          role: 'user',
+          content: 'Take the primary route.',
+          createdAt: '2026-04-15T10:00:20.000Z',
+          previousMessageId: 'crowded-assistant-root',
+        }),
+        createMessage({
+          id: 'crowded-main-assistant',
+          role: 'assistant',
+          content: 'This is the primary route.',
+          createdAt: '2026-04-15T10:00:30.000Z',
+          previousMessageId: 'crowded-main-user',
+        }),
+        createMessage({
+          id: 'crowded-alt-user',
+          role: 'user',
+          content: 'Take the alternate route.',
+          createdAt: '2026-04-15T10:00:40.000Z',
+          previousMessageId: 'crowded-assistant-root',
+        }),
+        createMessage({
+          id: 'crowded-alt-assistant',
+          role: 'assistant',
+          content: 'This is the alternate route.',
+          createdAt: '2026-04-15T10:00:50.000Z',
+          previousMessageId: 'crowded-alt-user',
+        }),
+        createMessage({
+          id: 'crowded-main-main-user',
+          role: 'user',
+          content: 'Continue the primary route normally.',
+          createdAt: '2026-04-15T10:01:00.000Z',
+          previousMessageId: 'crowded-main-assistant',
+        }),
+        createMessage({
+          id: 'crowded-main-main-assistant',
+          role: 'assistant',
+          content: 'Primary route continues straight.',
+          createdAt: '2026-04-15T10:01:10.000Z',
+          previousMessageId: 'crowded-main-main-user',
+        }),
+        createMessage({
+          id: 'crowded-main-alt-user',
+          role: 'user',
+          content: 'Fork the primary route into a side path.',
+          createdAt: '2026-04-15T10:01:20.000Z',
+          previousMessageId: 'crowded-main-assistant',
+        }),
+        createMessage({
+          id: 'crowded-main-alt-assistant',
+          role: 'assistant',
+          content: 'Primary route side path.',
+          createdAt: '2026-04-15T10:01:30.000Z',
+          previousMessageId: 'crowded-main-alt-user',
+        }),
+        createMessage({
+          id: 'crowded-alt-main-user',
+          role: 'user',
+          content: 'Continue the alternate route normally.',
+          createdAt: '2026-04-15T10:01:40.000Z',
+          previousMessageId: 'crowded-alt-assistant',
+        }),
+        createMessage({
+          id: 'crowded-alt-main-assistant',
+          role: 'assistant',
+          content: 'Alternate route continues straight.',
+          createdAt: '2026-04-15T10:01:50.000Z',
+          previousMessageId: 'crowded-alt-main-user',
+        }),
+      ],
+    },
+    branchesByConversationId: {
+      [crowdedConversationId]: [
+        createBranch({
+          id: 'crowded-root-main',
+          sourceMessageId: 'crowded-assistant-root',
+          entryMessageId: 'crowded-main-user',
+          title: 'Main',
+          isMain: true,
+          position: 0,
+        }),
+        createBranch({
+          id: 'crowded-root-alt',
+          sourceMessageId: 'crowded-assistant-root',
+          entryMessageId: 'crowded-alt-user',
+          title: 'Alternate',
+          isMain: false,
+          position: 1,
+        }),
+        createBranch({
+          id: 'crowded-main-main',
+          sourceMessageId: 'crowded-main-assistant',
+          entryMessageId: 'crowded-main-main-user',
+          title: 'Primary main',
+          isMain: true,
+          position: 0,
+        }),
+        createBranch({
+          id: 'crowded-main-alt',
+          sourceMessageId: 'crowded-main-assistant',
+          entryMessageId: 'crowded-main-alt-user',
+          title: 'Primary side',
+          isMain: false,
+          position: 1,
+        }),
+        createBranch({
+          id: 'crowded-alt-main',
+          sourceMessageId: 'crowded-alt-assistant',
+          entryMessageId: 'crowded-alt-main-user',
+          title: 'Alternate main',
+          isMain: true,
+          position: 0,
+        }),
+      ],
+    },
+  };
+}
+
 test('desktop map opens in a split pane and activates a full branch route from one click', async ({
   page,
 }) => {
@@ -335,6 +479,52 @@ test('zooming out keeps every turn card rendered in the map', async ({ page }) =
   }
 
   await expect(mapPane.locator('[data-map-node="true"]')).toHaveCount(5);
+});
+
+test('deep branch growth does not render overlapping cards', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 960 });
+  await mockHomeDataRoutes(page, createCrowdedConversationMapState());
+
+  await page.goto(`/home/${crowdedConversationId}?e2e=conversation-map-crowded-layout`);
+  await page.getByTestId('conversation-map-toggle').click();
+
+  const mapPane = page.getByTestId('conversation-map-desktop');
+  await expect(mapPane.locator('[data-map-node="true"]')).toHaveCount(6);
+
+  const overlaps = await mapPane.locator('[data-map-node="true"]').evaluateAll((elements) => {
+    const rects = elements.map((element) => {
+      const rect = element.getBoundingClientRect();
+      return {
+        id: element.getAttribute('data-map-node-id'),
+        left: rect.left,
+        right: rect.right,
+        top: rect.top,
+        bottom: rect.bottom,
+      };
+    });
+
+    const collisions = [];
+
+    for (let index = 0; index < rects.length; index += 1) {
+      for (let nextIndex = index + 1; nextIndex < rects.length; nextIndex += 1) {
+        const current = rects[index];
+        const next = rects[nextIndex];
+        const intersects =
+          current.left < next.right - 1 &&
+          current.right > next.left + 1 &&
+          current.top < next.bottom - 1 &&
+          current.bottom > next.top + 1;
+
+        if (intersects) {
+          collisions.push([current.id, next.id]);
+        }
+      }
+    }
+
+    return collisions;
+  });
+
+  expect(overlaps).toEqual([]);
 });
 
 test('mobile map uses a takeover surface and returns to the transcript after navigation', async ({

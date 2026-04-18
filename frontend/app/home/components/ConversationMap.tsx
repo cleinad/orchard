@@ -34,19 +34,20 @@ interface ConversationMapProps {
 
 const CARD_WIDTH = 304
 const CARD_HEIGHT = 190
-const LANE_GAP = 360
+const HORIZONTAL_SPACING = 360
 const TURN_GAP = 236
 const WORLD_PADDING_X = 252
 const WORLD_PADDING_Y = 144
 const TOOLTIP_WIDTH = 336
 const TOOLTIP_HEIGHT = 248
+const MIN_ZOOM = 0.24
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value))
 }
 
 function clampZoom(value: number) {
-  return clamp(value, 0.32, 1.45)
+  return clamp(value, MIN_ZOOM, 1.45)
 }
 
 function normalizeContent(content: string) {
@@ -80,7 +81,7 @@ function getTooltipMarkdown(content: string, fallback: string) {
 
 function getNodePosition(node: ConversationMapNode) {
   return {
-    x: WORLD_PADDING_X + node.lane * LANE_GAP,
+    x: WORLD_PADDING_X + node.x * HORIZONTAL_SPACING,
     y: WORLD_PADDING_Y + node.depth * TURN_GAP,
   }
 }
@@ -127,7 +128,7 @@ function getModelBounds(model: ConversationMapModel) {
 function getAnchorX(node: ConversationMapNode) {
   const bounds = getNodeBounds(node)
 
-  return bounds.left + bounds.width * 0.3
+  return bounds.left + bounds.width / 2
 }
 
 function getEdgePath(from: ConversationMapNode, to: ConversationMapNode) {
@@ -137,9 +138,18 @@ function getEdgePath(from: ConversationMapNode, to: ConversationMapNode) {
   const startY = fromBounds.top + fromBounds.height
   const endX = getAnchorX(to)
   const endY = toBounds.top
-  const bendY = startY + Math.max(28, (endY - startY) * 0.52)
+  const exitY = startY + Math.min(42, Math.max(22, (endY - startY) * 0.22))
+  const entryY = endY - Math.min(54, Math.max(26, (endY - startY) * 0.3))
+  const deltaX = endX - startX
+  const controlX1 = startX + deltaX * 0.18
+  const controlX2 = endX - deltaX * 0.18
 
-  return `M ${startX} ${startY} L ${startX} ${bendY} L ${endX} ${bendY} L ${endX} ${endY}`
+  return [
+    `M ${startX} ${startY}`,
+    `L ${startX} ${exitY}`,
+    `C ${controlX1} ${exitY}, ${controlX2} ${entryY}, ${endX} ${entryY}`,
+    `L ${endX} ${endY}`,
+  ].join(' ')
 }
 
 function isPointOutOfView(params: {
@@ -326,9 +336,9 @@ export default function ConversationMap({
     }
 
     if (viewState.cameraX === 0 && viewState.cameraY === 0 && modelBounds) {
-      const widthFitFactor = variant === 'mobile' ? 0.6 : 0.72
-      const heightFitFactor = variant === 'mobile' ? 0.54 : 0.68
-      const maxFitZoom = variant === 'mobile' ? 0.78 : 0.92
+      const widthFitFactor = variant === 'mobile' ? 0.48 : 0.72
+      const heightFitFactor = variant === 'mobile' ? 0.46 : 0.68
+      const maxFitZoom = variant === 'mobile' ? 0.68 : 0.92
       const fitZoom = clampZoom(
         Math.min(
           (containerSize.width * widthFitFactor) / Math.max(modelBounds.width, 1),
@@ -628,18 +638,24 @@ export default function ConversationMap({
                   onFollowModePausedChange(false)
                   onSelectMessage(node.id)
                 }}
-                className="absolute cursor-pointer rounded-[12px] border text-left transition-[border-color,background-color,box-shadow] duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent)] focus-visible:ring-offset-2"
+                className="absolute cursor-pointer overflow-hidden rounded-[12px] border text-left transition-[border-color,background-color,box-shadow] duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent)] focus-visible:ring-offset-2"
                 style={{
                   left: scaledLeft,
                   top: scaledTop,
-                  width: bounds.width,
-                  height: bounds.height,
-                  transform: `scale(${viewState.zoom})`,
-                  transformOrigin: 'top left',
+                  width: bounds.width * viewState.zoom,
+                  height: bounds.height * viewState.zoom,
                   ...getNodeButtonStyle(node),
                 }}
               >
-                <div className="flex h-full flex-col overflow-hidden rounded-[11px] px-5 pb-4 pt-4">
+                <div
+                  className="flex h-full flex-col overflow-hidden rounded-[11px] px-5 pb-4 pt-4"
+                  style={{
+                    width: bounds.width,
+                    height: bounds.height,
+                    transform: `scale(${viewState.zoom})`,
+                    transformOrigin: 'top left',
+                  }}
+                >
                   <div className="mb-4 flex items-start gap-3">
                     <div
                       aria-hidden="true"

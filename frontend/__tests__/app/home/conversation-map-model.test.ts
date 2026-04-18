@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { ConversationBranch, Message } from '@/app/home/types';
 import {
   buildConversationMapModel,
+  type ConversationMapModel,
   getMapNavigationAnchorMessageId,
   getRouteSelectionPatch,
 } from '@/app/home/components/conversationMapModel';
@@ -36,6 +37,28 @@ function createBranch(
     isMain,
     position,
   };
+}
+
+function expectNoHorizontalOverlap(projection: ConversationMapModel) {
+  const nodesByDepth = new Map<number, typeof projection.nodes>();
+
+  projection.nodes.forEach((node) => {
+    const existing = nodesByDepth.get(node.depth);
+    if (existing) {
+      existing.push(node);
+      return;
+    }
+
+    nodesByDepth.set(node.depth, [node]);
+  });
+
+  [...nodesByDepth.values()].forEach((nodes) => {
+    const sorted = [...nodes].sort((a, b) => a.x - b.x);
+
+    for (let index = 1; index < sorted.length; index += 1) {
+      expect(sorted[index].x - sorted[index - 1].x).toBeGreaterThanOrEqual(1);
+    }
+  });
 }
 
 describe('conversationMapModel', () => {
@@ -141,7 +164,7 @@ describe('conversationMapModel', () => {
     ).toBe('m3')
   })
 
-  it('keeps lane assignment stable when the active branch changes', () => {
+  it('keeps adaptive positions stable when the active branch changes', () => {
     const messages: Message[] = [
       createMessage('m1', 'user', null, 0),
       createMessage('m2', 'assistant', 'm1', 1),
@@ -175,17 +198,58 @@ describe('conversationMapModel', () => {
       },
     })
 
-    const mainLanes = Object.fromEntries(
-      mainProjection.nodes.map((node) => [node.id, node.lane])
+    const mainXs = Object.fromEntries(
+      mainProjection.nodes.map((node) => [node.id, node.x])
     )
-    const altLanes = Object.fromEntries(
-      altProjection.nodes.map((node) => [node.id, node.lane])
+    const altXs = Object.fromEntries(
+      altProjection.nodes.map((node) => [node.id, node.x])
     )
 
-    expect(mainLanes).toEqual(altLanes)
-    expect(mainProjection.nodeById.get('m4')?.lane).toBe(0)
-    expect(mainProjection.nodeById.get('m6')?.lane).toBe(-1)
-    expect(mainProjection.nodeById.get('m8')?.lane).toBe(-1)
+    expect(mainXs).toEqual(altXs)
+    expect(mainProjection.nodeById.get('m4')?.x).toBeGreaterThan(0)
+    expect(mainProjection.nodeById.get('m6')?.x).toBeLessThan(0)
+    expect(mainProjection.nodeById.get('m8')?.x).toBeLessThan(0)
+    expectNoHorizontalOverlap(mainProjection)
+    expectNoHorizontalOverlap(altProjection)
+  })
+
+  it('pushes deep sibling subtrees outward instead of reusing an occupied column', () => {
+    const messages: Message[] = [
+      createMessage('m1', 'user', null, 0),
+      createMessage('m2', 'assistant', 'm1', 1),
+      createMessage('m3', 'user', 'm2', 2),
+      createMessage('m4', 'assistant', 'm3', 3),
+      createMessage('m5', 'user', 'm2', 4),
+      createMessage('m6', 'assistant', 'm5', 5),
+      createMessage('m7', 'user', 'm4', 6),
+      createMessage('m8', 'assistant', 'm7', 7),
+      createMessage('m9', 'user', 'm4', 8),
+      createMessage('m10', 'assistant', 'm9', 9),
+      createMessage('m11', 'user', 'm6', 10),
+      createMessage('m12', 'assistant', 'm11', 11),
+    ]
+
+    const branches: ConversationBranch[] = [
+      createBranch('root-main', 'm2', 'm3', true, 0),
+      createBranch('root-alt', 'm2', 'm5', false, 1),
+      createBranch('main-main', 'm4', 'm7', true, 0),
+      createBranch('main-alt', 'm4', 'm9', false, 1),
+      createBranch('alt-main', 'm6', 'm11', true, 0),
+    ]
+
+    const projection = buildConversationMapModel({
+      messages,
+      branches,
+      selectedBranchIds: {
+        m2: 'root-main',
+        m4: 'main-main',
+        m6: 'alt-main',
+      },
+    })
+
+    expectNoHorizontalOverlap(projection)
+    expect(projection.nodeById.get('m10')?.x).not.toBe(projection.nodeById.get('m12')?.x)
+    expect(projection.nodeById.get('m2')?.subtreeWidth).toBeGreaterThan(2.5)
   })
 
   it('keeps all turn cards present when zoomed out', () => {

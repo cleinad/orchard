@@ -14,6 +14,7 @@ interface PersistedMapState {
 }
 
 const STORAGE_KEY = 'keen-conversation-map-state-v1';
+const MIN_ZOOM = 0.24;
 const DEFAULT_VIEW_STATE: ConversationMapViewState = {
   splitRatio: 0.35,
   cameraX: 0,
@@ -26,7 +27,7 @@ function clampSplitRatio(value: number) {
 }
 
 function clampZoom(value: number) {
-  return Math.min(1.75, Math.max(0.32, value));
+  return Math.min(1.75, Math.max(MIN_ZOOM, value));
 }
 
 function normalizeViewState(value: Partial<ConversationMapViewState> | undefined) {

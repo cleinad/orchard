@@ -90,6 +90,9 @@ Desktop behavior:
 - opens as a split pane beside the transcript
 - the divider can be resized horizontally
 - the map renders the full conversation tree, not just the current active path
+- turn depth stays vertically stable while horizontal spacing adapts to subtree growth
+- sibling branches spread symmetrically around the main route instead of reusing rigid fixed columns
+- connector lines are softly diagonal or curved so the tree can expand without stacked right-angle elbows
 - each visible node is one merged turn card that combines the user prompt and assistant reply
 - prompt context stays visible in the card, while the assistant preview remains the dominant content
 - branch titles are not shown in the map UI
