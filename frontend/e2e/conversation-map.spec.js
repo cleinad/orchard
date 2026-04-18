@@ -5,6 +5,7 @@ const { selectTextInMessage } = require('./helpers/selectText');
 
 const conversationId = 'conversation-map-persistent';
 const crowdedConversationId = 'conversation-map-crowded';
+const stableLayoutConversationId = 'conversation-map-stable-layout';
 const ROOT_QUESTION = 'Give me two ways to explain delayed browser paint.';
 const ROOT_REPLY =
   'We can explain it as event-loop scheduling or as render-pipeline coordination.';
@@ -341,6 +342,105 @@ function createCrowdedConversationMapState() {
   };
 }
 
+function createStableLayoutConversationMapState() {
+  return {
+    conversations: [
+      createConversation({
+        id: stableLayoutConversationId,
+        title: 'Conversation Map Stable Layout',
+      }),
+    ],
+    messagesByConversationId: {
+      [stableLayoutConversationId]: [
+        createMessage({
+          id: 'stable-root-user',
+          role: 'user',
+          content: 'Show me three directions but keep the map layout fixed.',
+          createdAt: '2026-04-15T11:00:00.000Z',
+          previousMessageId: null,
+        }),
+        createMessage({
+          id: 'stable-root-assistant',
+          role: 'assistant',
+          content: 'We can take the first route, the second route, or the third route.',
+          createdAt: '2026-04-15T11:00:10.000Z',
+          previousMessageId: 'stable-root-user',
+        }),
+        createMessage({
+          id: 'stable-first-user',
+          role: 'user',
+          content: 'Take the first route.',
+          createdAt: '2026-04-15T11:00:20.000Z',
+          previousMessageId: 'stable-root-assistant',
+        }),
+        createMessage({
+          id: 'stable-first-assistant',
+          role: 'assistant',
+          content: 'This is the first route.',
+          createdAt: '2026-04-15T11:00:30.000Z',
+          previousMessageId: 'stable-first-user',
+        }),
+        createMessage({
+          id: 'stable-second-user',
+          role: 'user',
+          content: 'Take the second route.',
+          createdAt: '2026-04-15T11:00:40.000Z',
+          previousMessageId: 'stable-root-assistant',
+        }),
+        createMessage({
+          id: 'stable-second-assistant',
+          role: 'assistant',
+          content: 'This is the second route.',
+          createdAt: '2026-04-15T11:00:50.000Z',
+          previousMessageId: 'stable-second-user',
+        }),
+        createMessage({
+          id: 'stable-third-user',
+          role: 'user',
+          content: 'Take the third route.',
+          createdAt: '2026-04-15T11:01:00.000Z',
+          previousMessageId: 'stable-root-assistant',
+        }),
+        createMessage({
+          id: 'stable-third-assistant',
+          role: 'assistant',
+          content: 'This is the third route.',
+          createdAt: '2026-04-15T11:01:10.000Z',
+          previousMessageId: 'stable-third-user',
+        }),
+      ],
+    },
+    branchesByConversationId: {
+      [stableLayoutConversationId]: [
+        createBranch({
+          id: 'stable-first-branch',
+          sourceMessageId: 'stable-root-assistant',
+          entryMessageId: 'stable-first-user',
+          title: 'First',
+          isMain: false,
+          position: 0,
+        }),
+        createBranch({
+          id: 'stable-second-branch',
+          sourceMessageId: 'stable-root-assistant',
+          entryMessageId: 'stable-second-user',
+          title: 'Second',
+          isMain: false,
+          position: 1,
+        }),
+        createBranch({
+          id: 'stable-third-branch',
+          sourceMessageId: 'stable-root-assistant',
+          entryMessageId: 'stable-third-user',
+          title: 'Third',
+          isMain: false,
+          position: 2,
+        }),
+      ],
+    },
+  };
+}
+
 test('desktop map opens in a split pane and activates a full branch route from one click', async ({
   page,
 }) => {
@@ -415,6 +515,51 @@ test('desktop map navigation does not rebound the transcript back to the bottom'
   await page.waitForTimeout(800);
   const settledScrollTop = await getScrollTop();
   expect(settledScrollTop).toBeLessThan(40);
+});
+
+test('desktop map keeps existing node positions stable when selecting another formed branch', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 960 });
+  await mockHomeDataRoutes(page, createStableLayoutConversationMapState());
+
+  await page.goto(`/home/${stableLayoutConversationId}?e2e=conversation-map-stable-layout`);
+  await page.getByTestId('conversation-map-toggle').click();
+
+  const mapPane = page.getByTestId('conversation-map-desktop');
+  const getRelativePositions = () =>
+    mapPane.locator('[data-map-node="true"]').evaluateAll((elements) => {
+      const root = elements.find(
+        (element) => element.getAttribute('data-map-node-id') === 'stable-root-assistant'
+      );
+      if (!root) {
+        throw new Error('Missing stable root node');
+      }
+
+      const rootRect = root.getBoundingClientRect();
+
+      return Object.fromEntries(
+        elements.map((element) => {
+          const rect = element.getBoundingClientRect();
+          return [
+            element.getAttribute('data-map-node-id'),
+            {
+              x: Math.round((rect.left - rootRect.left) * 10) / 10,
+              y: Math.round((rect.top - rootRect.top) * 10) / 10,
+            },
+          ];
+        })
+      );
+    });
+
+  const before = await getRelativePositions();
+
+  await mapPane.locator('[data-map-node-id="stable-third-assistant"]').click();
+  await expect(page.getByTestId('home-scroll-container').getByText('This is the third route.')).toBeVisible();
+
+  const after = await getRelativePositions();
+
+  expect(after).toEqual(before);
 });
 
 test('desktop map shows a local preview tooltip on hover and hides it on leave', async ({

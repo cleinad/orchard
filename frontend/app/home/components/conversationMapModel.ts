@@ -82,16 +82,6 @@ function getCanonicalChildIds(node: ConversationMapNode, nodeById: Map<string, C
     }
   }
 
-  const activeChildId =
-    node.childIds.find((childId) => nodeById.get(childId)?.isActivePath) ?? null
-
-  if (activeChildId) {
-    return {
-      focusChildId: activeChildId,
-      remainingChildIds: node.childIds.filter((childId) => childId !== activeChildId),
-    }
-  }
-
   return {
     focusChildId: node.childIds[0] ?? null,
     remainingChildIds: node.childIds.slice(1),
@@ -613,23 +603,20 @@ export function buildConversationMapModel(params: {
   }
 
   const rootOffsetById = new Map<string, number>()
-  const activeRootId =
-    rootIds.find((rootId) => nodeById.get(rootId)?.isActivePath)
-    ?? rootIds[0]
-    ?? null
+  const focusRootId = rootIds[0] ?? null
   let rootLeftBoundary = 0
   let rootRightBoundary = 0
 
-  if (activeRootId && rootIds.length % 2 === 1) {
-    const rootVariant = measureVariant(activeRootId, 1)
-    rootOffsetById.set(activeRootId, 0)
+  if (focusRootId && rootIds.length % 2 === 1) {
+    const rootVariant = measureVariant(focusRootId, 1)
+    rootOffsetById.set(focusRootId, 0)
     rootLeftBoundary = rootVariant.envelopeLeft
     rootRightBoundary = rootVariant.envelopeRight
   }
 
   const remainingRootIds =
-    activeRootId && rootIds.length % 2 === 1
-      ? rootIds.filter((rootId) => rootId !== activeRootId)
+    focusRootId && rootIds.length % 2 === 1
+      ? rootIds.filter((rootId) => rootId !== focusRootId)
       : rootIds
   let nextRootSide: 'left' | 'right' = 'right'
 

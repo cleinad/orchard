@@ -213,6 +213,51 @@ describe('conversationMapModel', () => {
     expectNoHorizontalOverlap(altProjection)
   })
 
+  it('keeps positions stable when a branch point has no Main branch', () => {
+    const messages: Message[] = [
+      createMessage('m1', 'user', null, 0),
+      createMessage('m2', 'assistant', 'm1', 1),
+      createMessage('m3', 'user', 'm2', 2),
+      createMessage('m4', 'assistant', 'm3', 3),
+      createMessage('m5', 'user', 'm2', 4),
+      createMessage('m6', 'assistant', 'm5', 5),
+      createMessage('m7', 'user', 'm2', 6),
+      createMessage('m8', 'assistant', 'm7', 7),
+    ]
+    const branches: ConversationBranch[] = [
+      createBranch('b-first', 'm2', 'm3', false, 0),
+      createBranch('b-second', 'm2', 'm5', false, 1),
+      createBranch('b-third', 'm2', 'm7', false, 2),
+    ]
+
+    const firstProjection = buildConversationMapModel({
+      messages,
+      branches,
+      selectedBranchIds: {
+        m2: 'b-first',
+      },
+    })
+    const thirdProjection = buildConversationMapModel({
+      messages,
+      branches,
+      selectedBranchIds: {
+        m2: 'b-third',
+      },
+    })
+
+    const firstXs = Object.fromEntries(
+      firstProjection.nodes.map((node) => [node.id, node.x])
+    )
+    const thirdXs = Object.fromEntries(
+      thirdProjection.nodes.map((node) => [node.id, node.x])
+    )
+
+    expect(firstXs).toEqual(thirdXs)
+    expect(firstProjection.nodeById.get('m4')?.x).toBe(0)
+    expectNoHorizontalOverlap(firstProjection)
+    expectNoHorizontalOverlap(thirdProjection)
+  })
+
   it('pushes deep sibling subtrees outward instead of reusing an occupied column', () => {
     const messages: Message[] = [
       createMessage('m1', 'user', null, 0),
