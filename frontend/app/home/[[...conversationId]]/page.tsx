@@ -2,6 +2,7 @@
 
 import { Suspense, useState, useCallback, useRef, useEffect } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { useSidePanel } from '@/app/home/components/SidePanelContext';
 import HomeBackground from '@/app/home/components/HomeBackground';
 import HomeHeader from '@/app/home/components/HomeHeader';
 import ChatComposer from '@/app/home/components/ChatComposer';
@@ -650,43 +651,20 @@ function HomePageInner() {
   const [draftChats, setDraftChats] = useState<PersistentDraftChat[]>([]);
   const [temporaryChats, setTemporaryChats] = useState<TemporaryChatSession[]>([]);
   const [selectedChat, setSelectedChat] = useState<SelectedChat | null>(null);
-  const [sidePanelOpen, setSidePanelOpen] = useState(false);
-  const [sidePanelScrollRequest, setSidePanelScrollRequest] = useState<
-    null | 'temporary' | 'new' | 'all'
-  >(null);
+  const {
+    isOpen: sidePanelOpen,
+    toggle: handleToggleSidePanel,
+    close: handleCloseSidePanel,
+    openWithScroll,
+    scrollRequest: sidePanelScrollRequest,
+    clearScrollRequest: clearSidePanelScrollRequest,
+  } = useSidePanel();
   const [detailMentorSlug, setDetailMentorSlug] = useState<string | null>(null);
   const [detailPanelOpen, setDetailPanelOpen] = useState(false);
   const [createPanelOpen, setCreatePanelOpen] = useState(false);
   const [pendingBranch, setPendingBranch] = useState<PendingBranchTarget | null>(null);
   const [branchNavigatorOpen, setBranchNavigatorOpen] = useState(false);
 
-  const handleToggleSidePanel = useCallback(() => {
-    setSidePanelOpen((previousOpen) => !previousOpen);
-  }, []);
-
-  const handleCloseSidePanel = useCallback(() => {
-    setSidePanelOpen(false);
-  }, []);
-
-  useEffect(() => {
-    const handleSidePanelShortcut = (event: KeyboardEvent) => {
-      if (
-        event.repeat
-        || event.shiftKey
-        || event.altKey
-        || (!event.ctrlKey && !event.metaKey)
-        || event.key.toLowerCase() !== 'b'
-      ) {
-        return;
-      }
-
-      event.preventDefault();
-      handleToggleSidePanel();
-    };
-
-    document.addEventListener('keydown', handleSidePanelShortcut);
-    return () => document.removeEventListener('keydown', handleSidePanelShortcut);
-  }, [handleToggleSidePanel]);
 
   const { learningMode, toggleLearningMode } = useLearningMode();
 
@@ -1579,19 +1557,16 @@ function HomePageInner() {
 
   const handleRailNewChatKeen = useCallback(() => {
     handleCreateDraftSelection(null);
-    setSidePanelScrollRequest('new');
-    setSidePanelOpen(true);
-  }, [handleCreateDraftSelection]);
+    openWithScroll('new');
+  }, [handleCreateDraftSelection, openWithScroll]);
 
   const handleRailOpenTemporarySection = useCallback(() => {
-    setSidePanelScrollRequest('temporary');
-    setSidePanelOpen(true);
-  }, []);
+    openWithScroll('temporary');
+  }, [openWithScroll]);
 
   const handleRailOpenAllChats = useCallback(() => {
-    setSidePanelScrollRequest('all');
-    setSidePanelOpen(true);
-  }, []);
+    openWithScroll('all');
+  }, [openWithScroll]);
 
   useEffect(() => {
     if (!sidePanelOpen || !sidePanelScrollRequest) {
@@ -1612,11 +1587,11 @@ function HomePageInner() {
             : 'side-panel-section-all-chats';
       document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
-      setSidePanelScrollRequest(null);
+      clearSidePanelScrollRequest();
     };
 
     requestAnimationFrame(() => requestAnimationFrame(run));
-  }, [sidePanelOpen, sidePanelScrollRequest]);
+  }, [sidePanelOpen, sidePanelScrollRequest, clearSidePanelScrollRequest]);
 
   const handleSelectTemporaryChat = useCallback(
     (tempChatId: string) => {
@@ -3181,19 +3156,20 @@ function HomePageInner() {
         }
         onSelectConversation={(conversation) => {
           void handleSelectConversation(conversation);
-          handleCloseSidePanel();
+          // Close sidebar on mobile (< lg breakpoint) where it overlays content
+          if (window.innerWidth < 1024) handleCloseSidePanel();
         }}
         onSelectDraft={(draftId) => {
           handleSelectDraft(draftId);
-          handleCloseSidePanel();
+          if (window.innerWidth < 1024) handleCloseSidePanel();
         }}
         onSelectTemporaryChat={(tempChatId) => {
           handleSelectTemporaryChat(tempChatId);
-          handleCloseSidePanel();
+          if (window.innerWidth < 1024) handleCloseSidePanel();
         }}
         onCreateDraft={(mentorId) => {
           handleCreateDraftSelection(mentorId);
-          handleCloseSidePanel();
+          if (window.innerWidth < 1024) handleCloseSidePanel();
         }}
         onCloseTemporaryChat={handleCloseTemporaryChat}
       />
