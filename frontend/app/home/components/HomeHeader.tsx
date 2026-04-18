@@ -19,6 +19,7 @@ type HomeHeaderProps = {
   activeName: string;
   isTemporaryChat: boolean;
   temporaryMemoryMode: TemporaryMemoryMode;
+  loadingLists: boolean;
   onBrowseMentors: () => void;
   onCreateTemporaryChat: () => void;
 };
@@ -27,6 +28,7 @@ export default function HomeHeader({
   activeName,
   isTemporaryChat,
   temporaryMemoryMode,
+  loadingLists,
   onBrowseMentors,
   onCreateTemporaryChat,
 }: HomeHeaderProps) {
@@ -55,6 +57,17 @@ export default function HomeHeader({
       </div>
 
       <div className="flex items-center gap-2">
+        {/* Ambient background-load indicator — Fraunces italic, fades in/out */}
+        <span
+          aria-live="polite"
+          aria-label={loadingLists ? "Loading" : undefined}
+          className={`font-heading text-sm italic text-muted/50 transition-opacity duration-500 select-none ${
+            loadingLists ? 'animate-pulse opacity-100' : 'pointer-events-none opacity-0'
+          }`}
+        >
+          loading...
+        </span>
+
         <Tooltip content="Browse mentors">
           <button
             type="button"

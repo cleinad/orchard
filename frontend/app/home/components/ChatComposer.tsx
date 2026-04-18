@@ -200,7 +200,6 @@ export default function ChatComposer({
               onChange={(event) => onInputChange(event.target.value)}
               onKeyDown={onKeyDown}
               placeholder={micActive ? 'Listening...' : `Message ${activeName}...`}
-              disabled={isLoading}
               rows={1}
               className="composer-scrollbar w-full min-h-10 min-w-0 resize-none bg-transparent pl-3 pr-[5.5rem] py-2.5 font-sans text-sm leading-relaxed text-foreground placeholder-muted/50 outline-none disabled:cursor-not-allowed disabled:opacity-50 overflow-y-auto"
               style={{ maxHeight: '200px' }}
@@ -321,7 +320,6 @@ export default function ChatComposer({
                   aria-pressed={searchEnabled}
                   aria-label={searchEnabled ? 'Live search always on' : 'Live search auto'}
                   onClick={onToggleSearch}
-                  disabled={isLoading}
                   className={`flex h-7 w-7 items-center justify-center rounded-md border transition-colors ${
                     searchEnabled
                       ? 'border-foreground/[0.10] bg-foreground/[0.05] text-foreground'
@@ -383,7 +381,7 @@ export default function ChatComposer({
             <ChatModelPicker
               chatModels={chatModels}
               selectedModelId={selectedModelId}
-              disabled={isLoading || !hasAvailableChatModels}
+              disabled={!hasAvailableChatModels}
               onChange={onModelChange}
             />
           </div>
