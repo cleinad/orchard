@@ -280,3 +280,5 @@ Still left to do:
 - add caching and durable telemetry only if structured server logs stop being enough
 - add `X` integration for explicit reaction or sentiment queries under the deferred `web_social` profile
 - add dedicated storage only if message-level `search_metadata` stops being sufficient for analytics or product needs
+
+For the current manual workflow, use [Search Tuning Playbook](../testing/search-tuning-playbook.md).

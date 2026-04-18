@@ -84,6 +84,7 @@ Use implementation docs when the feature doc tells you what should happen, but t
 - [testing/home-routing-e2e.md](./testing/home-routing-e2e.md): routed home-chat browser coverage, mocks, and regression targets
 - [testing/inline-threads-e2e.md](./testing/inline-threads-e2e.md): inline-thread end-to-end coverage, fixtures, and regression cases
 - [testing/search-citations-and-source-ui.md](./testing/search-citations-and-source-ui.md): search-mode citation coverage, focused canary, manual checks, and current gaps
+- [testing/search-tuning-playbook.md](./testing/search-tuning-playbook.md): manual live-provider validation, telemetry review, and search-quality tuning workflow
 - [tests/chat-model-selection-tests.md](./tests/chat-model-selection-tests.md): automated and manual verification for model selection
 - [tests/memory-tests.md](./tests/memory-tests.md): memory test suite map, coverage philosophy, and remaining gaps
 - [features/auth-and-route-protection.md](./features/auth-and-route-protection.md): auth and route-protection testing coverage plus focused command

@@ -6,6 +6,7 @@ Companion docs:
 
 - [Search Mode](../features/live-search.md)
 - [Search Mode Design](../superpowers/specs/2026-04-17-search-mode-design.md)
+- [Search Tuning Playbook](./search-tuning-playbook.md)
 
 ## Current Automated Coverage
 
