@@ -92,6 +92,8 @@ Desktop behavior:
 - the map renders the full conversation tree, not just the current active path
 - turn depth stays vertically stable while horizontal spacing adapts to subtree growth
 - sibling branches spread symmetrically around the main route instead of reusing rigid fixed columns
+- changing the active branch or clicking another already-formed node updates highlight state only; it does not reshuffle existing node positions
+- map geometry only reflows when the underlying conversation tree changes, such as when new turns or new branches are added
 - connector lines are softly diagonal or curved so the tree can expand without stacked right-angle elbows
 - each visible node is one merged turn card that combines the user prompt and assistant reply
 - prompt context stays visible in the card, while the assistant preview remains the dominant content
@@ -109,6 +111,7 @@ Navigation behavior:
 - clicking any node activates the full route needed to reach that message
 - route activation updates all fork selections between the root and the target node
 - after activation, the transcript scrolls to the corresponding turn in the transcript
+- route activation must not rebound the transcript back to the live bottom after that explicit navigation jump
 - desktop hover and keyboard focus show a local floating preview beside the node
 - the preview closes as soon as the pointer leaves the node
 - the floating preview renders markdown visually but is not an interactive reading surface
