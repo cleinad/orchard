@@ -42,14 +42,17 @@ export default function ConversationMapToggle({
           viewBox="0 0 24 24"
           aria-hidden="true"
         >
+          {/* Top-down tree: squat layout (wider than tall); edges stop on ring outer tangents (no bleed) */}
           <path
             strokeLinecap="round"
             strokeLinejoin="round"
-            d="M12 5.75v5.5m0 0v7m0-7-4.75-4.25m4.75 4.25 4.75-4.25"
+            d="M12 7.75V11.75L6.492 16.668M12 11.75L17.508 16.668"
           />
-          <circle cx="12" cy="18.25" r="2.25" />
-          <circle cx="7.25" cy="7" r="2" />
-          <circle cx="16.75" cy="7" r="2" />
+          {/* Root (conversation start / parent) */}
+          <circle cx="12" cy="5.5" r="2.25" />
+          {/* Branch outcomes — centers at x=5 / 19 so the base reads wider than the vertical span */}
+          <circle cx="5" cy="18" r="2" />
+          <circle cx="19" cy="18" r="2" />
         </svg>
       </button>
     </Tooltip>
