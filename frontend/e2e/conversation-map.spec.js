@@ -388,6 +388,35 @@ test('desktop map opens in a split pane and activates a full branch route from o
   expect(anchorPosition.topOffset).toBeLessThan(180);
 });
 
+test('desktop map navigation does not rebound the transcript back to the bottom', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 960 });
+  await mockHomeDataRoutes(page, createConversationMapState());
+
+  await page.goto(`/home/${conversationId}?e2e=conversation-map-scroll-regression`);
+  await page.getByTestId('conversation-map-toggle').click();
+
+  const mapPane = page.getByTestId('conversation-map-desktop');
+  const transcript = page.getByTestId('home-scroll-container');
+  const getScrollTop = () => transcript.evaluate((element) => element.scrollTop);
+
+  await mapPane.locator('[data-map-node-id="map-alt-nested-alt-assistant"]').click();
+  await expect(transcript.getByText(ALT_NESTED_VISUAL)).toBeVisible();
+
+  const deepBranchScrollTop = await getScrollTop();
+  expect(deepBranchScrollTop).toBeGreaterThan(250);
+
+  await mapPane.locator('[data-map-node-id="map-assistant-root"]').click();
+
+  await expect.poll(getScrollTop).toBeLessThan(40);
+  await expect(transcript.getByText(ROOT_QUESTION)).toBeVisible();
+
+  await page.waitForTimeout(800);
+  const settledScrollTop = await getScrollTop();
+  expect(settledScrollTop).toBeLessThan(40);
+});
+
 test('desktop map shows a local preview tooltip on hover and hides it on leave', async ({
   page,
 }) => {

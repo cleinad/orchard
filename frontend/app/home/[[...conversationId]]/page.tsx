@@ -85,6 +85,8 @@ interface ChatModelsResponse {
 }
 
 const MAP_SCROLL_TOP_OFFSET = 104;
+const TRANSCRIPT_NAVIGATION_LOCK_MS = 700;
+const JUMP_TO_MESSAGE_MAX_ATTEMPTS = 8;
 
 type SelectedChat =
   | { kind: 'persistent'; conversationId: string; mentorId: string | null }
@@ -747,6 +749,10 @@ function HomePageInner() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const splitPaneRef = useRef<HTMLDivElement>(null);
+  const userHasScrolledRef = useRef(false);
+  const programmaticTranscriptNavigationRef = useRef(false);
+  const transcriptNavigationTimeoutRef = useRef<number | null>(null);
+  const transcriptNavigationEndHandlerRef = useRef<EventListener | null>(null);
   const {
     popoverState,
     activeSession,
@@ -921,6 +927,57 @@ function HomePageInner() {
   composerDraftInputsRef.current = composerDraftInputsByChatKey;
   pendingChatRequestsRef.current = pendingChatRequestsByChatKey;
   threadSessionsRef.current = threadSessionsById;
+
+  useEffect(() => {
+    userHasScrolledRef.current = userHasScrolled;
+  }, [userHasScrolled]);
+
+  const setUserHasScrolledState = useCallback((nextValue: boolean) => {
+    userHasScrolledRef.current = nextValue;
+    setUserHasScrolled((current) => (current === nextValue ? current : nextValue));
+  }, []);
+
+  const endProgrammaticTranscriptNavigation = useCallback(() => {
+    programmaticTranscriptNavigationRef.current = false;
+
+    if (transcriptNavigationTimeoutRef.current !== null) {
+      window.clearTimeout(transcriptNavigationTimeoutRef.current);
+      transcriptNavigationTimeoutRef.current = null;
+    }
+
+    const container = containerRef.current;
+    const scrollEndHandler = transcriptNavigationEndHandlerRef.current;
+    if (container && scrollEndHandler) {
+      container.removeEventListener('scrollend', scrollEndHandler);
+    }
+
+    transcriptNavigationEndHandlerRef.current = null;
+  }, []);
+
+  const beginProgrammaticTranscriptNavigation = useCallback(() => {
+    const container = containerRef.current;
+    endProgrammaticTranscriptNavigation();
+    programmaticTranscriptNavigationRef.current = true;
+
+    if (container) {
+      const handleScrollEnd: EventListener = () => {
+        endProgrammaticTranscriptNavigation();
+      };
+
+      transcriptNavigationEndHandlerRef.current = handleScrollEnd;
+      container.addEventListener('scrollend', handleScrollEnd, { once: true });
+    }
+
+    transcriptNavigationTimeoutRef.current = window.setTimeout(() => {
+      endProgrammaticTranscriptNavigation();
+    }, TRANSCRIPT_NAVIGATION_LOCK_MS);
+  }, [endProgrammaticTranscriptNavigation]);
+
+  useEffect(() => {
+    return () => {
+      endProgrammaticTranscriptNavigation();
+    };
+  }, [endProgrammaticTranscriptNavigation]);
 
   const setComposerInputForSelection = useCallback(
     (selection: SelectedChat | null, value: string) => {
@@ -1240,15 +1297,13 @@ function HomePageInner() {
     isHomeE2eFixture,
   ]);
 
-  const scrollToBottom = useCallback(() => {
-    if (!userHasScrolled && messagesEndRef.current) {
+  useEffect(() => {
+    // Follow transcript growth only when new messages land. Scroll-state
+    // transitions should not pull the pane back to the end.
+    if (!userHasScrolledRef.current && messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [userHasScrolled]);
-
-  useEffect(() => {
-    scrollToBottom();
-  }, [activeMessages, scrollToBottom]);
+  }, [activeMessages]);
 
   const updateCurrentVisibleMapMessage = useCallback(() => {
     const container = containerRef.current;
@@ -1292,9 +1347,13 @@ function HomePageInner() {
   const handleScroll = () => {
     const container = containerRef.current;
     if (!container) return;
-    const isAtBottom =
-      container.scrollHeight - container.scrollTop - container.clientHeight < 100;
-    setUserHasScrolled(!isAtBottom);
+
+    if (!programmaticTranscriptNavigationRef.current) {
+      const isAtBottom =
+        container.scrollHeight - container.scrollTop - container.clientHeight < 100;
+      setUserHasScrolledState(!isAtBottom);
+    }
+
     updateCurrentVisibleMapMessage();
   };
 
@@ -1396,7 +1455,8 @@ function HomePageInner() {
     setComposerDraftInputsByChatKey({});
     setPendingChatRequestsByChatKey({});
     setSearchStatesByChatKey({});
-    setUserHasScrolled(false);
+    endProgrammaticTranscriptNavigation();
+    setUserHasScrolledState(false);
     setListError(null);
     setDraftChats([]);
 
@@ -1443,8 +1503,10 @@ function HomePageInner() {
       mentorId: null,
     });
   }, [
+    endProgrammaticTranscriptNavigation,
     homeE2eFixture,
     resetThreadUi,
+    setUserHasScrolledState,
     setListError,
     stopMic,
     tts,
@@ -1512,7 +1574,8 @@ function HomePageInner() {
       resetThreadUi();
       setPendingBranch(null);
       setConversationMapOpen(false);
-      setUserHasScrolled(false);
+      endProgrammaticTranscriptNavigation();
+      setUserHasScrolledState(false);
 
       const currentSelection = selectedChatRef.current;
       const currentDraft = selectedDraftChatRef.current;
@@ -1542,8 +1605,10 @@ function HomePageInner() {
       clearComposerInputForSelection,
       clearPendingChatRequestForSelection,
       clearSearchStateForSelection,
+      endProgrammaticTranscriptNavigation,
       resetThreadUi,
       setConversationMapOpen,
+      setUserHasScrolledState,
       stopMic,
       tts,
     ]
@@ -2598,8 +2663,8 @@ function HomePageInner() {
 
   const handleCreateBranch = useCallback((sourceMessageId: string) => {
     setPendingBranch(createPendingBranchTarget(sourceMessageId));
-    setUserHasScrolled(false);
-  }, []);
+    setUserHasScrolledState(false);
+  }, [setUserHasScrolledState]);
 
   const jumpToMessage = useCallback((messageId: string) => {
     const selector =
@@ -2607,15 +2672,21 @@ function HomePageInner() {
         ? `[data-message-id="${CSS.escape(messageId)}"]`
         : `[data-message-id="${messageId.replace(/["\\]/g, '\\$&')}"]`;
 
-    setUserHasScrolled(true);
+    setUserHasScrolledState(true);
+    let attempts = 0;
 
     const scrollToTarget = () => {
       const container = containerRef.current;
       const target = container?.querySelector<HTMLElement>(selector);
       if (!container || !target) {
+        if (typeof window !== 'undefined' && attempts < JUMP_TO_MESSAGE_MAX_ATTEMPTS) {
+          attempts += 1;
+          window.requestAnimationFrame(scrollToTarget);
+        }
         return;
       }
 
+      beginProgrammaticTranscriptNavigation();
       const containerRect = container.getBoundingClientRect();
       const targetRect = target.getBoundingClientRect();
       const nextTop = Math.max(
@@ -2635,7 +2706,7 @@ function HomePageInner() {
     }
 
     scrollToTarget();
-  }, []);
+  }, [beginProgrammaticTranscriptNavigation, setUserHasScrolledState]);
 
   const handleSelectBranch = useCallback(
     (sourceMessageId: string, branchId: string | null) => {
@@ -2647,9 +2718,9 @@ function HomePageInner() {
         setPendingBranch(null);
       }
 
-      setUserHasScrolled(false);
+      setUserHasScrolledState(false);
     },
-    [pendingBranch, updateActiveBranchSelection]
+    [pendingBranch, setUserHasScrolledState, updateActiveBranchSelection]
   );
 
   const handleSelectMessageFromMap = useCallback(
@@ -2665,7 +2736,6 @@ function HomePageInner() {
       }
 
       setPendingBranch(null);
-      setUserHasScrolled(false);
       jumpToMessage(
         getMapNavigationAnchorMessageId({
           messages: activeConversationMessages,
@@ -2871,7 +2941,7 @@ function HomePageInner() {
       userMessageId: userMessage.id,
     });
     clearSearchStateForSelection(effectiveSelection);
-    setUserHasScrolled(false);
+    setUserHasScrolledState(false);
 
     try {
       const response = await fetch('/api/chat', {
@@ -3126,6 +3196,7 @@ function HomePageInner() {
     selectedTemporaryChat,
     setPendingChatRequestForSelection,
     setSearchStateForSelection,
+    setUserHasScrolledState,
     transcription,
     tts,
     ttsEnabled,
