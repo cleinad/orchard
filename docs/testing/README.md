@@ -152,7 +152,7 @@ npm run test -- __tests__/app/chat-route.test.ts __tests__/app/chat-route-search
 - If you change model catalog data, provider resolution, or chat model selection UI behavior, run the model-selection tests.
 - If you change home route hydration, sidebar-driven chat navigation, draft promotion, or temporary chat route behavior, run the home-routing Playwright suite.
 - If you change inline threads, selection handling, markdown rendering, or thread panel behavior, run the inline-thread Playwright suite.
-- If you change live search planning, Tavily result normalization, citation persistence, markdown citation chips, or the source tray UI, run the live-search canary suite.
+- If you change Search mode routing, provider normalization, citation persistence, markdown citation chips, or the source tray UI, run the search canary suite.
 - If you make broad frontend changes and are unsure, run `npm test` and then `npm run test:e2e` from `frontend/`.
 
 ## Detailed Testing Docs

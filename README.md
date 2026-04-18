@@ -35,8 +35,9 @@ ANTHROPIC_API_KEY=your_anthropic_api_key                       # Claude Haiku �
 # LLM — Memory embeddings (required for semantic memory recall)
 OPENAI_API_KEY=your_openai_api_key                             # text-embedding-3-small for memory embeddings
 
-# Live web search (optional — search toggle works without it but returns "unavailable")
-TAVILY_API_KEY=your_tavily_api_key
+# Live web search (optional — search mode works without it but returns "unavailable")
+BRAVE_API_KEY=your_brave_api_key
+EXA_API_KEY=your_exa_api_key
 
 # Voice — Text-to-speech (optional)
 ELEVENLABS_API_KEY=your_elevenlabs_api_key

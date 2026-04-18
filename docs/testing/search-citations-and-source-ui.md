@@ -1,58 +1,67 @@
 # Search Citations Testing
 
-This doc describes the current automated coverage, focused canary, and manual verification path for persistent search citations and the minimal source UI on `/home`.
+This doc covers the current automated checks, focused commands, and manual verification path for explicit search mode, persisted citations, and the reply-level source UI on `/home`.
 
 Companion docs:
 
 - [Live Search](../features/live-search.md)
-- [Search Citations And Source UI](../plans/2026-04-11-search-citations-and-source-ui-plan.md)
+- [Search Mode Design](../superpowers/specs/2026-04-17-search-mode-design.md)
 
 ## Current Automated Coverage
 
-- `frontend/__tests__/app/chat-route-search.test.ts`
 - `frontend/__tests__/lib/search-citations.test.ts`
-- `frontend/__tests__/app/chat-route.test.ts` as supporting `/api/chat` contract coverage
+- `frontend/__tests__/lib/search-router.test.ts`
+- `frontend/__tests__/lib/search-pipeline.test.ts`
+- `frontend/__tests__/app/chat-route.test.ts`
+- `frontend/__tests__/app/chat-route-search.test.ts`
+- `frontend/e2e/search-mode.spec.js`
 
-The automated suite currently verifies:
+The automated suite now verifies:
 
-- persisted search metadata is normalized with stable numeric source ids and server-derived domains
-- malformed persisted metadata is rejected during parsing
-- valid citation markers like `[1] [2]` split into separate compact citation parts
-- valid citation markers are stripped before assistant text is reused for memory/context
-- invalid citation markers are stripped while valid ones are preserved
-- `/api/chat` planner requests receive the same concise request context used for answer generation, including the saved user name and current local time
-- answer generation receives the same concise request context, with local time derived server-side from the request timezone
-- `auto` mode with no search persists `search_metadata = null`
-- `required` mode with a successful search persists normalized `search_metadata`
-- invalid citation ids are removed before the assistant message is saved
-- memory extraction receives assistant text without citation-marker noise
+- legacy v1 `search_metadata` still parses
+- new v2 `search_metadata` is normalized with provider, profile, and source-type details
+- valid citation markers like `[1] [2]` split into separate compact parts
+- citation markers are stripped before assistant text is reused for memory or future context
+- `partial` grounded results still count as usable source-backed metadata
+- deterministic router classification for freshness, research, official-priority, and social-intent queries
+- pipeline fallback, dedupe, and reranking behavior
+- official sources outrank random blogs in the final evidence set
+- research sources outrank forums for evidence-heavy queries
+- `/api/chat` never uses planner-driven auto search anymore
+- `searchEnabled = false` persists `search_metadata = null`
+- `searchEnabled = true` persists normalized v2 search metadata
+- invalid citation ids are stripped before the assistant message is saved
+- the home surface can send an explicit search request and render a larger source tray
 
-## Focused Canary
+## Focused Commands
 
 From `frontend/`:
 
 ```bash
-npm run test -- __tests__/app/chat-route.test.ts __tests__/app/chat-route-search.test.ts __tests__/lib/search-citations.test.ts
+npm run test -- __tests__/lib/search-citations.test.ts __tests__/lib/search-router.test.ts __tests__/lib/search-pipeline.test.ts
+npm run test -- __tests__/app/chat-route.test.ts __tests__/app/chat-route-search.test.ts
+npm run test:e2e -- e2e/search-mode.spec.js
 ```
 
-Run broader suites only if your change spills outside live search, citations, or `/api/chat`.
+Run the e2e spec when the search toggle behavior, persisted reply metadata, or source tray UI changes.
 
 ## Manual Verification
 
-Use these checks when changing the citation UI or persistence path:
+Use these checks when changing the search pipeline or citation UI:
 
-- Ask a time-sensitive question such as "what time is it?" and confirm the reply uses the current local time for the browser timezone, not a model guess.
-- Send a reply in `Always on` mode and confirm successful search replies show compact clickable citation chips.
-- Click a citation chip and confirm the inline source tray opens under that reply.
-- Click `Sources N` and confirm the same tray opens even when no chip is selected.
-- Switch between source ids in the tray and confirm the title, domain, snippet, and `Open source` link update.
-- Reload the conversation and confirm the same newly generated reply still has citation chips and the source tray still works.
+- Ask a time-sensitive question with search off and confirm the reply uses the current local time for the browser timezone without doing retrieval.
+- Turn search on and ask a current-events or product-update question; confirm the reply is grounded and the request surfaces `Sources N`.
+- Ask an official-source-heavy query such as product pricing or release notes and confirm official pages outrank random blogs.
+- Ask an evidence-heavy query and confirm the visible source set includes stronger research or institutional sources.
+- Click a citation chip and confirm the reply-level source tray opens under that reply.
+- Click `Sources N` and confirm the same tray opens without requiring a citation click.
+- Navigate between multiple entries in the tray and confirm the detail panel updates.
+- Reload the conversation and confirm citations and the source tray still work.
 - Confirm older replies with no `search_metadata` render without empty citation controls.
-- Confirm conversation previews in the sidebar do not show raw `[1]` markers.
+- Confirm sidebar previews and TTS do not expose raw `[1]` markers.
 
 ## Current Gaps
 
-- There is no dedicated rendering unit test yet for `MarkdownWithThreads` citation chips or `SearchSourcesTray`.
-- There is no Playwright coverage yet for citation chip clicks, tray behavior, or reload persistence.
-- The suite does not exercise live Tavily calls in CI; route tests stay deterministic with mocked search output.
-- The current implementation does not backfill old messages with citation metadata, so historical replies remain outside the scope of this suite.
+- There is still no dedicated unit test for `SearchSourcesTray` or `ConversationView`; current UI confidence comes from e2e coverage plus the citation helper tests.
+- The suite does not hit live Brave or Exa APIs in CI; provider behavior is covered with deterministic mocks.
+- `X` integration is intentionally out of scope until the `Brave + Exa` stack is stable.

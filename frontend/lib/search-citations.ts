@@ -1,15 +1,16 @@
-import type { WebSearchToolOutput } from '@/lib/tools';
+import type { SearchPipelineOutput, SearchProfile, SearchProvider, SearchSourceType } from '@/lib/search/types';
+import {
+  isSearchPipelineStatus,
+  isSearchProfile,
+  isSearchProvider,
+  isSearchSourceType,
+  SEARCH_PIPELINE_STATUSES,
+} from '@/lib/search/types';
 
-export const SEARCH_MODES = ['auto', 'required'] as const;
-export type SearchMode = (typeof SEARCH_MODES)[number];
+export const LEGACY_SEARCH_MODES = ['auto', 'required'] as const;
+export type LegacySearchMode = (typeof LEGACY_SEARCH_MODES)[number];
 
-export const SEARCH_ATTEMPT_STATUSES = [
-  'success',
-  'no_results',
-  'missing_config',
-  'timeout',
-  'upstream_error',
-] as const;
+export const SEARCH_ATTEMPT_STATUSES = SEARCH_PIPELINE_STATUSES;
 export type SearchAttemptStatus = (typeof SEARCH_ATTEMPT_STATUSES)[number];
 
 export interface SearchSource {
@@ -18,23 +19,57 @@ export interface SearchSource {
   url: string;
   domain: string;
   snippet: string;
+  provider: SearchProvider | null;
+  sourceType: SearchSourceType | null;
+  publishedAt: string | null;
 }
 
-export interface PersistedSearchMetadata {
+export interface PersistedSearchMetadataV1 {
   version: 1;
-  mode: SearchMode;
-  status: SearchAttemptStatus;
+  mode: LegacySearchMode;
+  status: Exclude<SearchAttemptStatus, 'partial'>;
   query: string | null;
   sources: SearchSource[];
 }
+
+export interface PersistedSearchMetadataV2 {
+  version: 2;
+  mode: 'required';
+  profile: SearchProfile;
+  status: SearchAttemptStatus;
+  query: string | null;
+  providers: SearchProvider[];
+  sources: SearchSource[];
+}
+
+export type PersistedSearchMetadata =
+  | PersistedSearchMetadataV1
+  | PersistedSearchMetadataV2;
 
 export type CitationPart =
   | { type: 'text'; text: string }
   | { type: 'citation'; text: string; sourceId: number };
 
-const MAX_PERSISTED_SOURCES = 3;
 const MAX_PERSISTED_SNIPPET_LENGTH = 220;
 const CITATION_PATTERN = /(^|[\s(])\[(\d+)\](?=$|[\s).,;:!?])/g;
+
+interface LegacyPersistedSearchSource {
+  id: number;
+  title: string;
+  url: string;
+  snippet: string;
+}
+
+interface LegacyWebSearchToolOutput {
+  status: PersistedSearchMetadataV1['status'];
+  query: string;
+  results: Array<{
+    title: string;
+    url: string;
+    snippet: string;
+  }>;
+  error?: string;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -49,13 +84,16 @@ function truncateText(value: string, maxLength: number) {
   return `${normalized.slice(0, maxLength - 3).trimEnd()}...`;
 }
 
-function isSearchMode(value: unknown): value is SearchMode {
-  return typeof value === 'string' && SEARCH_MODES.includes(value as SearchMode);
+function isLegacySearchMode(value: unknown): value is LegacySearchMode {
+  return typeof value === 'string' && LEGACY_SEARCH_MODES.includes(value as LegacySearchMode);
 }
 
-function isSearchAttemptStatus(value: unknown): value is SearchAttemptStatus {
+function isVersion1Status(
+  value: unknown
+): value is PersistedSearchMetadataV1['status'] {
   return (
     typeof value === 'string'
+    && value !== 'partial'
     && SEARCH_ATTEMPT_STATUSES.includes(value as SearchAttemptStatus)
   );
 }
@@ -81,12 +119,54 @@ function normalizeSource(source: unknown): SearchSource | null {
     return null;
   }
 
+  const provider =
+    'provider' in source && source.provider !== null && source.provider !== undefined
+      ? isSearchProvider(source.provider)
+        ? source.provider
+        : null
+      : null;
+  const sourceType =
+    'sourceType' in source && source.sourceType !== null && source.sourceType !== undefined
+      ? isSearchSourceType(source.sourceType)
+        ? source.sourceType
+        : null
+      : null;
+  const publishedAt =
+    'publishedAt' in source && source.publishedAt !== undefined
+      ? source.publishedAt === null
+        ? null
+        : typeof source.publishedAt === 'string'
+          ? source.publishedAt
+          : null
+      : null;
+
+  if (
+    ('provider' in source && source.provider !== null && source.provider !== undefined && !provider)
+    || (
+      'sourceType' in source
+      && source.sourceType !== null
+      && source.sourceType !== undefined
+      && !sourceType
+    )
+    || (
+      'publishedAt' in source
+      && source.publishedAt !== null
+      && source.publishedAt !== undefined
+      && publishedAt === null
+    )
+  ) {
+    return null;
+  }
+
   return {
     id,
     title,
     url,
     domain,
     snippet,
+    provider,
+    sourceType,
+    publishedAt,
   };
 }
 
@@ -128,11 +208,41 @@ function normalizeCitationWhitespace(text: string) {
 }
 
 function getValidSourceIds(searchMetadata: PersistedSearchMetadata | null | undefined) {
-  if (!searchMetadata || searchMetadata.status !== 'success') {
+  if (
+    !searchMetadata
+    || (searchMetadata.status !== 'success' && searchMetadata.status !== 'partial')
+    || searchMetadata.sources.length === 0
+  ) {
     return new Set<number>();
   }
 
   return new Set(searchMetadata.sources.map((source) => source.id));
+}
+
+function createNormalizedSource(
+  source: LegacyPersistedSearchSource,
+  nextId: number
+): SearchSource {
+  return {
+    id: nextId,
+    title: source.title,
+    url: source.url,
+    domain: getSourceDomain(source.url),
+    snippet: truncateText(source.snippet, MAX_PERSISTED_SNIPPET_LENGTH),
+    provider: null,
+    sourceType: null,
+    publishedAt: null,
+  };
+}
+
+export function hasUsableSearchSources(
+  searchMetadata: PersistedSearchMetadata | null | undefined
+) {
+  if (!searchMetadata || searchMetadata.sources.length === 0) {
+    return false;
+  }
+
+  return searchMetadata.status === 'success' || searchMetadata.status === 'partial';
 }
 
 export function getSourceDomain(url: string) {
@@ -145,9 +255,9 @@ export function getSourceDomain(url: string) {
 }
 
 export function createPersistedSearchMetadata(
-  searchMode: SearchMode,
-  output: WebSearchToolOutput
-): PersistedSearchMetadata {
+  searchMode: LegacySearchMode,
+  output: LegacyWebSearchToolOutput
+): PersistedSearchMetadataV1 {
   const sources: SearchSource[] = [];
   const seenUrls = new Set<string>();
 
@@ -158,17 +268,17 @@ export function createPersistedSearchMetadata(
       }
 
       seenUrls.add(result.url);
-      sources.push({
-        id: sources.length + 1,
-        title: result.title,
-        url: result.url,
-        domain: getSourceDomain(result.url),
-        snippet: truncateText(result.snippet, MAX_PERSISTED_SNIPPET_LENGTH),
-      });
-
-      if (sources.length >= MAX_PERSISTED_SOURCES) {
-        break;
-      }
+      sources.push(
+        createNormalizedSource(
+          {
+            id: sources.length + 1,
+            title: result.title,
+            url: result.url,
+            snippet: result.snippet,
+          },
+          sources.length + 1
+        )
+      );
     }
   }
 
@@ -181,6 +291,42 @@ export function createPersistedSearchMetadata(
   };
 }
 
+export function createPersistedSearchMetadataV2(
+  output: SearchPipelineOutput
+): PersistedSearchMetadataV2 {
+  const sources: SearchSource[] = [];
+  const seenUrls = new Set<string>();
+
+  for (const result of output.results) {
+    const normalizedUrl = result.url.trim();
+    if (!normalizedUrl || seenUrls.has(normalizedUrl)) {
+      continue;
+    }
+
+    seenUrls.add(normalizedUrl);
+    sources.push({
+      id: sources.length + 1,
+      title: truncateText(result.title, 180),
+      url: normalizedUrl,
+      domain: getSourceDomain(normalizedUrl),
+      snippet: truncateText(result.snippet, MAX_PERSISTED_SNIPPET_LENGTH),
+      provider: result.provider,
+      sourceType: result.sourceType,
+      publishedAt: result.publishedAt,
+    });
+  }
+
+  return {
+    version: 2,
+    mode: 'required',
+    profile: output.profile,
+    status: output.status,
+    query: output.query || null,
+    providers: output.providers,
+    sources,
+  };
+}
+
 export function parsePersistedSearchMetadata(
   value: unknown
 ): PersistedSearchMetadata | null {
@@ -188,32 +334,70 @@ export function parsePersistedSearchMetadata(
     return null;
   }
 
-  const { version, mode, status, query, sources } = value;
-  if (
-    version !== 1
-    || !isSearchMode(mode)
-    || !isSearchAttemptStatus(status)
-    || (query !== null && typeof query !== 'string')
-    || !Array.isArray(sources)
-  ) {
-    return null;
+  const { version } = value;
+
+  if (version === 1) {
+    const { mode, status, query, sources } = value;
+    if (
+      !isLegacySearchMode(mode)
+      || !isVersion1Status(status)
+      || (query !== null && typeof query !== 'string')
+      || !Array.isArray(sources)
+    ) {
+      return null;
+    }
+
+    const normalizedSources = sources
+      .map(normalizeSource)
+      .filter((source): source is SearchSource => source !== null);
+
+    if (normalizedSources.length !== sources.length) {
+      return null;
+    }
+
+    return {
+      version: 1,
+      mode,
+      status,
+      query,
+      sources: normalizedSources,
+    };
   }
 
-  const normalizedSources = sources
-    .map(normalizeSource)
-    .filter((source): source is SearchSource => source !== null);
+  if (version === 2) {
+    const { mode, profile, status, query, providers, sources } = value;
+    if (
+      mode !== 'required'
+      || !isSearchProfile(profile)
+      || !isSearchPipelineStatus(status)
+      || (query !== null && typeof query !== 'string')
+      || !Array.isArray(providers)
+      || providers.some((provider) => !isSearchProvider(provider))
+      || !Array.isArray(sources)
+    ) {
+      return null;
+    }
 
-  if (normalizedSources.length !== sources.length) {
-    return null;
+    const normalizedSources = sources
+      .map(normalizeSource)
+      .filter((source): source is SearchSource => source !== null);
+
+    if (normalizedSources.length !== sources.length) {
+      return null;
+    }
+
+    return {
+      version: 2,
+      mode: 'required',
+      profile,
+      status,
+      query,
+      providers,
+      sources: normalizedSources,
+    };
   }
 
-  return {
-    version: 1,
-    mode,
-    status,
-    query,
-    sources: normalizedSources,
-  };
+  return null;
 }
 
 export function splitTextWithCitations(

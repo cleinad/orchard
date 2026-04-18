@@ -47,7 +47,7 @@ If docs conflict, prefer:
 - [features/chat-model-selection.md](./features/chat-model-selection.md): model picker behavior across routed home chats, resolution rules, availability rules, and verification
 - [features/conversation-branching.md](./features/conversation-branching.md): branch chips, branch navigator, tree state, persistence model, and runtime isolation rules
 - [features/inline-threads.md](./features/inline-threads.md): text selection, popover behavior, thread panel rules, keyboard behavior, and edge cases across `/home` and `/home/[conversationId]`
-- [features/live-search.md](./features/live-search.md): live web search behavior, execution flow, routed home-surface integration, and safety constraints
+- [features/live-search.md](./features/live-search.md): explicit search-mode behavior, provider-backed retrieval pipeline, persisted source metadata, and safety constraints
 - [features/memory.md](./features/memory.md): memory system architecture, read/write paths, schema, and API shape
 - [features/mentors.md](./features/mentors.md): built-in and custom mentors, data model, prompt construction, and API integration
 - [features/multi-chat-home.md](./features/multi-chat-home.md): multi-conversation home behavior, persistent conversation URLs, route hydration, sidebar model, runtime state, and database impact

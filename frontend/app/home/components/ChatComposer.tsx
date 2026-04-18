@@ -310,15 +310,15 @@ export default function ChatComposer({
               <Tooltip
                 content={
                   searchEnabled
-                    ? 'Live Search: always grounds replies with live web results'
-                    : 'Live Search: lets the model decide when search is needed'
+                    ? 'Search mode on: Keen will ground this reply with live sources'
+                    : 'Search mode off: Keen will answer without live retrieval'
                 }
                 side="bottom"
               >
                 <button
                   type="button"
                   aria-pressed={searchEnabled}
-                  aria-label={searchEnabled ? 'Live search always on' : 'Live search auto'}
+                  aria-label={searchEnabled ? 'Search mode on' : 'Search mode off'}
                   onClick={onToggleSearch}
                   className={`flex h-7 w-7 items-center justify-center rounded-md border transition-colors ${
                     searchEnabled
