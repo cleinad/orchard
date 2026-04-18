@@ -143,7 +143,7 @@ export default function ConversationsPanel({
                         </span>
                       </div>
                       <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted">
-                        {conversation.preview || conversation.title || 'No messages yet'}
+                        {conversation.title || 'New chat'}
                       </p>
                     </button>
                   );
