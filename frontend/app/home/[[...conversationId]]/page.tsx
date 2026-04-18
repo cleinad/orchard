@@ -537,6 +537,8 @@ function HomePageInner() {
     useState<PersistentThreadRuntimeRecord>({});
   const [pendingBranch, setPendingBranch] = useState<PendingBranchTarget | null>(null);
   const [branchNavigatorOpen, setBranchNavigatorOpen] = useState(false);
+  const [isRouteConversationLoading, setIsRouteConversationLoading] = useState(false);
+  const [routeConversationError, setRouteConversationError] = useState<string | null>(null);
 
   const { learningMode, toggleLearningMode } = useLearningMode();
   const { isOpen: sidePanelOpen } = useSidePanel();
@@ -579,6 +581,11 @@ function HomePageInner() {
   const params = useParams<{ conversationId?: string[] }>();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const paramRouteConversationId =
+    Array.isArray(params.conversationId) && params.conversationId.length > 0
+      ? params.conversationId[0]
+      : null;
+  const effectiveRouteConversationId = paramRouteConversationId ?? routeConversationId;
   const homeE2eFixture = getHomeE2eFixture(searchParams.get('e2e'));
   const isHomeE2eFixture = homeE2eFixture !== null;
 
@@ -669,10 +676,10 @@ function HomePageInner() {
     pendingBranch,
   });
   const composerStateSelection: SelectedChat | null = selectedChat ?? (
-    routeConversationId
+    effectiveRouteConversationId
       ? {
           kind: 'persistent',
-          conversationId: routeConversationId,
+          conversationId: effectiveRouteConversationId,
           mentorId: null,
         }
       : null
@@ -762,6 +769,23 @@ function HomePageInner() {
   composerDraftInputsRef.current = composerDraftInputsByChatKey;
   pendingChatRequestsRef.current = pendingChatRequestsByChatKey;
   threadSessionsRef.current = threadSessionsById;
+  const shouldShowRouteConversationLoading =
+    effectiveRouteConversationId !== null
+    && activeMessages.length === 0
+    && listError === null
+    && hydratedRouteConversationIdRef.current !== effectiveRouteConversationId
+    && (
+      isRouteConversationLoading
+      || selectedChat === null
+      || (
+        selectedChat.kind === 'persistent'
+        && selectedChat.conversationId === effectiveRouteConversationId
+      )
+    );
+  const shouldShowRouteConversationError =
+    effectiveRouteConversationId !== null
+    && activeMessages.length === 0
+    && routeConversationError !== null;
 
   const setComposerInputForSelection = useCallback(
     (selection: SelectedChat | null, value: string) => {
@@ -951,7 +975,7 @@ function HomePageInner() {
   }, [branchNavigatorItems.length, branchNavigatorOpen]);
 
   useEffect(() => {
-    if (isHomeE2eFixture || mentorSlugHandledRef.current || routeConversationId) return;
+    if (isHomeE2eFixture || mentorSlugHandledRef.current || effectiveRouteConversationId) return;
     const mentorSlug = searchParams.get('mentor');
     if (!mentorSlug || loadingLists) return;
     if (mentors.length === 0 && !listError) return;
@@ -977,7 +1001,7 @@ function HomePageInner() {
       router.replace('/home', { scroll: false });
     }
   }, [
-    routeConversationId,
+    effectiveRouteConversationId,
     searchParams,
     loadingLists,
     mentors,
@@ -1206,6 +1230,8 @@ function HomePageInner() {
 
   useEffect(() => {
     if (isHomeE2eFixture) {
+      setIsRouteConversationLoading(false);
+      setRouteConversationError(null);
       return;
     }
 
@@ -1213,8 +1239,11 @@ function HomePageInner() {
     const currentPersistentSelection =
       currentSelectedChat?.kind === 'persistent' ? currentSelectedChat : null;
 
-    if (!routeConversationId) {
+    if (!effectiveRouteConversationId) {
+      routeLoadRequestIdRef.current += 1;
       hydratedRouteConversationIdRef.current = null;
+      setIsRouteConversationLoading(false);
+      setRouteConversationError(null);
 
       if (currentPersistentSelection) {
         invokePrepareForChatSwitch(null);
@@ -1228,18 +1257,22 @@ function HomePageInner() {
     }
 
     const alreadyHydrated =
-      hydratedRouteConversationIdRef.current === routeConversationId &&
-      currentPersistentSelection?.conversationId === routeConversationId;
+      hydratedRouteConversationIdRef.current === effectiveRouteConversationId &&
+      currentPersistentSelection?.conversationId === effectiveRouteConversationId;
 
     if (alreadyHydrated) {
+      setIsRouteConversationLoading(false);
+      setRouteConversationError(null);
       return;
     }
 
     const requestId = routeLoadRequestIdRef.current + 1;
     routeLoadRequestIdRef.current = requestId;
+    setIsRouteConversationLoading(true);
+    setRouteConversationError(null);
 
     const loadSelectedConversation = async () => {
-      const loadedConversation = await loadConversationById(routeConversationId);
+      const loadedConversation = await loadConversationById(effectiveRouteConversationId);
 
       if (routeLoadRequestIdRef.current !== requestId) {
         return;
@@ -1247,7 +1280,7 @@ function HomePageInner() {
 
       const nextSelection: SelectedChat = {
         kind: 'persistent',
-        conversationId: routeConversationId,
+        conversationId: effectiveRouteConversationId,
         mentorId: loadedConversation.mentor_id,
       };
 
@@ -1259,17 +1292,19 @@ function HomePageInner() {
       setPersistentThreadsMap(new Map());
       setListError(null);
 
-      const loadedConversationData = await loadConversationMessages(routeConversationId);
+      const loadedConversationData = await loadConversationMessages(effectiveRouteConversationId);
 
       if (routeLoadRequestIdRef.current !== requestId) {
         return;
       }
 
-      hydratedRouteConversationIdRef.current = routeConversationId;
+      hydratedRouteConversationIdRef.current = effectiveRouteConversationId;
       setPersistentMessages(loadedConversationData.messages);
       setPersistentBranches(loadedConversationData.branches);
       setPersistentSelectedBranchIds(loadedConversationData.selectedBranchIds);
       setPersistentThreadsMap(loadedConversationData.threadsMap);
+      setIsRouteConversationLoading(false);
+      setRouteConversationError(null);
     };
 
     void loadSelectedConversation().catch((err) => {
@@ -1280,23 +1315,27 @@ function HomePageInner() {
       hydratedRouteConversationIdRef.current = null;
       invokePrepareForChatSwitch({
         kind: 'persistent',
-        conversationId: routeConversationId,
+        conversationId: effectiveRouteConversationId,
         mentorId: null,
       });
       setListError(err instanceof Error ? err.message : 'Failed to load conversation');
       setSelectedChat({
         kind: 'persistent',
-        conversationId: routeConversationId,
+        conversationId: effectiveRouteConversationId,
         mentorId: null,
       });
       setPersistentMessages([]);
       setPersistentThreadsMap(new Map());
+      setIsRouteConversationLoading(false);
+      setRouteConversationError(
+        err instanceof Error ? err.message : 'Failed to load conversation'
+      );
     });
   }, [
     isHomeE2eFixture,
     loadConversationById,
     loadConversationMessages,
-    routeConversationId,
+    effectiveRouteConversationId,
   ]);
 
   // Register page-local cleanup (composer/search/pending) for when temp chats are closed
@@ -2577,12 +2616,14 @@ function HomePageInner() {
             onSelectBranch={handleSelectBranchFromNavigator}
           />
           <ConversationView
-            listError={listError}
+            listError={shouldShowRouteConversationError ? null : listError}
+            routeConversationError={routeConversationError}
             messages={activeMessages}
             activeName={activeName}
             emptyTitle={emptyTitle}
             emptySubtitle={emptySubtitle}
             isLoading={isActiveConversationLoading}
+            isRouteConversationLoading={shouldShowRouteConversationLoading}
             threadsMap={activeThreadMarkersMap}
             branchChipsByMessageId={branchChipsByMessageId}
             pendingBranchSourceMessageId={pendingBranch?.sourceMessageId ?? null}
