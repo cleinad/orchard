@@ -4,7 +4,7 @@ This doc covers the current automated checks, focused commands, and manual verif
 
 Companion docs:
 
-- [Live Search](../features/live-search.md)
+- [Search Mode](../features/live-search.md)
 - [Search Mode Design](../superpowers/specs/2026-04-17-search-mode-design.md)
 
 ## Current Automated Coverage
@@ -64,4 +64,5 @@ Use these checks when changing the search pipeline or citation UI:
 
 - There is still no dedicated unit test for `SearchSourcesTray` or `ConversationView`; current UI confidence comes from e2e coverage plus the citation helper tests.
 - The suite does not hit live Brave or Exa APIs in CI; provider behavior is covered with deterministic mocks.
+- Live-provider smoke testing and latency tuning still need to be done manually with real API keys before search mode can be considered production-tuned.
 - `X` integration is intentionally out of scope until the `Brave + Exa` stack is stable.

@@ -1,8 +1,10 @@
-# Live Search
+# Search Mode
 
 ## Overview
 
 Search mode lets Keen ground a reply in fresh external sources when the user explicitly turns search on.
+
+This doc is the source of truth for the shipped v1 search behavior and the near-term follow-up work.
 
 Search is now explicit-only:
 
@@ -10,6 +12,18 @@ Search is now explicit-only:
 - when search is on, Keen always runs the server-owned retrieval pipeline before generating the reply
 
 The UI still exposes a single simple toggle, but the backend chooses the retrieval mix internally based on the query.
+
+## Shipped V1 Scope
+
+The current slice includes:
+
+- one visible `Search` toggle with no hidden auto-search path
+- deterministic routing with no second LLM call
+- `Brave` as the broad web backbone
+- `Exa` as the higher-quality and research-oriented augmentation layer
+- authority-first reranking that prefers official and institutional sources over random blogs
+- persisted search metadata v2 on assistant messages
+- a source tray that can handle larger source sets than the previous 3-source assumption
 
 ## User-Facing Behavior
 
@@ -229,3 +243,15 @@ Rules:
 - Only the reranked evidence set is passed into the grounded prompt.
 - Citation markers are stripped before assistant text is reused for memory extraction, previews, TTS, or future context reuse.
 - Older replies with no `search_metadata` remain unchanged and do not render empty source UI.
+
+## Remaining Work
+
+The current implementation is intentionally a first slice, not the final search system.
+
+Still left to do:
+
+- run live-provider validation with real `BRAVE_API_KEY` and `EXA_API_KEY` across current-events, official-source, and research-heavy queries
+- tune latency, result counts, timeout budgets, and rerank weights from real usage instead of only mocked tests
+- add caching and provider-level observability so search mode performance and failures are easier to reason about in production
+- add `X` integration for explicit reaction or sentiment queries under the deferred `web_social` profile
+- add dedicated storage only if message-level `search_metadata` stops being sufficient for analytics or product needs

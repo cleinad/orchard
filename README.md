@@ -1,6 +1,6 @@
 # Keen
 
-A voice-native AI thinking partner with specialized mentors, persistent memory, and live web search.
+A voice-native AI thinking partner with specialized mentors, persistent memory, and explicit search mode for live web retrieval.
 
 ## Documentation
 
