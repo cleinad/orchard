@@ -11,7 +11,7 @@ Keen is a chat-first workspace for research and exploration centered on:
 - ongoing conversations around a subject
 - multi-chat navigation for returning to previous investigations
 - transcript-native conversation branching inside a chat
-- live web search for current or external information
+- explicit search mode for current or external information
 - continuity across conversations so users can build understanding over time
 
 Additional product surfaces like inline threads, temporary chats, and mentors build on top of that core model.
@@ -47,11 +47,30 @@ If docs conflict, prefer:
 - [features/chat-model-selection.md](./features/chat-model-selection.md): model picker behavior across routed home chats, resolution rules, availability rules, and verification
 - [features/conversation-branching.md](./features/conversation-branching.md): branch chips, branch navigator, tree state, persistence model, and runtime isolation rules
 - [features/inline-threads.md](./features/inline-threads.md): text selection, popover behavior, thread panel rules, keyboard behavior, and edge cases across `/home` and `/home/[conversationId]`
-- [features/live-search.md](./features/live-search.md): live web search behavior, execution flow, routed home-surface integration, and safety constraints
+- [features/live-search.md](./features/live-search.md): explicit search-mode behavior, provider-backed retrieval pipeline, persisted source metadata, and safety constraints
 - [features/memory.md](./features/memory.md): memory system architecture, read/write paths, schema, and API shape
 - [features/mentors.md](./features/mentors.md): built-in and custom mentors, data model, prompt construction, and API integration
 - [features/multi-chat-home.md](./features/multi-chat-home.md): multi-conversation home behavior, persistent conversation URLs, route hydration, sidebar model, runtime state, and database impact
 - [features/temporary-chat.md](./features/temporary-chat.md): temporary chat behavior, memory modes, URL-less `/home` behavior, and chat route behavior
+
+## Current Search Status
+
+Search mode has shipped its first provider-backed slice:
+
+- explicit-only search toggle
+- deterministic internal routing with no extra model hop
+- `Brave + Exa` retrieval pipeline
+- persisted v2 source metadata with a larger reply-attached source tray
+- structured server-side search telemetry for route, provider, and pipeline events
+
+Still left to do:
+
+- validate and tune the live provider stack with real `BRAVE_API_KEY` and `EXA_API_KEY`
+- add caching and durable telemetry only if structured server logs stop being enough
+- add `X`-backed retrieval for explicit reaction or sentiment queries
+- revisit storage only if message-level `search_metadata` becomes too limiting
+
+See [features/live-search.md](./features/live-search.md) for the current search behavior and the active follow-up list.
 
 ## Implementation Notes
 
@@ -64,7 +83,8 @@ Use implementation docs when the feature doc tells you what should happen, but t
 - [testing/README.md](./testing/README.md): central test map, runner commands, focused canaries, and test inventory
 - [testing/home-routing-e2e.md](./testing/home-routing-e2e.md): routed home-chat browser coverage, mocks, and regression targets
 - [testing/inline-threads-e2e.md](./testing/inline-threads-e2e.md): inline-thread end-to-end coverage, fixtures, and regression cases
-- [testing/search-citations-and-source-ui.md](./testing/search-citations-and-source-ui.md): live-search citation coverage, focused canary, manual checks, and current gaps
+- [testing/search-citations-and-source-ui.md](./testing/search-citations-and-source-ui.md): search-mode citation coverage, focused canary, manual checks, and current gaps
+- [testing/search-tuning-playbook.md](./testing/search-tuning-playbook.md): manual live-provider validation, telemetry review, and search-quality tuning workflow
 - [tests/chat-model-selection-tests.md](./tests/chat-model-selection-tests.md): automated and manual verification for model selection
 - [tests/memory-tests.md](./tests/memory-tests.md): memory test suite map, coverage philosophy, and remaining gaps
 - [features/auth-and-route-protection.md](./features/auth-and-route-protection.md): auth and route-protection testing coverage plus focused command

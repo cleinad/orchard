@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   createPersistedSearchMetadata,
+  createPersistedSearchMetadataV2,
+  hasUsableSearchSources,
   parsePersistedSearchMetadata,
   splitTextWithCitations,
   stripCitationMarkers,
@@ -8,7 +10,7 @@ import {
 } from '@/lib/search-citations';
 
 describe('search citations helpers', () => {
-  const searchMetadata = createPersistedSearchMetadata('required', {
+  const legacySearchMetadata = createPersistedSearchMetadata('required', {
     status: 'success',
     query: 'release notes',
     results: [
@@ -24,9 +26,35 @@ describe('search citations helpers', () => {
       },
     ],
   });
+  const searchMetadata = createPersistedSearchMetadataV2({
+    status: 'partial',
+    profile: 'official_priority',
+    query: 'release notes',
+    providers: ['brave', 'exa'],
+    results: [
+      {
+        title: 'Example Title',
+        url: 'https://www.example.com/article',
+        domain: 'example.com',
+        snippet: 'Example snippet',
+        provider: 'brave',
+        sourceType: 'official',
+        publishedAt: '2026-04-17T00:00:00.000Z',
+      },
+      {
+        title: 'Second Title',
+        url: 'https://example.com/two',
+        domain: 'example.com',
+        snippet: 'Second snippet',
+        provider: 'exa',
+        sourceType: 'docs',
+        publishedAt: null,
+      },
+    ],
+  });
 
-  it('normalizes persisted search metadata with stable source ids and domains', () => {
-    expect(searchMetadata).toMatchObject({
+  it('normalizes legacy persisted search metadata with stable source ids and domains', () => {
+    expect(legacySearchMetadata).toMatchObject({
       version: 1,
       mode: 'required',
       status: 'success',
@@ -36,19 +64,57 @@ describe('search citations helpers', () => {
           id: 1,
           title: 'Example Title',
           domain: 'example.com',
+          provider: null,
+          sourceType: null,
         }),
         expect.objectContaining({
           id: 2,
           title: 'Second Title',
           domain: 'example.com',
+          provider: null,
+          sourceType: null,
+        }),
+      ],
+    });
+  });
+
+  it('normalizes v2 search metadata with provider and profile details', () => {
+    expect(searchMetadata).toMatchObject({
+      version: 2,
+      mode: 'required',
+      profile: 'official_priority',
+      status: 'partial',
+      query: 'release notes',
+      providers: ['brave', 'exa'],
+      sources: [
+        expect.objectContaining({
+          id: 1,
+          title: 'Example Title',
+          domain: 'example.com',
+          provider: 'brave',
+          sourceType: 'official',
+        }),
+        expect.objectContaining({
+          id: 2,
+          title: 'Second Title',
+          domain: 'example.com',
+          provider: 'exa',
+          sourceType: 'docs',
         }),
       ],
     });
   });
 
   it('parses valid persisted search metadata and rejects malformed values', () => {
+    expect(parsePersistedSearchMetadata(legacySearchMetadata)).toEqual(legacySearchMetadata);
     expect(parsePersistedSearchMetadata(searchMetadata)).toEqual(searchMetadata);
     expect(parsePersistedSearchMetadata({ version: 2 })).toBeNull();
+    expect(
+      parsePersistedSearchMetadata({
+        ...searchMetadata,
+        sources: [{ ...searchMetadata.sources[0], provider: 'invalid' }],
+      })
+    ).toBeNull();
   });
 
   it('splits valid citation markers into separate compact parts', () => {
@@ -73,5 +139,16 @@ describe('search citations helpers', () => {
     expect(
       stripInvalidCitationMarkers('A cited sentence [1] [7].', searchMetadata)
     ).toBe('A cited sentence [1].');
+  });
+
+  it('treats partial search metadata with sources as usable grounding', () => {
+    expect(hasUsableSearchSources(searchMetadata)).toBe(true);
+    expect(hasUsableSearchSources(legacySearchMetadata)).toBe(true);
+    expect(
+      hasUsableSearchSources({
+        ...searchMetadata,
+        status: 'no_results',
+      })
+    ).toBe(false);
   });
 });

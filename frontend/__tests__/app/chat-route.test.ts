@@ -9,7 +9,7 @@ const mockCreateSupabaseServerClient = vi.fn();
 const mockLoadMemoryContextV2 = vi.fn();
 const mockProcessMemoryV2 = vi.fn();
 const mockBuildMentorPrompt = vi.fn();
-const mockRunWebSearch = vi.fn();
+const mockRunSearchPipeline = vi.fn();
 
 vi.mock('next/server', async (importOriginal) => {
   const actual = await importOriginal<typeof import('next/server')>();
@@ -44,9 +44,8 @@ vi.mock('@/lib/models', () => ({
   })),
 }));
 
-vi.mock('@/lib/tools', () => ({
-  runWebSearch: (...args: unknown[]) => mockRunWebSearch(...args),
-  webSearch: {},
+vi.mock('@/lib/search/pipeline', () => ({
+  runSearchPipeline: (...args: unknown[]) => mockRunSearchPipeline(...args),
 }));
 
 vi.mock('@/lib/mentors/prompts', () => ({
@@ -112,18 +111,23 @@ describe('chat route memory contract', () => {
     mockLoadMemoryContextV2.mockResolvedValue('');
     mockProcessMemoryV2.mockResolvedValue(undefined);
     mockBuildMentorPrompt.mockReturnValue('Mentor base prompt');
-    mockRunWebSearch.mockResolvedValue({
+    mockRunSearchPipeline.mockResolvedValue({
       status: 'success',
+      profile: 'fresh_web',
       query: 'Hello',
+      providers: ['brave'],
       results: [
         {
           title: 'Example',
           url: 'https://example.com/article',
           snippet: 'Example snippet',
+          domain: 'example.com',
+          provider: 'brave',
+          sourceType: 'official',
+          publishedAt: null,
         },
       ],
     });
-    delete process.env.TAVILY_API_KEY;
   });
 
   afterEach(() => {
