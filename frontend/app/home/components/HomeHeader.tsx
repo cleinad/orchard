@@ -3,17 +3,13 @@
 import { usePathname } from "next/navigation";
 import ThemePicker from "@/app/components/ThemePicker";
 import Tooltip from "@/app/components/Tooltip";
+import ConversationMapToggle from "@/app/home/components/ConversationMapToggle";
+import {
+  headerIconBase,
+  headerIconOff,
+  headerIconOn,
+} from "@/app/home/components/homeHeaderToolbar";
 import type { TemporaryMemoryMode } from "@/lib/chat-session";
-
-/**
- * Toolbar icons: ghost when idle; active = soft box + tiny shadow. Icon stays `text-muted` like the
- * grid (Browse mentors) glyph so the row shares one neutral icon color; the box carries “on”.
- */
-const headerIconBase =
-  "inline-flex h-10 w-10 items-center justify-center rounded-lg border transition";
-const headerIconOff = "border-transparent text-muted hover:text-foreground";
-const headerIconOn =
-  "border-border-subtle bg-surface text-muted hover:text-foreground shadow-[0_1px_2px_rgba(0,0,0,0.05)] dark:shadow-[0_1px_2px_rgba(0,0,0,0.18)]";
 
 type HomeHeaderProps = {
   activeName: string;
@@ -23,6 +19,9 @@ type HomeHeaderProps = {
   onToggleSidePanel: () => void;
   onBrowseMentors: () => void;
   onCreateTemporaryChat: () => void;
+  conversationMapBranchPointCount: number;
+  conversationMapOpen: boolean;
+  onToggleConversationMap: () => void;
 };
 
 export default function HomeHeader({
@@ -33,6 +32,9 @@ export default function HomeHeader({
   onToggleSidePanel,
   onBrowseMentors,
   onCreateTemporaryChat,
+  conversationMapBranchPointCount,
+  conversationMapOpen,
+  onToggleConversationMap,
 }: HomeHeaderProps) {
   const pathname = usePathname();
   const isMentorsRoute = pathname === "/mentors";
@@ -81,6 +83,12 @@ export default function HomeHeader({
       </div>
 
       <div className="flex items-center gap-2">
+        <ConversationMapToggle
+          branchPointCount={conversationMapBranchPointCount}
+          isOpen={conversationMapOpen}
+          onToggle={onToggleConversationMap}
+        />
+
         <Tooltip content="Browse mentors">
           <button
             type="button"
