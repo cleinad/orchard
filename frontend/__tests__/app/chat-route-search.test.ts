@@ -10,7 +10,7 @@ const mockCreateSupabaseServerClient = vi.fn();
 const mockLoadMemoryContextV2 = vi.fn();
 const mockProcessMemoryV2 = vi.fn();
 const mockBuildMentorPrompt = vi.fn();
-const mockRunWebSearch = vi.fn();
+const mockRunSearchPipeline = vi.fn();
 
 vi.mock('next/server', async (importOriginal) => {
   const actual = await importOriginal<typeof import('next/server')>();
@@ -122,8 +122,8 @@ vi.mock('@/lib/models', () => ({
   })),
 }));
 
-vi.mock('@/lib/tools', () => ({
-  runWebSearch: (...args: unknown[]) => mockRunWebSearch(...args),
+vi.mock('@/lib/search/pipeline', () => ({
+  runSearchPipeline: (...args: unknown[]) => mockRunSearchPipeline(...args),
 }));
 
 vi.mock('@/lib/mentors/prompts', () => ({
@@ -198,19 +198,29 @@ describe('chat route search citations', () => {
     mockLoadMemoryContextV2.mockResolvedValue('');
     mockProcessMemoryV2.mockResolvedValue(undefined);
     mockBuildMentorPrompt.mockReturnValue('Mentor base prompt');
-    mockRunWebSearch.mockResolvedValue({
+    mockRunSearchPipeline.mockResolvedValue({
       status: 'success',
+      profile: 'fresh_web',
       query: 'latest company update',
+      providers: ['brave'],
       results: [
         {
           title: 'Source One',
           url: 'https://example.com/one',
+          domain: 'example.com',
           snippet: 'First source snippet',
+          provider: 'brave',
+          sourceType: 'official',
+          publishedAt: '2026-01-01T00:00:00.000Z',
         },
         {
           title: 'Source Two',
           url: 'https://example.com/two',
+          domain: 'example.com',
           snippet: 'Second source snippet',
+          provider: 'brave',
+          sourceType: 'news',
+          publishedAt: null,
         },
       ],
     });
@@ -218,11 +228,9 @@ describe('chat route search citations', () => {
 
   afterEach(() => {
     vi.useRealTimers();
-    delete process.env.TAVILY_API_KEY;
   });
 
-  it('persists null search metadata when auto mode does not search', async () => {
-    process.env.TAVILY_API_KEY = 'test-key';
+  it('persists null search metadata when search mode is off', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-01-02T03:04:05.000Z'));
 
@@ -246,19 +254,8 @@ describe('chat route search citations', () => {
       status: 'not_attempted',
       metadata: null,
     });
-    expect(mockRunWebSearch).not.toHaveBeenCalled();
-    expect(mockGenerateObject).toHaveBeenCalledWith(
-      expect.objectContaining({
-        prompt: expect.stringContaining(
-          'The current time is 2026-01-01 19:04 (America/Vancouver).'
-        ),
-      })
-    );
-    expect(mockGenerateObject).toHaveBeenCalledWith(
-      expect.objectContaining({
-        prompt: expect.stringContaining("The user's name is Test User."),
-      })
-    );
+    expect(mockRunSearchPipeline).not.toHaveBeenCalled();
+    expect(mockGenerateObject).not.toHaveBeenCalled();
 
     const assistantInsert = tracker.inserts('messages')[1]?.args as {
       search_metadata?: unknown;
@@ -267,7 +264,6 @@ describe('chat route search citations', () => {
   });
 
   it('persists normalized search metadata and strips invalid citations for required mode', async () => {
-    process.env.TAVILY_API_KEY = 'test-key';
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-01-02T03:04:05.000Z'));
     mockStreamText.mockImplementation(({ onFinish }: { onFinish?: (result: { text: string }) => Promise<void> }) => {
@@ -303,11 +299,26 @@ describe('chat route search citations', () => {
       status: 'success',
       resultCount: 2,
       metadata: {
+        version: 2,
+        profile: 'fresh_web',
         status: 'success',
         query: 'latest company update',
+        providers: ['brave'],
         sources: [
-          expect.objectContaining({ id: 1, title: 'Source One', domain: 'example.com' }),
-          expect.objectContaining({ id: 2, title: 'Source Two', domain: 'example.com' }),
+          expect.objectContaining({
+            id: 1,
+            title: 'Source One',
+            domain: 'example.com',
+            provider: 'brave',
+            sourceType: 'official',
+          }),
+          expect.objectContaining({
+            id: 2,
+            title: 'Source Two',
+            domain: 'example.com',
+            provider: 'brave',
+            sourceType: 'news',
+          }),
         ],
       },
     });
@@ -321,10 +332,24 @@ describe('chat route search citations', () => {
     };
     expect(assistantInsert.content).toBe('Grounded answer [1]');
     expect(assistantInsert.search_metadata).toMatchObject({
+      version: 2,
+      profile: 'fresh_web',
       status: 'success',
       sources: [
-        expect.objectContaining({ id: 1, title: 'Source One', domain: 'example.com' }),
-        expect.objectContaining({ id: 2, title: 'Source Two', domain: 'example.com' }),
+        expect.objectContaining({
+          id: 1,
+          title: 'Source One',
+          domain: 'example.com',
+          provider: 'brave',
+          sourceType: 'official',
+        }),
+        expect.objectContaining({
+          id: 2,
+          title: 'Source Two',
+          domain: 'example.com',
+          provider: 'brave',
+          sourceType: 'news',
+        }),
       ],
     });
     expect(mockProcessMemoryV2).toHaveBeenCalledWith(
@@ -349,5 +374,6 @@ describe('chat route search citations', () => {
         system: expect.stringContaining("The user's name is Test User."),
       })
     );
+    expect(mockGenerateObject).not.toHaveBeenCalled();
   });
 });

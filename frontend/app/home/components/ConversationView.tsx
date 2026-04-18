@@ -7,6 +7,7 @@ import type { InlineThreadMarker } from '@/app/home/components/threadTypes';
 import type { Message } from '@/app/home/types';
 import type { BranchChip } from '@/app/home/components/conversationTree';
 import { markdownContentClassName } from '@/lib/markdown';
+import { hasUsableSearchSources } from '@/lib/search-citations';
 
 interface ConversationViewProps {
   listError: string | null;
@@ -101,9 +102,7 @@ export default function ConversationView({
           {messages.map((message) => {
             const replySearchMetadata =
               message.role === 'assistant' ? message.searchMetadata ?? null : null;
-            const hasSources =
-              replySearchMetadata?.status === 'success'
-              && replySearchMetadata.sources.length > 0;
+            const hasSources = hasUsableSearchSources(replySearchMetadata);
             const isSourceTrayOpen = openSourceTray?.messageId === message.id;
             const activeSourceId =
               isSourceTrayOpen
