@@ -7,6 +7,7 @@ This doc describes the Playwright coverage for the routed home-chat flows on `/h
 ## What It Covers
 
 - direct entry to `/home/[conversationId]`
+- delayed route hydration on `/home/[conversationId]`
 - sidebar selection of persistent conversations
 - draft promotion from `/home` into `/home/[conversationId]`
 - temporary-chat transitions back to `/home`
@@ -58,6 +59,7 @@ This should be treated as test harness behavior, not product behavior.
 The suite now guards against:
 
 - direct `/home/[conversationId]` loads rendering the blank state instead of hydrating messages
+- direct `/home/[conversationId]` loads flashing the large empty-chat hero while routed message history is still loading
 - sidebar conversation clicks changing selection without updating the URL
 - first draft sends creating a persistent conversation without replacing the route
 - temporary chats dropping the active selection when moving off `/home/[conversationId]`

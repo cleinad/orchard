@@ -156,14 +156,14 @@ npm run test:e2e -- e2e/search-mode.spec.js
 - If you change memory loading, memory writing, memory CRUD, or mentor memory scoping, run the memory canary suite.
 - If you change proxy logic, login redirect handling, protected-route behavior, or TTS auth, run the auth canary suite.
 - If you change model catalog data, provider resolution, or chat model selection UI behavior, run the model-selection tests.
-- If you change home route hydration, sidebar-driven chat navigation, draft promotion, or temporary chat route behavior, run the home-routing Playwright suite.
+- If you change home route hydration, routed loading UI, sidebar-driven chat navigation, draft promotion, or temporary chat route behavior, run the home-routing Playwright suite.
 - If you change inline threads, selection handling, markdown rendering, or thread panel behavior, run the inline-thread Playwright suite.
 - If you change Search mode routing, provider normalization, citation persistence, markdown citation chips, or the source tray UI, run the search canary suite.
 - If you make broad frontend changes and are unsure, run `npm test` and then `npm run test:e2e` from `frontend/`.
 
 ## Detailed Testing Docs
 
-- [home-routing-e2e.md](./home-routing-e2e.md): routed home-chat browser coverage, mocks, and regression targets
+- [home-routing-e2e.md](./home-routing-e2e.md): routed home-chat browser coverage, mocks, and regression targets including delayed hydration UI
 - [inline-threads-e2e.md](./inline-threads-e2e.md): browser fixtures, mocks, and regression targets for inline threads
 - [search-citations-and-source-ui.md](./search-citations-and-source-ui.md): search-mode citation test scope, focused canary, manual checks, and current gaps
 - [search-tuning-playbook.md](./search-tuning-playbook.md): manual live-provider tuning workflow using real API keys and structured search telemetry

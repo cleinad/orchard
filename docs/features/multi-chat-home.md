@@ -213,7 +213,11 @@ Persistent route hydration is now part of the home orchestration layer.
 - the route param is the source of truth for which persistent conversation should load
 - `/home` clears route-driven persistent selection and leaves the page in blank, draft, or temporary state
 - `/home/<conversationId>` loads conversation metadata, then message history, then marks that route as hydrated
+- route hydration has its own loading state in the page layer and does not reuse send-in-flight loading
+- while a routed persistent conversation is still hydrating and has no loaded messages yet, the transcript area shows a minimal loading placeholder instead of the normal empty-chat hero
+- the normal empty hero still applies for real blank states such as `/home`, drafts, and truly empty chats after hydration completes
 - route hydration reuses the same persistent message-loading path as sidebar selection instead of maintaining a separate fetch model
+- stale route completions are ignored so rapid conversation switches do not clear the loading state for the active route incorrectly
 - non-persistent selections use a one-shot client handoff when leaving `/home/<conversationId>` so drafts and temporary chats remain selected after the route returns to `/home`
 
 ## Chat Route Behavior
