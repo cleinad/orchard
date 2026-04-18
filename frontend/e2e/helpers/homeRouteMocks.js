@@ -102,6 +102,21 @@ async function mockHomeDataRoutes(page, state) {
       ? resolvedState.messagesByConversationId[conversationId] || []
       : [];
 
+    if (typeof resolvedState.onMessagesRequest === 'function') {
+      const handled = await resolvedState.onMessagesRequest({
+        route,
+        url,
+        conversationId,
+        select,
+        messages,
+        fulfillJson,
+      });
+
+      if (handled) {
+        return;
+      }
+    }
+
     if (select === 'content') {
       const latestMessage = messages[messages.length - 1] || null;
       await fulfillJson(route, latestMessage ? { content: latestMessage.content } : null);

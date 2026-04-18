@@ -81,6 +81,79 @@ test('hydrates a persistent conversation on direct /home/[conversationId] entry'
   await expect(page.getByText(answer)).toBeVisible({ timeout: 10000 });
 });
 
+test('direct /home/[conversationId] entry shows a loading placeholder instead of the empty hero while history hydrates', async ({ page }) => {
+  const conversationId = 'conversation-direct-route-delayed';
+  const question = 'How did route-based marketplaces smooth delivery peaks?';
+  const answer = 'They smoothed peaks by shaping courier supply around dense zones and dispatch windows.';
+  const messagesDeferred = deferred();
+
+  await mockHomeDataRoutes(page, {
+    conversations: [
+      createConversation({
+        id: conversationId,
+        title: 'Delayed Hydration Conversation',
+      }),
+    ],
+    messagesByConversationId: {
+      [conversationId]: [
+        createMessage({
+          id: 'message-delayed-user-1',
+          role: 'user',
+          content: question,
+          createdAt: '2026-04-12T12:00:01.000Z',
+        }),
+        createMessage({
+          id: 'message-delayed-assistant-1',
+          role: 'assistant',
+          content: answer,
+          createdAt: '2026-04-12T12:00:02.000Z',
+        }),
+      ],
+    },
+    onMessagesRequest: async ({
+      route,
+      conversationId: requestedConversationId,
+      select,
+      messages,
+      fulfillJson,
+    }) => {
+      if (requestedConversationId !== conversationId || select === 'content') {
+        return false;
+      }
+
+      await messagesDeferred.promise;
+      await fulfillJson(route, messages);
+      return true;
+    },
+  });
+
+  await page.goto(`/home/${conversationId}?e2e=home-routing-direct-delayed`);
+
+  await expect(page.getByLabel('Loading conversation')).toBeVisible();
+  await expect(page.getByText('What are we exploring today?')).toHaveCount(0);
+
+  messagesDeferred.resolve();
+
+  await expect(page.getByText(question)).toBeVisible();
+  await expect(page.getByText(answer)).toBeVisible({ timeout: 10000 });
+  await expect(page.getByLabel('Loading conversation')).toHaveCount(0);
+});
+
+test('direct /home/[conversationId] entry shows a load error instead of the empty hero when hydration fails', async ({ page }) => {
+  const conversationId = 'conversation-missing-route';
+
+  await mockHomeDataRoutes(page, {
+    conversations: [],
+    messagesByConversationId: {},
+  });
+
+  await page.goto(`/home/${conversationId}?e2e=home-routing-missing`);
+
+  await expect(page.getByText('Could not load this conversation')).toBeVisible();
+  await expect(page.getByText('Conversation not found')).toBeVisible();
+  await expect(page.getByText('What are we exploring today?')).toHaveCount(0);
+});
+
 test('clicking a saved chat updates the URL and loads the persistent conversation', async ({ page }) => {
   const conversationId = 'conversation-sidebar-route';
   const title = 'History of Food Delivery';
