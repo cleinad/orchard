@@ -105,7 +105,10 @@ async function readChatStream(
   try {
     while (true) {
       const { done, value } = await reader.read();
-      if (done) break;
+      if (done) {
+        buffer += decoder.decode();
+        break;
+      }
 
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split('\n');
@@ -133,6 +136,26 @@ async function readChatStream(
         }
       }
     }
+
+    if (buffer.startsWith('data: ')) {
+      const payload = buffer.slice(6).trim();
+
+      if (payload && payload !== '[DONE]') {
+        try {
+          const event = JSON.parse(payload) as Record<string, unknown>;
+
+          if (event.type === 'text-delta' && typeof event.delta === 'string') {
+            if (event.delta) onChunk(event.delta);
+          } else if (event.type === 'data-chatMeta' && event.data) {
+            metadata = event.data as ChatResponse;
+          } else if (event.type === 'error' && typeof event.errorText === 'string') {
+            metadata = { error: event.errorText };
+          }
+        } catch {
+          // Ignore malformed trailing SSE line
+        }
+      }
+    }
   } finally {
     reader.releaseLock();
   }
@@ -157,6 +180,7 @@ type SelectedChat =
 interface PendingChatRequest {
   selection: SelectedChat;
   userMessageId: string;
+  phase: 'awaiting-response' | 'reconciling';
 }
 
 interface PersistentDraftChat {
@@ -958,7 +982,7 @@ function HomePageInner() {
     ? 'Keen'
     : selectedConversation?.mentor_name || activeMentor?.name || 'Keen';
   const isActiveConversationLoading =
-    activePendingChatRequest !== null
+    activePendingChatRequest?.phase === 'awaiting-response'
     && activeMessages.some((message) => message.id === activePendingChatRequest.userMessageId);
 
   const autoSendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1115,6 +1139,36 @@ function HomePageInner() {
   const clearPendingChatRequestForSelection = useCallback((selection: SelectedChat) => {
     setPendingChatRequestForSelection(selection, null);
   }, [setPendingChatRequestForSelection]);
+
+  const setPendingChatRequestPhaseForSelection = useCallback(
+    (
+      selection: SelectedChat,
+      phase: PendingChatRequest['phase']
+    ) => {
+      const key = getSelectedChatKey(selection);
+
+      if (!key) {
+        return;
+      }
+
+      setPendingChatRequestsByChatKey((prev) => {
+        const current = prev[key];
+
+        if (!current || current.phase === phase) {
+          return prev;
+        }
+
+        return {
+          ...prev,
+          [key]: {
+            ...current,
+            phase,
+          },
+        };
+      });
+    },
+    []
+  );
 
   const moveComposerInputBetweenSelections = useCallback(
     (
@@ -1915,8 +1969,11 @@ function HomePageInner() {
     }
 
     const alreadyHydrated =
-      hydratedRouteConversationIdRef.current === routeConversationId &&
-      currentPersistentSelection?.conversationId === routeConversationId;
+      currentPersistentSelection?.conversationId === routeConversationId
+      && (
+        hydratedRouteConversationIdRef.current === routeConversationId
+        || persistentMessages.length > 0
+      );
 
     if (alreadyHydrated) {
       return;
@@ -1937,13 +1994,17 @@ function HomePageInner() {
         conversationId: routeConversationId,
         mentorId: loadedConversation.mentor_id,
       };
+      const shouldPreserveCurrentTranscript =
+        currentPersistentSelection?.conversationId === routeConversationId;
 
       prepareForChatSwitchRef.current(nextSelection);
       setSelectedChat(nextSelection);
-      setPersistentMessages([]);
-      setPersistentBranches([]);
-      setPersistentSelectedBranchIds({});
-      setPersistentThreadsMap(new Map());
+      if (!shouldPreserveCurrentTranscript) {
+        setPersistentMessages([]);
+        setPersistentBranches([]);
+        setPersistentSelectedBranchIds({});
+        setPersistentThreadsMap(new Map());
+      }
       setListError(null);
 
       const loadedConversationData = await loadConversationMessages(routeConversationId);
@@ -1976,13 +2037,16 @@ function HomePageInner() {
         conversationId: routeConversationId,
         mentorId: null,
       });
-      setPersistentMessages([]);
-      setPersistentThreadsMap(new Map());
+      if (currentPersistentSelection?.conversationId !== routeConversationId) {
+        setPersistentMessages([]);
+        setPersistentThreadsMap(new Map());
+      }
     });
   }, [
     isHomeE2eFixture,
     loadConversationById,
     loadConversationMessages,
+    persistentMessages.length,
     routeConversationId,
   ]);
 
@@ -3004,6 +3068,7 @@ function HomePageInner() {
     setPendingChatRequestForSelection(effectiveSelection, {
       selection: effectiveSelection,
       userMessageId: userMessage.id,
+      phase: 'awaiting-response',
     });
     clearSearchStateForSelection(effectiveSelection);
     setUserHasScrolledState(false);
@@ -3256,11 +3321,12 @@ function HomePageInner() {
         content: data.message ?? '',
         timestamp: new Date(),
         searchMetadata: data.search?.metadata ?? null,
-        previousMessageId:
-          effectiveSelection.kind === 'temporary'
-            ? userMessage.id
-            : data.userMessageId || userMessage.id,
+        // Keep the optimistic chain internally consistent until persisted IDs
+        // replace the optimistic user/assistant pair together.
+        previousMessageId: userMessage.id,
       };
+
+      setPendingChatRequestPhaseForSelection(effectiveSelection, 'reconciling');
 
       // Replace the streaming placeholder with the final message (correct ID + metadata).
       replaceStreamingMessage(assistantMessage);
@@ -3326,14 +3392,14 @@ function HomePageInner() {
           }
         }
 
-        setDraftChats((prev) => prev.filter((draft) => draft.id !== effectiveDraft.id));
-
         if (isSameSelectedChat(selectedChatRef.current, effectiveSelection)) {
           hydratedRouteConversationIdRef.current = promotedSelection.conversationId;
           selectedChatRef.current = promotedSelection;
           setSelectedChat(promotedSelection);
           openPersistentConversation(promotedSelection.conversationId, { replace: true });
         }
+
+        setDraftChats((prev) => prev.filter((draft) => draft.id !== effectiveDraft.id));
 
         if (!isHomeE2eFixture) {
           await refreshSidebarData();
@@ -3391,6 +3457,7 @@ function HomePageInner() {
     selectedModelId,
     selectedTemporaryChat,
     setPendingChatRequestForSelection,
+    setPendingChatRequestPhaseForSelection,
     setSearchStateForSelection,
     setUserHasScrolledState,
     transcription,
