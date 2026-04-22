@@ -50,8 +50,8 @@ If docs conflict, prefer:
 - [features/live-search.md](./features/live-search.md): explicit search-mode behavior, provider-backed retrieval pipeline, persisted source metadata, and safety constraints
 - [features/memory.md](./features/memory.md): memory system architecture, read/write paths, schema, and API shape
 - [features/mentors.md](./features/mentors.md): built-in and custom mentors, data model, prompt construction, and API integration
-- [features/multi-chat-home.md](./features/multi-chat-home.md): multi-conversation home behavior, persistent conversation URLs, route hydration including the routed-history loading placeholder, sidebar model, runtime state, and database impact
-- [features/temporary-chat.md](./features/temporary-chat.md): temporary chat behavior, memory modes, URL-less `/home` behavior, and chat route behavior
+- [features/multi-chat-home.md](./features/multi-chat-home.md): multi-conversation home behavior, persistent conversation URLs, route hydration including the routed-history loading placeholder, non-persistent handoff back to `/home`, sidebar model, runtime state, and database impact
+- [features/temporary-chat.md](./features/temporary-chat.md): temporary chat behavior, memory modes, URL-less `/home` behavior, first-click handoff from routed conversations, and chat route behavior
 
 ## Current Search Status
 
@@ -81,7 +81,7 @@ Use implementation docs when the feature doc tells you what should happen, but t
 ## Testing Docs
 
 - [testing/README.md](./testing/README.md): central test map, runner commands, focused canaries, and test inventory
-- [testing/home-routing-e2e.md](./testing/home-routing-e2e.md): routed home-chat browser coverage, mocks, and regression targets including delayed `/home/[conversationId]` hydration
+- [testing/home-routing-e2e.md](./testing/home-routing-e2e.md): routed home-chat browser coverage, mocks, and regression targets including delayed `/home/[conversationId]` hydration and `/home/[conversationId]` to `/home` draft/temporary transitions
 - [testing/inline-threads-e2e.md](./testing/inline-threads-e2e.md): inline-thread end-to-end coverage, fixtures, and regression cases
 - [testing/search-citations-and-source-ui.md](./testing/search-citations-and-source-ui.md): search-mode citation coverage, focused canary, manual checks, and current gaps
 - [testing/search-tuning-playbook.md](./testing/search-tuning-playbook.md): manual live-provider validation, telemetry review, and search-quality tuning workflow
@@ -110,6 +110,7 @@ If you are making changes in this repo:
 - start from this file
 - read [design/design-language.md](./design/design-language.md) and [design/tokens.md](./design/tokens.md) before changing the landing page, auth pages, typography tokens, or any major visual surface
 - use `docs/features/` as the default behavior reference
+- read [features/multi-chat-home.md](./features/multi-chat-home.md) before changing `/home` route hydration, draft/temporary selection, or handoff from `/home/[conversationId]` back to `/home`
 - read [features/conversation-branching.md](./features/conversation-branching.md) before changing `messages.previous_message_id`, `conversation_branches`, branch chips, or conversation-map routing/state
 - check `docs/implementation/` before refactoring sensitive rendering or state logic
 - check test docs before changing memory, model selection, auth, or inline-thread behavior

@@ -26,6 +26,7 @@ They are intentionally a real no-persistence path, not a "write then delete late
 - The header incognito button creates and selects a new temporary chat.
 - Creating a temporary chat does not toggle the whole page into a separate mode.
 - The selected chat simply becomes a temporary chat session.
+- Creating a new temporary chat from `/home/<conversationId>` returns the URL to `/home` and should keep that new temporary chat selected on the first click.
 
 ### Sidebar behavior
 
@@ -35,6 +36,7 @@ They are intentionally a real no-persistence path, not a "write then delete late
 - Each temporary chat can be closed directly from the sidebar.
 - Temporary chats are not associated with mentor rows.
 - Selecting a temporary chat returns the browser URL to `/home` and keeps that temporary chat active.
+- Selecting an existing temporary chat from `/home/<conversationId>` should also succeed in one click rather than requiring a second click after route normalization.
 
 ### Header and composer behavior
 
@@ -87,6 +89,7 @@ That gives the desired behavior:
 - survives reload in the same tab
 - does not sync across tabs
 - does not touch the database
+- preserves temporary selection while leaving `/home/<conversationId>` so the old routed persistent conversation does not briefly win selection back during the same transition
 
 ### Temporary threads
 

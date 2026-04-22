@@ -63,6 +63,7 @@ The suite now guards against:
 - sidebar conversation clicks changing selection without updating the URL
 - first draft sends creating a persistent conversation without replacing the route
 - temporary chats dropping the active selection when moving off `/home/[conversationId]`
+- temporary chat creation or selection from `/home/[conversationId]` requiring a second click because the old routed conversation rehydrates during `/home` normalization
 
 ## Intentional Gaps
 
@@ -72,3 +73,4 @@ The suite does not currently cover:
 - mentor deep-link handling from `/home?mentor=...`
 - real Supabase integration
 - real authenticated sessions without the E2E bypass
+- the exact route-exit timing race behind the first-click temporary-chat bug, so that transition should still be sanity-checked manually when the handoff logic changes
