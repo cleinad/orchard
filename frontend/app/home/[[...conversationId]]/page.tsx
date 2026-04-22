@@ -1449,11 +1449,19 @@ function HomePageInner() {
         ? composerDraftInputsRef.current[getComposerStateKey(currentSelection)] ?? ''
         : '';
 
-      // Clear persistent conversation content on every chat switch
-      setPersistentMessages([]);
-      setPersistentBranches([]);
-      setPersistentSelectedBranchIds({});
-      setPersistentThreadsMap(new Map());
+      const shouldClearPersistentConversationState =
+        nextSelection === null || nextSelection.kind === 'persistent';
+
+      if (shouldClearPersistentConversationState) {
+        // When leaving a routed conversation for a draft or temporary chat, keep the
+        // persistent transcript in memory until the URL has actually finished leaving
+        // /home/<conversationId>. Clearing it early retriggers route hydration for the
+        // old conversation and steals selection back during the transition.
+        setPersistentMessages([]);
+        setPersistentBranches([]);
+        setPersistentSelectedBranchIds({});
+        setPersistentThreadsMap(new Map());
+      }
 
       if (
         currentSelection?.kind === 'draft' &&
