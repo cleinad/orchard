@@ -7,6 +7,7 @@ export interface Message {
   timestamp: Date;
   searchMetadata?: PersistedSearchMetadata | null;
   previousMessageId: string | null;
+  isStreaming?: boolean;
 }
 
 export interface ConversationBranch {
