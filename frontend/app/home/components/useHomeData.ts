@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { MentorListItem } from '@/lib/mentors/types';
-import { parsePersistedSearchMetadata, stripCitationMarkers } from '@/lib/search-citations';
+import { parsePersistedSearchMetadata } from '@/lib/search-citations';
 import type {
   BranchSelectionMap,
   ConversationBranch,
@@ -20,9 +20,6 @@ interface ConversationRow {
   created_at: string;
 }
 
-function mapConversationPreview(preview: string) {
-  return preview.length > 180 ? `${preview.slice(0, 177)}...` : preview;
-}
 
 function buildThreadsMap(
   threadRows: Array<{
@@ -119,8 +116,7 @@ function buildSidebarGroups(
 
 function mapConversationRowToListItem(
   row: ConversationRow,
-  mentorSource: MentorListItem[],
-  preview: string
+  mentorSource: MentorListItem[]
 ): ConversationListItem {
   const mentor = row.mentor_id
     ? mentorSource.find((entry) => entry.id === row.mentor_id) || null
@@ -132,7 +128,6 @@ function mapConversationRowToListItem(
     mentor_id: row.mentor_id,
     updated_at: row.updated_at,
     created_at: row.created_at,
-    preview: mapConversationPreview(preview),
     mentor_name: mentor?.name || 'Keen',
     mentor_accent_color: mentor?.accent_color || null,
   };
@@ -168,36 +163,8 @@ export function useHomeData() {
     }
 
     const rows = (conversationRows || []) as ConversationRow[];
-    const previews = await Promise.all(
-      rows.map(async (row) => {
-        const { data: latestMessage } = await supabase
-          .from('messages')
-          .select('content, search_metadata')
-          .eq('conversation_id', row.id)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
-
-        const latestSearchMetadata = parsePersistedSearchMetadata(
-          latestMessage?.search_metadata
-        );
-        return {
-          conversationId: row.id,
-          preview: stripCitationMarkers(latestMessage?.content || '', latestSearchMetadata),
-        };
-      })
-    );
-
-    const previewByConversationId = new Map(
-      previews.map((item) => [item.conversationId, item.preview])
-    );
-
     const nextConversations: ConversationListItem[] = rows.map((row) =>
-      mapConversationRowToListItem(
-        row,
-        mentorSource,
-        previewByConversationId.get(row.id) || ''
-      )
+      mapConversationRowToListItem(row, mentorSource)
     );
 
     setConversations(nextConversations);
@@ -319,7 +286,7 @@ export function useHomeData() {
       throw new Error(error?.message || 'Conversation not found');
     }
 
-    return mapConversationRowToListItem(data as ConversationRow, mentors, '');
+    return mapConversationRowToListItem(data as ConversationRow, mentors);
   }, [mentors]);
 
   return {

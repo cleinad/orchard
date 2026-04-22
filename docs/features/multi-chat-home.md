@@ -104,6 +104,7 @@ Rules:
 - `/home/<conversationId>` is the canonical route for persistent conversations
 - clicking a persistent conversation in the sidebar pushes `/home/<conversationId>`
 - clicking a draft or temporary chat returns the URL to `/home` while keeping that non-persistent chat selected
+- creating or selecting a draft or temporary chat from `/home/<conversationId>` must succeed in one click; the old routed persistent conversation must not reclaim selection while the route normalizes back to `/home`
 - direct loads of `/home/<conversationId>` hydrate the matching conversation into the home state
 - the first successful send from a draft replaces `/home` with `/home/<conversationId>` instead of adding a fake draft route
 
@@ -213,8 +214,13 @@ Persistent route hydration is now part of the home orchestration layer.
 - the route param is the source of truth for which persistent conversation should load
 - `/home` clears route-driven persistent selection and leaves the page in blank, draft, or temporary state
 - `/home/<conversationId>` loads conversation metadata, then message history, then marks that route as hydrated
+- route hydration has its own loading state in the page layer and does not reuse send-in-flight loading
+- while a routed persistent conversation is still hydrating and has no loaded messages yet, the transcript area shows a minimal loading placeholder instead of the normal empty-chat hero
+- the normal empty hero still applies for real blank states such as `/home`, drafts, and truly empty chats after hydration completes
 - route hydration reuses the same persistent message-loading path as sidebar selection instead of maintaining a separate fetch model
+- stale route completions are ignored so rapid conversation switches do not clear the loading state for the active route incorrectly
 - non-persistent selections use a one-shot client handoff when leaving `/home/<conversationId>` so drafts and temporary chats remain selected after the route returns to `/home`
+- when leaving `/home/<conversationId>` for a draft or temporary chat, the page must not clear routed persistent transcript state early enough to retrigger hydration for the old conversation before the URL has actually left the routed state
 
 ## Chat Route Behavior
 

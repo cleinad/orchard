@@ -292,7 +292,7 @@ export default function SidePanel({
                                 : (prev[mentorKey] ?? 3) + 10,
                           }))
                         }
-                        className="text-[11px] font-medium tracking-wide text-muted transition-colors hover:text-foreground"
+                        className="text-[11px] font-sans font-medium tracking-wide text-muted transition-colors hover:text-foreground"
                       >
                         Show more
                       </button>

@@ -27,7 +27,6 @@ export interface ConversationListItem {
   title: string;
   updated_at: string;
   created_at: string;
-  preview: string;
   mentor_name: string;
   mentor_accent_color: string | null;
 }

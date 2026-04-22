@@ -11,11 +11,13 @@ import { hasUsableSearchSources } from '@/lib/search-citations';
 
 interface ConversationViewProps {
   listError: string | null;
+  routeConversationError: string | null;
   messages: Message[];
   activeName: string;
   emptyTitle: string;
   emptySubtitle: string;
   isLoading: boolean;
+  isRouteConversationLoading: boolean;
   threadsMap: Map<string, InlineThreadMarker[]>;
   branchChipsByMessageId: Map<string, BranchChip[]>;
   pendingBranchSourceMessageId: string | null;
@@ -28,11 +30,13 @@ interface ConversationViewProps {
 
 export default function ConversationView({
   listError,
+  routeConversationError,
   messages,
   activeName,
   emptyTitle,
   emptySubtitle,
   isLoading,
+  isRouteConversationLoading,
   threadsMap,
   branchChipsByMessageId,
   pendingBranchSourceMessageId,
@@ -88,14 +92,44 @@ export default function ConversationView({
 
       {messages.length === 0 ? (
         <div className="flex h-full min-h-[50vh] flex-col items-center justify-center px-4">
-          <div className="text-center">
-            <h1 className="font-heading text-3xl text-foreground sm:text-4xl">
-              {emptyTitle}
-            </h1>
-            <p className="mt-4 max-w-md font-sans text-md font-medium leading-relaxed text-muted">
-              {emptySubtitle}
-            </p>
-          </div>
+          {isRouteConversationLoading ? (
+            <div
+              role="status"
+              aria-label="Loading conversation"
+              className="flex items-center gap-1.5 text-muted"
+            >
+              <span
+                className="h-2 w-2 animate-bounce rounded-full bg-muted/40"
+                style={{ animationDelay: '0ms' }}
+              />
+              <span
+                className="h-2 w-2 animate-bounce rounded-full bg-muted/40"
+                style={{ animationDelay: '150ms' }}
+              />
+              <span
+                className="h-2 w-2 animate-bounce rounded-full bg-muted/40"
+                style={{ animationDelay: '300ms' }}
+              />
+            </div>
+          ) : routeConversationError ? (
+            <div className="max-w-md text-center">
+              <h1 className="font-heading text-3xl text-foreground sm:text-4xl">
+                Could not load this conversation
+              </h1>
+              <p className="mt-4 font-sans text-md font-medium leading-relaxed text-muted">
+                {routeConversationError}
+              </p>
+            </div>
+          ) : (
+            <div className="text-center">
+              <h1 className="font-heading text-3xl text-foreground sm:text-4xl">
+                {emptyTitle}
+              </h1>
+              <p className="mt-4 max-w-md font-sans text-md font-medium leading-relaxed text-muted">
+                {emptySubtitle}
+              </p>
+            </div>
+          )}
         </div>
       ) : (
         <div className="py-8">

@@ -1,0 +1,601 @@
+'use client';
+
+import {
+  createContext,
+  useContext,
+  useState,
+  useCallback,
+  useEffect,
+  useRef,
+  type ReactNode,
+} from 'react';
+import { useRouter } from 'next/navigation';
+import { useHomeData } from '@/app/home/components/useHomeData';
+import { createTemporaryId } from '@/lib/chat-session';
+import type { ConversationListItem, SidebarMentorGroup } from '@/app/home/types';
+import type { MentorListItem } from '@/lib/mentors/types';
+import type { ConversationBranch, BranchSelectionMap, Message } from '@/app/home/types';
+import type {
+  ThreadMessage,
+  ThreadMeta,
+  ThreadSessionStatus,
+} from '@/app/home/components/threadTypes';
+import type { TemporaryMemoryMode } from '@/lib/chat-session';
+
+// ---------------------------------------------------------------------------
+// Shared home selection types (also used by page.tsx for send / tree state)
+// ---------------------------------------------------------------------------
+
+export type SelectedChat =
+  | { kind: 'persistent'; conversationId: string; mentorId: string | null }
+  | { kind: 'draft'; draftId: string; mentorId: string | null }
+  | { kind: 'temporary'; tempChatId: string };
+
+type ThreadMetaRecord = Record<string, ThreadMeta[]>;
+type ThreadMessagesRecord = Record<string, ThreadMessage[]>;
+type ThreadStatusRecord = Record<string, ThreadSessionStatus>;
+
+export interface PersistentDraftChat {
+  id: string;
+  mentorId: string | null;
+  title: 'New chat';
+  createdAt: string;
+  updatedAt: string;
+  messages: Message[];
+  branches: ConversationBranch[];
+  selectedBranchIds: BranchSelectionMap;
+}
+
+export interface TemporaryChatSession {
+  id: string;
+  title: string;
+  memoryMode: TemporaryMemoryMode;
+  createdAt: string;
+  updatedAt: string;
+  messages: Message[];
+  branches: ConversationBranch[];
+  selectedBranchIds: BranchSelectionMap;
+  threadsMap: ThreadMetaRecord;
+  threadMessages: ThreadMessagesRecord;
+  threadStatuses: ThreadStatusRecord;
+}
+
+const TEMP_CHAT_TITLE = 'Temporary chat';
+const TEMP_CHAT_STORAGE_KEY = 'keen-home-temp-chats-v1';
+const HOME_SELECTION_HANDOFF_STORAGE_KEY = 'keen-home-selection-handoff-v1';
+
+type HomeSelectionHandoff =
+  | { kind: 'draft'; draft: PersistentDraftChat }
+  | { kind: 'temporary'; tempChatId: string };
+
+function persistHomeSelectionHandoff(handoff: HomeSelectionHandoff) {
+  window.sessionStorage.setItem(HOME_SELECTION_HANDOFF_STORAGE_KEY, JSON.stringify(handoff));
+}
+
+function readHomeSelectionHandoff(): HomeSelectionHandoff | null {
+  const stored = window.sessionStorage.getItem(HOME_SELECTION_HANDOFF_STORAGE_KEY);
+  if (!stored) return null;
+  try {
+    return JSON.parse(stored) as HomeSelectionHandoff;
+  } catch {
+    window.sessionStorage.removeItem(HOME_SELECTION_HANDOFF_STORAGE_KEY);
+    return null;
+  }
+}
+
+function clearHomeSelectionHandoff() {
+  window.sessionStorage.removeItem(HOME_SELECTION_HANDOFF_STORAGE_KEY);
+}
+
+// ---------------------------------------------------------------------------
+// Temporary chat sessionStorage serialization
+// ---------------------------------------------------------------------------
+
+interface StoredMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: string;
+  searchMetadata?: Message['searchMetadata'];
+  previousMessageId: string | null;
+}
+
+interface StoredThreadMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: string;
+  searchMetadata?: ThreadMessage['searchMetadata'];
+}
+
+interface StoredTemporaryChatSession {
+  id: string;
+  title: string;
+  memoryMode: TemporaryMemoryMode;
+  createdAt: string;
+  updatedAt: string;
+  messages: StoredMessage[];
+  branches: ConversationBranch[];
+  selectedBranchIds: BranchSelectionMap;
+  threadsMap: ThreadMetaRecord;
+  threadMessages: Record<string, StoredThreadMessage[]>;
+  threadStatuses: ThreadStatusRecord;
+}
+
+function sortByUpdatedAtDesc<T extends { updatedAt: string }>(items: T[]): T[] {
+  return [...items].sort(
+    (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+  );
+}
+
+function deserializeTemporaryChats(raw: string): TemporaryChatSession[] {
+  const stored = JSON.parse(raw) as StoredTemporaryChatSession[];
+  return stored.map((chat) => ({
+    ...chat,
+    messages: chat.messages.map((m) => ({
+      ...m,
+      timestamp: new Date(m.timestamp),
+    })),
+    threadMessages: Object.fromEntries(
+      Object.entries(chat.threadMessages).map(([threadId, msgs]) => [
+        threadId,
+        msgs.map((m) => ({ ...m, timestamp: new Date(m.timestamp) })),
+      ])
+    ),
+  }));
+}
+
+function serializeTemporaryChats(chats: TemporaryChatSession[]): string {
+  const stored: StoredTemporaryChatSession[] = chats.map((chat) => ({
+    ...chat,
+    messages: chat.messages.map((m) => ({
+      ...m,
+      timestamp: m.timestamp instanceof Date ? m.timestamp.toISOString() : m.timestamp,
+    })),
+    threadMessages: Object.fromEntries(
+      Object.entries(chat.threadMessages).map(([threadId, msgs]) => [
+        threadId,
+        msgs.map((m) => ({
+          ...m,
+          timestamp: m.timestamp instanceof Date ? m.timestamp.toISOString() : m.timestamp,
+        })),
+      ])
+    ),
+  }));
+  return JSON.stringify(stored);
+}
+
+// ---------------------------------------------------------------------------
+// Context value shape
+// ---------------------------------------------------------------------------
+
+interface HomeDataContextValue {
+  // Sidebar data
+  mentors: MentorListItem[];
+  conversations: ConversationListItem[];
+  mentorGroups: SidebarMentorGroup[];
+  loadingLists: boolean;
+  listError: string | null;
+  setListError: (err: string | null) => void;
+  refreshSidebarData: () => Promise<void>;
+
+  // Draft + temporary chat state
+  draftChats: PersistentDraftChat[];
+  setDraftChats: React.Dispatch<React.SetStateAction<PersistentDraftChat[]>>;
+  temporaryChats: TemporaryChatSession[];
+  setTemporaryChats: React.Dispatch<React.SetStateAction<TemporaryChatSession[]>>;
+  updateDraftChat: (id: string, updater: (d: PersistentDraftChat) => PersistentDraftChat) => void;
+  updateTemporaryChat: (id: string, updater: (c: TemporaryChatSession) => TemporaryChatSession) => void;
+  getOrCreateDraft: (mentorId: string | null) => PersistentDraftChat;
+
+  // Selection
+  selectedChat: SelectedChat | null;
+  setSelectedChat: React.Dispatch<React.SetStateAction<SelectedChat | null>>;
+  selectedChatRef: React.MutableRefObject<SelectedChat | null>;
+
+  // Selection actions (called from SidePanel in layout, need page side-effects too)
+  handleSelectConversation: (conversation: ConversationListItem) => void;
+  handleSelectDraft: (draftId: string) => void;
+  handleSelectTemporaryChat: (tempChatId: string) => void;
+  handleCreateDraftSelection: (mentorId: string | null) => void;
+  handleCreateTemporaryChat: () => void;
+  handleCloseTemporaryChat: (tempChatId: string) => void;
+
+  // Data loading helpers the page uses directly
+  loadConversationById: (id: string) => Promise<ConversationListItem>;
+  loadConversationMessages: (id: string) => Promise<{
+    messages: import('@/app/home/types').Message[];
+    branches: import('@/app/home/types').ConversationBranch[];
+    selectedBranchIds: import('@/app/home/types').BranchSelectionMap;
+    threadsMap: Map<string, import('@/app/home/components/threadTypes').ThreadMeta[]>;
+  }>;
+
+  // Page registers its side-effect hook here (TTS stop, mic stop, thread reset, etc.)
+  registerPrepareForChatSwitch: (fn: (next: SelectedChat | null) => void) => void;
+  /** Stable indirection so async route code does not hold a stale `prepareForChatSwitch` closure */
+  invokePrepareForChatSwitch: (next: SelectedChat | null) => void;
+  // Page registers cleanup for closed temp chats (composer/search/pending state)
+  registerCloseTempChatCleanup: (fn: (tempChatId: string) => void) => void;
+
+  // Route helpers the page needs
+  openPersistentConversation: (id: string, opts?: { replace?: boolean }) => void;
+  openHomeWorkspace: () => void;
+  buildHomeHref: (pathname: string) => string;
+  routeConversationId: string | null;
+  e2eQueryParam: string | null;
+}
+
+const HomeDataContext = createContext<HomeDataContextValue | null>(null);
+
+export function useHomeDataContext(): HomeDataContextValue {
+  const ctx = useContext(HomeDataContext);
+  if (!ctx) throw new Error('useHomeDataContext must be used within HomeDataProvider');
+  return ctx;
+}
+
+// ---------------------------------------------------------------------------
+// Provider
+// ---------------------------------------------------------------------------
+
+interface Props {
+  children: ReactNode;
+  routeConversationId: string | null;
+  e2eQueryParam: string | null;
+  /** When true, skip the automatic mentors/conversations fetch (home e2e fixtures supply their own data) */
+  skipInitialSidebarRefresh?: boolean;
+}
+
+export function HomeDataProvider({
+  children,
+  routeConversationId,
+  e2eQueryParam,
+  skipInitialSidebarRefresh = false,
+}: Props) {
+  const router = useRouter();
+
+  const {
+    mentors,
+    conversations,
+    mentorGroups,
+    loadingLists,
+    listError,
+    setListError,
+    refreshSidebarData,
+    loadConversationById,
+    loadConversationMessages,
+  } = useHomeData();
+
+  const [draftChats, setDraftChats] = useState<PersistentDraftChat[]>([]);
+  const [temporaryChats, setTemporaryChats] = useState<TemporaryChatSession[]>([]);
+  const [selectedChat, setSelectedChat] = useState<SelectedChat | null>(null);
+
+  const selectedChatRef = useRef<SelectedChat | null>(null);
+  // Keep ref aligned with state for async handlers (same pattern as page used before lift)
+  selectedChatRef.current = selectedChat;
+
+  // Page registers its side-effect callback here (TTS, mic, thread UI reset, etc.)
+  const prepareForChatSwitchRef = useRef<(next: SelectedChat | null) => void>(() => {});
+  const registerPrepareForChatSwitch = useCallback(
+    (fn: (next: SelectedChat | null) => void) => {
+      prepareForChatSwitchRef.current = fn;
+    },
+    []
+  );
+
+  const invokePrepareForChatSwitch = useCallback((next: SelectedChat | null) => {
+    prepareForChatSwitchRef.current(next);
+  }, []);
+
+  // Page registers cleanup for closed temp chats (composer/search/pending state)
+  const closeTempChatCleanupRef = useRef<(tempChatId: string) => void>(() => {});
+  const registerCloseTempChatCleanup = useCallback(
+    (fn: (tempChatId: string) => void) => {
+      closeTempChatCleanupRef.current = fn;
+    },
+    []
+  );
+
+  // ------------------------------------------------------------------
+  // Restore temporary chats from sessionStorage on mount
+  // ------------------------------------------------------------------
+
+  useEffect(() => {
+    const stored = window.sessionStorage.getItem(TEMP_CHAT_STORAGE_KEY);
+    if (!stored) return;
+    try {
+      setTemporaryChats(sortByUpdatedAtDesc(deserializeTemporaryChats(stored)));
+    } catch {
+      window.sessionStorage.removeItem(TEMP_CHAT_STORAGE_KEY);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (temporaryChats.length === 0) {
+      window.sessionStorage.removeItem(TEMP_CHAT_STORAGE_KEY);
+      return;
+    }
+    window.sessionStorage.setItem(TEMP_CHAT_STORAGE_KEY, serializeTemporaryChats(temporaryChats));
+  }, [temporaryChats]);
+
+  // ------------------------------------------------------------------
+  // Restore selection handoff (draft/temp chat navigated from /home/<id>)
+  // ------------------------------------------------------------------
+
+  useEffect(() => {
+    if (routeConversationId || selectedChat) return;
+
+    const handoff = readHomeSelectionHandoff();
+    if (!handoff) return;
+
+    if (handoff.kind === 'temporary') {
+      const match = temporaryChats.find((c) => c.id === handoff.tempChatId);
+      if (!match) return;
+      const next: SelectedChat = { kind: 'temporary', tempChatId: handoff.tempChatId };
+      selectedChatRef.current = next;
+      setSelectedChat(next);
+      clearHomeSelectionHandoff();
+      return;
+    }
+
+    const next: SelectedChat = {
+      kind: 'draft',
+      draftId: handoff.draft.id,
+      mentorId: handoff.draft.mentorId,
+    };
+    setDraftChats((prev) =>
+      prev.some((d) => d.id === handoff.draft.id) ? prev : [handoff.draft, ...prev]
+    );
+    selectedChatRef.current = next;
+    setSelectedChat(next);
+    clearHomeSelectionHandoff();
+  }, [routeConversationId, selectedChat, temporaryChats]);
+
+  // ------------------------------------------------------------------
+  // Mutations
+  // ------------------------------------------------------------------
+
+  const updateDraftChat = useCallback(
+    (id: string, updater: (d: PersistentDraftChat) => PersistentDraftChat) => {
+      setDraftChats((prev) => prev.map((d) => (d.id === id ? updater(d) : d)));
+    },
+    []
+  );
+
+  const updateTemporaryChat = useCallback(
+    (id: string, updater: (c: TemporaryChatSession) => TemporaryChatSession) => {
+      setTemporaryChats((prev) =>
+        sortByUpdatedAtDesc(prev.map((c) => (c.id === id ? updater(c) : c)))
+      );
+    },
+    []
+  );
+
+  const createDraft = useCallback((mentorId: string | null): PersistentDraftChat => {
+    const now = new Date().toISOString();
+    return {
+      id: createTemporaryId('draft'),
+      mentorId,
+      title: 'New chat',
+      createdAt: now,
+      updatedAt: now,
+      messages: [],
+      branches: [],
+      selectedBranchIds: {},
+    };
+  }, []);
+
+  const getOrCreateDraft = useCallback(
+    (mentorId: string | null) => {
+      const existing = draftChats.find((d) => d.mentorId === mentorId);
+      if (existing) return existing;
+      const draft = createDraft(mentorId);
+      setDraftChats((prev) => [draft, ...prev]);
+      return draft;
+    },
+    [createDraft, draftChats]
+  );
+
+  // ------------------------------------------------------------------
+  // Route helpers
+  // ------------------------------------------------------------------
+
+  const buildHomeHref = useCallback(
+    (pathname: string) => {
+      if (!e2eQueryParam) return pathname;
+      const sep = pathname.includes('?') ? '&' : '?';
+      return `${pathname}${sep}e2e=${encodeURIComponent(e2eQueryParam)}`;
+    },
+    [e2eQueryParam]
+  );
+
+  const openHomeWorkspace = useCallback(() => {
+    if (!routeConversationId) return;
+    router.push(buildHomeHref('/home'), { scroll: false });
+  }, [buildHomeHref, routeConversationId, router]);
+
+  const openPersistentConversation = useCallback(
+    (conversationId: string, options?: { replace?: boolean }) => {
+      const href = buildHomeHref(`/home/${encodeURIComponent(conversationId)}`);
+      if (options?.replace) {
+        router.replace(href, { scroll: false });
+      } else {
+        router.push(href, { scroll: false });
+      }
+    },
+    [buildHomeHref, router]
+  );
+
+  // ------------------------------------------------------------------
+  // Selection actions
+  // ------------------------------------------------------------------
+
+  const handleSelectConversation = useCallback(
+    (conversation: ConversationListItem) => {
+      openPersistentConversation(conversation.id);
+    },
+    [openPersistentConversation]
+  );
+
+  const handleSelectDraft = useCallback(
+    (draftId: string) => {
+      const draft = draftChats.find((d) => d.id === draftId);
+      if (!draft) return;
+      const next: SelectedChat = { kind: 'draft', draftId, mentorId: draft.mentorId };
+      prepareForChatSwitchRef.current(next);
+      if (routeConversationId) {
+        persistHomeSelectionHandoff({ kind: 'draft', draft });
+      }
+      selectedChatRef.current = next;
+      setSelectedChat(next);
+      openHomeWorkspace();
+    },
+    [draftChats, openHomeWorkspace, routeConversationId]
+  );
+
+  const handleSelectTemporaryChat = useCallback(
+    (tempChatId: string) => {
+      const next: SelectedChat = { kind: 'temporary', tempChatId };
+      prepareForChatSwitchRef.current(next);
+      if (routeConversationId) {
+        persistHomeSelectionHandoff({ kind: 'temporary', tempChatId });
+      }
+      selectedChatRef.current = next;
+      setSelectedChat(next);
+      openHomeWorkspace();
+    },
+    [openHomeWorkspace, routeConversationId]
+  );
+
+  const handleCreateDraftSelection = useCallback(
+    (mentorId: string | null) => {
+      const draft = getOrCreateDraft(mentorId);
+      const next: SelectedChat = { kind: 'draft', draftId: draft.id, mentorId };
+      prepareForChatSwitchRef.current(next);
+      if (routeConversationId) {
+        persistHomeSelectionHandoff({ kind: 'draft', draft });
+      }
+      selectedChatRef.current = next;
+      setSelectedChat(next);
+      openHomeWorkspace();
+    },
+    [getOrCreateDraft, openHomeWorkspace, routeConversationId]
+  );
+
+  const handleCreateTemporaryChat = useCallback(() => {
+    const now = new Date().toISOString();
+    const chat: TemporaryChatSession = {
+      id: createTemporaryId('temporary-chat'),
+      title: TEMP_CHAT_TITLE,
+      memoryMode: 'use_existing',
+      createdAt: now,
+      updatedAt: now,
+      messages: [],
+      branches: [],
+      selectedBranchIds: {},
+      threadsMap: {},
+      threadMessages: {},
+      threadStatuses: {},
+    };
+    const next: SelectedChat = { kind: 'temporary', tempChatId: chat.id };
+    prepareForChatSwitchRef.current(next);
+    setTemporaryChats((prev) => [chat, ...prev]);
+    if (routeConversationId) {
+      persistHomeSelectionHandoff({ kind: 'temporary', tempChatId: chat.id });
+    }
+    selectedChatRef.current = next;
+    setSelectedChat(next);
+    openHomeWorkspace();
+  }, [openHomeWorkspace, routeConversationId]);
+
+  const handleCloseTemporaryChat = useCallback(
+    (tempChatId: string) => {
+      closeTempChatCleanupRef.current(tempChatId);
+      const remaining = temporaryChats.filter((c) => c.id !== tempChatId);
+      setTemporaryChats(remaining);
+
+      // If the closed chat wasn't selected, nothing else to do
+      if (
+        selectedChat?.kind !== 'temporary' ||
+        selectedChat.tempChatId !== tempChatId
+      ) {
+        return;
+      }
+
+      // Auto-select the next available chat
+      const nextTemp = remaining[0];
+      if (nextTemp) {
+        handleSelectTemporaryChat(nextTemp.id);
+        return;
+      }
+
+      const latest = conversations[0];
+      if (latest) {
+        handleSelectConversation(latest);
+        return;
+      }
+
+      prepareForChatSwitchRef.current(null);
+      setSelectedChat(null);
+    },
+    [
+      conversations,
+      handleSelectConversation,
+      handleSelectTemporaryChat,
+      selectedChat,
+      temporaryChats,
+    ]
+  );
+
+  // ------------------------------------------------------------------
+  // Load sidebar data on mount
+  // ------------------------------------------------------------------
+
+  useEffect(() => {
+    if (skipInitialSidebarRefresh) {
+      return;
+    }
+    void refreshSidebarData();
+  }, [skipInitialSidebarRefresh, refreshSidebarData]);
+
+  const value: HomeDataContextValue = {
+    mentors,
+    conversations,
+    mentorGroups,
+    loadingLists,
+    listError,
+    setListError,
+    refreshSidebarData,
+    loadConversationById,
+    loadConversationMessages,
+    draftChats,
+    setDraftChats,
+    temporaryChats,
+    setTemporaryChats,
+    updateDraftChat,
+    updateTemporaryChat,
+    getOrCreateDraft,
+    selectedChat,
+    setSelectedChat,
+    selectedChatRef,
+    handleSelectConversation,
+    handleSelectDraft,
+    handleSelectTemporaryChat,
+    handleCreateDraftSelection,
+    handleCreateTemporaryChat,
+    handleCloseTemporaryChat,
+    registerPrepareForChatSwitch,
+    invokePrepareForChatSwitch,
+    registerCloseTempChatCleanup,
+    openPersistentConversation,
+    openHomeWorkspace,
+    buildHomeHref,
+    routeConversationId,
+    e2eQueryParam,
+  };
+
+  return (
+    <HomeDataContext.Provider value={value}>
+      {children}
+    </HomeDataContext.Provider>
+  );
+}

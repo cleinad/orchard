@@ -7,6 +7,7 @@ This doc describes the Playwright coverage for the routed home-chat flows on `/h
 ## What It Covers
 
 - direct entry to `/home/[conversationId]`
+- delayed route hydration on `/home/[conversationId]`
 - sidebar selection of persistent conversations
 - draft promotion from `/home` into `/home/[conversationId]`
 - temporary-chat transitions back to `/home`
@@ -58,9 +59,11 @@ This should be treated as test harness behavior, not product behavior.
 The suite now guards against:
 
 - direct `/home/[conversationId]` loads rendering the blank state instead of hydrating messages
+- direct `/home/[conversationId]` loads flashing the large empty-chat hero while routed message history is still loading
 - sidebar conversation clicks changing selection without updating the URL
 - first draft sends creating a persistent conversation without replacing the route
 - temporary chats dropping the active selection when moving off `/home/[conversationId]`
+- temporary chat creation or selection from `/home/[conversationId]` requiring a second click because the old routed conversation rehydrates during `/home` normalization
 
 ## Intentional Gaps
 
@@ -70,3 +73,4 @@ The suite does not currently cover:
 - mentor deep-link handling from `/home?mentor=...`
 - real Supabase integration
 - real authenticated sessions without the E2E bypass
+- the exact route-exit timing race behind the first-click temporary-chat bug, so that transition should still be sanity-checked manually when the handoff logic changes
