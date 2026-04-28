@@ -21,7 +21,7 @@ export default function SettingsPage() {
 
   if (loading) {
     return (
-      <div className="flex min-h-[50vh] items-center justify-center">
+      <div className="flex min-h-[50vh] items-center justify-center font-sans">
         <div className="h-6 w-6 animate-spin rounded-full border-2 border-muted/20 border-t-muted" />
       </div>
     );
@@ -29,7 +29,7 @@ export default function SettingsPage() {
 
   if (!viewer) {
     return (
-      <div className="py-10 text-sm text-muted">
+      <div className="py-10 font-sans text-sm text-muted">
         Unable to load your account details.
       </div>
     );
@@ -54,174 +54,77 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="grid gap-12 lg:grid-cols-[220px_minmax(0,1fr)] lg:gap-16">
-      <aside className="self-start lg:sticky lg:top-10">
-        <p className="text-xs font-medium text-muted/70">
-          Quick Jump
-        </p>
-        <nav className="mt-4 space-y-1">
-          <SettingsAnchor href="#profile" label="Profile" />
-          <SettingsAnchor href="#appearance" label="Appearance" />
-          <SettingsAnchor href="#workspace" label="Workspace" />
-          <SettingsAnchor href="#account" label="Account" />
-        </nav>
-        <p className="mt-6 max-w-[18rem] text-sm leading-relaxed text-muted">
-          This scaffold is meant to be edited. Keep the shell, replace the rows,
-          and split sections into deeper pages when you need them.
-        </p>
-      </aside>
+    // Body: fixed sans (Satoshi). Section titles use `font-heading` (Fraunces); page title is in `settings/layout`.
+    <div className="mx-auto w-full max-w-2xl space-y-8 font-sans">
+      <p className="text-sm text-muted">
+        Account details and a few reading preferences. Theme is in the header.
+      </p>
 
-      <div className="min-w-0">
-        <section className="pb-10">
-          <p className="text-xs font-medium text-muted/70">
-            General
+      <SettingsGroup title="Account" id="account">
+        <SettingsRow label="Display name" value={displayName} />
+        <SettingsRow
+          label="Email"
+          value={email}
+          hint="Used for sign-in and recovery."
+        />
+      </SettingsGroup>
+
+      <SettingsGroup title="Reading" id="reading">
+        <SettingsRow
+          label="Body font"
+          action={<BodyFontSelect />}
+          hint="Applies to reading areas; code stays monospace."
+        />
+      </SettingsGroup>
+
+      <SettingsGroup title="Data & session" id="session">
+        <SettingsRow
+          label="Memories"
+          action={
+            <ActionButton onClick={() => router.push('/memory')}>
+              Open
+            </ActionButton>
+          }
+        />
+        <SettingsRow
+          label="Sign out"
+          action={
+            <ActionButton onClick={handleSignOut} disabled={signingOut}>
+              {signingOut ? 'Signing out…' : 'Sign out'}
+            </ActionButton>
+          }
+        />
+        {signOutError ? (
+          <p className="px-4 py-3 text-sm text-red-500 dark:text-red-400">
+            {signOutError}
           </p>
-          <h2 className="mt-3 max-w-2xl font-heading text-4xl leading-tight text-foreground">
-            Tune the workspace around your account.
-          </h2>
-          <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted">
-            Start with the sections below, then replace placeholder rows with the
-            controls you actually want to keep long term.
-          </p>
-        </section>
-
-        <div className="space-y-12">
-          <SettingsSection
-            id="profile"
-            title="Profile"
-            description="Account details that show up around the product."
-          >
-            <SettingsRow
-              label="Display name"
-              value={displayName}
-              hint="Shown in account surfaces and ready for future collaboration features."
-            />
-            <SettingsRow
-              label="Email"
-              value={email}
-              hint="Used for authentication and account recovery."
-            />
-            <SettingsRow
-              label="Home side panel"
-              value="Profile rail enabled"
-              hint="The home drawer now uses this identity block at the bottom."
-              action={
-                <ActionButton onClick={() => router.push('/home')}>
-                  Preview in chat
-                </ActionButton>
-              }
-            />
-          </SettingsSection>
-
-          <SettingsSection
-            id="appearance"
-            title="Appearance"
-            description="Global presentation and reading comfort."
-          >
-            <SettingsRow
-              label="Theme"
-              value="Header theme picker"
-              hint="Use the picker in the top-right header for now, or replace this row with a permanent control later."
-            />
-            <SettingsRow
-              label="Body font"
-              value=""
-              hint="Applies to reading UI across the app. Code blocks stay monospace."
-              action={<BodyFontSelect />}
-            />
-            <SettingsRow
-              label="Density"
-              value="Wire this later"
-              hint="Good place for compact, relaxed, or type-scale preferences."
-            />
-          </SettingsSection>
-
-          <SettingsSection
-            id="workspace"
-            title="Workspace Defaults"
-            description="Starting behavior for chat, memory, and future assistant tools."
-          >
-            <SettingsRow
-              label="Default chat mode"
-              value="Wire this later"
-              hint="Use this section for persistent vs temporary chat defaults."
-            />
-            <SettingsRow
-              label="Memory review"
-              value="Available now"
-              hint="Open the existing memory manager while the rest of settings is still being fleshed out."
-              action={
-                <ActionButton onClick={() => router.push('/memory')}>
-                  Open memories
-                </ActionButton>
-              }
-            />
-          </SettingsSection>
-
-          <SettingsSection
-            id="account"
-            title="Account"
-            description="Lifecycle actions and session controls."
-          >
-            <SettingsRow
-              label="Sign out"
-              value={signingOut ? 'Signing out...' : 'End current session'}
-              hint="Useful placeholder for future security actions like session history or device management."
-              action={
-                <ActionButton onClick={handleSignOut} disabled={signingOut}>
-                  {signingOut ? 'Signing out...' : 'Sign out'}
-                </ActionButton>
-              }
-            />
-            {signOutError ? (
-              <p className="pt-3 text-sm text-red-500 dark:text-red-400">
-                {signOutError}
-              </p>
-            ) : null}
-          </SettingsSection>
-        </div>
-      </div>
+        ) : null}
+      </SettingsGroup>
     </div>
   );
 }
 
-function SettingsAnchor({
-  href,
-  label,
-}: {
-  href: string;
-  label: string;
-}) {
-  return (
-    <a
-      href={href}
-      className="block rounded-lg px-3 py-2 text-sm text-muted transition-colors hover:bg-foreground/[0.04] hover:text-foreground"
-    >
-      {label}
-    </a>
-  );
-}
-
-function SettingsSection({
+function SettingsGroup({
   id,
   title,
-  description,
   children,
 }: {
   id: string;
   title: string;
-  description: string;
   children: ReactNode;
 }) {
   return (
-    <section id={id} className="scroll-mt-24 border-t border-border-subtle pt-6">
-      <div className="max-w-2xl">
-        <p className="text-xs font-medium text-muted/70">
-          {title}
-        </p>
-        <p className="mt-2 text-sm leading-relaxed text-muted">{description}</p>
+    <section aria-labelledby={`settings-${id}-heading`} className="scroll-mt-24">
+      <h2
+        id={`settings-${id}-heading`}
+        className="font-heading text-lg text-foreground"
+      >
+        {title}
+      </h2>
+      {/* Single bordered panel per group: compact list-style rows */}
+      <div className="mt-3 divide-y divide-border-subtle overflow-hidden rounded-xl border border-border-subtle bg-surface/60">
+        {children}
       </div>
-      <div className="mt-6">{children}</div>
     </section>
   );
 }
@@ -233,21 +136,29 @@ function SettingsRow({
   action,
 }: {
   label: string;
-  value: string;
-  hint: string;
+  /** Empty string omitted from UI unless paired with action-only layouts */
+  value?: string;
+  hint?: string;
   action?: ReactNode;
 }) {
+  // Omit empty value column when only an action is shown (e.g. Memories, Sign out).
+  const showValue = value !== undefined && value !== '';
+
   return (
-    <div className="grid gap-4 border-b border-border-subtle py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+    <div className="grid gap-3 px-4 py-3.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-4">
       <div className="min-w-0">
         <p className="text-sm font-medium text-foreground">{label}</p>
-        <p className="mt-1 max-w-2xl text-sm leading-relaxed text-muted">
-          {hint}
-        </p>
+        {hint ? (
+          <p className="mt-0.5 text-sm leading-relaxed text-muted">{hint}</p>
+        ) : null}
       </div>
 
-      <div className="flex items-center gap-3 sm:justify-end">
-        <span className="text-sm text-foreground/84">{value}</span>
+      <div className="flex min-w-0 items-center justify-end gap-3 sm:justify-end">
+        {showValue ? (
+          <span className="text-right text-sm text-foreground/90 sm:max-w-[14rem] sm:truncate">
+            {value}
+          </span>
+        ) : null}
         {action}
       </div>
     </div>
@@ -268,7 +179,7 @@ function ActionButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="inline-flex items-center rounded-full border border-border-subtle px-3 py-1.5 text-xs font-semibold text-foreground transition-colors hover:border-foreground/[0.12] hover:bg-foreground/[0.04] disabled:cursor-not-allowed disabled:opacity-60"
+      className="inline-flex cursor-pointer items-center rounded-full border border-border-subtle px-3 py-1.5 text-xs font-semibold text-foreground transition-colors hover:border-foreground/[0.12] hover:bg-foreground/[0.04] disabled:cursor-not-allowed disabled:opacity-60"
     >
       {children}
     </button>
@@ -306,7 +217,7 @@ function BodyFontSelect() {
         id="settings-body-font"
         value={fontId}
         onChange={handleChange}
-        className="min-w-[11rem] rounded-lg border border-border-subtle bg-surface px-3 py-2 text-sm text-foreground outline-none transition focus:border-foreground/[0.2] focus:ring-2 focus:ring-foreground/10"
+        className="min-w-[11rem] cursor-pointer rounded-lg border border-border-subtle bg-surface px-3 py-2 text-sm text-foreground outline-none transition focus:border-foreground/[0.2] focus:ring-2 focus:ring-foreground/10"
       >
         {BODY_FONT_OPTIONS.map((option) => (
           <option key={option.id} value={option.id}>
