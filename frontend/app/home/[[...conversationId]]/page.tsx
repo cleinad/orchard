@@ -61,6 +61,7 @@ import type {
 import { getHomeE2eFixture } from '@/app/home/e2eFixtures';
 import {
   createTemporaryId,
+  DEFAULT_TEMPORARY_MEMORY_MODE,
   fallbackChatTitleFromMessage,
   toChatHistory,
   type ChatMode,
@@ -766,7 +767,8 @@ function HomePageInner() {
     activeMentorId ? mentors.find((mentor) => mentor.id === activeMentorId) || null : null;
   const isTemporaryChat = selectedChat?.kind === 'temporary';
   const chatMode: ChatMode = isTemporaryChat ? 'temporary' : 'persistent';
-  const activeTemporaryMemoryMode = selectedTemporaryChat?.memoryMode ?? 'use_existing';
+  const activeTemporaryMemoryMode =
+    selectedTemporaryChat?.memoryMode ?? DEFAULT_TEMPORARY_MEMORY_MODE;
   const activeConversationId =
     selectedChat?.kind === 'persistent' ? selectedChat.conversationId : null;
   const activeConversationMessages = isTemporaryChat
@@ -1392,7 +1394,7 @@ function HomePageInner() {
         {
           id: fixtureChatId,
           title: TEMP_CHAT_TITLE,
-          memoryMode: 'use_existing',
+          memoryMode: DEFAULT_TEMPORARY_MEMORY_MODE,
           createdAt: now,
           updatedAt: now,
           messages: homeE2eFixture.messages,
@@ -2774,7 +2776,8 @@ function HomePageInner() {
             effectiveSelection.kind === 'temporary' ? 'temporary' : 'persistent',
           ...(effectiveSelection.kind === 'temporary'
             ? {
-                memoryMode: effectiveTempChat?.memoryMode ?? 'use_existing',
+                memoryMode:
+                  effectiveTempChat?.memoryMode ?? DEFAULT_TEMPORARY_MEMORY_MODE,
                 history: toChatHistory(activeMessages),
               }
             : {}),

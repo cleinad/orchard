@@ -34,6 +34,7 @@ import type {
   TemporaryMemoryMode,
 } from '@/lib/chat-session';
 import {
+  DEFAULT_TEMPORARY_MEMORY_MODE,
   fallbackChatTitleFromMessage,
   sanitizeGeneratedChatTitle,
 } from '@/lib/chat-session';
@@ -362,11 +363,15 @@ export async function POST(request: NextRequest) {
       searchEnabled = false,
       timezone,
       chatMode = 'persistent',
-      memoryMode = 'use_existing',
+      memoryMode: memoryModeFromBody,
       history,
       threadHistory,
     } = body;
     const isTemporaryChat = chatMode === 'temporary';
+    // Temporary chats default to no memory when omitted; persistent chats keep prior behavior.
+    const memoryMode: TemporaryMemoryMode =
+      memoryModeFromBody ??
+      (isTemporaryChat ? DEFAULT_TEMPORARY_MEMORY_MODE : 'use_existing');
     const sanitizedHistory = sanitizeHistoryMessages(history, 50);
     const sanitizedThreadHistory = sanitizeHistoryMessages(threadHistory, 30);
 

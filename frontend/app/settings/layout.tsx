@@ -41,7 +41,7 @@ export default function SettingsLayout({
             </button>
 
             <div className="min-w-0">
-              <p className="text-xs font-medium text-muted/70">
+              <p className="text-xs font-medium text-muted/70 font-sans">
                 Workspace
               </p>
               <h1 className="truncate font-heading text-2xl text-foreground">

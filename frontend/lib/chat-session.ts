@@ -7,6 +7,9 @@ export type ChatMode = (typeof CHAT_MODES)[number];
 export const TEMPORARY_MEMORY_MODES = ['use_existing', 'off'] as const;
 export type TemporaryMemoryMode = (typeof TEMPORARY_MEMORY_MODES)[number];
 
+/** New temporary chats start with memory off unless the user opts into saved memories. */
+export const DEFAULT_TEMPORARY_MEMORY_MODE: TemporaryMemoryMode = 'off';
+
 export interface ChatHistoryMessage {
   role: 'user' | 'assistant';
   content: string;

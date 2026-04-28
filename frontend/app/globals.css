@@ -491,12 +491,13 @@ body {
   position: absolute;
   inset: auto;
   margin: 0;
-  max-inline-size: min(20rem, calc(100vw - 1rem));
+  /* Match TextSelectionPopover width utility — compact inline toolbar, not a wide card */
+  max-inline-size: min(18rem, calc(100vw - 1rem));
 }
 
 @position-try --text-selection-popover-bottom {
   position-area: bottom;
-  margin-block-start: 0.75rem;
+  margin-block-start: 0.5rem;
   margin-block-end: 0;
 }
 
@@ -509,7 +510,7 @@ body {
     position-area: top;
     position-visibility: anchors-visible;
     justify-self: anchor-center;
-    margin-block-end: 0.75rem;
+    margin-block-end: 0.5rem;
     position-try-fallbacks: --text-selection-popover-bottom;
     position-try-order: most-height;
   }

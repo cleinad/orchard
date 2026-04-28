@@ -169,7 +169,8 @@ export default function TextSelectionPopover({
     const visibleTop = scrollContainer?.scrollTop ?? 0;
     const visibleBottom = visibleTop + (scrollContainer?.clientHeight ?? window.innerHeight);
 
-    const gap = 12;
+    // Tighter offset so the slimmer popover sits closer to the selection anchor.
+    const gap = 8;
     const popoverHeight = popoverEl.getBoundingClientRect().height;
     const availableAbove = popoverState.anchorRect.top - visibleTop;
     const anchorBottom = popoverState.anchorRect.top + popoverState.anchorRect.height;
@@ -220,8 +221,8 @@ export default function TextSelectionPopover({
             : popoverState.anchorRect.top + popoverState.anchorRect.height,
         transform:
           fallbackPlacement === "top"
-            ? "translate(-50%, calc(-100% - 12px))"
-            : "translate(-50%, 12px)",
+            ? "translate(-50%, calc(-100% - 8px))"
+            : "translate(-50%, 8px)",
         zIndex: 60,
       };
 
@@ -247,31 +248,35 @@ export default function TextSelectionPopover({
         popover={useNativePopover ? "auto" : undefined}
         onMouseDownCapture={handleMouseDownCapture}
         style={fallbackStyle}
-        className="text-selection-popover w-[min(20rem,calc(100vw-1rem))] rounded-xl border-none bg-surface p-4 text-foreground shadow-lg ring-1 ring-black/[0.08] outline-none dark:ring-white/[0.08]"
+        className="text-selection-popover w-[min(18rem,calc(100vw-1rem))] rounded-lg border border-border-subtle bg-surface p-2.5 font-sans text-foreground shadow-sm outline-none"
       >
-        <p className="mb-3 line-clamp-2 text-xs text-muted/60">
+        {/* Flat toolbar: hairline border + light shadow (not a heavy “card orb”). */}
+        {/* UI chrome: `font-sans`; field uses `font-reading` (body font). */}
+        <p className="mb-2 line-clamp-2 border-b border-border-subtle pb-2 text-[11px] leading-snug text-muted/75">
           &ldquo;{popoverState.selectedText}&rdquo;
         </p>
 
-        <button
-          type="button"
-          onClick={handleDefine}
-          className="mb-2 w-full rounded-lg bg-foreground/5 px-3 py-2 text-left text-sm font-medium text-foreground transition hover:bg-foreground/10"
-        >
-          Define
-        </button>
+        <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-2">
+          {/* <button
+            type="button"
+            onClick={handleDefine}
+            className="inline-flex shrink-0 cursor-pointer items-center self-start rounded-md border border-border-subtle bg-transparent px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-foreground/[0.04] sm:self-auto"
+          >
+            Define
+          </button> */}
 
-        <form onSubmit={handleCustomSubmit}>
-          <input
-            ref={inputRef}
-            data-testid="selection-popover-input"
-            type="text"
-            value={customQuestion}
-            onChange={(event) => setCustomQuestion(event.target.value)}
-            placeholder="Ask something about this..."
-            className="w-full rounded-lg bg-foreground/5 px-3 py-2 text-sm text-foreground placeholder-muted/50 outline-none focus:ring-1 focus:ring-foreground/10"
-          />
-        </form>
+          <form onSubmit={handleCustomSubmit} className="min-w-0 flex-1">
+            <input
+              ref={inputRef}
+              data-testid="selection-popover-input"
+              type="text"
+              value={customQuestion}
+              onChange={(event) => setCustomQuestion(event.target.value)}
+              placeholder="Ask about this…"
+              className="h-8 w-full rounded-md border border-border-subtle bg-foreground/[0.03] px-2.5 font-sans font-reading text-xs text-foreground placeholder:text-muted/45 outline-none transition-colors focus:border-foreground/[0.18] focus:ring-1 focus:ring-foreground/10"
+            />
+          </form>
+        </div>
       </div>
     </>
   );

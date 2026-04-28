@@ -11,7 +11,11 @@ import {
 } from 'react';
 import { useRouter } from 'next/navigation';
 import { useHomeData } from '@/app/home/components/useHomeData';
-import { createTemporaryId } from '@/lib/chat-session';
+import {
+  createTemporaryId,
+  DEFAULT_TEMPORARY_MEMORY_MODE,
+  type TemporaryMemoryMode,
+} from '@/lib/chat-session';
 import type { ConversationListItem, SidebarMentorGroup } from '@/app/home/types';
 import type { MentorListItem } from '@/lib/mentors/types';
 import type { ConversationBranch, BranchSelectionMap, Message } from '@/app/home/types';
@@ -20,8 +24,6 @@ import type {
   ThreadMeta,
   ThreadSessionStatus,
 } from '@/app/home/components/threadTypes';
-import type { TemporaryMemoryMode } from '@/lib/chat-session';
-
 // ---------------------------------------------------------------------------
 // Shared home selection types (also used by page.tsx for send / tree state)
 // ---------------------------------------------------------------------------
@@ -486,7 +488,7 @@ export function HomeDataProvider({
     const chat: TemporaryChatSession = {
       id: createTemporaryId('temporary-chat'),
       title: TEMP_CHAT_TITLE,
-      memoryMode: 'use_existing',
+      memoryMode: DEFAULT_TEMPORARY_MEMORY_MODE,
       createdAt: now,
       updatedAt: now,
       messages: [],

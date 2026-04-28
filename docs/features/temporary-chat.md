@@ -53,6 +53,8 @@ Each temporary chat has its own `memoryMode`:
 - `use_existing`: existing saved memories may be used for context, but nothing from the temporary chat is retained
 - `off`: no memory is read and no memory is written
 
+**Default:** new temporary chats start in `off` (no memory). The user can switch to `use_existing` in the intro strip above the composer before the first message.
+
 This choice is scoped to the selected temporary chat, not to the page globally.
 
 ### Titles
