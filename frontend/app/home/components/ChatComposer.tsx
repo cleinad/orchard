@@ -93,56 +93,70 @@ export default function ChatComposer({
 }: ChatComposerProps) {
   const hasTranscript = finalTranscript.length > 0 || interimTranscript.length > 0;
   const hasAvailableChatModels = chatModels.some((model) => model.available);
-  const temporaryModeHelperText =
-    temporaryMemoryMode === 'use_existing'
-      ? 'Keen can use saved memories for context, but nothing from this chat is retained.'
-      : 'Keen will not read or save any memory for this chat.';
 
   return (
     <div className="mx-auto w-full max-w-2xl px-4">
       <div className="shrink-0 pb-2 pt-2">
         {temporaryChatEnabled && showTemporaryIntro && (
-          <div className="mb-3 rounded-2xl border border-border-subtle bg-foreground/[0.04] px-4 py-4 font-sans text-foreground shadow-sm">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-medium">Temporary chat is on.</p>
-                <p className="mt-1 text-xs text-muted">
-                  This conversation won&apos;t be saved.
-                </p>
-              </div>
-              <span className="inline-flex items-center rounded-full border border-border-subtle bg-surface px-2.5 py-1 text-[11px] font-medium text-foreground">
-                Temporary
-              </span>
-            </div>
-
-            <div className="mt-4 flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => onTemporaryMemoryModeChange('use_existing')}
-                className={`inline-flex items-center rounded-full px-3 py-1.5 text-xs font-medium transition ${
-                  temporaryMemoryMode === 'use_existing'
-                    ? 'bg-surface text-foreground shadow-sm ring-1 ring-border-subtle'
-                    : 'bg-foreground/[0.05] text-muted hover:bg-foreground/[0.08] hover:text-foreground'
-                }`}
-              >
-                Use memories
-              </button>
+          <div
+            className="mb-2 rounded-lg border border-border-subtle bg-foreground/[0.02] px-3 py-2 font-sans text-foreground"
+            role="region"
+            aria-label="Temporary chat settings"
+          >
+            {/* Segmented control: left off (default), right opt-in */}
+            <div
+              className="flex min-h-9 w-full rounded-lg bg-foreground/[0.06] p-0.5 sm:min-w-[14rem]"
+              role="group"
+              aria-label="Memory for this chat"
+            >
               <button
                 type="button"
                 onClick={() => onTemporaryMemoryModeChange('off')}
-                className={`inline-flex items-center rounded-full px-3 py-1.5 text-xs font-medium transition ${
+                className={`flex flex-1 cursor-pointer items-center justify-center rounded-md px-2 py-1.5 text-xs font-medium transition-colors duration-200 ${
                   temporaryMemoryMode === 'off'
-                    ? 'bg-surface text-foreground shadow-sm ring-1 ring-border-subtle'
-                    : 'bg-foreground/[0.05] text-muted hover:bg-foreground/[0.08] hover:text-foreground'
+                    ? 'bg-surface text-foreground shadow-sm'
+                    : 'text-muted hover:text-foreground'
                 }`}
               >
                 No memory
               </button>
+              <button
+                type="button"
+                onClick={() => onTemporaryMemoryModeChange('use_existing')}
+                className={`flex flex-1 cursor-pointer items-center justify-center rounded-md px-2 py-1.5 text-xs font-medium transition-colors duration-200 ${
+                  temporaryMemoryMode === 'use_existing'
+                    ? 'bg-surface text-foreground shadow-sm'
+                    : 'text-muted hover:text-foreground'
+                }`}
+              >
+                Use memories
+              </button>
             </div>
-
-            <p className="mt-3 text-xs leading-relaxed text-muted">
-              {temporaryModeHelperText}
-            </p>
+            {/* Both modes explained; selected row reads stronger (fixed layout — no height jump) */}
+            <div className="mt-1.5 space-y-0.5 text-[11px] leading-snug">
+              <p
+                className={
+                  temporaryMemoryMode === 'off'
+                    ? 'text-foreground'
+                    : 'text-muted'
+                }
+              >
+                <span className="font-medium">No memory</span>
+                {' — '}
+                Keen won&apos;t read or write memory for this session.
+              </p>
+              <p
+                className={
+                  temporaryMemoryMode === 'use_existing'
+                    ? 'text-foreground'
+                    : 'text-muted'
+                }
+              >
+                <span className="font-medium">Use memories</span>
+                {' — '}
+                Saved memories may inform replies; this chat isn&apos;t stored.
+              </p>
+            </div>
           </div>
         )}
 

@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useCallback, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useCallback,
+  useState,
+  type FormEvent as ReactFormEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 import MarkdownWithThreads from "@/app/home/components/MarkdownWithThreads";
 import SearchSourcesTray from "@/app/home/components/SearchSourcesTray";
 import type { ThreadSession } from "@/app/home/components/threadTypes";
@@ -36,7 +43,7 @@ export default function ThreadPanel({
     sourceId: number | null;
   } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isBusy = Boolean(session && (session.status === "loading" || session.isHydrating));
   const activeQuestion = isBusy
     ? session?.messages.findLast((message) => message.role === "user")?.content ?? null
@@ -51,7 +58,7 @@ export default function ThreadPanel({
   useEffect(() => {
     if (!isOpen || !session) return;
 
-    const timer = window.setTimeout(() => inputRef.current?.focus(), 300);
+    const timer = window.setTimeout(() => textareaRef.current?.focus(), 300);
     return () => window.clearTimeout(timer);
   }, [isOpen, session?.sessionId]);
 
@@ -88,10 +95,28 @@ export default function ThreadPanel({
     return () => document.removeEventListener("keydown", handleCloseShortcut);
   }, [isOpen, handleCloseShortcut]);
 
-  const handleKeyDown = (event: ReactKeyboardEvent) => {
+  // Match main composer: auto-grow textarea up to max height (see ChatComposer + page.tsx `input` effect).
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`;
+    }
+  }, [session?.draftInput]);
+
+  const handleComposerSubmit = (event: ReactFormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (session && canSend) {
+      onSend(session.sessionId);
+    }
+  };
+
+  const handleComposerKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
+    // Same as main chat: plain Enter never inserts a newline; Shift+Enter does.
     if (event.key === "Enter" && !event.shiftKey && session) {
       event.preventDefault();
-      onSend(session.sessionId);
+      if (canSend) {
+        onSend(session.sessionId);
+      }
     }
   };
 
@@ -132,20 +157,22 @@ export default function ThreadPanel({
         data-testid="thread-panel"
         data-state={isOpen ? "open" : "closed"}
         aria-hidden={!isOpen}
-        className={`pointer-events-auto relative flex h-full w-full max-w-[460px] flex-col bg-background shadow-xl transition-transform duration-300 ease-out ${
+        className={`pointer-events-auto relative flex h-full w-full max-w-[460px] flex-col bg-background font-sans shadow-xl transition-transform duration-300 ease-out ${
           isOpen ? "translate-x-0" : "translate-x-full"
         }`}
       >
         <div className="flex items-start justify-between border-b border-border-subtle px-6 py-4">
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
               <p className="text-xs font-medium tracking-wider text-muted/60">
-                {activeQuestion ? "FOLLOW-UP" : "THREAD"}
+                {activeQuestion ? "Follow-up" : "Thread"}
               </p>
               {temporaryChatEnabled && (
-                <span className="inline-flex items-center rounded-full border border-border-subtle bg-foreground/[0.05] px-2 py-0.5 text-[10px] font-medium text-foreground">
-                  Temporary
-                </span>
+                <>
+                  {/* Divider + plain label: avoids pill chrome while staying scannable */}
+                  <span className="h-3 w-px shrink-0 bg-border-subtle" aria-hidden />
+                  <span className="text-[10px] font-medium tracking-wide text-muted/70">Temporary</span>
+                </>
               )}
             </div>
             {headerTitle && (
@@ -185,7 +212,11 @@ export default function ThreadPanel({
               <span className="text-xs font-medium tracking-wider text-muted">
                 {message.role === "user" ? "You" : "Thread"}
               </span>
-              <div className={`${markdownContentClassName} mt-1 text-sm leading-relaxed text-foreground`}>
+              <div
+                className={`${markdownContentClassName} mt-1 text-sm leading-relaxed text-foreground ${
+                  message.role === "assistant" ? "font-reading" : "font-sans"
+                }`}
+              >
                 <MarkdownWithThreads
                   content={message.content}
                   threads={[]}
@@ -258,36 +289,51 @@ export default function ThreadPanel({
         </div>
 
         <div className="border-t border-border-subtle px-6 py-4">
-          <div className="flex items-center gap-3">
-            <input
-              ref={inputRef}
-              data-testid="thread-panel-input"
-              type="text"
-              value={session?.draftInput ?? ""}
-              onChange={(event) => {
-                if (session) {
-                  onInputChange(session.sessionId, event.target.value);
-                }
-              }}
-              onKeyDown={handleKeyDown}
-              placeholder={session ? "Ask a follow-up..." : "Select text to start a thread"}
-              disabled={!session}
-              className="w-full rounded-lg bg-foreground/5 px-3 py-2 text-sm text-foreground placeholder-muted/50 outline-none focus:ring-1 focus:ring-foreground/10 disabled:cursor-not-allowed disabled:opacity-60"
-            />
-            <button
-              type="button"
-              data-testid="thread-panel-send"
-              onClick={() => {
-                if (session) {
-                  onSend(session.sessionId);
-                }
-              }}
-              disabled={!canSend}
-              className="inline-flex h-10 flex-shrink-0 items-center justify-center rounded-lg bg-foreground px-4 text-sm font-medium text-background transition hover:bg-foreground/90 disabled:cursor-not-allowed disabled:bg-foreground/20 disabled:text-foreground/45"
-            >
-              Send
-            </button>
-          </div>
+          <form onSubmit={handleComposerSubmit} className="relative">
+            <div className="relative rounded-lg bg-surface shadow-sm ring-1 ring-border-subtle">
+              <textarea
+                ref={textareaRef}
+                data-testid="thread-panel-input"
+                rows={1}
+                value={session?.draftInput ?? ""}
+                onChange={(event) => {
+                  if (session) {
+                    onInputChange(session.sessionId, event.target.value);
+                  }
+                }}
+                onKeyDown={handleComposerKeyDown}
+                placeholder={session ? "Ask a follow-up..." : "Select text to start a thread"}
+                disabled={!session}
+                className="composer-scrollbar w-full min-h-10 min-w-0 resize-none bg-transparent pl-3 pr-12 py-2.5 font-sans text-sm leading-relaxed text-foreground placeholder-muted/50 outline-none disabled:cursor-not-allowed disabled:opacity-50 overflow-y-auto"
+                style={{ maxHeight: "200px" }}
+              />
+              {/* Centered on the composer height: bottom-1.5 looked low vs one-line text (no mic column). */}
+              <div className="pointer-events-none absolute inset-y-0 right-2 flex w-7 items-center justify-center">
+                <button
+                  type="submit"
+                  data-testid="thread-panel-send"
+                  aria-label="Send"
+                  disabled={!canSend}
+                  className="pointer-events-auto flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-foreground p-0 text-background transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-20"
+                >
+                  <svg
+                    className="h-3 w-3"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    viewBox="0 0 24 24"
+                    aria-hidden
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M5 10l7-7m0 0l7 7m-7-7v18"
+                    />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </form>
         </div>
       </aside>
     </div>
