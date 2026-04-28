@@ -213,9 +213,7 @@ export default function ThreadPanel({
                 {message.role === "user" ? "You" : "Thread"}
               </span>
               <div
-                className={`${markdownContentClassName} mt-1 text-sm leading-relaxed text-foreground ${
-                  message.role === "assistant" ? "font-reading" : "font-sans"
-                }`}
+                className={`${markdownContentClassName} mt-1 text-sm leading-relaxed text-foreground font-reading`}
               >
                 <MarkdownWithThreads
                   content={message.content}
