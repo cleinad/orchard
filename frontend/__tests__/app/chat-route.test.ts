@@ -252,6 +252,60 @@ describe('chat route memory contract', () => {
     );
   });
 
+  it('generates a title for empty existing first-message conversations', async () => {
+    const { response, body, tracker } = await runChatRequest(
+      {
+        message: 'Help me plan a launch',
+        conversationId: 'conv-precreated-1',
+      },
+      {
+        conversations: {
+          rows: [{ id: 'conv-precreated-1', mentor_id: null }],
+        },
+        messages: {
+          rows: [],
+          returnOnMutate: [{ id: 'msg-user-1' }, { id: 'msg-assistant-1' }],
+        },
+      }
+    );
+
+    expect(response.status).toBe(200);
+    expect(body.conversationId).toBe('conv-precreated-1');
+    expect(body.conversationTitle).toBe('Help me plan a launch');
+    expect(tracker.updates('conversations')[0].args).toEqual({ title: 'Test Title' });
+  });
+
+  it('does not retitle existing conversations that already have messages', async () => {
+    const { response, body, tracker } = await runChatRequest(
+      {
+        message: 'Continue the plan',
+        conversationId: 'conv-existing-1',
+      },
+      {
+        conversations: {
+          rows: [{ id: 'conv-existing-1', mentor_id: null }],
+        },
+        messages: {
+          rows: [
+            {
+              id: 'msg-existing-1',
+              role: 'user',
+              content: 'Earlier message',
+              previous_message_id: null,
+              created_at: '2026-06-04T12:00:00.000Z',
+            },
+          ],
+          returnOnMutate: [{ id: 'msg-user-2' }, { id: 'msg-assistant-2' }],
+        },
+      }
+    );
+
+    expect(response.status).toBe(200);
+    expect(body.conversationId).toBe('conv-existing-1');
+    expect(body.conversationTitle).toBeNull();
+    expect(tracker.updates('conversations')).toHaveLength(0);
+  });
+
   it('does not schedule background memory extraction for temporary chats', async () => {
     const { response } = await runChatRequest({
       message: 'Hello',

@@ -20,13 +20,17 @@ import {
   getRouteSelectionPatch,
 } from '@/app/home/components/conversationMapModel';
 import {
-  applyUserMessageToTree,
   createPendingBranchTarget,
   getActivePathMessages,
   getBranchChipsForMessage,
   type PendingBranchTarget,
 } from '@/app/home/components/conversationTree';
 import { logResolvedChatModel } from '@/app/home/components/logResolvedChatModel';
+import {
+  readChatStream,
+  useMainChatRuntime,
+  type ChatResponse,
+} from '@/app/home/components/useMainChatRuntime';
 import { useHomeThreads } from '@/app/home/components/useHomeThreads';
 import { useConversationMapState } from '@/app/home/components/useConversationMapState';
 import { useHomeVoice } from '@/app/home/components/useHomeVoice';
@@ -40,7 +44,6 @@ import type {
   ThreadSource,
 } from '@/app/home/components/threadTypes';
 import type { SearchMetadata } from '@/lib/chat-search';
-import { stripCitationMarkers } from '@/lib/search-citations';
 import {
   CHAT_MODEL_OPTIONS,
   DEFAULT_CHAT_MODEL_ID,
@@ -62,110 +65,11 @@ import { getHomeE2eFixture } from '@/app/home/e2eFixtures';
 import {
   createTemporaryId,
   DEFAULT_TEMPORARY_MEMORY_MODE,
-  fallbackChatTitleFromMessage,
   toChatHistory,
   type ChatMode,
   type TemporaryMemoryMode,
 } from '@/lib/chat-session';
 import { getBrowserTimeZone } from '@/lib/browser-timezone';
-
-interface ChatResponse {
-  message?: string;
-  conversationId?: string;
-  conversationTitle?: string | null;
-  mentorId?: string | null;
-  threadId?: string | null;
-  userMessageId?: string | null;
-  assistantMessageId?: string | null;
-  resolvedModelId?: string;
-  resolvedProvider?: string;
-  search?: SearchMetadata;
-  error?: string;
-}
-
-/**
- * Reads an AI SDK v6 UI message stream response (SSE format).
- * Calls onChunk with each text delta as tokens arrive.
- * Returns the metadata object sent in the final data-chatMeta part.
- *
- * Relevant SSE event types (data: {...} JSON objects):
- *   text-delta   — { type: "text-delta", delta: "..." }
- *   data-chatMeta — { type: "data-chatMeta", data: { ...ChatResponse } }
- *   error        — { type: "error", errorText: "..." }
- */
-async function readChatStream(
-  response: Response,
-  onChunk: (delta: string) => void
-): Promise<ChatResponse> {
-  if (!response.body) {
-    throw new Error('No response body');
-  }
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let metadata: ChatResponse = {};
-  let buffer = '';
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) {
-        buffer += decoder.decode();
-        break;
-      }
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      // Keep the last (potentially incomplete) line in the buffer
-      buffer = lines.pop() ?? '';
-
-      for (const line of lines) {
-        // SSE data lines start with "data: "
-        if (!line.startsWith('data: ')) continue;
-        const payload = line.slice(6).trim();
-        if (!payload || payload === '[DONE]') continue;
-
-        try {
-          const event = JSON.parse(payload) as Record<string, unknown>;
-
-          if (event.type === 'text-delta' && typeof event.delta === 'string') {
-            if (event.delta) onChunk(event.delta);
-          } else if (event.type === 'data-chatMeta' && event.data) {
-            metadata = event.data as ChatResponse;
-          } else if (event.type === 'error' && typeof event.errorText === 'string') {
-            metadata = { error: event.errorText };
-          }
-        } catch {
-          // Ignore malformed SSE lines
-        }
-      }
-    }
-
-    if (buffer.startsWith('data: ')) {
-      const payload = buffer.slice(6).trim();
-
-      if (payload && payload !== '[DONE]') {
-        try {
-          const event = JSON.parse(payload) as Record<string, unknown>;
-
-          if (event.type === 'text-delta' && typeof event.delta === 'string') {
-            if (event.delta) onChunk(event.delta);
-          } else if (event.type === 'data-chatMeta' && event.data) {
-            metadata = event.data as ChatResponse;
-          } else if (event.type === 'error' && typeof event.errorText === 'string') {
-            metadata = { error: event.errorText };
-          }
-        } catch {
-          // Ignore malformed trailing SSE line
-        }
-      }
-    }
-  } finally {
-    reader.releaseLock();
-  }
-
-  return metadata;
-}
 
 interface ChatModelsResponse {
   models?: ChatModelListItem[];
@@ -247,48 +151,6 @@ function deleteRecordKey<T>(record: Record<string, T>, key: string) {
   const next = { ...record };
   delete next[key];
   return next;
-}
-
-function isSameSelectedChat(a: SelectedChat | null, b: SelectedChat | null) {
-  const aKey = getSelectedChatKey(a);
-  return aKey !== null && aKey === getSelectedChatKey(b);
-}
-
-function mergeReloadedBranchSelections(params: {
-  loadedSelectedBranchIds: BranchSelectionMap;
-  latestSelectedBranchIds: BranchSelectionMap;
-  loadedBranches: ConversationBranch[];
-  branchSourceMessageId: string | null;
-  pendingBranchSelectionId: string | null;
-}) {
-  const mergedSelections = { ...params.loadedSelectedBranchIds };
-  const validBranchIds = new Set(params.loadedBranches.map((branch) => branch.id));
-
-  for (const [sourceMessageId, branchId] of Object.entries(params.latestSelectedBranchIds)) {
-    if (validBranchIds.has(branchId)) {
-      mergedSelections[sourceMessageId] = branchId;
-    }
-  }
-
-  if (
-    params.branchSourceMessageId
-    && params.pendingBranchSelectionId
-    && params.latestSelectedBranchIds[params.branchSourceMessageId]
-      === params.pendingBranchSelectionId
-  ) {
-    const resolvedPendingBranch = [...params.loadedBranches]
-      .filter(
-        (branch) =>
-          branch.sourceMessageId === params.branchSourceMessageId && !branch.isMain
-      )
-      .sort((a, b) => b.position - a.position)[0];
-
-    if (resolvedPendingBranch) {
-      mergedSelections[params.branchSourceMessageId] = resolvedPendingBranch.id;
-    }
-  }
-
-  return mergedSelections;
 }
 
 const TTS_STORAGE_KEY = 'keen-tts-enabled';
@@ -677,7 +539,7 @@ function HomePageInner() {
     registerPrepareForChatSwitch,
     invokePrepareForChatSwitch,
     registerCloseTempChatCleanup,
-    openPersistentConversation,
+    replacePersistentConversationUrl,
     openHomeWorkspace,
     buildHomeHref,
     routeConversationId,
@@ -872,7 +734,6 @@ function HomePageInner() {
   const selectedDraftChatRef = useRef<PersistentDraftChat | null>(null);
   const persistentSelectedBranchIdsRef = useRef<BranchSelectionMap>({});
   const persistentThreadRuntimesRef = useRef<PersistentThreadRuntimeRecord>({});
-  const draftChatsRef = useRef<PersistentDraftChat[]>([]);
   const temporaryChatsRef = useRef<TemporaryChatSession[]>([]);
   const composerDraftInputsRef = useRef<Record<string, string>>({});
   const pendingChatRequestsRef = useRef<Record<string, PendingChatRequest>>({});
@@ -880,7 +741,6 @@ function HomePageInner() {
   // Keep refs aligned with latest render (draft promotion + branch merge reads these).
   persistentSelectedBranchIdsRef.current = persistentSelectedBranchIds;
   persistentThreadRuntimesRef.current = persistentThreadRuntimes;
-  draftChatsRef.current = draftChats;
   temporaryChatsRef.current = temporaryChats;
   composerDraftInputsRef.current = composerDraftInputsByChatKey;
   pendingChatRequestsRef.current = pendingChatRequestsByChatKey;
@@ -1013,14 +873,16 @@ function HomePageInner() {
       }
 
       setPendingChatRequestsByChatKey((prev) => {
-        if (request === null) {
-          return deleteRecordKey(prev, key);
-        }
+        const next =
+          request === null
+            ? deleteRecordKey(prev, key)
+            : {
+                ...prev,
+                [key]: request,
+              };
 
-        return {
-          ...prev,
-          [key]: request,
-        };
+        pendingChatRequestsRef.current = next;
+        return next;
       });
     },
     []
@@ -1029,6 +891,37 @@ function HomePageInner() {
   const clearPendingChatRequestForSelection = useCallback((selection: SelectedChat) => {
     setPendingChatRequestForSelection(selection, null);
   }, [setPendingChatRequestForSelection]);
+
+  const movePendingChatRequestBetweenSelections = useCallback(
+    (fromSelection: SelectedChat, toSelection: SelectedChat) => {
+      const fromKey = getSelectedChatKey(fromSelection);
+      const toKey = getSelectedChatKey(toSelection);
+
+      if (!fromKey || !toKey || fromKey === toKey) {
+        return;
+      }
+
+      setPendingChatRequestsByChatKey((prev) => {
+        const request = prev[fromKey];
+
+        if (!request) {
+          return prev;
+        }
+
+        const next: Record<string, PendingChatRequest> = {
+          ...prev,
+          [toKey]: {
+            ...request,
+            selection: toSelection,
+          },
+        };
+        delete next[fromKey];
+        pendingChatRequestsRef.current = next;
+        return next;
+      });
+    },
+    []
+  );
 
   const setPendingChatRequestPhaseForSelection = useCallback(
     (
@@ -1048,45 +941,15 @@ function HomePageInner() {
           return prev;
         }
 
-        return {
+        const next = {
           ...prev,
           [key]: {
             ...current,
             phase,
           },
         };
-      });
-    },
-    []
-  );
 
-  const moveComposerInputBetweenSelections = useCallback(
-    (
-      fromSelection: SelectedChat | null,
-      toSelection: SelectedChat | null,
-      options?: { preserveTarget?: boolean }
-    ) => {
-      const fromKey = getComposerStateKey(fromSelection);
-      const toKey = getComposerStateKey(toSelection);
-
-      if (fromKey === toKey) {
-        return;
-      }
-
-      setComposerDraftInputsByChatKey((prev) => {
-        if (!(fromKey in prev)) {
-          return prev;
-        }
-
-        if (options?.preserveTarget && toKey in prev) {
-          return prev;
-        }
-
-        const next = {
-          ...prev,
-          [toKey]: prev[fromKey],
-        };
-        delete next[fromKey];
+        pendingChatRequestsRef.current = next;
         return next;
       });
     },
@@ -2471,510 +2334,51 @@ function HomePageInner() {
     [clampSplitRatio, updateConversationMapViewState]
   );
 
-  const sendMessage = useCallback(async (content: string) => {
-    const messageText = content.trim();
-    if (!messageText) {
-      return;
-    }
-
-    if (autoSendTimerRef.current) {
-      clearTimeout(autoSendTimerRef.current);
-      autoSendTimerRef.current = null;
-    }
-    transcription.clearTranscript();
-
-    const now = new Date();
-    const nextUpdatedAt = now.toISOString();
-
-    let effectiveSelection = selectedChat;
-    let effectiveDraft = selectedDraftChat;
-    let effectiveTempChat = selectedTemporaryChat;
-    const effectivePendingBranch = pendingBranch;
-    const activePathTailMessageId = activeMessages[activeMessages.length - 1]?.id ?? null;
-    const previousMessageId = effectivePendingBranch?.sourceMessageId ?? activePathTailMessageId;
-    const branchSourceMessageId = effectivePendingBranch?.sourceMessageId ?? null;
-
-    if (!effectiveSelection) {
-      effectiveDraft = getOrCreateDraft(null);
-      effectiveSelection = {
-        kind: 'draft',
-        draftId: effectiveDraft.id,
-        mentorId: null,
-      };
-      setSelectedChat(effectiveSelection);
-    }
-
-    const effectiveSelectionKey = getSelectedChatKey(effectiveSelection);
-    if (!effectiveSelectionKey || pendingChatRequestsRef.current[effectiveSelectionKey]) {
-      return;
-    }
-
-    const userMessage: Message = {
-      id:
-        effectiveSelection.kind === 'temporary'
-          ? createTemporaryId('message')
-          : Date.now().toString(),
-      role: 'user',
-      content: messageText,
-      timestamp: now,
-      previousMessageId,
-    };
-
-    const temporaryNextTree =
-      effectiveSelection.kind === 'temporary' && effectiveTempChat
-        ? applyUserMessageToTree({
-            messages: effectiveTempChat.messages,
-            branches: effectiveTempChat.branches,
-            selectedBranchIds: effectiveTempChat.selectedBranchIds,
-            pendingBranch: effectivePendingBranch,
-            userMessage,
-          })
-        : null;
-    const persistentNextTree =
-      effectiveSelection.kind === 'persistent'
-        ? applyUserMessageToTree({
-            messages: persistentMessages,
-            branches: persistentBranches,
-            selectedBranchIds: persistentSelectedBranchIds,
-            pendingBranch: effectivePendingBranch,
-            userMessage,
-          })
-        : null;
-    const draftNextTree =
-      effectiveSelection.kind === 'draft' && effectiveDraft
-        ? applyUserMessageToTree({
-            messages: effectiveDraft.messages,
-            branches: effectiveDraft.branches,
-            selectedBranchIds: effectiveDraft.selectedBranchIds,
-            pendingBranch: effectivePendingBranch,
-            userMessage,
-          })
-        : null;
-    const pendingBranchSelectionId =
-      branchSourceMessageId && effectivePendingBranch
-        ? temporaryNextTree?.selectedBranchIds[branchSourceMessageId]
-          ?? persistentNextTree?.selectedBranchIds[branchSourceMessageId]
-          ?? draftNextTree?.selectedBranchIds[branchSourceMessageId]
-          ?? null
-        : null;
-
-    if (effectiveSelection.kind === 'temporary') {
-      updateTemporaryChat(effectiveSelection.tempChatId, (chat) => {
-        const nextTree = temporaryNextTree;
-        if (!nextTree) {
-          return chat;
-        }
-
-        return {
-          ...chat,
-          messages: nextTree.messages,
-          branches: nextTree.branches,
-          selectedBranchIds: nextTree.selectedBranchIds,
-          updatedAt: nextUpdatedAt,
-        };
-      });
-    } else if (effectiveSelection.kind === 'persistent') {
-      const nextTree = persistentNextTree;
-      if (!nextTree) {
-        return;
-      }
-      setPersistentMessages(nextTree.messages);
-      setPersistentBranches(nextTree.branches);
-      setPersistentSelectedBranchIds(nextTree.selectedBranchIds);
-    } else {
-      const draft = effectiveDraft || getOrCreateDraft(effectiveSelection.mentorId);
-      effectiveDraft = draft;
-      const nextTree = draftNextTree;
-      if (!nextTree) {
-        return;
-      }
-      updateDraftChat(draft.id, (currentDraft) => {
-        return {
-          ...currentDraft,
-          messages: nextTree.messages,
-          branches: nextTree.branches,
-          selectedBranchIds: nextTree.selectedBranchIds,
-          updatedAt: nextUpdatedAt,
-        };
-      });
-    }
-
-    setPendingBranch(null);
-    clearComposerInputForSelection(selectedChat);
-    setPendingChatRequestForSelection(effectiveSelection, {
-      selection: effectiveSelection,
-      userMessageId: userMessage.id,
-      phase: 'awaiting-response',
-    });
-    clearSearchStateForSelection(effectiveSelection);
-    setUserHasScrolledState(false);
-
-    // Optimistic streaming message — shown immediately, content grows as chunks arrive.
-    const streamingMessageId =
-      effectiveSelection.kind === 'temporary'
-        ? createTemporaryId('message')
-        : `streaming-${Date.now()}`;
-    const streamingMessage: Message = {
-      id: streamingMessageId,
-      role: 'assistant',
-      content: '',
-      timestamp: new Date(),
-      previousMessageId: userMessage.id,
-      isStreaming: true,
-    };
-
-    const addStreamingMessage = <T extends { messages: Message[] }>(chat: T): T => ({
-      ...chat,
-      messages: [...chat.messages, streamingMessage],
-    });
-
-    if (effectiveSelection.kind === 'temporary') {
-      updateTemporaryChat(effectiveSelection.tempChatId, (chat) => ({
-        ...addStreamingMessage(chat),
-        updatedAt: new Date().toISOString(),
-      }));
-    } else if (effectiveSelection.kind === 'persistent') {
-      if (isSameSelectedChat(selectedChatRef.current, effectiveSelection)) {
-        setPersistentMessages((prev) => [...prev, streamingMessage]);
-      }
-    } else if (effectiveDraft) {
-      updateDraftChat(effectiveDraft.id, (draft) => addStreamingMessage(draft));
-    }
-
-    // Append each text delta to the streaming message in state.
-    const appendChunk = (delta: string) => {
-      if (effectiveSelection.kind === 'temporary') {
-        updateTemporaryChat(effectiveSelection.tempChatId, (chat) => ({
-          ...chat,
-          messages: chat.messages.map((m) =>
-            m.id === streamingMessageId ? { ...m, content: m.content + delta } : m
-          ),
-        }));
-      } else if (effectiveSelection.kind === 'persistent') {
-        if (isSameSelectedChat(selectedChatRef.current, effectiveSelection)) {
-          setPersistentMessages((prev) =>
-            prev.map((m) =>
-              m.id === streamingMessageId ? { ...m, content: m.content + delta } : m
-            )
-          );
-        }
-      } else if (effectiveDraft) {
-        updateDraftChat(effectiveDraft.id, (draft) => ({
-          ...draft,
-          messages: draft.messages.map((m) =>
-            m.id === streamingMessageId ? { ...m, content: m.content + delta } : m
-          ),
-        }));
-      }
-    };
-
-    // Remove the temporary streaming message and replace it with the final committed one.
-    const replaceStreamingMessage = (finalMessage: Message) => {
-      if (effectiveSelection.kind === 'temporary') {
-        updateTemporaryChat(effectiveSelection.tempChatId, (chat) => ({
-          ...chat,
-          messages: chat.messages.map((m) =>
-            m.id === streamingMessageId ? finalMessage : m
-          ),
-        }));
-      } else if (effectiveSelection.kind === 'persistent') {
-        if (isSameSelectedChat(selectedChatRef.current, effectiveSelection)) {
-          setPersistentMessages((prev) =>
-            prev.map((m) => (m.id === streamingMessageId ? finalMessage : m))
-          );
-        }
-      } else if (effectiveDraft) {
-        updateDraftChat(effectiveDraft.id, (draft) => ({
-          ...draft,
-          messages: draft.messages.map((m) =>
-            m.id === streamingMessageId ? finalMessage : m
-          ),
-        }));
-      }
-    };
-
-    // Remove the streaming placeholder entirely (used on error paths).
-    const removeStreamingMessage = () => {
-      if (effectiveSelection.kind === 'temporary') {
-        updateTemporaryChat(effectiveSelection.tempChatId, (chat) => ({
-          ...chat,
-          messages: chat.messages.filter((m) => m.id !== streamingMessageId),
-        }));
-      } else if (effectiveSelection.kind === 'persistent') {
-        if (isSameSelectedChat(selectedChatRef.current, effectiveSelection)) {
-          setPersistentMessages((prev) => prev.filter((m) => m.id !== streamingMessageId));
-        }
-      } else if (effectiveDraft) {
-        updateDraftChat(effectiveDraft.id, (draft) => ({
-          ...draft,
-          messages: draft.messages.filter((m) => m.id !== streamingMessageId),
-        }));
-      }
-    };
-
-    // Remove the streaming placeholder and append an error message in its place.
-    const showErrorMessage = (errorText: string) => {
-      const canApplyTemporaryResponse =
-        effectiveSelection.kind !== 'temporary'
-        || temporaryChatsRef.current.some((chat) => chat.id === effectiveSelection.tempChatId);
-
-      if (!canApplyTemporaryResponse) {
-        return;
-      }
-
-      removeStreamingMessage();
-      const errorMessage: Message = {
-        id:
-          effectiveSelection.kind === 'temporary'
-            ? createTemporaryId('message')
-            : (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: `Something went wrong. ${errorText || ''}`.trim(),
-        timestamp: new Date(),
-        previousMessageId: userMessage.id,
-      };
-
-      if (effectiveSelection.kind === 'temporary') {
-        updateTemporaryChat(effectiveSelection.tempChatId, (chat) => ({
-          ...chat,
-          messages: [...chat.messages, errorMessage],
-          updatedAt: new Date().toISOString(),
-        }));
-      } else if (effectiveSelection.kind === 'persistent') {
-        if (isSameSelectedChat(selectedChatRef.current, effectiveSelection)) {
-          setPersistentMessages((prev) => [...prev, errorMessage]);
-        }
-      } else if (effectiveDraft) {
-        updateDraftChat(effectiveDraft.id, (draft) => ({
-          ...draft,
-          messages: [...draft.messages, errorMessage],
-          updatedAt: new Date().toISOString(),
-        }));
-      }
-    };
-
-    try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: messageText,
-          conversationId:
-            effectiveSelection.kind === 'persistent'
-              ? effectiveSelection.conversationId
-              : undefined,
-          mentorId:
-            effectiveSelection.kind === 'temporary'
-              ? undefined
-              : effectiveSelection.mentorId ?? undefined,
-          modelId: selectedModelId,
-          previousMessageId,
-          branchSourceMessageId: branchSourceMessageId ?? undefined,
-          searchEnabled,
-          timezone: getBrowserTimeZone(),
-          chatMode:
-            effectiveSelection.kind === 'temporary' ? 'temporary' : 'persistent',
-          ...(effectiveSelection.kind === 'temporary'
-            ? {
-                memoryMode:
-                  effectiveTempChat?.memoryMode ?? DEFAULT_TEMPORARY_MEMORY_MODE,
-                history: toChatHistory(activeMessages),
-              }
-            : {}),
-        }),
-      });
-
-      if (!response.ok) {
-        // Non-streaming error response (e.g. 401, 500 before stream starts)
-        const data = (await response.json()) as ChatResponse;
-        showErrorMessage(data.error || '');
-        return;
-      }
-
-      const data = await readChatStream(response, appendChunk);
-      logResolvedChatModel(data, 'composer');
-
-      // Guard against writing into a temp chat that was deleted while the request was in flight.
-      const canApplyTemporaryResponse =
-        effectiveSelection.kind !== 'temporary'
-        || temporaryChatsRef.current.some((chat) => chat.id === effectiveSelection.tempChatId);
-
-      if (data.error) {
-        showErrorMessage(data.error);
-        return;
-      }
-
-      const promotedSelection =
-        effectiveSelection.kind === 'draft' && effectiveDraft && data.conversationId
-          ? {
-              kind: 'persistent' as const,
-              conversationId: data.conversationId,
-              mentorId: effectiveDraft.mentorId,
-            }
-          : null;
-
-      if (promotedSelection) {
-        moveComposerInputBetweenSelections(effectiveSelection, promotedSelection);
-        clearSearchStateForSelection(effectiveSelection);
-        setSearchStateForSelection(promotedSelection, data.search ?? null);
-      } else if (canApplyTemporaryResponse) {
-        setSearchStateForSelection(effectiveSelection, data.search ?? null);
-      }
-
-      const assistantMessage: Message = {
-        id:
-          effectiveSelection.kind === 'temporary'
-            ? streamingMessageId
-            : data.assistantMessageId || (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: data.message ?? '',
-        timestamp: new Date(),
-        searchMetadata: data.search?.metadata ?? null,
-        // Keep the optimistic chain internally consistent until persisted IDs
-        // replace the optimistic user/assistant pair together.
-        previousMessageId: userMessage.id,
-      };
-
-      setPendingChatRequestPhaseForSelection(effectiveSelection, 'reconciling');
-
-      // Replace the streaming placeholder with the final message (correct ID + metadata).
-      replaceStreamingMessage(assistantMessage);
-
-      if (effectiveSelection.kind === 'temporary') {
-        if (!canApplyTemporaryResponse) {
-          return;
-        }
-
-        updateTemporaryChat(effectiveSelection.tempChatId, (chat) => ({
-          ...chat,
-          title:
-            data.conversationTitle ||
-            fallbackChatTitleFromMessage(messageText, TEMP_CHAT_TITLE),
-          updatedAt: new Date().toISOString(),
-        }));
-      } else if (effectiveSelection.kind === 'persistent') {
-        if (isSameSelectedChat(selectedChatRef.current, effectiveSelection)) {
-          const loadedConversation = await loadConversationMessages(
-            effectiveSelection.conversationId
-          );
-
-          if (isSameSelectedChat(selectedChatRef.current, effectiveSelection)) {
-            const mergedSelections = mergeReloadedBranchSelections({
-              loadedSelectedBranchIds: loadedConversation.selectedBranchIds,
-              latestSelectedBranchIds: persistentSelectedBranchIdsRef.current,
-              loadedBranches: loadedConversation.branches,
-              branchSourceMessageId,
-              pendingBranchSelectionId,
-            });
-
-            setPersistentMessages(loadedConversation.messages);
-            setPersistentBranches(loadedConversation.branches);
-            setPersistentSelectedBranchIds(mergedSelections);
-            setPersistentThreadsMap(loadedConversation.threadsMap);
-          }
-        }
-
-        if (!isHomeE2eFixture) {
-          await refreshSidebarData();
-        }
-      } else if (effectiveDraft && promotedSelection) {
-        const latestDraftSelections =
-          draftChatsRef.current.find((draft) => draft.id === effectiveDraft.id)
-            ?.selectedBranchIds ?? effectiveDraft.selectedBranchIds;
-
-        if (isSameSelectedChat(selectedChatRef.current, effectiveSelection)) {
-          const loadedConversation = await loadConversationMessages(promotedSelection.conversationId);
-
-          if (isSameSelectedChat(selectedChatRef.current, effectiveSelection)) {
-            const mergedSelections = mergeReloadedBranchSelections({
-              loadedSelectedBranchIds: loadedConversation.selectedBranchIds,
-              latestSelectedBranchIds: latestDraftSelections,
-              loadedBranches: loadedConversation.branches,
-              branchSourceMessageId,
-              pendingBranchSelectionId,
-            });
-
-            setPersistentMessages(loadedConversation.messages);
-            setPersistentBranches(loadedConversation.branches);
-            setPersistentSelectedBranchIds(mergedSelections);
-            setPersistentThreadsMap(loadedConversation.threadsMap);
-          }
-        }
-
-        if (isSameSelectedChat(selectedChatRef.current, effectiveSelection)) {
-          hydratedRouteConversationIdRef.current = promotedSelection.conversationId;
-          selectedChatRef.current = promotedSelection;
-          setSelectedChat(promotedSelection);
-          openPersistentConversation(promotedSelection.conversationId, { replace: true });
-        }
-
-        setDraftChats((prev) => prev.filter((draft) => draft.id !== effectiveDraft.id));
-
-        if (!isHomeE2eFixture) {
-          await refreshSidebarData();
-        }
-      }
-
-      if (
-        ttsEnabled
-        && data.message
-        && !data.message.startsWith('Something went wrong')
-        && canApplyTemporaryResponse
-      ) {
-        tts.speak(stripCitationMarkers(data.message, assistantMessage.searchMetadata));
-      }
-    } catch {
-      // Replace the streaming placeholder with a static error message.
-      // Skip if the temp chat was deleted while the request was in flight.
-      const canApplyTemporaryResponse =
-        effectiveSelection.kind !== 'temporary'
-        || temporaryChatsRef.current.some((chat) => chat.id === effectiveSelection.tempChatId);
-
-      if (canApplyTemporaryResponse) {
-        replaceStreamingMessage({
-          id:
-            effectiveSelection.kind === 'temporary'
-              ? streamingMessageId
-              : (Date.now() + 1).toString(),
-          role: 'assistant',
-          content: 'Sorry, there was an error processing your message.',
-          timestamp: new Date(),
-          previousMessageId: userMessage.id,
-        });
-      }
-    } finally {
-      clearPendingChatRequestForSelection(effectiveSelection);
-    }
-  }, [
+  const sendMessage = useMainChatRuntime({
     activeMessages,
+    autoSendTimerRef,
     clearComposerInputForSelection,
     clearPendingChatRequestForSelection,
     clearSearchStateForSelection,
     getOrCreateDraft,
+    hydratedRouteConversationIdRef,
     isHomeE2eFixture,
     loadConversationMessages,
-    moveComposerInputBetweenSelections,
-    openPersistentConversation,
+    movePendingChatRequestBetweenSelections,
     pendingBranch,
+    pendingChatRequestsRef,
     persistentBranches,
     persistentMessages,
     persistentSelectedBranchIds,
+    persistentSelectedBranchIdsRef,
     refreshSidebarData,
     searchEnabled,
     selectedChat,
+    selectedChatRef,
     selectedDraftChat,
     selectedModelId,
     selectedTemporaryChat,
+    setDraftChats,
+    setListError,
+    setPendingBranch,
     setPendingChatRequestForSelection,
     setPendingChatRequestPhaseForSelection,
+    setPersistentBranches,
+    setPersistentMessages,
+    setPersistentSelectedBranchIds,
+    setPersistentThreadsMap,
+    replacePersistentConversationUrl,
     setSearchStateForSelection,
+    setSelectedChat,
     setUserHasScrolledState,
+    temporaryChatsRef,
+    tempChatTitle: TEMP_CHAT_TITLE,
     transcription,
     tts,
     ttsEnabled,
     updateDraftChat,
     updateTemporaryChat,
-  ]);
+  });
 
   useEffect(() => {
     const text = transcription.finalTranscript.trim();

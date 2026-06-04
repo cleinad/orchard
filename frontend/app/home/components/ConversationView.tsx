@@ -147,7 +147,7 @@ export default function ConversationView({
 
             return (
               <div
-                key={message.id}
+                key={message.renderId ?? message.id}
                 className="py-4"
                 data-message-id={message.id}
                 data-message-role={message.role}

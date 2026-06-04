@@ -2,6 +2,7 @@ import type { PersistedSearchMetadata } from '@/lib/chat-search';
 
 export interface Message {
   id: string;
+  renderId?: string;
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
