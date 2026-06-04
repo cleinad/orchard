@@ -389,6 +389,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const fallbackConversationTitle = fallbackChatTitleFromMessage(message);
     let activeConversationId = isTemporaryChat ? null : conversationId ?? null;
     let createdConversation = false;
 
@@ -419,6 +420,8 @@ export async function POST(request: NextRequest) {
 
       mentor = mentorRow;
     }
+
+    let isFirstPersistentMainMessage = false;
 
     if (!isTemporaryChat) {
       if (activeConversationId) {
@@ -462,7 +465,7 @@ export async function POST(request: NextRequest) {
           .from('conversations')
           .insert({
             user_id: user.id,
-            title: null,
+            title: fallbackConversationTitle,
             mentor_id: mentor?.id ?? null,
           })
           .select('id')
@@ -611,6 +614,11 @@ export async function POST(request: NextRequest) {
 
         effectivePreviousMessageId = latestMainMessage?.id ?? null;
       }
+
+      isFirstPersistentMainMessage =
+        !activeThreadId
+        && !branchSourceForMessage
+        && !effectivePreviousMessageId;
     }
 
     if (!isTemporaryChat) {
@@ -850,7 +858,7 @@ export async function POST(request: NextRequest) {
     const shouldGenerateTitle =
       !activeThreadId &&
       ((isTemporaryChat && sanitizedHistory.length === 0) ||
-        (!isTemporaryChat && createdConversation));
+        (!isTemporaryChat && (createdConversation || isFirstPersistentMainMessage)));
 
     // createUIMessageStream lets us pipe streamText output and send a custom
     // metadata data-part to the client once onFinish has run.
@@ -943,21 +951,32 @@ export async function POST(request: NextRequest) {
               });
             }
 
-            let conversationTitle: string | null = null;
-            if (shouldGenerateTitle) {
-              conversationTitle = await generateConversationTitle(message, cleanAssistantResponse);
+            const conversationTitle = shouldGenerateTitle ? fallbackConversationTitle : null;
+            if (shouldGenerateTitle && !isTemporaryChat && activeConversationId) {
+              after(async () => {
+                try {
+                  const generatedTitle = await generateConversationTitle(
+                    message,
+                    cleanAssistantResponse
+                  );
 
-              if (!isTemporaryChat && activeConversationId && conversationTitle) {
-                const { error: titleError } = await supabase
-                  .from('conversations')
-                  .update({ title: conversationTitle })
-                  .eq('id', activeConversationId)
-                  .eq('user_id', user.id);
+                  if (!generatedTitle || generatedTitle === fallbackConversationTitle) {
+                    return;
+                  }
 
-                if (titleError) {
-                  console.error('Failed to save conversation title:', titleError);
+                  const { error: titleError } = await supabase
+                    .from('conversations')
+                    .update({ title: generatedTitle })
+                    .eq('id', activeConversationId)
+                    .eq('user_id', user.id);
+
+                  if (titleError) {
+                    console.error('Failed to save conversation title:', titleError);
+                  }
+                } catch (titleError) {
+                  console.error('Failed to generate conversation title:', titleError);
                 }
-              }
+              });
             }
 
             // Send response metadata as a custom data-part after text streaming is done.
