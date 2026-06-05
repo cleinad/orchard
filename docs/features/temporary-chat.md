@@ -116,8 +116,7 @@ Temporary requests send enough context for the server to answer without any pers
   threadId?: string,
   threadHistory?: Array<{ role: 'user' | 'assistant'; content: string }>,
   sourceMessageId?: string,
-  highlightedText?: string,
-  concise?: boolean
+  highlightedText?: string
 }
 ```
 
