@@ -40,6 +40,7 @@ describe('chat model resolver', () => {
         provider: 'openai',
         available: true,
         isDefault: true,
+        supportsImages: true,
       },
       {
         id: 'claude-sonnet-4-6',
@@ -47,6 +48,7 @@ describe('chat model resolver', () => {
         provider: 'anthropic',
         available: false,
         isDefault: false,
+        supportsImages: true,
       },
       {
         id: 'gemini-3-flash-preview',
@@ -54,6 +56,7 @@ describe('chat model resolver', () => {
         provider: 'google',
         available: false,
         isDefault: false,
+        supportsImages: true,
       },
     ]);
   });

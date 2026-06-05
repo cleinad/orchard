@@ -1,10 +1,12 @@
 import type { PersistedSearchMetadata } from '@/lib/chat-search';
+import type { ChatImageAttachment } from '@/lib/chat-attachments';
 
 export interface Message {
   id: string;
   renderId?: string;
   role: 'user' | 'assistant';
   content: string;
+  attachments?: ChatImageAttachment[];
   timestamp: Date;
   searchMetadata?: PersistedSearchMetadata | null;
   previousMessageId: string | null;

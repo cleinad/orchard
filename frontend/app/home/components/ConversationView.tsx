@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useState, type RefObject } from 'react';
+import { useCallback, useEffect, useState, type RefObject } from 'react';
 import MarkdownWithThreads from '@/app/home/components/MarkdownWithThreads';
 import SearchSourcesTray from '@/app/home/components/SearchSourcesTray';
 import type { InlineThreadMarker } from '@/app/home/components/threadTypes';
 import type { Message } from '@/app/home/types';
 import type { BranchChip } from '@/app/home/components/conversationTree';
+import type { ChatImageAttachment } from '@/lib/chat-attachments';
 import { markdownContentClassName } from '@/lib/markdown';
 import { hasUsableSearchSources } from '@/lib/search-citations';
 
@@ -25,6 +26,7 @@ interface ConversationViewProps {
   onThreadClick: (thread: InlineThreadMarker) => void;
   onSelectBranch: (sourceMessageId: string, branchId: string | null) => void;
   onCreateBranch: (sourceMessageId: string) => void;
+  onDeleteImageAttachment: (messageId: string, attachmentId: string) => void;
   onAssistantPointerUp: () => void;
 }
 
@@ -44,12 +46,29 @@ export default function ConversationView({
   onThreadClick,
   onSelectBranch,
   onCreateBranch,
+  onDeleteImageAttachment,
   onAssistantPointerUp,
 }: ConversationViewProps) {
   const [openSourceTray, setOpenSourceTray] = useState<{
     messageId: string;
     sourceId: number | null;
   } | null>(null);
+  const [selectedImage, setSelectedImage] = useState<ChatImageAttachment | null>(null);
+
+  useEffect(() => {
+    if (!selectedImage) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setSelectedImage(null);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedImage]);
 
   const handleCitationClick = useCallback((messageId: string, sourceId: number) => {
     setOpenSourceTray((current) => {
@@ -83,7 +102,8 @@ export default function ConversationView({
   }, []);
 
   return (
-    <div className="mx-auto max-w-2xl px-6 pb-4">
+    <>
+      <div className="mx-auto max-w-2xl px-6 pb-4">
       {listError && (
         <div className="mb-4 rounded-lg bg-surface px-4 py-2 font-sans text-xs text-muted shadow-sm">
           {listError}
@@ -175,23 +195,77 @@ export default function ConversationView({
                     data-message-content="true"
                     className={`${markdownContentClassName} mt-2 text-base leading-relaxed text-foreground`}
                   >
-                    <MarkdownWithThreads
-                      content={message.content}
-                      threads={threadsMap.get(message.id) || []}
-                      onThreadClick={onThreadClick}
-                      searchMetadata={replySearchMetadata}
-                      activeCitationSourceId={activeSourceId}
-                      onCitationClick={
-                        hasSources
-                          ? (sourceId) => handleCitationClick(message.id, sourceId)
-                          : undefined
-                      }
-                    />
+                    {message.content && (
+                      <MarkdownWithThreads
+                        content={message.content}
+                        threads={threadsMap.get(message.id) || []}
+                        onThreadClick={onThreadClick}
+                        searchMetadata={replySearchMetadata}
+                        activeCitationSourceId={activeSourceId}
+                        onCitationClick={
+                          hasSources
+                            ? (sourceId) => handleCitationClick(message.id, sourceId)
+                            : undefined
+                        }
+                      />
+                    )}
                     {/* Blinking cursor shown while the stream is still arriving */}
                     {message.isStreaming && (
                       <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-foreground/50 align-middle" />
                     )}
                   </div>
+
+                  {message.attachments && message.attachments.length > 0 && (
+                    <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                      {message.attachments.map((attachment) => (
+                        <div
+                          key={attachment.id}
+                          className="group relative overflow-hidden rounded-md bg-foreground/[0.04] ring-1 ring-border-subtle"
+                        >
+                          {attachment.url ? (
+                            <button
+                              type="button"
+                              onClick={() => setSelectedImage(attachment)}
+                              aria-label={attachment.fileName}
+                              className="block w-full cursor-zoom-in"
+                            >
+                              <img
+                                src={attachment.url}
+                                alt={attachment.fileName}
+                                className="aspect-video w-full object-cover"
+                              />
+                            </button>
+                          ) : (
+                            <div className="aspect-video w-full bg-foreground/[0.04]" />
+                          )}
+                          {message.role === 'user' && !message.isStreaming && (
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                if (selectedImage?.id === attachment.id) {
+                                  setSelectedImage(null);
+                                }
+                                onDeleteImageAttachment(message.id, attachment.id);
+                              }}
+                              aria-label={`Delete ${attachment.fileName}`}
+                              className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-background/90 text-muted shadow-sm transition hover:text-foreground"
+                            >
+                              <svg
+                                className="h-3.5 w-3.5"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2.4"
+                                viewBox="0 0 24 24"
+                              >
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 6l12 12M18 6L6 18" />
+                              </svg>
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
 
                   {/* Sources and branch controls are suppressed while streaming */}
                   {!message.isStreaming && hasSources && replySearchMetadata && (
@@ -290,6 +364,44 @@ export default function ConversationView({
           <div ref={messagesEndRef} />
         </div>
       )}
-    </div>
+      </div>
+
+      {selectedImage?.url && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={selectedImage.fileName}
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4"
+          onClick={() => setSelectedImage(null)}
+        >
+          <div
+            className="relative max-h-full max-w-5xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <img
+              src={selectedImage.url}
+              alt={selectedImage.fileName}
+              className="max-h-[88vh] max-w-full rounded-md object-contain shadow-2xl"
+            />
+            <button
+              type="button"
+              onClick={() => setSelectedImage(null)}
+              aria-label="Close image preview"
+              className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-background/90 text-muted shadow-sm transition hover:text-foreground"
+            >
+              <svg
+                className="h-4 w-4"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.4"
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 6l12 12M18 6L6 18" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

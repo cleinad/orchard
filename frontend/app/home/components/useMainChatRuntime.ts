@@ -18,6 +18,7 @@ import {
   type PendingBranchTarget,
 } from '@/app/home/components/conversationTree';
 import { logResolvedChatModel } from '@/app/home/components/logResolvedChatModel';
+import type { UploadedChatImageAttachment } from '@/app/home/components/chatImageUploads';
 import type { ThreadMeta } from '@/app/home/components/threadTypes';
 import type {
   BranchSelectionMap,
@@ -404,12 +405,16 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
   const paramsRef = useRef(params);
   paramsRef.current = params;
 
-  return useCallback(async (content: string) => {
+  return useCallback(async (
+    content: string,
+    uploadedAttachments: UploadedChatImageAttachment[] = []
+  ) => {
     const params = paramsRef.current;
     const messageText = content.trim();
-    if (!messageText) {
+    if (!messageText && uploadedAttachments.length === 0) {
       return;
     }
+    const messageForTitle = messageText || 'Image question';
 
     if (params.autoSendTimerRef.current) {
       clearTimeout(params.autoSendTimerRef.current);
@@ -453,6 +458,16 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
       renderId: createTemporaryId('render'),
       role: 'user',
       content: messageText,
+      attachments: uploadedAttachments.map((attachment) => ({
+        id: attachment.id,
+        storagePath: attachment.storagePath,
+        fileName: attachment.fileName,
+        mimeType: attachment.mimeType,
+        sizeBytes: attachment.sizeBytes,
+        width: attachment.width,
+        height: attachment.height,
+        url: attachment.url,
+      })),
       timestamp: now,
       previousMessageId,
     };
@@ -549,7 +564,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
 
       try {
         const conversation = await createPersistentConversationForMessage(
-          messageText,
+          messageForTitle,
           effectiveSelection.mentorId
         );
 
@@ -835,6 +850,14 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
           modelId: params.selectedModelId,
           previousMessageId,
           branchSourceMessageId: branchSourceMessageId ?? undefined,
+          attachments: uploadedAttachments.map((attachment) => ({
+            storagePath: attachment.storagePath,
+            fileName: attachment.fileName,
+            mimeType: attachment.mimeType,
+            sizeBytes: attachment.sizeBytes,
+            width: attachment.width,
+            height: attachment.height,
+          })),
           searchEnabled: params.searchEnabled,
           timezone: getBrowserTimeZone(),
           chatMode:
@@ -926,7 +949,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
           ...chat,
           title:
             data.conversationTitle ||
-            fallbackChatTitleFromMessage(messageText, params.tempChatTitle),
+            fallbackChatTitleFromMessage(messageForTitle, params.tempChatTitle),
           updatedAt: new Date().toISOString(),
         }));
       } else if (effectiveSelection.kind === 'persistent') {

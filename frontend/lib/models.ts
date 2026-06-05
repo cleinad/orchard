@@ -55,6 +55,7 @@ export function getChatModelListItems(): ChatModelListItem[] {
     provider: option.provider,
     available: isModelConfigured(option),
     isDefault: option.id === defaultModelId,
+    supportsImages: option.supportsImages,
   }));
 }
 

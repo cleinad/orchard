@@ -12,6 +12,11 @@ import {
 import HomeBackground from '@/app/home/components/HomeBackground';
 import HomeHeader from '@/app/home/components/HomeHeader';
 import ChatComposer from '@/app/home/components/ChatComposer';
+import {
+  createPendingChatImageAttachments,
+  uploadChatImageAttachments,
+  type PendingChatImageAttachment,
+} from '@/app/home/components/chatImageUploads';
 import ConversationMap from '@/app/home/components/ConversationMap';
 import ConversationView from '@/app/home/components/ConversationView';
 import {
@@ -44,6 +49,7 @@ import type {
   ThreadSource,
 } from '@/app/home/components/threadTypes';
 import type { SearchMetadata } from '@/lib/chat-search';
+import { CHAT_IMAGE_BUCKET } from '@/lib/chat-attachments';
 import {
   CHAT_MODEL_OPTIONS,
   DEFAULT_CHAT_MODEL_ID,
@@ -70,6 +76,7 @@ import {
   type TemporaryMemoryMode,
 } from '@/lib/chat-session';
 import { getBrowserTimeZone } from '@/lib/browser-timezone';
+import { supabase } from '@/lib/supabase';
 
 interface ChatModelsResponse {
   models?: ChatModelListItem[];
@@ -99,6 +106,7 @@ interface StoredMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
+  attachments?: Message['attachments'];
   timestamp: string;
   searchMetadata?: Message['searchMetadata'];
   previousMessageId: string | null;
@@ -168,6 +176,7 @@ function toStoredMessage(message: Message): StoredMessage {
     id: message.id,
     role: message.role,
     content: message.content,
+    attachments: message.attachments ?? [],
     timestamp: message.timestamp.toISOString(),
     searchMetadata: message.searchMetadata ?? null,
     previousMessageId: message.previousMessageId,
@@ -179,6 +188,7 @@ function fromStoredMessage(message: StoredMessage): Message {
     id: message.id,
     role: message.role,
     content: message.content,
+    attachments: message.attachments ?? [],
     timestamp: new Date(message.timestamp),
     searchMetadata: message.searchMetadata ?? null,
     previousMessageId: message.previousMessageId ?? null,
@@ -476,6 +486,7 @@ function HomePageInner() {
       provider: option.provider,
       available: true,
       isDefault: option.id === DEFAULT_CHAT_MODEL_ID,
+      supportsImages: option.supportsImages,
     }))
   );
   const [searchStatesByChatKey, setSearchStatesByChatKey] = useState<
@@ -495,6 +506,11 @@ function HomePageInner() {
   const [isDesktopViewport, setIsDesktopViewport] = useState(false);
   const [isRouteConversationLoading, setIsRouteConversationLoading] = useState(false);
   const [routeConversationError, setRouteConversationError] = useState<string | null>(null);
+  const [pendingImageAttachments, setPendingImageAttachments] = useState<
+    PendingChatImageAttachment[]
+  >([]);
+  const [imageWarning, setImageWarning] = useState<string | null>(null);
+  const [isUploadingImages, setIsUploadingImages] = useState(false);
 
   const { learningMode, toggleLearningMode } = useLearningMode();
   const { isOpen: sidePanelOpen } = useSidePanel();
@@ -736,6 +752,7 @@ function HomePageInner() {
   const persistentThreadRuntimesRef = useRef<PersistentThreadRuntimeRecord>({});
   const temporaryChatsRef = useRef<TemporaryChatSession[]>([]);
   const composerDraftInputsRef = useRef<Record<string, string>>({});
+  const pendingImageAttachmentsRef = useRef<PendingChatImageAttachment[]>([]);
   const pendingChatRequestsRef = useRef<Record<string, PendingChatRequest>>({});
   const threadSessionsRef = useRef<Record<string, ThreadSession>>({});
   // Keep refs aligned with latest render (draft promotion + branch merge reads these).
@@ -743,6 +760,7 @@ function HomePageInner() {
   persistentThreadRuntimesRef.current = persistentThreadRuntimes;
   temporaryChatsRef.current = temporaryChats;
   composerDraftInputsRef.current = composerDraftInputsByChatKey;
+  pendingImageAttachmentsRef.current = pendingImageAttachments;
   pendingChatRequestsRef.current = pendingChatRequestsByChatKey;
   threadSessionsRef.current = threadSessionsById;
   const shouldShowRouteConversationLoading =
@@ -835,6 +853,113 @@ function HomePageInner() {
     },
     []
   );
+
+  useEffect(() => {
+    return () => {
+      for (const attachment of pendingImageAttachmentsRef.current) {
+        URL.revokeObjectURL(attachment.url);
+      }
+    };
+  }, []);
+
+  const handleAttachImages = useCallback(async (files: File[]) => {
+    if (files.length === 0) {
+      return;
+    }
+
+    const result = await createPendingChatImageAttachments(
+      files,
+      pendingImageAttachments.length
+    );
+
+    if (result.attachments.length > 0) {
+      setPendingImageAttachments((current) => [...current, ...result.attachments]);
+    }
+
+    setImageWarning(result.error);
+  }, [pendingImageAttachments.length]);
+
+  const handleRemoveImageAttachment = useCallback((id: string) => {
+    setPendingImageAttachments((current) => {
+      const attachment = current.find((item) => item.id === id);
+      if (attachment) {
+        URL.revokeObjectURL(attachment.url);
+      }
+
+      return current.filter((item) => item.id !== id);
+    });
+    setImageWarning(null);
+  }, []);
+
+  const clearPendingImageAttachments = useCallback(() => {
+    setPendingImageAttachments((current) => {
+      for (const attachment of current) {
+        URL.revokeObjectURL(attachment.url);
+      }
+
+      return [];
+    });
+    setImageWarning(null);
+  }, []);
+
+  const handleDeleteImageAttachment = useCallback(async (
+    messageId: string,
+    attachmentId: string
+  ) => {
+    const message = activeConversationMessages.find((item) => item.id === messageId);
+    const attachment = message?.attachments?.find((item) => item.id === attachmentId);
+    if (!message || !attachment) {
+      return;
+    }
+
+    if (attachment.url?.startsWith('blob:')) {
+      URL.revokeObjectURL(attachment.url);
+    }
+
+    const removeFromMessages = (messages: Message[]) =>
+      messages.map((item) =>
+        item.id === messageId
+          ? {
+              ...item,
+              attachments: (item.attachments || []).filter((image) => image.id !== attachmentId),
+            }
+          : item
+      );
+
+    if (selectedChat?.kind === 'temporary') {
+      updateTemporaryChat(selectedChat.tempChatId, (chat) => ({
+        ...chat,
+        messages: removeFromMessages(chat.messages),
+        updatedAt: new Date().toISOString(),
+      }));
+    } else if (selectedChat?.kind === 'draft') {
+      updateDraftChat(selectedChat.draftId, (draft) => ({
+        ...draft,
+        messages: removeFromMessages(draft.messages),
+        updatedAt: new Date().toISOString(),
+      }));
+    } else if (selectedChat?.kind === 'persistent') {
+      setPersistentMessages((messages) => removeFromMessages(messages));
+    }
+
+    try {
+      await supabase
+        .from('message_attachments')
+        .delete()
+        .eq('storage_path', attachment.storagePath);
+      await supabase.storage
+        .from(CHAT_IMAGE_BUCKET)
+        .remove([attachment.storagePath]);
+    } catch (error) {
+      setImageWarning(error instanceof Error ? error.message : 'Failed to delete image.');
+    }
+  }, [
+    activeConversationMessages,
+    selectedChat,
+    setPersistentMessages,
+    updateDraftChat,
+    updateTemporaryChat,
+  ]);
 
   const clearComposerInputForSelection = useCallback((selection: SelectedChat | null) => {
     const key = getComposerStateKey(selection);
@@ -1239,6 +1364,7 @@ function HomePageInner() {
     setComposerDraftInputsByChatKey({});
     setPendingChatRequestsByChatKey({});
     setSearchStatesByChatKey({});
+    clearPendingImageAttachments();
     endProgrammaticTranscriptNavigation();
     setUserHasScrolledState(false);
     setListError(null);
@@ -1288,6 +1414,7 @@ function HomePageInner() {
     });
   }, [
     endProgrammaticTranscriptNavigation,
+    clearPendingImageAttachments,
     homeE2eFixture,
     resetThreadUi,
     setUserHasScrolledState,
@@ -1301,6 +1428,7 @@ function HomePageInner() {
       tts.stop();
       stopMic();
       resetThreadUi();
+      clearPendingImageAttachments();
       setPendingBranch(null);
       setConversationMapOpen(false);
       endProgrammaticTranscriptNavigation();
@@ -1350,6 +1478,7 @@ function HomePageInner() {
       clearComposerInputForSelection,
       clearPendingChatRequestForSelection,
       clearSearchStateForSelection,
+      clearPendingImageAttachments,
       endProgrammaticTranscriptNavigation,
       resetThreadUi,
       setConversationMapOpen,
@@ -1489,15 +1618,31 @@ function HomePageInner() {
   useEffect(() => {
     registerCloseTempChatCleanup((tempChatId: string) => {
       const closedSelection: SelectedChat = { kind: 'temporary', tempChatId };
+      const closedChat = temporaryChatsRef.current.find((chat) => chat.id === tempChatId);
+      const storagePaths = Array.from(
+        new Set(
+          (closedChat?.messages || [])
+            .flatMap((message) => message.attachments || [])
+            .map((attachment) => attachment.storagePath)
+            .filter(Boolean)
+        )
+      );
+
+      if (storagePaths.length > 0) {
+        void supabase.storage.from(CHAT_IMAGE_BUCKET).remove(storagePaths);
+      }
+
       clearComposerInputForSelection(closedSelection);
       clearSearchStateForSelection(closedSelection);
       clearPendingChatRequestForSelection(closedSelection);
+      clearPendingImageAttachments();
     });
   }, [
     registerCloseTempChatCleanup,
     clearComposerInputForSelection,
     clearSearchStateForSelection,
     clearPendingChatRequestForSelection,
+    clearPendingImageAttachments,
   ]);
 
   const setTemporaryThreadMessages = useCallback(
@@ -2455,11 +2600,28 @@ function HomePageInner() {
     transcription.interimTranscript,
   ]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const textToSend = input.trim();
-    if (textToSend) {
-      sendMessage(textToSend);
+    const imagesToSend = pendingImageAttachmentsRef.current;
+
+    if (!textToSend && imagesToSend.length === 0) {
+      return;
+    }
+
+    try {
+      setIsUploadingImages(true);
+      setImageWarning(null);
+      const uploadedAttachments = await uploadChatImageAttachments(imagesToSend);
+      for (const attachment of imagesToSend) {
+        URL.revokeObjectURL(attachment.url);
+      }
+      setPendingImageAttachments([]);
+      await sendMessage(textToSend, uploadedAttachments);
+    } catch (error) {
+      setImageWarning(error instanceof Error ? error.message : 'Failed to upload image.');
+    } finally {
+      setIsUploadingImages(false);
     }
   };
 
@@ -2543,6 +2705,7 @@ function HomePageInner() {
                 onThreadClick={handleThreadMarkerClick}
                 onSelectBranch={handleSelectBranch}
                 onCreateBranch={handleCreateBranch}
+                onDeleteImageAttachment={handleDeleteImageAttachment}
                 onAssistantPointerUp={handlePointerUp}
               />
               <TextSelectionPopover
@@ -2592,7 +2755,9 @@ function HomePageInner() {
           chatModels={chatModels}
           input={input}
           isLoading={isLoading}
+          isUploadingImages={isUploadingImages}
           micActive={micActive}
+          pendingImageAttachments={pendingImageAttachments}
           selectedModelId={selectedModelId}
           ttsEnabled={ttsEnabled}
           searchEnabled={searchEnabled}
@@ -2606,6 +2771,7 @@ function HomePageInner() {
           microphoneStatus={microphone.status}
           microphoneErrorMessage={microphone.errorMessage}
           searchWarning={activeSearchState?.warning ?? null}
+          imageWarning={imageWarning}
           isTtsLoading={tts.isLoading}
           isTtsPlaying={tts.isPlaying}
           textareaRef={textareaRef}
@@ -2613,6 +2779,8 @@ function HomePageInner() {
           waveformGlowRef={visualization.glowRef}
           waveformContainerRef={visualization.visualRef}
           onInputChange={(value) => setComposerInputForSelection(composerStateSelection, value)}
+          onAttachImages={handleAttachImages}
+          onRemoveImageAttachment={handleRemoveImageAttachment}
           onModelChange={setSelectedModelId}
           onToggleMic={toggleMic}
           onToggleTts={toggleTtsEnabled}

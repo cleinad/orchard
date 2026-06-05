@@ -5,12 +5,21 @@ import {
   createUIMessageStreamResponse,
   generateText,
   streamText,
+  type ModelMessage,
 } from 'ai';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
 import { loadMemoryContextV2 } from '@/lib/memory-reader';
 import { processMemoryV2 } from '@/lib/memory-agent';
 import { isChatModelId } from '@/lib/chat-models';
 import { getChatModel, resolveChatModelSelection } from '@/lib/models';
+import {
+  CHAT_IMAGE_BUCKET,
+  MAX_CHAT_IMAGE_ATTACHMENTS,
+  MAX_CHAT_IMAGE_BYTES,
+  type ChatImageAttachmentRequest,
+  isChatImageMimeType,
+  sanitizeAttachmentFileName,
+} from '@/lib/chat-attachments';
 import {
   applySearchDisclosure,
   createFailedSearchMetadata,
@@ -55,6 +64,10 @@ interface ContextMessage extends ChatHistoryMessage {
   searchMetadata: PersistedSearchMetadata | null;
 }
 
+interface LoadedChatImageAttachment extends ChatImageAttachmentRequest {
+  bytes: Uint8Array;
+}
+
 interface ReplyContext {
   currentTime: string;
   userName: string | null;
@@ -78,6 +91,7 @@ interface ChatRequest {
   memoryMode?: TemporaryMemoryMode;
   history?: ChatHistoryMessage[];
   threadHistory?: ChatHistoryMessage[];
+  attachments?: ChatImageAttachmentRequest[];
 }
 
 interface PersistedMainMessage {
@@ -213,6 +227,125 @@ ${memoryContext}
 
 function sanitizeSearchQuery(value: string) {
   return value.replace(/\s+/g, ' ').trim().slice(0, 280);
+}
+
+function buildMessagePromptText(message: string, attachmentCount: number) {
+  const trimmed = message.trim();
+  if (trimmed) {
+    return trimmed;
+  }
+
+  if (attachmentCount === 1) {
+    return 'Please answer based on the attached image.';
+  }
+
+  return `Please answer based on the attached ${attachmentCount} images.`;
+}
+
+function validateAttachmentRequests(
+  value: unknown,
+  userId: string
+): { attachments: ChatImageAttachmentRequest[]; error: string | null } {
+  if (value == null) {
+    return { attachments: [], error: null };
+  }
+
+  if (!Array.isArray(value)) {
+    return { attachments: [], error: 'Attachments must be an array' };
+  }
+
+  if (value.length > MAX_CHAT_IMAGE_ATTACHMENTS) {
+    return {
+      attachments: [],
+      error: `Attach up to ${MAX_CHAT_IMAGE_ATTACHMENTS} images at a time`,
+    };
+  }
+
+  const attachments: ChatImageAttachmentRequest[] = [];
+  const seenPaths = new Set<string>();
+
+  for (const item of value) {
+    if (typeof item !== 'object' || item === null) {
+      return { attachments: [], error: 'Invalid image attachment' };
+    }
+
+    const record = item as Record<string, unknown>;
+    const storagePath = typeof record.storagePath === 'string' ? record.storagePath.trim() : '';
+    const fileName = typeof record.fileName === 'string' ? record.fileName : 'image';
+    const mimeType = record.mimeType;
+    const sizeBytes = typeof record.sizeBytes === 'number' ? record.sizeBytes : 0;
+    const width = typeof record.width === 'number' && Number.isFinite(record.width)
+      ? Math.max(1, Math.round(record.width))
+      : null;
+    const height = typeof record.height === 'number' && Number.isFinite(record.height)
+      ? Math.max(1, Math.round(record.height))
+      : null;
+
+    if (
+      !storagePath
+      || storagePath.includes('..')
+      || storagePath.startsWith('/')
+      || !storagePath.startsWith(`${userId}/`)
+      || seenPaths.has(storagePath)
+    ) {
+      return { attachments: [], error: 'Invalid image storage path' };
+    }
+
+    if (!isChatImageMimeType(mimeType)) {
+      return { attachments: [], error: 'Unsupported image type' };
+    }
+
+    if (!Number.isFinite(sizeBytes) || sizeBytes <= 0 || sizeBytes > MAX_CHAT_IMAGE_BYTES) {
+      return {
+        attachments: [],
+        error: `Images must be ${Math.floor(MAX_CHAT_IMAGE_BYTES / 1024 / 1024)}MB or smaller`,
+      };
+    }
+
+    seenPaths.add(storagePath);
+    attachments.push({
+      storagePath,
+      fileName: sanitizeAttachmentFileName(fileName),
+      mimeType,
+      sizeBytes: Math.round(sizeBytes),
+      width,
+      height,
+    });
+  }
+
+  return { attachments, error: null };
+}
+
+async function loadChatImageAttachments(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  attachments: ChatImageAttachmentRequest[]
+): Promise<{ attachments: LoadedChatImageAttachment[]; error: string | null }> {
+  const loaded: LoadedChatImageAttachment[] = [];
+
+  for (const attachment of attachments) {
+    const { data, error } = await supabase.storage
+      .from(CHAT_IMAGE_BUCKET)
+      .download(attachment.storagePath);
+
+    if (error || !data) {
+      console.error('[chat] failed to load image attachment', {
+        storagePath: attachment.storagePath,
+        error,
+      });
+      return {
+        attachments: [],
+        error: 'Could not load one of the attached images',
+      };
+    }
+
+    const arrayBuffer = await data.arrayBuffer();
+    loaded.push({
+      ...attachment,
+      bytes: new Uint8Array(arrayBuffer),
+    });
+  }
+
+  return { attachments: loaded, error: null };
 }
 
 function sanitizeAssistantContentForReuse(
@@ -361,7 +494,23 @@ export async function POST(request: NextRequest) {
       memoryMode: memoryModeFromBody,
       history,
       threadHistory,
+      attachments: attachmentInput,
     } = body;
+    const { attachments, error: attachmentValidationError } =
+      validateAttachmentRequests(attachmentInput, user.id);
+    if (attachmentValidationError) {
+      return NextResponse.json({ error: attachmentValidationError }, { status: 400 });
+    }
+
+    const { attachments: loadedAttachments, error: attachmentLoadError } =
+      await loadChatImageAttachments(supabase, attachments);
+    if (attachmentLoadError) {
+      return NextResponse.json({ error: attachmentLoadError }, { status: 400 });
+    }
+
+    const messageText = message?.trim() ?? '';
+    const messageForPrompt = buildMessagePromptText(messageText, loadedAttachments.length);
+    const messageForTitle = messageText || 'Image question';
     const isTemporaryChat = chatMode === 'temporary';
     // Temporary chats default to no memory when omitted; persistent chats keep prior behavior.
     const memoryMode: TemporaryMemoryMode =
@@ -370,9 +519,9 @@ export async function POST(request: NextRequest) {
     const sanitizedHistory = sanitizeHistoryMessages(history, 50);
     const sanitizedThreadHistory = sanitizeHistoryMessages(threadHistory, 30);
 
-    if (!message?.trim()) {
+    if (!messageText && loadedAttachments.length === 0) {
       return NextResponse.json(
-        { error: 'Message is required' },
+        { error: 'Message or image is required' },
         { status: 400 }
       );
     }
@@ -384,7 +533,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const fallbackConversationTitle = fallbackChatTitleFromMessage(message);
+    const fallbackConversationTitle = fallbackChatTitleFromMessage(messageForTitle);
     let activeConversationId = isTemporaryChat ? null : conversationId ?? null;
     let createdConversation = false;
 
@@ -623,7 +772,7 @@ export async function POST(request: NextRequest) {
           conversation_id: activeConversationId,
           user_id: user.id,
           role: 'user',
-          content: message,
+          content: messageText,
           ...(activeThreadId
             ? { thread_id: activeThreadId, parent_message_id: sourceMessageId || null }
             : { previous_message_id: effectivePreviousMessageId }),
@@ -636,6 +785,28 @@ export async function POST(request: NextRequest) {
       }
 
       latestUserMessageId = userMessageRow?.id ?? null;
+
+      if (latestUserMessageId && loadedAttachments.length > 0) {
+        const attachmentRows = loadedAttachments.map((attachment, index) => ({
+          message_id: latestUserMessageId,
+          user_id: user.id,
+          storage_bucket: CHAT_IMAGE_BUCKET,
+          storage_path: attachment.storagePath,
+          file_name: attachment.fileName,
+          mime_type: attachment.mimeType,
+          size_bytes: attachment.sizeBytes,
+          width: attachment.width,
+          height: attachment.height,
+          position: index,
+        }));
+        const { error: attachmentInsertError } = await supabase
+          .from('message_attachments')
+          .insert(attachmentRows);
+
+        if (attachmentInsertError) {
+          console.error('Error saving message attachments:', attachmentInsertError);
+        }
+      }
 
       if (
         latestUserMessageId
@@ -668,7 +839,7 @@ export async function POST(request: NextRequest) {
             source_message_id: branchSourceForMessage,
             entry_message_id: latestUserMessageId,
             user_id: user.id,
-            title: fallbackChatTitleFromMessage(message, 'New branch'),
+            title: fallbackChatTitleFromMessage(messageForTitle, 'New branch'),
             is_main: false,
             position: getNextBranchPosition(
               existingBranchPositions,
@@ -689,9 +860,9 @@ export async function POST(request: NextRequest) {
         ? [
             ...sanitizedHistory,
             ...sanitizedThreadHistory,
-            { role: 'user', content: message.trim(), searchMetadata: null },
+            { role: 'user', content: messageForPrompt, searchMetadata: null },
           ]
-        : [...sanitizedHistory, { role: 'user', content: message.trim(), searchMetadata: null }];
+        : [...sanitizedHistory, { role: 'user', content: messageForPrompt, searchMetadata: null }];
     } else if (activeThreadId) {
       const { data: mainHistory } = await supabase
         .from('messages')
@@ -713,7 +884,7 @@ export async function POST(request: NextRequest) {
         80
       );
       if (messages.length === 0) {
-        messages = [{ role: 'user', content: message.trim(), searchMetadata: null }];
+        messages = [{ role: 'user', content: messageForPrompt, searchMetadata: null }];
       }
     } else {
       const { data: historyRows } = await supabase
@@ -731,8 +902,16 @@ export async function POST(request: NextRequest) {
 
       messages = sanitizeHistoryMessages(pathHistory, 50);
       if (messages.length === 0) {
-        messages = [{ role: 'user', content: message.trim(), searchMetadata: null }];
+        messages = [{ role: 'user', content: messageForPrompt, searchMetadata: null }];
       }
+    }
+
+    const latestContextMessage = messages[messages.length - 1] ?? null;
+    if (
+      latestContextMessage?.role !== 'user'
+      || latestContextMessage.content !== messageForPrompt
+    ) {
+      messages = [...messages, { role: 'user', content: messageForPrompt, searchMetadata: null }];
     }
 
     const isMentorConversation = !!mentor;
@@ -741,7 +920,7 @@ export async function POST(request: NextRequest) {
       ? await loadMemoryContextV2(supabase, user.id, {
           actor: isMentorConversation ? 'mentor' : 'default',
           mentorId: mentor?.id ?? null,
-          query: message,
+          query: messageForPrompt,
           tokenBudget: isMentorConversation ? 900 : 1100,
           maxItems: isMentorConversation ? 24 : 30,
         })
@@ -794,10 +973,43 @@ export async function POST(request: NextRequest) {
       baseSystemPrompt += `\n\nThe user started this thread from the highlighted text: "${sanitizedText}". Use that as local context, but answer the user's latest question directly. Do not explain the highlighted text unless the latest question asks for that.`;
     }
 
-    const modelMessages = messages.map((messageItem) => ({
-      role: messageItem.role,
-      content: messageItem.content,
-    }));
+    let latestUserMessageIndex = -1;
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      if (messages[index].role === 'user') {
+        latestUserMessageIndex = index;
+        break;
+      }
+    }
+
+    if (latestUserMessageIndex === -1) {
+      messages = [...messages, { role: 'user', content: messageForPrompt, searchMetadata: null }];
+      latestUserMessageIndex = messages.length - 1;
+    }
+
+    const modelMessages: ModelMessage[] = messages.map((messageItem, index) => {
+      if (
+        messageItem.role === 'assistant'
+        || index !== latestUserMessageIndex
+        || loadedAttachments.length === 0
+      ) {
+        return {
+          role: messageItem.role,
+          content: messageItem.content,
+        };
+      }
+
+      return {
+        role: messageItem.role,
+        content: [
+          { type: 'text' as const, text: messageItem.content || messageForPrompt },
+          ...loadedAttachments.map((attachment) => ({
+            type: 'image' as const,
+            image: attachment.bytes,
+            mediaType: attachment.mimeType,
+          })),
+        ],
+      };
+    });
 
     // Resolve the final system prompt and search metadata before streaming begins.
     // Search planning (which may call the LLM once) must complete before we open the stream.
@@ -810,14 +1022,14 @@ export async function POST(request: NextRequest) {
       const searchTelemetry = createSearchTelemetry({
         traceId: searchTraceId,
         conversationId: activeConversationId,
-        query: message,
+        query: messageForPrompt,
       });
       const searchStartedAt = Date.now();
 
       searchTelemetry.logRequestStarted({ searchMode });
 
       try {
-        const searchOutput = await runSearchPipeline(message, {
+        const searchOutput = await runSearchPipeline(messageForPrompt, {
           telemetry: searchTelemetry,
         });
         search = createSearchMetadataFromOutput(searchOutput, searchMode);
@@ -836,7 +1048,7 @@ export async function POST(request: NextRequest) {
         search = createFailedSearchMetadata(
           searchMode,
           'upstream_error',
-          sanitizeSearchQuery(message) || null
+          sanitizeSearchQuery(messageForPrompt) || null
         );
         finalSystemPrompt = `${baseSystemPrompt}\n\nLive web search is unavailable in this environment. If the question depends on fresh information, say that briefly and answer with an appropriate caveat. Do not return an empty response.`;
       }
@@ -947,7 +1159,7 @@ export async function POST(request: NextRequest) {
               after(async () => {
                 try {
                   const generatedTitle = await generateConversationTitle(
-                    message,
+                    messageForTitle,
                     cleanAssistantResponse
                   );
 

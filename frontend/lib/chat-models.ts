@@ -11,6 +11,7 @@ export interface ChatModelOption {
   provider: ChatModelProvider;
   apiModelId: string;
   envVar: 'OPENAI_API_KEY' | 'ANTHROPIC_API_KEY' | 'GOOGLE_GENERATIVE_AI_API_KEY';
+  supportsImages: boolean;
 }
 
 export interface ChatModelListItem {
@@ -19,6 +20,7 @@ export interface ChatModelListItem {
   provider: ChatModelProvider;
   available: boolean;
   isDefault: boolean;
+  supportsImages: boolean;
 }
 
 export interface ResolvedChatModelSelection {
@@ -37,6 +39,7 @@ export const CHAT_MODEL_OPTIONS: readonly ChatModelOption[] = [
     provider: 'openai',
     apiModelId: 'gpt-5.4',
     envVar: 'OPENAI_API_KEY',
+    supportsImages: true,
   },
   {
     id: 'claude-sonnet-4-6',
@@ -44,6 +47,7 @@ export const CHAT_MODEL_OPTIONS: readonly ChatModelOption[] = [
     provider: 'anthropic',
     apiModelId: 'claude-sonnet-4-6',
     envVar: 'ANTHROPIC_API_KEY',
+    supportsImages: true,
   },
   {
     id: 'gemini-3-flash-preview',
@@ -51,6 +55,7 @@ export const CHAT_MODEL_OPTIONS: readonly ChatModelOption[] = [
     provider: 'google',
     apiModelId: 'gemini-3-flash-preview',
     envVar: 'GOOGLE_GENERATIVE_AI_API_KEY',
+    supportsImages: true,
   },
 ] as const;
 

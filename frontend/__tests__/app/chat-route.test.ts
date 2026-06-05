@@ -11,6 +11,7 @@ const mockLoadMemoryContextV2 = vi.fn();
 const mockProcessMemoryV2 = vi.fn();
 const mockBuildMentorPrompt = vi.fn();
 const mockRunSearchPipeline = vi.fn();
+const mockStorageDownload = vi.fn();
 
 vi.mock('next/server', async (importOriginal) => {
   const actual = await importOriginal<typeof import('next/server')>();
@@ -148,6 +149,11 @@ function createAuthenticatedSupabase(tables: Record<string, { rows: object[]; re
         error: null,
       }),
     },
+    storage: {
+      from: vi.fn(() => ({
+        download: (...args: unknown[]) => mockStorageDownload(...args),
+      })),
+    },
   };
 
   return { supabase, tracker };
@@ -214,6 +220,10 @@ describe('chat route memory contract', () => {
           publishedAt: null,
         },
       ],
+    });
+    mockStorageDownload.mockResolvedValue({
+      data: new Blob([new Uint8Array([1, 2, 3])], { type: 'image/png' }),
+      error: null,
     });
   });
 
@@ -451,5 +461,179 @@ describe('chat route memory contract', () => {
         system: expect.stringContaining('Do not return an empty response.'),
       })
     );
+  });
+
+  it('rejects more than five image attachments', async () => {
+    const attachments = Array.from({ length: 6 }, (_, index) => ({
+      storagePath: `user-1/image-${index}.png`,
+      fileName: `image-${index}.png`,
+      mimeType: 'image/png',
+      sizeBytes: 123,
+    }));
+
+    const { response, body } = await runChatRequest({
+      message: 'Read these',
+      chatMode: 'temporary',
+      attachments,
+    });
+
+    expect(response.status).toBe(400);
+    expect(body.error).toBe('Attach up to 5 images at a time');
+    expect(mockStorageDownload).not.toHaveBeenCalled();
+  });
+
+  it('sends the latest user image attachments as model image parts', async () => {
+    const { response } = await runChatRequest({
+      message: 'What does this screenshot say?',
+      chatMode: 'temporary',
+      attachments: [
+        {
+          storagePath: 'user-1/screenshot.png',
+          fileName: 'screenshot.png',
+          mimeType: 'image/png',
+          sizeBytes: 123,
+          width: 640,
+          height: 480,
+        },
+      ],
+    });
+
+    expect(response.status).toBe(200);
+    expect(mockStorageDownload).toHaveBeenCalledWith('user-1/screenshot.png');
+    expect(mockStreamText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: [
+          expect.objectContaining({
+            role: 'user',
+            content: [
+              { type: 'text', text: 'What does this screenshot say?' },
+              expect.objectContaining({
+                type: 'image',
+                mediaType: 'image/png',
+                image: expect.any(Uint8Array),
+              }),
+            ],
+          }),
+        ],
+      })
+    );
+  });
+
+  it('keeps image-only turns attached to the current prompt in existing conversations', async () => {
+    const { response } = await runChatRequest(
+      {
+        message: '',
+        conversationId: 'conv-existing-image-only',
+        attachments: [
+          {
+            storagePath: 'user-1/image-only.png',
+            fileName: 'image-only.png',
+            mimeType: 'image/png',
+            sizeBytes: 123,
+          },
+        ],
+      },
+      {
+        conversations: {
+          rows: [{ id: 'conv-existing-image-only', mentor_id: null }],
+        },
+        messages: {
+          rows: [
+            {
+              id: 'msg-user-previous',
+              role: 'user',
+              content: 'Earlier prompt',
+              previous_message_id: null,
+              created_at: '2026-06-04T12:00:00.000Z',
+            },
+            {
+              id: 'msg-assistant-previous',
+              role: 'assistant',
+              content: 'Earlier reply',
+              previous_message_id: 'msg-user-previous',
+              created_at: '2026-06-04T12:00:01.000Z',
+            },
+            {
+              id: 'msg-user-image-only',
+              role: 'user',
+              content: '',
+              previous_message_id: 'msg-assistant-previous',
+              created_at: '2026-06-04T12:00:02.000Z',
+            },
+          ],
+          returnOnMutate: [{ id: 'msg-user-image-only' }, { id: 'msg-assistant-image-only' }],
+        },
+      }
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockStreamText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: [
+          expect.objectContaining({
+            role: 'user',
+            content: 'Earlier prompt',
+          }),
+          expect.objectContaining({
+            role: 'assistant',
+            content: 'Earlier reply',
+          }),
+          expect.objectContaining({
+            role: 'user',
+            content: [
+              { type: 'text', text: 'Please answer based on the attached image.' },
+              expect.objectContaining({
+                type: 'image',
+                mediaType: 'image/png',
+              }),
+            ],
+          }),
+        ],
+      })
+    );
+  });
+
+  it('persists image attachment metadata for persistent user messages', async () => {
+    const { response, tracker } = await runChatRequest(
+      {
+        message: 'Describe this image',
+        attachments: [
+          {
+            storagePath: 'user-1/photo.png',
+            fileName: 'photo.png',
+            mimeType: 'image/png',
+            sizeBytes: 123,
+            width: 800,
+            height: 600,
+          },
+        ],
+      },
+      {
+        conversations: {
+          rows: [],
+          returnOnMutate: [{ id: 'conv-image-1' }],
+        },
+        messages: {
+          rows: [],
+          returnOnMutate: [{ id: 'msg-user-image-1' }, { id: 'msg-assistant-image-1' }],
+        },
+      }
+    );
+
+    expect(response.status).toBe(200);
+    expect(tracker.inserts('message_attachments')[0].args).toEqual([
+      expect.objectContaining({
+        message_id: 'msg-user-image-1',
+        user_id: 'user-1',
+        storage_bucket: 'chat-images',
+        storage_path: 'user-1/photo.png',
+        file_name: 'photo.png',
+        mime_type: 'image/png',
+        size_bytes: 123,
+        width: 800,
+        height: 600,
+        position: 0,
+      }),
+    ]);
   });
 });
