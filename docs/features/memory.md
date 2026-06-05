@@ -97,11 +97,11 @@ Stores `text-embedding-3-small` (1536-dim) vectors for semantic retrieval. One e
 
 `loadMemoryContextV2()` in `memory-items-server.ts` assembles memory context in three ranked blocks:
 
-1. **Core Profile** — stable, high-salience items (up to 9 for Keen, 6 for mentors). Scored by salience (52%), confidence (20%), recency (16%), plus bonuses for global ownership and core profile types.
+1. **Core Profile** — stable, always-useful profile items (up to 9 for Keen, 6 for mentors). Only `profile`, `identity`, `goal`, and `constraint` types are eligible. Scored by salience (52%), confidence (20%), recency (16%), plus a bonus for global ownership.
 
-2. **Relevant Recall** — items matching the current query via semantic + lexical similarity (up to 16 for Keen, 12 for mentors). Scored by semantic similarity (50%), lexical overlap (20%), salience (15%), recency (7%), confidence (8%).
+2. **Relevant Recall** — items matching the current query via semantic or lexical similarity (up to 16 for Keen, 12 for mentors). Items must pass a relevance gate before ranking: semantic similarity at least `0.68` or lexical overlap at least `0.25`. Eligible items are scored by semantic similarity (50%), lexical overlap (20%), salience (15%), recency (7%), confidence (8%).
 
-3. **Recent Episodic** — recent episodic items not already selected (up to 8). Scored by salience (40%), recency (40%), confidence (20%).
+3. **Recent Episodic** — recent episodic items not already selected (up to 8). Items must pass the same semantic/lexical relevance gate as Relevant Recall, then are scored by salience (40%), recency (40%), confidence (20%).
 
 All three blocks are trimmed to a token budget (800-1200 tokens, default 1000) and item cap (20-35 items, default 28). Trimming drops episodic first, then relevant, then core (keeping a minimum of 3 core items for Keen, 2 for mentors).
 

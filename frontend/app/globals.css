@@ -203,6 +203,46 @@ body {
   margin-bottom: 0;
 }
 
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3,
+.markdown-content h4,
+.markdown-content h5,
+.markdown-content h6 {
+  margin: 1.45rem 0 0.6rem;
+  color: inherit;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1.18;
+}
+
+.markdown-content h1 {
+  font-size: 1.42em;
+}
+
+.markdown-content h2 {
+  font-size: 1.28em;
+}
+
+.markdown-content h3 {
+  font-size: 1.14em;
+}
+
+.markdown-content h4,
+.markdown-content h5,
+.markdown-content h6 {
+  font-size: 1.02em;
+}
+
+.markdown-content h4 {
+  color: color-mix(in srgb, currentColor 88%, transparent);
+}
+
+.markdown-content h5,
+.markdown-content h6 {
+  color: color-mix(in srgb, currentColor 76%, transparent);
+}
+
 .markdown-content p,
 .markdown-content ul,
 .markdown-content ol,

@@ -14,15 +14,14 @@ const EMBEDDING_MODEL = openai.embedding('text-embedding-3-small');
 const DEFAULT_TOKEN_BUDGET = 1000;
 const DEFAULT_MAX_ITEMS = 28;
 const MAX_SELECT_ITEMS = 600;
+const MIN_RELEVANT_SEMANTIC_SCORE = 0.68;
+const MIN_RELEVANT_LEXICAL_SCORE = 0.25;
 
 const CORE_PROFILE_TYPES = new Set([
   'profile',
   'identity',
   'goal',
-  'preference',
   'constraint',
-  'project',
-  'work',
 ]);
 
 type ScoredItem = {
@@ -68,7 +67,7 @@ export async function loadMemoryContextV2(
     options.query || ''
   );
 
-  const coreItems = selectCoreProfileItems(actor, activeItems, globalItems, retrievalPool);
+  const coreItems = selectCoreProfileItems(actor, activeItems, globalItems);
   const selectedIds = new Set(coreItems.map((entry) => entry.item.id));
 
   const relevantItems = selectRelevantItems(
@@ -82,7 +81,12 @@ export async function loadMemoryContextV2(
     selectedIds.add(entry.item.id);
   }
 
-  const episodicItems = selectRecentEpisodicItems(episodicPool, selectedIds);
+  const episodicItems = selectRecentEpisodicItems(
+    episodicPool,
+    options.query || '',
+    semanticScoreMap,
+    selectedIds
+  );
 
   const tokenBudget = clamp(options.tokenBudget ?? DEFAULT_TOKEN_BUDGET, 800, 1200);
   const maxItems = clamp(options.maxItems ?? DEFAULT_MAX_ITEMS, 20, 35);
@@ -268,8 +272,7 @@ async function loadSemanticScoresViaRows(
 function selectCoreProfileItems(
   actor: MemoryActor,
   allItems: MemoryItem[],
-  globalItems: MemoryItem[],
-  retrievalPool: MemoryItem[]
+  globalItems: MemoryItem[]
 ): ScoredItem[] {
   const pool =
     actor === 'mentor'
@@ -277,17 +280,16 @@ function selectCoreProfileItems(
       : allItems.filter((item) => item.stability === 'stable');
 
   const scored = pool
+    .filter((item) => CORE_PROFILE_TYPES.has(item.type.trim().toLowerCase()))
     .map((item) => {
       const salience = item.salience / 100;
       const confidence = item.confidence;
       const recency = recencyScore(item.updated_at);
       const ownerBonus = item.owner_type === 'global' ? 0.08 : 0;
-      const typeBonus = CORE_PROFILE_TYPES.has(item.type.trim().toLowerCase()) ? 0.12 : 0;
 
       return {
         item,
-        score:
-          salience * 0.52 + confidence * 0.2 + recency * 0.16 + ownerBonus + typeBonus,
+        score: salience * 0.52 + confidence * 0.2 + recency * 0.16 + ownerBonus,
       };
     })
     .sort((a, b) => b.score - a.score);
@@ -317,8 +319,9 @@ function selectRelevantItems(
       const score =
         semantic * 0.5 + lexical * 0.2 + salience * 0.15 + recency * 0.07 + confidence * 0.08;
 
-      return { item, score };
+      return { item, score, semantic, lexical };
     })
+    .filter((entry) => isMemoryRelevant(entry.semantic, entry.lexical))
     .sort((a, b) => b.score - a.score);
 
   const maxRelevant = actor === 'mentor' ? 12 : 16;
@@ -327,22 +330,35 @@ function selectRelevantItems(
 
 function selectRecentEpisodicItems(
   episodicPool: MemoryItem[],
+  query: string,
+  semanticScoreMap: Map<string, number>,
   selectedIds: Set<string>
 ): ScoredItem[] {
+  const cleanQuery = query.trim();
+
   const scored = episodicPool
     .filter((item) => !selectedIds.has(item.id))
     .map((item) => {
       const recency = recencyScore(item.updated_at);
       const salience = item.salience / 100;
       const confidence = item.confidence;
+      const semantic = semanticScoreMap.get(item.id) ?? 0;
+      const lexical = cleanQuery ? lexicalOverlapScore(cleanQuery, item.text) : 0;
       return {
         item,
         score: salience * 0.4 + recency * 0.4 + confidence * 0.2,
+        semantic,
+        lexical,
       };
     })
+    .filter((entry) => isMemoryRelevant(entry.semantic, entry.lexical))
     .sort((a, b) => b.score - a.score);
 
   return scored.slice(0, 8);
+}
+
+function isMemoryRelevant(semantic: number, lexical: number): boolean {
+  return semantic >= MIN_RELEVANT_SEMANTIC_SCORE || lexical >= MIN_RELEVANT_LEXICAL_SCORE;
 }
 
 function trimToBudget(

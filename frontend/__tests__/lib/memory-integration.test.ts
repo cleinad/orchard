@@ -480,6 +480,43 @@ describe('loadMemoryContextV2 — read path', () => {
     expect(result).toContain('Wants to learn Rust');
   });
 
+  it('does not include unrelated stable interests in core or recall', async () => {
+    const items: MemoryItem[] = [
+      makeMemoryItem({
+        id: 'unrelated-interest',
+        type: 'preference',
+        text: 'User likes sourdough bread',
+        salience: 100,
+        confidence: 1,
+        stability: 'stable',
+      }),
+      makeMemoryItem({
+        id: 'unrelated-project',
+        type: 'project',
+        text: 'User is building a music notation app',
+        salience: 95,
+        confidence: 1,
+        stability: 'stable',
+      }),
+    ];
+
+    const { client } = createMockSupabase({
+      tables: {
+        memory_items: { rows: items },
+        memory_item_embeddings: { rows: [] },
+      },
+    });
+
+    const { loadMemoryContextV2 } = await import('@/lib/memory-items-server');
+    const result = await loadMemoryContextV2(client as any, 'user-1', {
+      actor: 'default',
+      query: 'Explain database indexes',
+    });
+
+    expect(result).not.toContain('User likes sourdough bread');
+    expect(result).not.toContain('User is building a music notation app');
+  });
+
   it('trims to budget, dropping episodic items first', async () => {
     // Create many items that will exceed the default 1000 token budget
     const stableItems = Array.from({ length: 10 }, (_, i) =>
@@ -595,9 +632,8 @@ describe('loadMemoryContextV2 — read path', () => {
 
     expect(tracker.rpcs).toHaveLength(1);
     expect(result).toContain('## Relevant Recall');
-    expect(result.indexOf('Semantic RPC winner')).toBeLessThan(
-      result.indexOf('Lower semantic score item')
-    );
+    expect(result).toContain('Semantic RPC winner');
+    expect(result).not.toContain('Lower semantic score item');
   });
 
   it('falls back to row embeddings when RPC semantic retrieval returns empty', async () => {
@@ -646,9 +682,8 @@ describe('loadMemoryContextV2 — read path', () => {
 
     expect(tracker.rpcs).toHaveLength(1);
     expect(tracker.selects('memory_item_embeddings')).toHaveLength(1);
-    expect(result.indexOf('Embedding row fallback winner')).toBeLessThan(
-      result.indexOf('Embedding row fallback loser')
-    );
+    expect(result).toContain('Embedding row fallback winner');
+    expect(result).not.toContain('Embedding row fallback loser');
   });
 
   it('falls back to row embeddings when RPC semantic retrieval errors', async () => {
@@ -697,8 +732,7 @@ describe('loadMemoryContextV2 — read path', () => {
 
     expect(tracker.rpcs).toHaveLength(1);
     expect(tracker.selects('memory_item_embeddings')).toHaveLength(1);
-    expect(result.indexOf('Embedding fallback after RPC error')).toBeLessThan(
-      result.indexOf('Other fallback candidate')
-    );
+    expect(result).toContain('Embedding fallback after RPC error');
+    expect(result).not.toContain('Other fallback candidate');
   });
 });

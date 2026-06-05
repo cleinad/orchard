@@ -39,23 +39,17 @@ import {
   sanitizeGeneratedChatTitle,
 } from '@/lib/chat-session';
 
-const BASE_SYSTEM_PROMPT = `You are Keen, a voice-native thinking partner. You help the user think through problems with depth, capture their thoughts, and stay on top of their commitments.
+const BASE_SYSTEM_PROMPT = `You are Keen, a thinking partner. You explain things to the user with precision, accuracy and understandability.
 
 Core traits:
-- You think WITH the user, not just respond to them. Ask probing questions, challenge assumptions, help them get to the bottom of things.
-- You remember context from the conversation and reference it naturally.
+- You remember context from the conversation and reference it if the user brings up the same/similar topic, you don't force a connection.
 - You're concise but substantive. No fluff, no generic advice. Go deep.
-- You extract and track commitments, action items, and key ideas without being asked.
-- You speak like a thoughtful friend who happens to have excellent memory - warm but direct.
 
-When the user is:
-- EXPLORING a topic: Ask "why" questions, surface tradeoffs, help them think it through
-- CAPTURING thoughts: Acknowledge, organize, and confirm what you understood
-- MANAGING tasks: Be proactive about priorities, follow up on commitments
+Be thorough with responses, when the user is diving deeper into topics give more detailed, precise answers, beyond scratching the surface.`;
 
-Keep responses conversational and focused. This is a voice conversation - avoid walls of text, bullet dumps, or overly formal language.
-When appropriate, answer questions directly without snarky validation or introductions. You can be more direct and less summarative at times because this is a conversation with a human.
-Exercise your judgement on when to be more direct and when to be more conversational, you are to be an excellent communicator.`;
+const MEMORY_USE_POLICY = `Use memory only when it directly improves the answer: continuing an existing thread or project, applying a known preference or constraint, resolving ambiguity, or avoiding asking for context the user already gave.
+Do not use memory to personalize examples, make analogies, or connect the current topic to unrelated interests unless the user asks for that kind of connection.
+If a memory is not relevant to the user's latest message, ignore it silently.`;
 
 interface ContextMessage extends ChatHistoryMessage {
   searchMetadata: PersistedSearchMetadata | null;
@@ -78,7 +72,6 @@ interface ChatRequest {
   highlightedText?: string;
   startOffset?: number;
   endOffset?: number;
-  concise?: boolean;
   searchEnabled?: boolean;
   timezone?: string;
   chatMode?: ChatMode;
@@ -187,7 +180,9 @@ function buildSystemPrompt(memoryContext: string, replyContext: ReplyContext): s
   return appendReplyContext(
     `${BASE_SYSTEM_PROMPT}
 
-You have memory about this user from previous conversations. Use it naturally — reference what you know as if you simply remember. Never announce that you are reading from memory or mention your memory system.
+You have memory about this user from previous conversations. Use it naturally: reference what you know as if you simply remember. Never announce that you are reading from memory or mention your memory system. 
+Only use it if it makes sense in context and if it's an appropriate time. Don't force connections between unrelated things.
+${MEMORY_USE_POLICY}
 
 <user_memory>
 ${memoryContext}
@@ -207,6 +202,7 @@ function buildMentorSystemPrompt(
     `${basePrompt}
 
 Use the user's memory naturally. Keep it implicit and never mention a memory system.
+${MEMORY_USE_POLICY}
 
 <user_memory>
 ${memoryContext}
@@ -359,7 +355,6 @@ export async function POST(request: NextRequest) {
       highlightedText,
       startOffset,
       endOffset,
-      concise,
       searchEnabled = false,
       timezone,
       chatMode = 'persistent',
@@ -796,11 +791,7 @@ export async function POST(request: NextRequest) {
     const threadHighlightedText = highlightedText || existingThreadHighlightedText;
     if (activeThreadId && threadHighlightedText) {
       const sanitizedText = threadHighlightedText.slice(0, 300).replace(/"/g, "'");
-      if (concise) {
-        baseSystemPrompt += `\n\nThe user has highlighted the phrase "${sanitizedText}" from the conversation and is asking about it. Respond in 2-3 sentences. Be direct and definitional.`;
-      } else {
-        baseSystemPrompt += `\n\nThe user is exploring a concept from the main conversation. The highlighted phrase was: "${sanitizedText}". Respond conversationally.`;
-      }
+      baseSystemPrompt += `\n\nThe user started this thread from the highlighted text: "${sanitizedText}". Use that as local context, but answer the user's latest question directly. Do not explain the highlighted text unless the latest question asks for that.`;
     }
 
     const modelMessages = messages.map((messageItem) => ({

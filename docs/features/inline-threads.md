@@ -85,7 +85,7 @@ The thread panel is the deeper exploration surface for the selected text.
 Key behavior:
 
 - It opens on the right side of the home screen.
-- Requests from the thread panel are not concise.
+- Requests from the thread panel answer the user's latest thread question directly while treating the selected text as local context.
 - Only one panel is visible at a time.
 - The newest submitted thread session becomes the active panel session.
 - Older sessions keep running in the background.
@@ -194,7 +194,7 @@ Durable thread rendering uses the same locator model as the active highlight:
 - `frontend/app/home/components/MarkdownWithThreads.tsx`
   - renders durable inline markers with status-aware styling
 - `frontend/app/api/chat/route.ts`
-  - handles the non-concise thread requests
+  - handles thread requests with selected text as local context
 
 ## Verification And Constraints
 
