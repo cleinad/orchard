@@ -4,6 +4,7 @@ import ReactMarkdown, { type Options } from "react-markdown";
 import {
   isValidElement,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ComponentPropsWithoutRef,
@@ -489,85 +490,97 @@ export default function MarkdownWithThreads({
   activeCitationSourceId = null,
   onCitationClick,
 }: MarkdownWithThreadsProps) {
-  const matches = normalizeThreadMatches(threads);
-  const threadById = new Map(matches.map((match) => [match.thread.markerId, match.thread]));
-  const validCitationSourceIds =
-    searchMetadata?.status === "success" && onCitationClick
-      ? new Set(searchMetadata.sources.map((source) => source.id))
-      : new Set<number>();
-  const inlineThreadPlugin =
-    [rehypeInlineThreads, matches] as unknown as NonNullable<Options["rehypePlugins"]>[number];
-  const inlineCitationPlugin =
-    [rehypeInlineCitations, validCitationSourceIds] as unknown as NonNullable<
-      Options["rehypePlugins"]
-    >[number];
-  const rehypePlugins: NonNullable<Options["rehypePlugins"]> =
-    [
+  const matches = useMemo(() => normalizeThreadMatches(threads), [threads]);
+  const threadById = useMemo(
+    () => new Map(matches.map((match) => [match.thread.markerId, match.thread])),
+    [matches]
+  );
+  const validCitationSourceIds = useMemo(
+    () =>
+      searchMetadata?.status === "success" && onCitationClick
+        ? new Set(searchMetadata.sources.map((source) => source.id))
+        : new Set<number>(),
+    [onCitationClick, searchMetadata]
+  );
+  const rehypePlugins: NonNullable<Options["rehypePlugins"]> = useMemo(() => {
+    const inlineThreadPlugin =
+      [rehypeInlineThreads, matches] as unknown as NonNullable<Options["rehypePlugins"]>[number];
+    const inlineCitationPlugin =
+      [rehypeInlineCitations, validCitationSourceIds] as unknown as NonNullable<
+        Options["rehypePlugins"]
+      >[number];
+
+    return [
       ...markdownRehypePlugins,
       ...(matches.length > 0 ? [inlineThreadPlugin] : []),
       ...(validCitationSourceIds.size > 0 ? [inlineCitationPlugin] : []),
     ];
+  }, [matches, validCitationSourceIds]);
+  const components = useMemo<NonNullable<Options["components"]>>(
+    () => ({
+      pre: CodeBlock,
+      span: ({ children, ...props }: SpanProps) => {
+        const threadId = props["data-inline-thread-id"];
+        if (typeof threadId === "string") {
+          const thread = threadById.get(threadId);
+          if (thread) {
+            const { ["data-inline-thread-id"]: _ignored, ...rest } = props;
+            return (
+              <ThreadIndicator thread={thread} onClick={onThreadClick}>
+                <span {...rest}>{children}</span>
+              </ThreadIndicator>
+            );
+          }
+        }
+
+        return <span {...props}>{children}</span>;
+      },
+      button: ({ children, ...props }: ButtonProps) => {
+        const sourceId = props["data-citation-source-id"];
+        if (typeof sourceId === "string" && onCitationClick) {
+          const numericSourceId = Number(sourceId);
+          if (Number.isInteger(numericSourceId)) {
+            const {
+              ["data-citation-source-id"]: _ignoredSourceId,
+              type: _ignoredType,
+              ...rest
+            } = props;
+
+            return (
+              <button
+                {...rest}
+                type="button"
+                data-testid="search-citation"
+                data-source-id={numericSourceId}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onCitationClick(numericSourceId);
+                }}
+                onPointerUp={(event) => event.stopPropagation()}
+                aria-pressed={activeCitationSourceId === numericSourceId}
+                className={`mx-0.5 inline-flex h-5 min-w-5 translate-y-[-0.05rem] items-center justify-center rounded-full border px-1.5 align-baseline text-[11px] font-medium transition-colors ${
+                  activeCitationSourceId === numericSourceId
+                    ? "border-foreground/20 bg-foreground/[0.08] text-foreground"
+                    : "border-border-subtle text-muted hover:bg-foreground/[0.04] hover:text-foreground"
+                }`}
+              >
+                {children}
+              </button>
+            );
+          }
+        }
+
+        return <button {...props}>{children}</button>;
+      },
+    }),
+    [activeCitationSourceId, onCitationClick, onThreadClick, threadById]
+  );
 
   return (
     <ReactMarkdown
       remarkPlugins={markdownRemarkPlugins}
       rehypePlugins={rehypePlugins}
-      components={{
-        pre: CodeBlock,
-        span: ({ children, ...props }: SpanProps) => {
-          const threadId = props["data-inline-thread-id"];
-          if (typeof threadId === "string") {
-            const thread = threadById.get(threadId);
-            if (thread) {
-              const { ["data-inline-thread-id"]: _ignored, ...rest } = props;
-              return (
-                <ThreadIndicator thread={thread} onClick={onThreadClick}>
-                  <span {...rest}>{children}</span>
-                </ThreadIndicator>
-              );
-            }
-          }
-
-          return <span {...props}>{children}</span>;
-        },
-        button: ({ children, ...props }: ButtonProps) => {
-          const sourceId = props["data-citation-source-id"];
-          if (typeof sourceId === "string" && onCitationClick) {
-            const numericSourceId = Number(sourceId);
-            if (Number.isInteger(numericSourceId)) {
-              const {
-                ["data-citation-source-id"]: _ignoredSourceId,
-                type: _ignoredType,
-                ...rest
-              } = props;
-
-              return (
-                <button
-                  {...rest}
-                  type="button"
-                  data-testid="search-citation"
-                  data-source-id={numericSourceId}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onCitationClick(numericSourceId);
-                  }}
-                  onPointerUp={(event) => event.stopPropagation()}
-                  aria-pressed={activeCitationSourceId === numericSourceId}
-                  className={`mx-0.5 inline-flex h-5 min-w-5 translate-y-[-0.05rem] items-center justify-center rounded-full border px-1.5 align-baseline text-[11px] font-medium transition-colors ${
-                    activeCitationSourceId === numericSourceId
-                      ? "border-foreground/20 bg-foreground/[0.08] text-foreground"
-                      : "border-border-subtle text-muted hover:bg-foreground/[0.04] hover:text-foreground"
-                  }`}
-                >
-                  {children}
-                </button>
-              );
-            }
-          }
-
-          return <button {...props}>{children}</button>;
-        },
-      }}
+      components={components}
     >
       {content}
     </ReactMarkdown>

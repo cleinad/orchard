@@ -24,6 +24,14 @@ import type {
   ThreadMeta,
   ThreadSessionStatus,
 } from '@/app/home/components/threadTypes';
+import {
+  fromStoredMessage,
+  fromStoredThreadMessage,
+  toStoredMessage,
+  toStoredThreadMessage,
+  type StoredMessage,
+  type StoredThreadMessage,
+} from '@/app/home/components/homeStorage';
 // ---------------------------------------------------------------------------
 // Shared home selection types (also used by page.tsx for send / tree state)
 // ---------------------------------------------------------------------------
@@ -70,23 +78,6 @@ const HOME_SELECTION_HANDOFF_STORAGE_KEY = 'keen-home-selection-handoff-v1';
 // Temporary chat sessionStorage serialization
 // ---------------------------------------------------------------------------
 
-interface StoredMessage {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  timestamp: string;
-  searchMetadata?: Message['searchMetadata'];
-  previousMessageId: string | null;
-}
-
-interface StoredThreadMessage {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  timestamp: string;
-  searchMetadata?: ThreadMessage['searchMetadata'];
-}
-
 interface StoredTemporaryChatSession {
   id: string;
   title: string;
@@ -108,28 +99,6 @@ type HomeSelectionHandoff =
 type StoredHomeSelectionHandoff =
   | { kind: 'draft'; draft: Omit<PersistentDraftChat, 'messages'> & { messages: StoredMessage[] } }
   | { kind: 'temporary'; tempChatId: string };
-
-function toStoredMessage(message: Message): StoredMessage {
-  return {
-    id: message.id,
-    role: message.role,
-    content: message.content,
-    timestamp: message.timestamp.toISOString(),
-    searchMetadata: message.searchMetadata ?? null,
-    previousMessageId: message.previousMessageId,
-  };
-}
-
-function fromStoredMessage(message: StoredMessage): Message {
-  return {
-    id: message.id,
-    role: message.role,
-    content: message.content,
-    timestamp: new Date(message.timestamp),
-    searchMetadata: message.searchMetadata ?? null,
-    previousMessageId: message.previousMessageId,
-  };
-}
 
 function persistHomeSelectionHandoff(handoff: HomeSelectionHandoff) {
   const stored: StoredHomeSelectionHandoff =
@@ -187,7 +156,7 @@ function deserializeTemporaryChats(raw: string): TemporaryChatSession[] {
     threadMessages: Object.fromEntries(
       Object.entries(chat.threadMessages).map(([threadId, msgs]) => [
         threadId,
-        msgs.map((m) => ({ ...m, timestamp: new Date(m.timestamp) })),
+        msgs.map(fromStoredThreadMessage),
       ])
     ),
   }));
@@ -200,10 +169,7 @@ function serializeTemporaryChats(chats: TemporaryChatSession[]): string {
     threadMessages: Object.fromEntries(
       Object.entries(chat.threadMessages).map(([threadId, msgs]) => [
         threadId,
-        msgs.map((m) => ({
-          ...m,
-          timestamp: m.timestamp instanceof Date ? m.timestamp.toISOString() : m.timestamp,
-        })),
+        msgs.map(toStoredThreadMessage),
       ])
     ),
   }));
