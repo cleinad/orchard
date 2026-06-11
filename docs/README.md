@@ -25,14 +25,12 @@ Use the docs in this order:
 3. Read the relevant file in [features](./features/) for the current product behavior of a specific area.
 4. Read [implementation](./implementation/) docs when a feature has non-obvious engineering invariants.
 5. Read [testing/README.md](./testing/README.md) before changing sensitive behavior, then follow the linked suite docs.
-6. Use [plans](./plans/) and [superpowers](./superpowers/) for historical rationale, not as the primary source of truth.
 
 If docs conflict, prefer:
 
 1. `docs/features/`
 2. `docs/implementation/`
 3. current code
-4. dated plans/specs
 
 ## Core Docs
 
@@ -96,13 +94,6 @@ Use implementation docs when the feature doc tells you what should happen, but t
 - [sql/supabase_chat_messages.sql](./sql/supabase_chat_messages.sql): chat message schema reference
 - [sql/threads_migration.sql](./sql/threads_migration.sql): thread-related migration reference
 
-## Historical Design And Planning
-
-- [plans](./plans/): dated product design docs, specs, bug writeups, and implementation plans
-- [superpowers](./superpowers/): worker-oriented specs and implementation plans from earlier agent workflows
-
-These are useful for intent, tradeoffs, and historical context, but they should not override current feature docs or current code.
-
 ## For Coding Agents
 
 If you are making changes in this repo:
@@ -114,5 +105,4 @@ If you are making changes in this repo:
 - read [features/conversation-branching.md](./features/conversation-branching.md) before changing `messages.previous_message_id`, `conversation_branches`, branch chips, or conversation-map routing/state
 - check `docs/implementation/` before refactoring sensitive rendering or state logic
 - check test docs before changing memory, model selection, auth, or inline-thread behavior
-- treat dated plan/spec files as context, not authority
 - update the relevant feature or testing doc when you change user-visible behavior or important invariants
