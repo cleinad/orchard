@@ -125,57 +125,10 @@ This exists so model resolution can be verified in:
 | `frontend/app/home/components/ThreadPanel.tsx` | Passes the active `modelId` for thread follow-ups |
 | `frontend/app/home/components/usePersistedString.ts` | Reusable persisted string state helper |
 | `frontend/app/home/components/logResolvedChatModel.ts` | Dev-only debug logging for resolved model metadata |
-| `docs/tests/chat-model-selection-tests.md` | Manual + automated testing reference for this feature |
+| `docs/testing/chat-model-selection.md` | Manual + automated testing reference for this feature |
 
-## Testing Framework
+## Testing
 
-The repo currently uses **Vitest** for automated tests in a Node environment:
+See [chat-model-selection.md](../testing/chat-model-selection.md) for focused commands, automated coverage, and manual verification.
 
-- Config: `frontend/vitest.config.ts`
-- Automated tests: `frontend/__tests__/lib`
-- Human-readable test plan docs: `docs/tests`
-
-### Automated Coverage
-
-Two focused test files cover the model-selection system:
-
-#### `frontend/__tests__/lib/chat-models.test.ts`
-
-Catalog-level unit tests:
-
-- curated options are present
-- ids validate correctly
-- unknown ids are rejected
-
-#### `frontend/__tests__/lib/models.test.ts`
-
-Resolver-level tests with mocked provider factories:
-
-- availability is derived from env vars
-- requested configured model resolves correctly
-- unavailable requested model falls back correctly
-- the expected provider constructor is instantiated
-- no configured providers returns the expected failure
-
-### Manual Verification
-
-Manual verification lives in:
-
-- `docs/tests/chat-model-selection-tests.md`
-
-That doc covers:
-
-- main composer requests
-- thread follow-ups
-- text-selection follow-ups
-- localStorage persistence
-- provider-unavailable fallback behavior
-
-### Known Testing Boundary
-
-The repo does **not** currently use browser/component tests for this feature. That means:
-
-- automated tests verify the catalog + resolver logic
-- manual verification is still used for network payloads, dropdown behavior, and browser console logs
-
-This is consistent with the rest of the current test setup.
+The current automated boundary is catalog and resolver behavior. Browser payloads, dropdown behavior, localStorage persistence, and dev console logs are still verified manually.

@@ -1,6 +1,6 @@
 # Chat Model Selection Test Suite
 
-For the overall test inventory, runner commands, and canary map, start with [../testing/README.md](../testing/README.md).
+For the overall test inventory, runner commands, and canary map, start with [README.md](./README.md).
 
 ## Running Tests
 

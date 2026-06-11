@@ -9,8 +9,6 @@ Start here if you need to know:
 - how to run the full suite vs a focused canary
 - which deeper testing doc to read for a specific feature area
 
-Suite-specific testing docs currently live in both `docs/testing/` and `docs/tests/` for historical reasons. Use this file as the index instead of browsing those folders directly.
-
 ## Current Test Surface
 
 - Automated tests currently live in `frontend/`.
@@ -57,11 +55,13 @@ Notes:
 
 ## Test Inventory
 
-### Vitest Route And Server Coverage
+### Vitest App, Route, And Server Coverage
 
 - `frontend/__tests__/app/chat-route.test.ts`: `/api/chat` contract coverage, including memory loading, memory writes, and route-level orchestration
 - `frontend/__tests__/app/chat-route-search.test.ts`: explicit search-mode orchestration, v2 `search_metadata` persistence, invalid citation stripping, and clean memory handoff
+- `frontend/__tests__/app/conversations-route.test.ts`: conversation creation, mentor ownership validation, request validation, and empty-conversation cleanup
 - `frontend/__tests__/app/deepgram-token-route.test.ts`: `/api/deepgram/token` auth, env validation, and Deepgram token response handling
+- `frontend/__tests__/app/home/conversation-map-model.test.ts`: pure conversation-map projection, route patching, active-path positioning, and zoom-stable node presence
 - `frontend/__tests__/app/memory-items-routes.test.ts`: memory item CRUD auth, scope filters, normalization, and embedding side effects
 - `frontend/__tests__/app/tts-route.test.ts`: `/api/tts` auth and request/config validation
 - `frontend/__tests__/proxy.test.ts`: page auth protection, login redirects, and the fixture-only E2E bypass guardrails
@@ -92,7 +92,7 @@ Use the smallest relevant suite first.
 
 ### Memory
 
-- Doc: [../tests/memory-tests.md](../tests/memory-tests.md)
+- Doc: [memory.md](./memory.md)
 - Run:
 
 ```bash
@@ -112,7 +112,7 @@ npm test -- __tests__/lib/auth-redirect.test.ts __tests__/proxy.test.ts __tests_
 
 ### Chat Model Selection
 
-- Doc: [../tests/chat-model-selection-tests.md](../tests/chat-model-selection-tests.md)
+- Doc: [chat-model-selection.md](./chat-model-selection.md)
 - Run:
 
 ```bash
@@ -182,8 +182,8 @@ npm run test:e2e -- e2e/search-mode.spec.js
 - [inline-threads-e2e.md](./inline-threads-e2e.md): browser fixtures, mocks, and regression targets for inline threads
 - [search-citations-and-source-ui.md](./search-citations-and-source-ui.md): search-mode citation test scope, focused canary, manual checks, and current gaps
 - [search-tuning-playbook.md](./search-tuning-playbook.md): manual live-provider tuning workflow using real API keys and structured search telemetry
-- [../tests/memory-tests.md](../tests/memory-tests.md): memory canary suite map, rationale, and remaining gaps
-- [../tests/chat-model-selection-tests.md](../tests/chat-model-selection-tests.md): automated and manual verification for model selection
+- [memory.md](./memory.md): memory canary suite map, rationale, and remaining gaps
+- [chat-model-selection.md](./chat-model-selection.md): automated and manual verification for model selection
 - [../features/auth-and-route-protection.md](../features/auth-and-route-protection.md): auth/proxy testing coverage and focused command
 
 ## For Coding Agents
