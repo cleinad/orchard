@@ -52,7 +52,7 @@ Do not use memory to personalize examples, make analogies, or connect the curren
 If a memory is not relevant to the user's latest message, ignore it silently.`;
 
 const RESPONSE_FORMATTING_PROMPT =
-  'Use KaTeX Markdown for math: inline `$...$`, display `$$...$$`. Do not use `\\(...\\)`, `\\[...\\]`, or plain square brackets as math delimiters. In matrices, separate rows with `\\\\`.';
+  'Use KaTeX Markdown for math: inline `$...$`; display math with `$$` fences on their own lines. Do not use `\\(...\\)`, `\\[...\\]`, or plain square brackets as math delimiters. In matrices, separate rows with `\\\\`.';
 
 interface ContextMessage extends ChatHistoryMessage {
   searchMetadata: PersistedSearchMetadata | null;
