@@ -429,6 +429,20 @@ describe('chat route memory contract', () => {
     );
   });
 
+  it('adds concise KaTeX markdown math formatting guidance to answer generation', async () => {
+    const { response } = await runChatRequest({
+      message: 'Show me a matrix example',
+      chatMode: 'temporary',
+    });
+
+    expect(response.status).toBe(200);
+    expect(mockStreamText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        system: expect.stringContaining('Use KaTeX Markdown for math'),
+      })
+    );
+  });
+
   it('retries with generateText when the streamed response is empty', async () => {
     mockStreamText.mockImplementation(({ onFinish }: { onFinish?: (result: { text: string }) => Promise<void> }) => {
       return {
