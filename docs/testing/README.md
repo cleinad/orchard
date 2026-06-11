@@ -14,8 +14,7 @@ Suite-specific testing docs currently live in both `docs/testing/` and `docs/tes
 ## Current Test Surface
 
 - Automated tests currently live in `frontend/`.
-- The repo currently has no backend automated tests.
-- The frontend uses two runners: Vitest and Playwright.
+- The app uses two runners: Vitest and Playwright.
 
 ## Test Runners
 
@@ -62,6 +61,7 @@ Notes:
 
 - `frontend/__tests__/app/chat-route.test.ts`: `/api/chat` contract coverage, including memory loading, memory writes, and route-level orchestration
 - `frontend/__tests__/app/chat-route-search.test.ts`: explicit search-mode orchestration, v2 `search_metadata` persistence, invalid citation stripping, and clean memory handoff
+- `frontend/__tests__/app/deepgram-token-route.test.ts`: `/api/deepgram/token` auth, env validation, and Deepgram token response handling
 - `frontend/__tests__/app/memory-items-routes.test.ts`: memory item CRUD auth, scope filters, normalization, and embedding side effects
 - `frontend/__tests__/app/tts-route.test.ts`: `/api/tts` auth and request/config validation
 - `frontend/__tests__/proxy.test.ts`: page auth protection, login redirects, and the fixture-only E2E bypass guardrails
