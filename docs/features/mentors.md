@@ -35,13 +35,15 @@ Users can create entirely new mentors with AI-assisted generation:
 
 ### Conversation Model
 
-Each mentor has exactly one persistent conversation thread per user (v1). Re-opening a mentor resumes that same thread. This is enforced by a unique index on `(user_id, mentor_id)` in the `conversations` table.
+Mentor conversations use the same multi-chat model as Keen conversations. A user can have multiple persistent conversations for the same mentor, and the sidebar groups those conversations under the mentor by recent activity.
+
+Starting a new mentor chat creates a new `conversations` row with `mentor_id` set. Re-opening an existing mentor conversation resumes that specific conversation by `conversationId`; the route does not look up a singleton conversation by mentor.
 
 Keen is **not** a row in the `mentors` table — when `mentor_id` is null on a conversation, the existing Keen system prompt + full memory system is used.
 
 ## Roadmap
 
-- **v1 (current)**: Built-in mentors, custom mentor creation with AI-assisted generation, one conversation per mentor, voice-enabled, per-mentor accent colors and avatar upload
+- **v1 (current)**: Built-in mentors, custom mentor creation with AI-assisted generation, multi-chat mentor conversations, voice-enabled, per-mentor accent colors and avatar upload
 - **v2**: Attach knowledge bases and reference documents to mentors, AI-generated mentor photos
 - **v3**: User-controlled context sharing between Keen and mentors, Keen can brief a mentor before you talk to them
 - **v4**: Cross-mentor conversations, Keen can route questions to or consult other mentors mid-conversation
@@ -72,17 +74,16 @@ RLS: users can only access their own mentors. Built-in mentors cannot be deleted
 
 #### Conversation linking
 
-`conversations` table has `mentor_id` column referencing `mentors(id)`. A unique index on `(user_id, mentor_id)` where `mentor_id IS NOT NULL` enforces one conversation per mentor per user.
+`conversations` has a nullable `mentor_id` column referencing `mentors(id)`. Multiple conversations can share the same `mentor_id`; the old one-conversation-per-mentor invariant was removed by the multi-chat sidebar migration.
 
 ### System Prompt Construction
 
 **Keen** (`mentor_id = null`): `buildSystemPrompt(memoryContext)` — full memory system.
 
-**Mentor**: `buildMentorPrompt(mentor, userName)` in `frontend/lib/mentors/prompts.ts`:
+**Mentor**: `buildMentorPrompt(mentor)` in `frontend/lib/mentors/prompts.ts`:
 ```
 mentor.base_system_prompt
 + mentor.user_instructions (if any)
-+ "The user's name is {userName}."
 ```
 
 Mentors receive memory context scoped to mentor-owned items + a compact global profile card (see memory feature doc).
@@ -107,7 +108,7 @@ Mentors receive memory context scoped to mentor-owned items + a compact global p
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
-| `/api/mentors` | GET | List user's mentors (built-in + custom), includes `conversation_id` if exists |
+| `/api/mentors` | GET | List user's mentors (built-in + custom) |
 | `/api/mentors` | POST | Create a custom mentor |
 | `/api/mentors/[slug]` | GET | Full mentor detail |
 | `/api/mentors/[slug]` | PATCH | Update mentor (built-ins: only `user_instructions`, `accent_color`, `avatar_url`) |
@@ -124,11 +125,7 @@ In `frontend/app/api/chat/route.ts`:
 - If neither is set or available, the shared default configured model is used
 
 1. If `mentorId` is provided, the mentor record is fetched
-2. If no `conversationId` exists for that mentor, one is created with `mentor_id` set
+2. If no `conversationId` is supplied, a new persistent conversation is created with `mentor_id` set
 3. System prompt is built via `buildMentorPrompt()` instead of `buildSystemPrompt()`
 4. Memory is loaded with `actor: 'mentor'` scoping (mentor-owned items + global profile)
 5. Memory agent writes with `owner_type: 'mentor'` and `owner_id` set to the mentor's ID
-
-### Note on Naming
-
-The docs directory previously used "experts" as the feature name. The codebase uses "mentors" throughout — database table, API routes, lib files, and UI components all use the `mentor` naming.
