@@ -31,6 +31,10 @@ const FIXTURE_CONFIGS = {
     messageId: 'assistant-inline-threads-bullet-list-fixture',
     selectedText: BULLET_LIST_TEXT,
   },
+  'inline-threads-rich-selection': {
+    messageId: 'assistant-inline-threads-rich-fixture',
+    selectedText: 'queueMicrotask()',
+  },
   'conversation-map-temporary': {
     messageId: 'map-main-assistant',
     selectedText: CONVERSATION_MAP_SELECTED_TEXT,

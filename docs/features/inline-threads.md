@@ -170,7 +170,7 @@ Important concepts:
 - **Persistent thread runtime cache**
   - preserves per-thread status and client-side messages for persisted threads after the active session is torn down
 
-The selection lifecycle is intentionally decoupled from raw browser selection timing. The app resolves the selection after the browser settles it, then clears native selection and relies on its own highlight state.
+The selection lifecycle is intentionally decoupled from raw browser selection timing. The app resolves the selection after the browser settles it, preserves native selection behavior for normal copy, and also rebuilds its own active highlight from offsets so the source span remains visible when focus moves into the popover.
 
 Durable thread rendering uses the same locator model as the active highlight:
 
@@ -178,6 +178,8 @@ Durable thread rendering uses the same locator model as the active highlight:
 - persisted thread metadata stores those offsets
 - optimistic thread sessions store the same offsets
 - the message renderer wraps the same offset span when recreating clickable inline thread markers
+
+Selection offsets are based on a shared selectable-text index for `[data-message-content]`. Renderer chrome can be excluded with `data-selection-exclude`; KaTeX uses its visible HTML text stream while hidden MathML is excluded so math text is not counted twice.
 
 `highlightedText` still exists as display metadata, but it is not the durable locator for reattaching a thread to message content.
 
