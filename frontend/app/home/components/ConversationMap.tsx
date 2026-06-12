@@ -17,6 +17,7 @@ import {
   markdownContentClassName,
   markdownRehypePlugins,
   markdownRemarkPlugins,
+  normalizeMathMarkdown,
 } from '@/lib/markdown'
 
 interface ConversationMapProps {
@@ -756,7 +757,9 @@ export default function ConversationMap({
                     ),
                   }}
                 >
-                  {getTooltipMarkdown(previewNode.responseContent, 'Response pending.')}
+                  {normalizeMathMarkdown(
+                    getTooltipMarkdown(previewNode.responseContent, 'Response pending.')
+                  )}
                 </ReactMarkdown>
               </div>
             </div>

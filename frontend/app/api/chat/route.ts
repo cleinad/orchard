@@ -51,6 +51,9 @@ const MEMORY_USE_POLICY = `Use memory only when it directly improves the answer:
 Do not use memory to personalize examples, make analogies, or connect the current topic to unrelated interests unless the user asks for that kind of connection.
 If a memory is not relevant to the user's latest message, ignore it silently.`;
 
+const RESPONSE_FORMATTING_PROMPT =
+  'Use KaTeX Markdown for math: inline `$...$`; display math with `$$` fences on their own lines. Do not use `\\(...\\)`, `\\[...\\]`, or plain square brackets as math delimiters. In matrices, separate rows with `\\\\`.';
+
 interface ContextMessage extends ChatHistoryMessage {
   searchMetadata: PersistedSearchMetadata | null;
 }
@@ -841,6 +844,8 @@ export async function POST(request: NextRequest) {
         finalSystemPrompt = `${baseSystemPrompt}\n\nLive web search is unavailable in this environment. If the question depends on fresh information, say that briefly and answer with an appropriate caveat. Do not return an empty response.`;
       }
     }
+
+    finalSystemPrompt = `${finalSystemPrompt}\n\n${RESPONSE_FORMATTING_PROMPT}`;
 
     // Capture loop variables for use inside onFinish (which runs asynchronously after the stream closes).
     const capturedSearch = search;

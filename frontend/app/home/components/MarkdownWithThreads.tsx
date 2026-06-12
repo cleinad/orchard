@@ -14,6 +14,7 @@ import {
 import {
   markdownRehypePlugins,
   markdownRemarkPlugins,
+  normalizeMathMarkdown,
 } from "@/lib/markdown";
 import type { InlineThreadMarker } from "@/app/home/components/threadTypes";
 import type { PersistedSearchMetadata } from "@/lib/chat-search";
@@ -575,6 +576,7 @@ export default function MarkdownWithThreads({
     }),
     [activeCitationSourceId, onCitationClick, onThreadClick, threadById]
   );
+  const normalizedContent = normalizeMathMarkdown(content);
 
   return (
     <ReactMarkdown
@@ -582,7 +584,7 @@ export default function MarkdownWithThreads({
       rehypePlugins={rehypePlugins}
       components={components}
     >
-      {content}
+      {normalizedContent}
     </ReactMarkdown>
   );
 }

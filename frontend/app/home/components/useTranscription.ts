@@ -6,6 +6,43 @@ interface UseTranscriptionProps {
   onStop?: () => void;
 }
 
+interface DeepgramTokenResponse {
+  accessToken: string;
+  expiresIn: number;
+}
+
+function isDeepgramTokenResponse(value: unknown): value is DeepgramTokenResponse {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const response = value as Record<string, unknown>;
+  return (
+    typeof response.accessToken === 'string' &&
+    response.accessToken.length > 0 &&
+    typeof response.expiresIn === 'number'
+  );
+}
+
+async function createDeepgramToken() {
+  const response = await fetch('/api/deepgram/token', { method: 'POST' });
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    const message =
+      data && typeof data === 'object' && 'error' in data
+        ? String(data.error)
+        : 'Unable to create Deepgram token';
+    throw new Error(message);
+  }
+
+  if (!isDeepgramTokenResponse(data)) {
+    throw new Error('Invalid Deepgram token response');
+  }
+
+  return data;
+}
+
 export function useTranscription({ onStop }: UseTranscriptionProps = {}) {
   const [status, setStatus] = useState<TranscriptStatus>('idle');
   const [error, setError] = useState<string | null>(null);
@@ -16,6 +53,7 @@ export function useTranscription({ onStop }: UseTranscriptionProps = {}) {
   const sessionRef = useRef(0);
 
   const stop = useCallback(() => {
+    sessionRef.current += 1;
     const recorder = mediaRecorderRef.current;
     if (recorder && recorder.state !== 'inactive') {
       recorder.stop();
@@ -84,12 +122,7 @@ export function useTranscription({ onStop }: UseTranscriptionProps = {}) {
 
       const recorderMimeType =
         recorder.mimeType || selectedMimeType || 'audio/webm;codecs=opus';
-      const backendBaseUrl =
-        process.env.NEXT_PUBLIC_BACKEND_URL || window.location.origin;
-      const backendUrl = new URL(backendBaseUrl);
-      const wsProtocol = backendUrl.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = new URL('/ws/deepgram', backendUrl);
-      wsUrl.protocol = wsProtocol;
+      const wsUrl = new URL('wss://api.deepgram.com/v1/listen');
       wsUrl.searchParams.set('model', 'nova-2');
       wsUrl.searchParams.set('interim_results', 'true');
       wsUrl.searchParams.set('punctuate', 'true');
@@ -105,38 +138,29 @@ export function useTranscription({ onStop }: UseTranscriptionProps = {}) {
         return;
       }
 
-      // Check backend connectivity before attempting WebSocket connection
+      let token: DeepgramTokenResponse;
       try {
-        const healthUrl = new URL('/health', backendUrl);
-        const healthResponse = await fetch(healthUrl.toString());
-        if (!healthResponse.ok) {
-          throw new Error(`Backend health check failed: ${healthResponse.status}`);
-        }
-        const healthData = await healthResponse.json();
-        console.log('[WebSocket] Backend health check:', healthData);
-
-        if (!healthData.deepgram_api_key_configured) {
-          throw new Error('Deepgram API key is not configured on the backend');
-        }
+        token = await createDeepgramToken();
       } catch (error) {
-        console.error('[WebSocket] Backend connectivity check failed:', error);
         if (isStale()) {
           return;
         }
         setStatus('error');
         setError(
           error instanceof Error
-            ? `Cannot connect to backend: ${error.message}`
-            : 'Cannot connect to backend server. Is it running on port 8000?'
+            ? `Cannot start transcription: ${error.message}`
+            : 'Cannot start transcription.'
         );
         return;
       }
 
-      const ws = new WebSocket(wsUrl.toString());
-      wsRef.current = ws;
+      if (isStale()) {
+        return;
+      }
 
-      console.log('[WebSocket] Attempting connection to:', wsUrl.toString());
-      console.log('[WebSocket] Query params:', Object.fromEntries(wsUrl.searchParams));
+      // Untested in a real browser/mic flow; this follows Deepgram's browser auth docs.
+      const ws = new WebSocket(wsUrl.toString(), ['token', token.accessToken]);
+      wsRef.current = ws;
 
       mediaRecorderRef.current = recorder;
       recorder.ondataavailable = (event) => {
@@ -150,7 +174,6 @@ export function useTranscription({ onStop }: UseTranscriptionProps = {}) {
           ws.close();
           return;
         }
-        console.log('[WebSocket] Connection opened successfully');
         setStatus('connected');
         recorder.start(250);
       };
@@ -162,14 +185,14 @@ export function useTranscription({ onStop }: UseTranscriptionProps = {}) {
           wasClean: event.wasClean,
           url: wsUrl.toString(),
         };
-        console.error('[WebSocket] Connection closed:', closeInfo);
+        console.error('[Deepgram] WebSocket connection closed:', closeInfo);
 
         const closeCodeMessages: Record<number, string> = {
           1000: 'Connection closed normally',
           1001: 'Connection going away',
           1002: 'Protocol error',
           1003: 'Unsupported data type',
-          1006: 'Connection closed abnormally (server may not be running or connection refused)',
+          1006: 'Connection closed abnormally',
           1011: 'Server error',
           1012: 'Service restart',
           1013: 'Try again later',
@@ -192,7 +215,7 @@ export function useTranscription({ onStop }: UseTranscriptionProps = {}) {
             errorMsg += `: ${event.reason}`;
           }
           if (event.code === 1006) {
-            errorMsg += '. Check that the backend server is running on port 8000.';
+            errorMsg += '. Check Deepgram connectivity and token configuration.';
           }
           setError(errorMsg);
         } else {
@@ -201,17 +224,15 @@ export function useTranscription({ onStop }: UseTranscriptionProps = {}) {
       };
 
       ws.onerror = (error) => {
-        console.error('[WebSocket] Connection error:', error);
-        console.error('[WebSocket] Ready state:', ws.readyState);
-        console.error('[WebSocket] URL:', wsUrl.toString());
+        console.error('[Deepgram] WebSocket connection error:', error);
 
         if (isStale()) {
           return;
         }
         setStatus('error');
         const errorMsg = ws.readyState === WebSocket.CLOSED
-          ? 'Failed to establish WebSocket connection. Check backend logs for details.'
-          : 'WebSocket connection error occurred.';
+          ? 'Failed to establish Deepgram WebSocket connection.'
+          : 'Deepgram WebSocket connection error occurred.';
         setError(errorMsg);
       };
 
