@@ -25,14 +25,12 @@ Use the docs in this order:
 3. Read the relevant file in [features](./features/) for the current product behavior of a specific area.
 4. Read [implementation](./implementation/) docs when a feature has non-obvious engineering invariants.
 5. Read [testing/README.md](./testing/README.md) before changing sensitive behavior, then follow the linked suite docs.
-6. Use [plans](./plans/) and [superpowers](./superpowers/) for historical rationale, not as the primary source of truth.
 
 If docs conflict, prefer:
 
 1. `docs/features/`
 2. `docs/implementation/`
 3. current code
-4. dated plans/specs
 
 ## Core Docs
 
@@ -85,23 +83,20 @@ Use implementation docs when the feature doc tells you what should happen, but t
 - [testing/inline-threads-e2e.md](./testing/inline-threads-e2e.md): inline-thread end-to-end coverage, fixtures, and regression cases
 - [testing/search-citations-and-source-ui.md](./testing/search-citations-and-source-ui.md): search-mode citation coverage, focused canary, manual checks, and current gaps
 - [testing/search-tuning-playbook.md](./testing/search-tuning-playbook.md): manual live-provider validation, telemetry review, and search-quality tuning workflow
-- [tests/chat-model-selection-tests.md](./tests/chat-model-selection-tests.md): automated and manual verification for model selection
-- [tests/memory-tests.md](./tests/memory-tests.md): memory test suite map, coverage philosophy, and remaining gaps
+- [testing/chat-model-selection.md](./testing/chat-model-selection.md): automated and manual verification for model selection
+- [testing/memory.md](./testing/memory.md): memory test suite map, coverage philosophy, and remaining gaps
 - [features/auth-and-route-protection.md](./features/auth-and-route-protection.md): auth and route-protection testing coverage plus focused command
 
-## SQL Reference
+## Database Reference
 
-- [sql/supabase_schema.sql](./sql/supabase_schema.sql): general schema reference
-- [sql/supabase_memory.sql](./sql/supabase_memory.sql): memory-related schema
-- [sql/supabase_chat_messages.sql](./sql/supabase_chat_messages.sql): chat message schema reference
-- [sql/threads_migration.sql](./sql/threads_migration.sql): thread-related migration reference
+Supabase migrations in [`supabase/migrations`](../supabase/migrations/) are the database source of truth.
 
-## Historical Design And Planning
+Feature docs describe the current product-facing schema impact:
 
-- [plans](./plans/): dated product design docs, specs, bug writeups, and implementation plans
-- [superpowers](./superpowers/): worker-oriented specs and implementation plans from earlier agent workflows
-
-These are useful for intent, tradeoffs, and historical context, but they should not override current feature docs or current code.
+- [features/memory.md](./features/memory.md): memory tables and retrieval/write paths
+- [features/multi-chat-home.md](./features/multi-chat-home.md): conversation and sidebar persistence model
+- [features/conversation-branching.md](./features/conversation-branching.md): branch metadata and `messages.previous_message_id`
+- [features/inline-threads.md](./features/inline-threads.md): thread persistence model
 
 ## For Coding Agents
 
@@ -114,5 +109,4 @@ If you are making changes in this repo:
 - read [features/conversation-branching.md](./features/conversation-branching.md) before changing `messages.previous_message_id`, `conversation_branches`, branch chips, or conversation-map routing/state
 - check `docs/implementation/` before refactoring sensitive rendering or state logic
 - check test docs before changing memory, model selection, auth, or inline-thread behavior
-- treat dated plan/spec files as context, not authority
 - update the relevant feature or testing doc when you change user-visible behavior or important invariants

@@ -302,4 +302,3 @@ These are current product limits, not bugs:
 ## Related Docs
 
 - [`temporary-chat.md`](./temporary-chat.md)
-- [`2026-03-31-multi-chat-sidebar-spec.md`](../plans/2026-03-31-multi-chat-sidebar-spec.md)

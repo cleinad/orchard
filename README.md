@@ -10,11 +10,10 @@ Start with [docs/README.md](./docs/README.md) for the product overview and the f
 
 ```
 frontend/    Next.js app — UI, API routes, chat, memory, mentors
-backend/     FastAPI — voice pipeline (Deepgram STT)
 docs/        Product docs, feature specs, architecture
 ```
 
-The Next.js app serves as both the frontend and the primary API server. The Python backend handles voice/STT only.
+The Next.js app serves as both the frontend and the API server. Browser voice input uses a short-lived Deepgram token minted by a Next.js API route.
 
 ## Setup
 
@@ -43,23 +42,13 @@ EXA_API_KEY=your_exa_api_key
 ELEVENLABS_API_KEY=your_elevenlabs_api_key
 ELEVENLABS_VOICE_ID=your_elevenlabs_voice_id
 
-# Backend URL (optional — only needed if running voice/STT)
-NEXT_PUBLIC_BACKEND_URL=http://localhost:8000
+# Voice — Speech-to-text (optional)
+DEEPGRAM_API_KEY=your_deepgram_api_key
 ```
 
 **Note:** Only `NEXT_PUBLIC_*` variables are exposed to the browser. All other keys are server-only (used in Next.js API routes). Never put secret keys in `NEXT_PUBLIC_*` variables.
 
-### Backend (`backend/.env`)
-
-```bash
-# Deepgram — Speech-to-text (required for voice input)
-DEEPGRAM_API_KEY=your_deepgram_api_key
-DEEPGRAM_PROJECT_ID=your_deepgram_project_id
-```
-
 ## Running
-
-### Frontend
 
 ```bash
 cd frontend
@@ -68,13 +57,3 @@ npm run dev
 ```
 
 Opens at [http://localhost:3000](http://localhost:3000).
-
-### Backend
-
-```bash
-cd backend
-uv sync
-uv run uvicorn main:app --reload --ws wsproto
-```
-
-Runs at [http://localhost:8000](http://localhost:8000).
