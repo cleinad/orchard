@@ -33,6 +33,28 @@ const INLINE_THREADS_REPEATED_SECOND_OFFSET = INLINE_THREADS_REPEATED_CONTENT.in
 const INLINE_THREADS_BULLET_LIST_TEXT =
   'microtasks can delay visible paint until queued work finishes';
 const INLINE_THREADS_BULLET_LIST_CONTENT = `- ${INLINE_THREADS_BULLET_LIST_TEXT}`;
+const INLINE_THREADS_RICH_CONTENT = [
+  'Paragraph text includes `queueMicrotask()` inline code and inline math \\(a^2 + b^2 = c^2\\).',
+  '',
+  '- The unordered item mentions scheduler priority.',
+  '- The second unordered item mentions render phases.',
+  '',
+  '1. Ordered setup keeps offsets stable.',
+  '2. Ordered follow-up repeats offsets.',
+  '',
+  '```js',
+  'const paint = await nextFrame();',
+  'queueMicrotask(() => setReady(true));',
+  '```',
+  '',
+  'Display math:',
+  '',
+  '\\[E = mc^2\\]',
+  '',
+  '\\[\\operatorname{imag\\ part}=\\frac{bc-ad}{c^2+d^2}\\]',
+  '',
+  'Research note [1] links timing to rendering.',
+].join('\n');
 const CONVERSATION_MAP_MESSAGES: Message[] = [
   {
     id: 'map-user-root',
@@ -141,7 +163,7 @@ const CONVERSATION_MAP_BRANCHES: ConversationBranch[] = [
 ];
 
 const FIXTURE_MESSAGES: Record<
-  'temporary' | 'persistent' | 'orderedList' | 'repeatedText' | 'bulletList',
+  'temporary' | 'persistent' | 'orderedList' | 'repeatedText' | 'bulletList' | 'rich',
   Message[]
 > = {
   temporary: [
@@ -187,6 +209,35 @@ const FIXTURE_MESSAGES: Record<
       content: INLINE_THREADS_BULLET_LIST_CONTENT,
       timestamp: new Date('2026-04-05T09:00:00.000Z'),
       previousMessageId: null,
+    },
+  ],
+  rich: [
+    {
+      id: 'assistant-inline-threads-rich-fixture',
+      role: 'assistant',
+      content: INLINE_THREADS_RICH_CONTENT,
+      timestamp: new Date('2026-04-05T09:00:00.000Z'),
+      previousMessageId: null,
+      searchMetadata: {
+        version: 2,
+        mode: 'required',
+        profile: 'research_backed',
+        status: 'success',
+        query: 'browser rendering microtasks',
+        providers: ['exa'],
+        sources: [
+          {
+            id: 1,
+            title: 'Rendering timing notes',
+            url: 'https://example.com/rendering-timing',
+            domain: 'example.com',
+            snippet: 'A deterministic fixture source for citation rendering.',
+            provider: 'exa',
+            sourceType: 'research',
+            publishedAt: null,
+          },
+        ],
+      },
     },
   ],
 };
@@ -248,6 +299,12 @@ const HOME_E2E_FIXTURES: Record<string, HomeE2eFixture> = {
         endOffset: INLINE_THREADS_BULLET_LIST_TEXT.length + 1,
       },
     ],
+  },
+  'inline-threads-rich-selection': {
+    key: 'inline-threads-rich-selection',
+    chatMode: 'temporary',
+    conversationId: null,
+    messages: FIXTURE_MESSAGES.rich,
   },
   'conversation-map-temporary': {
     key: 'conversation-map-temporary',

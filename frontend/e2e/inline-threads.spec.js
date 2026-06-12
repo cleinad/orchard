@@ -8,6 +8,19 @@ const {
 
 const PRIMARY_SELECTION_TEXT = 'microtasks run before the browser paints the next frame';
 const SECONDARY_SELECTION_TEXT = 'promise callbacks can update state before rendering catches up.';
+const FRACTION_MATH_SELECTION = 'bc−ad';
+const RICH_SELECTION_CASES = [
+  'Paragraph text includes',
+  'queueMicrotask()',
+  'scheduler priority',
+  'Ordered follow-up repeats offsets.',
+  'const paint = await nextFrame();',
+  'queueMicrotask(() => setReady(true));',
+  'a2',
+  'E=mc2',
+  FRACTION_MATH_SELECTION,
+  '[1]',
+];
 
 test('promotes an unsent popover draft into the thread panel', async ({ page }) => {
   const { messageId, selectedText } = await gotoHomeFixture(page);
@@ -240,4 +253,127 @@ test('a failed thread keeps an error marker and can be reopened', async ({ page 
   await expect(page.getByTestId('thread-panel')).toHaveAttribute('data-state', 'open');
   await expect(page.getByTestId('thread-panel')).toContainText(question);
   await expect(page.getByTestId('thread-panel')).toContainText('Thread request failed.');
+});
+
+test('captures selections across rich markdown renderers', async ({ page }) => {
+  const { messageId } = await gotoHomeFixture(page, 'inline-threads-rich-selection');
+
+  for (const selectedText of RICH_SELECTION_CASES) {
+    await selectTextInMessage(page, messageId, selectedText);
+    await expect(page.getByTestId('selection-popover')).toBeVisible();
+    await expect(page.getByTestId('selection-popover')).toContainText(selectedText);
+    await expect.poll(() => hasPersistentSelectionHighlight(page)).toBe(true);
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('selection-popover')).toHaveCount(0);
+  }
+});
+
+test('copy after source selection and paste into the popover input keep native clipboard behavior', async ({
+  context,
+  page,
+}) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  const { messageId } = await gotoHomeFixture(page, 'inline-threads-rich-selection');
+  const selectedText = 'const paint = await nextFrame();';
+
+  await selectTextInMessage(page, messageId, selectedText);
+  await expect(page.getByTestId('selection-popover')).toBeVisible();
+
+  await page.keyboard.press('Control+C');
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(selectedText);
+
+  await page.evaluate(() => navigator.clipboard.writeText('How does this affect paint?'));
+  await page.getByTestId('selection-popover-input').click();
+  await page.keyboard.press('Control+V');
+  await expect(page.getByTestId('selection-popover-input')).toHaveValue(
+    'How does this affect paint?'
+  );
+
+  await page.keyboard.press('Escape');
+  await selectTextInMessage(page, messageId, 'E=mc2');
+  await expect(page.getByTestId('selection-popover')).toBeVisible();
+  await page.keyboard.press('Control+C');
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('E=mc2');
+});
+
+test('code-block copy button still copies only code text', async ({ context, page }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await gotoHomeFixture(page, 'inline-threads-rich-selection');
+
+  await page.getByRole('button', { name: 'Copy JavaScript code' }).click();
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(
+    'const paint = await nextFrame();\nqueueMicrotask(() => setReady(true));'
+  );
+});
+
+test('renders inline markers for code and math selections from offsets', async ({ page }) => {
+  await mockChatRoute(page, async (body) => {
+    return {
+      message: `Answer for ${body.message}`,
+      userMessageId: `user-${body.message}`,
+      assistantMessageId: `assistant-${body.message}`,
+    };
+  });
+
+  const { messageId } = await gotoHomeFixture(page, 'inline-threads-rich-selection');
+
+  await selectTextInMessage(page, messageId, 'const paint = await nextFrame();');
+  await page.getByTestId('selection-popover-input').fill('code-marker');
+  await page.getByTestId('selection-popover-input').press('Enter');
+
+  const codeMarkerFragments = page.locator('pre code [data-testid="inline-thread-link"]');
+  await expect.poll(() => codeMarkerFragments.count()).toBeGreaterThan(1);
+  const codeMarkerText = await codeMarkerFragments.evaluateAll((nodes) =>
+    nodes.map((node) => node.textContent || '').join('')
+  );
+  expect(codeMarkerText).toContain('const');
+  expect(codeMarkerText).toContain('nextFrame');
+  expect(codeMarkerText).toContain('();');
+  await expect
+    .poll(() =>
+      codeMarkerFragments.first().evaluate((node) => window.getComputedStyle(node).boxShadow)
+    )
+    .toBe('none');
+
+  await selectTextInMessage(page, messageId, 'E=mc2');
+  await page.getByTestId('selection-popover-input').fill('math-marker');
+  await page.getByTestId('selection-popover-input').press('Enter');
+
+  const mathMarkerFragments = page.locator('.katex-html [data-testid="inline-thread-link"]');
+  await expect.poll(() => mathMarkerFragments.count()).toBeGreaterThan(1);
+  const mathMarkerText = await mathMarkerFragments.evaluateAll((nodes) =>
+    nodes.map((node) => node.textContent || '').join('')
+  );
+  expect(mathMarkerText).toBe('E=mc2');
+  const mathMarkerStyles = await mathMarkerFragments.first().evaluate((node) => {
+    const style = window.getComputedStyle(node);
+    return {
+      backgroundColor: style.backgroundColor,
+      borderRadius: style.borderRadius,
+      boxShadow: style.boxShadow,
+    };
+  });
+  expect(mathMarkerStyles.backgroundColor).toBe('rgb(254, 243, 199)');
+  expect(mathMarkerStyles.borderRadius).toBe('2px');
+  expect(mathMarkerStyles.boxShadow).toBe('none');
+
+  await selectTextInMessage(page, messageId, FRACTION_MATH_SELECTION);
+  await page.getByTestId('selection-popover-input').fill('fraction-marker');
+  await page.getByTestId('selection-popover-input').press('Enter');
+
+  const fractionMarkerFragments = page.locator('.katex-html [data-testid="inline-thread-link"]');
+  await expect.poll(() => fractionMarkerFragments.count()).toBeGreaterThan(1);
+  const fractionMarkerText = await fractionMarkerFragments.evaluateAll((nodes) =>
+    nodes.map((node) => node.textContent || '').join('')
+  );
+  expect(fractionMarkerText).toContain(FRACTION_MATH_SELECTION);
+  const fractionMarkerStyles = await fractionMarkerFragments.last().evaluate((node) => {
+    const style = window.getComputedStyle(node);
+    return {
+      borderRadius: style.borderRadius,
+      boxShadow: style.boxShadow,
+    };
+  });
+  expect(fractionMarkerStyles.borderRadius).toBe('2px');
+  expect(fractionMarkerStyles.boxShadow).toBe('none');
 });

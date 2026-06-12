@@ -8,7 +8,6 @@ import {
   useState,
   type CSSProperties,
   type FormEvent,
-  type MouseEvent as ReactMouseEvent,
 } from "react";
 import type { ThreadSource } from "@/app/home/components/threadTypes";
 
@@ -37,17 +36,11 @@ export default function TextSelectionPopover({
 }: TextSelectionPopoverProps) {
   const [customQuestion, setCustomQuestion] = useState("");
   const [fallbackPlacement, setFallbackPlacement] = useState<"top" | "bottom">("top");
-  const [supportsNativePopover, setSupportsNativePopover] = useState(false);
+  const [fallbackLeft, setFallbackLeft] = useState<number | null>(null);
   const [supportsAnchorPositioning, setSupportsAnchorPositioning] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
-  const anchorRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const useNativePopover = supportsNativePopover && supportsAnchorPositioning;
 
   useEffect(() => {
-    setSupportsNativePopover(
-      typeof HTMLDivElement !== "undefined" && "showPopover" in HTMLDivElement.prototype
-    );
     setSupportsAnchorPositioning(
       typeof CSS !== "undefined"
       && CSS.supports("position-anchor: --text-selection-popover-anchor")
@@ -60,21 +53,12 @@ export default function TextSelectionPopover({
     setCustomQuestion("");
   }, [popoverState]);
 
-  useEffect(() => {
-    if (!popoverState) {
-      return;
-    }
-
-    const timer = window.setTimeout(() => inputRef.current?.focus(), 0);
-    return () => window.clearTimeout(timer);
-  }, [popoverState]);
-
   const handleDismiss = useCallback(() => {
     onDismiss();
   }, [onDismiss]);
 
   useEffect(() => {
-    if (!popoverState || useNativePopover) return;
+    if (!popoverState) return;
 
     const handleClickOutside = (event: MouseEvent) => {
       if (popoverRef.current && !popoverRef.current.contains(event.target as Node)) {
@@ -88,50 +72,37 @@ export default function TextSelectionPopover({
       }
     };
 
+    document.addEventListener("keydown", handleEscape, true);
+
     const timer = window.setTimeout(() => {
       document.addEventListener("mousedown", handleClickOutside);
-      document.addEventListener("keydown", handleEscape);
     }, 100);
 
     return () => {
       window.clearTimeout(timer);
       document.removeEventListener("mousedown", handleClickOutside);
-      document.removeEventListener("keydown", handleEscape);
+      document.removeEventListener("keydown", handleEscape, true);
     };
-  }, [handleDismiss, popoverState, useNativePopover]);
-
-  useEffect(() => {
-    if (!popoverState || !useNativePopover || !popoverRef.current) return;
-
-    const popoverEl = popoverRef.current;
-    const handleToggle = (event: Event) => {
-      const toggleEvent = event as ToggleEvent;
-      if (toggleEvent.newState === "closed") {
-        handleDismiss();
-      }
-    };
-
-    popoverEl.addEventListener("toggle", handleToggle);
-    return () => {
-      popoverEl.removeEventListener("toggle", handleToggle);
-    };
-  }, [handleDismiss, popoverState, useNativePopover]);
-
-  useEffect(() => {
-    if (!popoverState || !useNativePopover || !popoverRef.current) return;
-
-    const popoverEl = popoverRef.current as HTMLDivElement & {
-      showPopover?: (options?: { source?: HTMLElement }) => void;
-    };
-    const anchorEl = anchorRef.current ?? undefined;
-
-    if (!popoverEl.matches(":popover-open")) {
-      popoverEl.showPopover?.(anchorEl ? { source: anchorEl } : undefined);
-    }
-  }, [popoverState, useNativePopover]);
+  }, [handleDismiss, popoverState]);
 
   useEffect(() => {
     if (!popoverState) return;
+
+    const isEditableTarget = (target: EventTarget | null) => {
+      return (
+        target instanceof HTMLElement
+        && Boolean(target.closest("input, textarea, [contenteditable='true']"))
+      );
+    };
+
+    const handleCopy = (event: ClipboardEvent) => {
+      if (isEditableTarget(event.target)) {
+        return;
+      }
+
+      event.clipboardData?.setData("text/plain", popoverState.selectedText);
+      event.preventDefault();
+    };
 
     const handleOpenThreadShortcut = (event: KeyboardEvent) => {
       if (
@@ -155,8 +126,12 @@ export default function TextSelectionPopover({
       onOpenThreadDraft(popoverState, draftInput);
     };
 
+    document.addEventListener("copy", handleCopy);
     document.addEventListener("keydown", handleOpenThreadShortcut, true);
-    return () => document.removeEventListener("keydown", handleOpenThreadShortcut, true);
+    return () => {
+      document.removeEventListener("copy", handleCopy);
+      document.removeEventListener("keydown", handleOpenThreadShortcut, true);
+    };
   }, [customQuestion, onOpenThreadDraft, popoverState]);
 
   useLayoutEffect(() => {
@@ -172,6 +147,7 @@ export default function TextSelectionPopover({
     // Tighter offset so the slimmer popover sits closer to the selection anchor.
     const gap = 8;
     const popoverHeight = popoverEl.getBoundingClientRect().height;
+    const popoverWidth = popoverEl.getBoundingClientRect().width;
     const availableAbove = popoverState.anchorRect.top - visibleTop;
     const anchorBottom = popoverState.anchorRect.top + popoverState.anchorRect.height;
     const availableBelow = visibleBottom - anchorBottom;
@@ -181,24 +157,19 @@ export default function TextSelectionPopover({
     setFallbackPlacement(
       !canFitAbove && (canFitBelow || availableBelow > availableAbove) ? "bottom" : "top"
     );
+
+    const visibleLeft = scrollContainer?.scrollLeft ?? 0;
+    const visibleRight = visibleLeft + (scrollContainer?.clientWidth ?? window.innerWidth);
+    const desiredLeft = popoverState.anchorRect.left + popoverState.anchorRect.width / 2;
+    const horizontalPadding = 8;
+    const minLeft = visibleLeft + popoverWidth / 2 + horizontalPadding;
+    const maxLeft = visibleRight - popoverWidth / 2 - horizontalPadding;
+    setFallbackLeft(Math.min(Math.max(desiredLeft, minLeft), Math.max(minLeft, maxLeft)));
   }, [popoverState, supportsAnchorPositioning]);
 
   if (!popoverState) {
     return null;
   }
-
-  const handleMouseDownCapture = (event: ReactMouseEvent<HTMLDivElement>) => {
-    const target = event.target as HTMLElement;
-    if (target.closest("input, textarea, [contenteditable='true']")) {
-      return;
-    }
-
-    event.preventDefault();
-  };
-
-  const handleDefine = () => {
-    onSubmitQuestion(popoverState, `What is "${popoverState.selectedText}"?`);
-  };
 
   const handleCustomSubmit = (event: FormEvent) => {
     event.preventDefault();
@@ -214,7 +185,7 @@ export default function TextSelectionPopover({
     ? undefined
     : {
         position: "absolute",
-        left: popoverState.anchorRect.left + popoverState.anchorRect.width / 2,
+        left: fallbackLeft ?? popoverState.anchorRect.left + popoverState.anchorRect.width / 2,
         top:
           fallbackPlacement === "top"
             ? popoverState.anchorRect.top
@@ -237,7 +208,6 @@ export default function TextSelectionPopover({
   return (
     <>
       <div
-        ref={anchorRef}
         aria-hidden="true"
         style={anchorStyle}
         className="text-selection-popover-anchor pointer-events-none"
@@ -245,29 +215,24 @@ export default function TextSelectionPopover({
       <div
         ref={popoverRef}
         data-testid="selection-popover"
-        popover={useNativePopover ? "auto" : undefined}
-        onMouseDownCapture={handleMouseDownCapture}
+        onKeyDownCapture={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            handleDismiss();
+          }
+        }}
         style={fallbackStyle}
-        className="text-selection-popover w-[min(18rem,calc(100vw-1rem))] rounded-lg border border-border-subtle bg-surface p-2.5 font-sans text-foreground shadow-sm outline-none"
+        className="text-selection-popover w-[min(18rem,calc(100vw-1rem))] rounded-md border border-border-subtle bg-surface/95 p-2 font-sans text-foreground shadow-[0_10px_26px_rgba(15,23,42,0.12)] outline-none backdrop-blur"
       >
         {/* Flat toolbar: hairline border + light shadow (not a heavy “card orb”). */}
         {/* UI chrome: `font-sans`; field uses `font-reading` (body font). */}
-        <p className="mb-2 line-clamp-2 border-b border-border-subtle pb-2 text-[11px] leading-snug text-muted/75">
+        <p className="mb-2 line-clamp-2 border-b border-border-subtle pb-1.5 text-[11px] leading-snug text-muted/75">
           &ldquo;{popoverState.selectedText}&rdquo;
         </p>
 
         <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-2">
-          {/* <button
-            type="button"
-            onClick={handleDefine}
-            className="inline-flex shrink-0 cursor-pointer items-center self-start rounded-md border border-border-subtle bg-transparent px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-foreground/[0.04] sm:self-auto"
-          >
-            Define
-          </button> */}
-
           <form onSubmit={handleCustomSubmit} className="min-w-0 flex-1">
             <input
-              ref={inputRef}
               data-testid="selection-popover-input"
               type="text"
               value={customQuestion}

@@ -476,6 +476,65 @@ body {
   padding: 0.25rem 0.125rem;
 }
 
+.markdown-content .katex-html [data-testid="inline-thread-link"] {
+  --tw-ring-color: transparent !important;
+  --tw-ring-offset-shadow: 0 0 #0000 !important;
+  --tw-ring-shadow: 0 0 #0000 !important;
+  background-color: #fef3c7 !important;
+  border-radius: 2px !important;
+  box-shadow: none !important;
+  color: inherit !important;
+  margin: 0 -0.02em !important;
+  outline: none !important;
+  padding: 0.02em 0.04em !important;
+  text-decoration: none !important;
+}
+
+.markdown-content .katex-html [data-testid="inline-thread-link"]:hover {
+  background-color: #fde68a !important;
+  box-shadow: none !important;
+}
+
+.markdown-content .katex-html [data-testid="inline-thread-link"][data-thread-status="loading"] {
+  background-color: #dff4ff !important;
+}
+
+.markdown-content .katex-html [data-testid="inline-thread-link"][data-thread-status="loading"]:hover {
+  background-color: #c7edff !important;
+}
+
+.markdown-content .katex-html [data-testid="inline-thread-link"][data-thread-status="error"] {
+  background-color: #ffe4e6 !important;
+}
+
+.markdown-content .katex-html [data-testid="inline-thread-link"][data-thread-status="error"]:hover {
+  background-color: #fecdd3 !important;
+}
+
+.dark .markdown-content .katex-html [data-testid="inline-thread-link"] {
+  background-color: #5b4516 !important;
+}
+
+.dark .markdown-content .katex-html [data-testid="inline-thread-link"]:hover {
+  background-color: #6f5419 !important;
+}
+
+.dark .markdown-content .katex-html [data-testid="inline-thread-link"][data-thread-status="loading"] {
+  background-color: #16435f !important;
+}
+
+.dark .markdown-content .katex-html [data-testid="inline-thread-link"][data-thread-status="loading"]:hover {
+  background-color: #1d5576 !important;
+}
+
+.dark .markdown-content .katex-html [data-testid="inline-thread-link"][data-thread-status="error"] {
+  background-color: #651f2c !important;
+}
+
+.dark .markdown-content .katex-html [data-testid="inline-thread-link"][data-thread-status="error"]:hover {
+  background-color: #7a2635 !important;
+}
+
 .font-heading {
   font-family: var(--font-heading), "Georgia", serif;
 }
