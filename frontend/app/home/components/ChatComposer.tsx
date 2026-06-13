@@ -25,6 +25,7 @@ interface ChatComposerProps {
   chatModels: ChatModelListItem[];
   input: string;
   isLoading: boolean;
+  imageInputDisabled: boolean;
   isUploadingImages: boolean;
   micActive: boolean;
   pendingImageAttachments: PendingChatImageAttachment[];
@@ -77,6 +78,7 @@ export default function ChatComposer({
   chatModels,
   input,
   isLoading,
+  imageInputDisabled,
   isUploadingImages,
   micActive,
   pendingImageAttachments,
@@ -118,10 +120,16 @@ export default function ChatComposer({
   const hasAvailableChatModels = chatModels.some((model) => model.available);
   const canSubmit = Boolean(input.trim() || pendingImageAttachments.length > 0);
   const isBusy = isLoading || isUploadingImages;
+  const attachDisabled =
+    isBusy || imageInputDisabled || pendingImageAttachments.length >= MAX_CHAT_IMAGE_ATTACHMENTS;
 
   const handleFileInputChange: ChangeEventHandler<HTMLInputElement> = (event) => {
     const files = Array.from(event.currentTarget.files || []);
     event.currentTarget.value = '';
+    if (attachDisabled) {
+      return;
+    }
+
     onAttachImages(files);
   };
 
@@ -131,7 +139,10 @@ export default function ChatComposer({
     );
 
     if (files.length > 0) {
-      onAttachImages(files);
+      event.preventDefault();
+      if (!attachDisabled) {
+        onAttachImages(files);
+      }
     }
   };
 
@@ -140,7 +151,9 @@ export default function ChatComposer({
       Array.from(event.dataTransfer.items).some((item) => item.type.startsWith('image/'))
     ) {
       event.preventDefault();
-      setIsDraggingImage(true);
+      if (!attachDisabled) {
+        setIsDraggingImage(true);
+      }
     }
   };
 
@@ -157,7 +170,9 @@ export default function ChatComposer({
 
     if (files.length > 0) {
       event.preventDefault();
-      onAttachImages(files);
+      if (!attachDisabled) {
+        onAttachImages(files);
+      }
     }
 
     setIsDraggingImage(false);
@@ -346,7 +361,7 @@ export default function ChatComposer({
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                disabled={isBusy || pendingImageAttachments.length >= MAX_CHAT_IMAGE_ATTACHMENTS}
+                disabled={attachDisabled}
                 aria-label="Attach image"
                 className="flex h-9 w-9 items-center justify-center rounded-md border border-transparent p-0 text-muted transition-colors hover:border-foreground/[0.08] hover:bg-foreground/[0.04] hover:text-foreground/70 disabled:cursor-not-allowed disabled:opacity-50"
               >

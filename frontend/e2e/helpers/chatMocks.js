@@ -30,6 +30,26 @@ async function mockChatRoute(page, handler) {
   await page.route('**/api/chat', async (route) => {
     const body = route.request().postDataJSON();
     const result = normalizeRouteResult(await handler(body, route.request()));
+    if (result.status >= 200 && result.status < 300) {
+      const events = [];
+      if (typeof result.json.message === 'string' && result.json.message.length > 0) {
+        events.push({ type: 'text-delta', delta: result.json.message });
+      }
+      events.push({ type: 'text-end' });
+      events.push({ type: 'data-chatMeta', data: result.json });
+      events.push('[DONE]');
+
+      await route.fulfill({
+        status: result.status,
+        headers: result.headers,
+        contentType: 'text/event-stream',
+        body: events
+          .map((event) => `data: ${typeof event === 'string' ? event : JSON.stringify(event)}\n\n`)
+          .join(''),
+      });
+      return;
+    }
+
     await route.fulfill({
       status: result.status,
       headers: result.headers,

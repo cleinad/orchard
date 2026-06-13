@@ -30,6 +30,7 @@ import {
   createTemporaryId,
   DEFAULT_TEMPORARY_MEMORY_MODE,
   fallbackChatTitleFromMessage,
+  isUuid,
   toChatHistory,
 } from '@/lib/chat-session';
 import { getBrowserTimeZone } from '@/lib/browser-timezone';
@@ -68,6 +69,20 @@ interface PendingChatRequest {
   selection: SelectedChat;
   userMessageId: string;
   phase: 'awaiting-response' | 'reconciling';
+}
+
+export interface SendMessageResult {
+  accepted: boolean;
+  completed: boolean;
+  error?: string;
+  restoreComposerSelection?: SelectedChat | null;
+  uploadedAttachments?: UploadedChatImageAttachment[];
+}
+
+export interface SendMessageOptions {
+  displayAttachments?: Message['attachments'];
+  uploadedAttachments?: UploadedChatImageAttachment[];
+  prepareUploadedAttachments?: () => Promise<UploadedChatImageAttachment[]>;
 }
 
 /**
@@ -386,6 +401,7 @@ interface MainChatRuntimeParams {
   setPersistentSelectedBranchIds: Dispatch<SetStateAction<BranchSelectionMap>>;
   setPersistentThreadsMap: Dispatch<SetStateAction<Map<string, ThreadMeta[]>>>;
   replacePersistentConversationUrl: (id: string) => void;
+  replaceHomeWorkspaceUrl: () => void;
   setSearchStateForSelection: (selection: SelectedChat | null, state: SearchMetadata | null) => void;
   setSelectedChat: Dispatch<SetStateAction<SelectedChat | null>>;
   setUserHasScrolledState: (nextValue: boolean) => void;
@@ -405,14 +421,25 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
   const paramsRef = useRef(params);
   paramsRef.current = params;
 
-  return useCallback(async (
-    content: string,
-    uploadedAttachments: UploadedChatImageAttachment[] = []
-  ) => {
+  return useCallback(async (content: string, options: SendMessageOptions = {}) => {
     const params = paramsRef.current;
     const messageText = content.trim();
-    if (!messageText && uploadedAttachments.length === 0) {
-      return;
+    let uploadedAttachments = options.uploadedAttachments ?? [];
+    const displayAttachments =
+      options.displayAttachments
+      ?? uploadedAttachments.map((attachment) => ({
+        id: attachment.id,
+        storagePath: attachment.storagePath,
+        fileName: attachment.fileName,
+        mimeType: attachment.mimeType,
+        sizeBytes: attachment.sizeBytes,
+        width: attachment.width,
+        height: attachment.height,
+        url: attachment.url,
+      }));
+
+    if (!messageText && displayAttachments.length === 0 && uploadedAttachments.length === 0) {
+      return { accepted: false, completed: false };
     }
     const messageForTitle = messageText || 'Image question';
 
@@ -427,12 +454,13 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
 
     let effectiveSelection = params.selectedChat;
     let effectiveDraft = params.selectedDraftChat;
-    let effectiveTempChat = params.selectedTemporaryChat;
+    const effectiveTempChat = params.selectedTemporaryChat;
     const effectivePendingBranch = params.pendingBranch;
     const activePathTailMessageId =
       params.activeMessages[params.activeMessages.length - 1]?.id ?? null;
-    const previousMessageId = effectivePendingBranch?.sourceMessageId ?? activePathTailMessageId;
-    const branchSourceMessageId = effectivePendingBranch?.sourceMessageId ?? null;
+    let previousMessageId: string | null =
+      effectivePendingBranch?.sourceMessageId ?? activePathTailMessageId;
+    let branchSourceMessageId: string | null = effectivePendingBranch?.sourceMessageId ?? null;
 
     if (!effectiveSelection) {
       effectiveDraft = params.getOrCreateDraft(null);
@@ -445,9 +473,16 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
       params.setSelectedChat(effectiveSelection);
     }
 
+    if (effectiveSelection.kind === 'persistent') {
+      previousMessageId = previousMessageId && isUuid(previousMessageId) ? previousMessageId : null;
+      branchSourceMessageId = branchSourceMessageId && isUuid(branchSourceMessageId)
+        ? branchSourceMessageId
+        : null;
+    }
+
     const effectiveSelectionKey = getSelectedChatKey(effectiveSelection);
     if (!effectiveSelectionKey || params.pendingChatRequestsRef.current[effectiveSelectionKey]) {
-      return;
+      return { accepted: false, completed: false };
     }
 
     const userMessage: Message = {
@@ -458,21 +493,12 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
       renderId: createTemporaryId('render'),
       role: 'user',
       content: messageText,
-      attachments: uploadedAttachments.map((attachment) => ({
-        id: attachment.id,
-        storagePath: attachment.storagePath,
-        fileName: attachment.fileName,
-        mimeType: attachment.mimeType,
-        sizeBytes: attachment.sizeBytes,
-        width: attachment.width,
-        height: attachment.height,
-        url: attachment.url,
-      })),
+      attachments: displayAttachments,
       timestamp: now,
       previousMessageId,
     };
 
-    const temporaryNextTree =
+    let temporaryNextTree =
       effectiveSelection.kind === 'temporary' && effectiveTempChat
         ? applyUserMessageToTree({
             messages: effectiveTempChat.messages,
@@ -482,7 +508,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
             userMessage,
           })
         : null;
-    const persistentNextTree =
+    let persistentNextTree =
       effectiveSelection.kind === 'persistent'
         ? applyUserMessageToTree({
             messages: params.persistentMessages,
@@ -492,7 +518,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
             userMessage,
           })
         : null;
-    const draftNextTree =
+    let draftNextTree =
       effectiveSelection.kind === 'draft' && effectiveDraft
         ? applyUserMessageToTree({
             messages: effectiveDraft.messages,
@@ -509,6 +535,140 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
           ?? draftNextTree?.selectedBranchIds[branchSourceMessageId]
           ?? null
         : null;
+    const optimisticSelection = effectiveSelection;
+    const optimisticDraft = effectiveDraft;
+    const optimisticTempChat = effectiveTempChat;
+    let promotedDraftRollback: {
+      conversationId: string;
+      draft: PersistentDraftChat;
+      draftSelection: SelectedChat;
+      persistentSelection: SelectedChat;
+    } | null = null;
+
+    const mapUploadedAttachments = (
+      attachments: UploadedChatImageAttachment[]
+    ): NonNullable<Message['attachments']> =>
+      attachments.map((attachment) => ({
+        id: attachment.id,
+        storagePath: attachment.storagePath,
+        fileName: attachment.fileName,
+        mimeType: attachment.mimeType,
+        sizeBytes: attachment.sizeBytes,
+        width: attachment.width,
+        height: attachment.height,
+        url: attachment.url,
+      }));
+
+    const replaceUserAttachments = (
+      messages: Message[],
+      attachments: NonNullable<Message['attachments']>
+    ) =>
+      messages.map((message) =>
+        message.id === userMessage.id || message.renderId === userMessage.renderId
+          ? { ...message, attachments }
+          : message
+      );
+
+    const patchTreeAttachments = <T extends { messages: Message[] } | null>(
+      tree: T,
+      attachments: NonNullable<Message['attachments']>
+    ): T => {
+      if (!tree) {
+        return tree;
+      }
+
+      return {
+        ...tree,
+        messages: replaceUserAttachments(tree.messages, attachments),
+      };
+    };
+
+    const patchOptimisticUserAttachments = (
+      attachments: NonNullable<Message['attachments']>
+    ) => {
+      userMessage.attachments = attachments;
+      temporaryNextTree = patchTreeAttachments(temporaryNextTree, attachments);
+      persistentNextTree = patchTreeAttachments(persistentNextTree, attachments);
+      draftNextTree = patchTreeAttachments(draftNextTree, attachments);
+
+      if (optimisticSelection.kind === 'temporary') {
+        params.updateTemporaryChat(optimisticSelection.tempChatId, (chat) => ({
+          ...chat,
+          messages: replaceUserAttachments(chat.messages, attachments),
+        }));
+      } else if (optimisticSelection.kind === 'persistent') {
+        if (isSameSelectedChat(params.selectedChatRef.current, optimisticSelection)) {
+          params.setPersistentMessages((messages) =>
+            replaceUserAttachments(messages, attachments)
+          );
+        }
+      } else if (optimisticDraft) {
+        params.updateDraftChat(optimisticDraft.id, (draft) => ({
+          ...draft,
+          messages: replaceUserAttachments(draft.messages, attachments),
+        }));
+      }
+    };
+
+    const restoreBeforeOptimisticUserMessage = () => {
+      if (optimisticSelection.kind === 'temporary' && optimisticTempChat) {
+        params.updateTemporaryChat(optimisticSelection.tempChatId, (chat) => ({
+          ...chat,
+          messages: optimisticTempChat.messages,
+          branches: optimisticTempChat.branches,
+          selectedBranchIds: optimisticTempChat.selectedBranchIds,
+          updatedAt: optimisticTempChat.updatedAt,
+        }));
+      } else if (optimisticSelection.kind === 'persistent') {
+        if (isSameSelectedChat(params.selectedChatRef.current, optimisticSelection)) {
+          params.setPersistentMessages(params.persistentMessages);
+          params.setPersistentBranches(params.persistentBranches);
+          params.setPersistentSelectedBranchIds(params.persistentSelectedBranchIds);
+        }
+      } else if (optimisticDraft) {
+        params.updateDraftChat(optimisticDraft.id, (draft) => ({
+          ...draft,
+          messages: optimisticDraft.messages,
+          branches: optimisticDraft.branches,
+          selectedBranchIds: optimisticDraft.selectedBranchIds,
+          updatedAt: optimisticDraft.updatedAt,
+        }));
+      }
+    };
+
+    const restoreBeforeRejectedRequest = (): SelectedChat | null => {
+      if (promotedDraftRollback) {
+        const rollback = promotedDraftRollback;
+        void deleteEmptyPersistentConversation(rollback.conversationId);
+        params.clearPendingChatRequestForSelection(rollback.persistentSelection);
+        params.clearPendingChatRequestForSelection(rollback.draftSelection);
+        params.setDraftChats((prev) => {
+          if (prev.some((draft) => draft.id === rollback.draft.id)) {
+            return prev.map((draft) =>
+              draft.id === rollback.draft.id ? rollback.draft : draft
+            );
+          }
+
+          return [rollback.draft, ...prev];
+        });
+
+        if (isSameSelectedChat(params.selectedChatRef.current, rollback.persistentSelection)) {
+          params.setPersistentMessages(params.persistentMessages);
+          params.setPersistentBranches(params.persistentBranches);
+          params.setPersistentSelectedBranchIds(params.persistentSelectedBranchIds);
+          params.setPersistentThreadsMap(new Map());
+          params.hydratedRouteConversationIdRef.current = null;
+          params.selectedChatRef.current = rollback.draftSelection;
+          params.setSelectedChat(rollback.draftSelection);
+          params.replaceHomeWorkspaceUrl();
+        }
+
+        return rollback.draftSelection;
+      }
+
+      restoreBeforeOptimisticUserMessage();
+      return optimisticSelection;
+    };
 
     if (effectiveSelection.kind === 'temporary') {
       params.updateTemporaryChat(effectiveSelection.tempChatId, (chat) => {
@@ -528,7 +688,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
     } else if (effectiveSelection.kind === 'persistent') {
       const nextTree = persistentNextTree;
       if (!nextTree) {
-        return;
+        return { accepted: false, completed: false };
       }
       params.setPersistentMessages(nextTree.messages);
       params.setPersistentBranches(nextTree.branches);
@@ -538,7 +698,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
       effectiveDraft = draft;
       const nextTree = draftNextTree;
       if (!nextTree) {
-        return;
+        return { accepted: false, completed: false };
       }
       params.updateDraftChat(draft.id, (currentDraft) => ({
         ...currentDraft,
@@ -559,6 +719,23 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
     params.clearSearchStateForSelection(effectiveSelection);
     params.setUserHasScrolledState(false);
 
+    if (options.prepareUploadedAttachments) {
+      try {
+        uploadedAttachments = await options.prepareUploadedAttachments();
+        patchOptimisticUserAttachments(mapUploadedAttachments(uploadedAttachments));
+      } catch (error) {
+        const restoreComposerSelection = restoreBeforeRejectedRequest();
+        params.clearPendingChatRequestForSelection(effectiveSelection);
+        return {
+          accepted: false,
+          completed: false,
+          error: error instanceof Error ? error.message : 'Failed to upload image.',
+          restoreComposerSelection,
+          uploadedAttachments,
+        };
+      }
+    }
+
     if (effectiveSelection.kind === 'draft' && effectiveDraft) {
       const draftId = effectiveDraft.id;
 
@@ -570,13 +747,26 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
 
         if (!isSameSelectedChat(params.selectedChatRef.current, effectiveSelection)) {
           void deleteEmptyPersistentConversation(conversation.id);
-          return;
+          const restoreComposerSelection = restoreBeforeRejectedRequest();
+          params.clearPendingChatRequestForSelection(effectiveSelection);
+          return {
+            accepted: false,
+            completed: false,
+            restoreComposerSelection,
+            uploadedAttachments,
+          };
         }
 
         const promotedSelection: SelectedChat = {
           kind: 'persistent',
           conversationId: conversation.id,
           mentorId: conversation.mentorId ?? effectiveSelection.mentorId,
+        };
+        promotedDraftRollback = {
+          conversationId: conversation.id,
+          draft: effectiveDraft,
+          draftSelection: effectiveSelection,
+          persistentSelection: promotedSelection,
         };
 
         params.movePendingChatRequestBetweenSelections(effectiveSelection, promotedSelection);
@@ -596,6 +786,18 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
         effectiveSelection = promotedSelection;
         effectiveDraft = null;
       } catch (error) {
+        if (uploadedAttachments.length > 0) {
+          const restoreComposerSelection = restoreBeforeRejectedRequest();
+          params.clearPendingChatRequestForSelection(effectiveSelection);
+          return {
+            accepted: false,
+            completed: false,
+            error: error instanceof Error ? error.message : 'Failed to create conversation',
+            restoreComposerSelection,
+            uploadedAttachments,
+          };
+        }
+
         const errorMessage: Message = {
           id: (Date.now() + 1).toString(),
           renderId: createTemporaryId('render'),
@@ -614,7 +816,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
           updatedAt: new Date().toISOString(),
         }));
         params.clearPendingChatRequestForSelection(effectiveSelection);
-        return;
+        return { accepted: false, completed: false, uploadedAttachments };
       }
     }
 
@@ -833,6 +1035,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
       });
     };
 
+    let requestAccepted = false;
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
@@ -874,9 +1077,22 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
 
       if (!response.ok) {
         const data = (await response.json()) as ChatResponse;
+        if (uploadedAttachments.length > 0) {
+          const restoreComposerSelection = restoreBeforeRejectedRequest();
+          return {
+            accepted: false,
+            completed: false,
+            error: data.error || 'Failed to send message.',
+            restoreComposerSelection,
+            uploadedAttachments,
+          };
+        }
+
         showErrorMessage(data.error || '');
-        return;
+        return { accepted: false, completed: false, uploadedAttachments };
       }
+
+      requestAccepted = true;
 
       const data = await readChatStream(response, appendChunk, {
         onTextEnd: (content) => {
@@ -899,7 +1115,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
 
       if (data.error) {
         showErrorMessage(data.error);
-        return;
+        return { accepted: true, completed: false, uploadedAttachments };
       }
 
       scheduleDeferredRenderWork(() => {
@@ -942,7 +1158,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
 
       if (effectiveSelection.kind === 'temporary') {
         if (!canApplyTemporaryResponse) {
-          return;
+          return { accepted: true, completed: false, uploadedAttachments };
         }
 
         params.updateTemporaryChat(effectiveSelection.tempChatId, (chat) => ({
@@ -1011,7 +1227,19 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
       ) {
         params.tts.speak(stripCitationMarkers(data.message, finalSearchMetadata));
       }
+      return { accepted: true, completed: true, uploadedAttachments };
     } catch {
+      if (!requestAccepted && uploadedAttachments.length > 0) {
+        const restoreComposerSelection = restoreBeforeRejectedRequest();
+        return {
+          accepted: false,
+          completed: false,
+          error: 'Sorry, there was an error processing your message.',
+          restoreComposerSelection,
+          uploadedAttachments,
+        };
+      }
+
       const canApplyTemporaryResponse =
         effectiveSelection.kind !== 'temporary'
         || params.temporaryChatsRef.current.some((chat) => chat.id === effectiveSelection.tempChatId);
@@ -1029,6 +1257,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
           previousMessageId: userMessage.id,
         });
       }
+      return { accepted: requestAccepted, completed: false, uploadedAttachments };
     } finally {
       params.clearPendingChatRequestForSelection(effectiveSelection);
     }

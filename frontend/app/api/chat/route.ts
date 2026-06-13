@@ -14,6 +14,7 @@ import { isChatModelId } from '@/lib/chat-models';
 import { getChatModel, resolveChatModelSelection } from '@/lib/models';
 import {
   CHAT_IMAGE_BUCKET,
+  CHAT_IMAGE_PROVIDER_LIMITS,
   MAX_CHAT_IMAGE_ATTACHMENTS,
   MAX_CHAT_IMAGE_BYTES,
   type ChatImageAttachmentRequest,
@@ -45,6 +46,7 @@ import type {
 import {
   DEFAULT_TEMPORARY_MEMORY_MODE,
   fallbackChatTitleFromMessage,
+  isUuid,
   sanitizeGeneratedChatTitle,
 } from '@/lib/chat-session';
 
@@ -316,6 +318,83 @@ function validateAttachmentRequests(
   return { attachments, error: null };
 }
 
+function normalizeOptionalId(value: string | undefined) {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+function validateAttachmentsForModel(
+  attachments: ChatImageAttachmentRequest[],
+  resolvedSelection: NonNullable<ReturnType<typeof resolveChatModelSelection>>
+) {
+  if (attachments.length === 0) {
+    return null;
+  }
+
+  if (!resolvedSelection.supportsImages) {
+    return `${resolvedSelection.label} cannot read images. Choose a vision-capable model.`;
+  }
+
+  const limits = CHAT_IMAGE_PROVIDER_LIMITS[resolvedSelection.provider];
+  if (attachments.length > limits.maxAttachments) {
+    return `${resolvedSelection.label} supports up to ${limits.maxAttachments} images per message.`;
+  }
+
+  for (const attachment of attachments) {
+    if (!limits.mimeTypes.includes(attachment.mimeType)) {
+      return `${resolvedSelection.label} does not support ${attachment.mimeType} images.`;
+    }
+
+    if (attachment.sizeBytes > limits.maxBytes) {
+      return `${resolvedSelection.label} supports images up to ${Math.floor(limits.maxBytes / 1024 / 1024)}MB.`;
+    }
+  }
+
+  return null;
+}
+
+function hasExpectedImageSignature(bytes: Uint8Array, mimeType: ChatImageAttachmentRequest['mimeType']) {
+  switch (mimeType) {
+    case 'image/png':
+      return (
+        bytes.length >= 8
+        && bytes[0] === 0x89
+        && bytes[1] === 0x50
+        && bytes[2] === 0x4e
+        && bytes[3] === 0x47
+        && bytes[4] === 0x0d
+        && bytes[5] === 0x0a
+        && bytes[6] === 0x1a
+        && bytes[7] === 0x0a
+      );
+    case 'image/jpeg':
+      return bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+    case 'image/gif':
+      return (
+        bytes.length >= 6
+        && bytes[0] === 0x47
+        && bytes[1] === 0x49
+        && bytes[2] === 0x46
+        && bytes[3] === 0x38
+        && (bytes[4] === 0x37 || bytes[4] === 0x39)
+        && bytes[5] === 0x61
+      );
+    case 'image/webp':
+      return (
+        bytes.length >= 12
+        && bytes[0] === 0x52
+        && bytes[1] === 0x49
+        && bytes[2] === 0x46
+        && bytes[3] === 0x46
+        && bytes[8] === 0x57
+        && bytes[9] === 0x45
+        && bytes[10] === 0x42
+        && bytes[11] === 0x50
+      );
+    default:
+      return false;
+  }
+}
+
 async function loadChatImageAttachments(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
   attachments: ChatImageAttachmentRequest[]
@@ -339,9 +418,25 @@ async function loadChatImageAttachments(
     }
 
     const arrayBuffer = await data.arrayBuffer();
+    const bytes = new Uint8Array(arrayBuffer);
+
+    if (bytes.byteLength !== attachment.sizeBytes) {
+      return {
+        attachments: [],
+        error: 'Image upload metadata did not match the stored image',
+      };
+    }
+
+    if (!hasExpectedImageSignature(bytes, attachment.mimeType)) {
+      return {
+        attachments: [],
+        error: 'One of the attached images does not match its declared image type',
+      };
+    }
+
     loaded.push({
       ...attachment,
-      bytes: new Uint8Array(arrayBuffer),
+      bytes,
     });
   }
 
@@ -502,14 +597,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: attachmentValidationError }, { status: 400 });
     }
 
-    const { attachments: loadedAttachments, error: attachmentLoadError } =
-      await loadChatImageAttachments(supabase, attachments);
-    if (attachmentLoadError) {
-      return NextResponse.json({ error: attachmentLoadError }, { status: 400 });
-    }
-
     const messageText = message?.trim() ?? '';
-    const messageForPrompt = buildMessagePromptText(messageText, loadedAttachments.length);
+    const messageForPrompt = buildMessagePromptText(messageText, attachments.length);
     const messageForTitle = messageText || 'Image question';
     const isTemporaryChat = chatMode === 'temporary';
     // Temporary chats default to no memory when omitted; persistent chats keep prior behavior.
@@ -519,7 +608,7 @@ export async function POST(request: NextRequest) {
     const sanitizedHistory = sanitizeHistoryMessages(history, 50);
     const sanitizedThreadHistory = sanitizeHistoryMessages(threadHistory, 30);
 
-    if (!messageText && loadedAttachments.length === 0) {
+    if (!messageText && attachments.length === 0) {
       return NextResponse.json(
         { error: 'Message or image is required' },
         { status: 400 }
@@ -563,6 +652,30 @@ export async function POST(request: NextRequest) {
       }
 
       mentor = mentorRow;
+    }
+
+    const resolvedSelection = resolveChatModelSelection(
+      modelId ?? mentor?.model_id ?? null
+    );
+    if (!resolvedSelection) {
+      return NextResponse.json(
+        {
+          error:
+            'No chat model is configured. Set at least one of OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_GENERATIVE_AI_API_KEY.',
+        },
+        { status: 503 }
+      );
+    }
+
+    const modelAttachmentError = validateAttachmentsForModel(attachments, resolvedSelection);
+    if (modelAttachmentError) {
+      return NextResponse.json({ error: modelAttachmentError }, { status: 400 });
+    }
+
+    const { attachments: loadedAttachments, error: attachmentLoadError } =
+      await loadChatImageAttachments(supabase, attachments);
+    if (attachmentLoadError) {
+      return NextResponse.json({ error: attachmentLoadError }, { status: 400 });
     }
 
     let isFirstPersistentMainMessage = false;
@@ -628,18 +741,30 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    activeThreadId = threadId || null;
-    const normalizedPreviousMessageId =
-      typeof previousMessageId === 'string' && previousMessageId.trim().length > 0
-        ? previousMessageId.trim()
-        : null;
-    const normalizedBranchSourceMessageId =
-      typeof branchSourceMessageId === 'string' && branchSourceMessageId.trim().length > 0
-        ? branchSourceMessageId.trim()
-        : null;
+    const normalizedThreadId = normalizeOptionalId(threadId);
+    const normalizedSourceMessageId = normalizeOptionalId(sourceMessageId);
+    const normalizedPreviousMessageId = normalizeOptionalId(previousMessageId);
+    const normalizedBranchSourceMessageId = normalizeOptionalId(branchSourceMessageId);
+    activeThreadId = normalizedThreadId;
     let existingThreadHighlightedText: string | null = null;
 
     if (!isTemporaryChat) {
+      if (normalizedThreadId && !isUuid(normalizedThreadId)) {
+        return NextResponse.json({ error: 'Invalid thread id' }, { status: 400 });
+      }
+
+      if (normalizedSourceMessageId && !isUuid(normalizedSourceMessageId)) {
+        return NextResponse.json({ error: 'Invalid source message id' }, { status: 400 });
+      }
+
+      if (normalizedPreviousMessageId && !isUuid(normalizedPreviousMessageId)) {
+        return NextResponse.json({ error: 'Invalid previous message id' }, { status: 400 });
+      }
+
+      if (normalizedBranchSourceMessageId && !isUuid(normalizedBranchSourceMessageId)) {
+        return NextResponse.json({ error: 'Invalid branch source message id' }, { status: 400 });
+      }
+
       if (activeThreadId) {
         const { data: existingThread, error: threadCheckError } = await supabase
           .from('threads')
@@ -654,7 +779,7 @@ export async function POST(request: NextRequest) {
         existingThreadHighlightedText = existingThread.highlighted_text || null;
       }
 
-      if (!activeThreadId && sourceMessageId && highlightedText) {
+      if (!activeThreadId && normalizedSourceMessageId && highlightedText) {
         const normalizedStartOffset = typeof startOffset === 'number' ? startOffset : null;
         const normalizedEndOffset = typeof endOffset === 'number' ? endOffset : null;
 
@@ -674,7 +799,7 @@ export async function POST(request: NextRequest) {
           .from('threads')
           .insert({
             conversation_id: activeConversationId,
-            source_message_id: sourceMessageId,
+            source_message_id: normalizedSourceMessageId,
             highlighted_text: highlightedText,
             start_offset: normalizedStartOffset,
             end_offset: normalizedEndOffset,
@@ -696,7 +821,7 @@ export async function POST(request: NextRequest) {
 
     let latestUserMessageId: string | null = null;
     let effectivePreviousMessageId = normalizedPreviousMessageId;
-    let branchSourceForMessage = normalizedBranchSourceMessageId;
+    const branchSourceForMessage = normalizedBranchSourceMessageId;
     let materializedMainBranch = false;
     let existingMainContinuationId: string | null = null;
     let existingBranchPositions: number[] = [];
@@ -774,7 +899,7 @@ export async function POST(request: NextRequest) {
           role: 'user',
           content: messageText,
           ...(activeThreadId
-            ? { thread_id: activeThreadId, parent_message_id: sourceMessageId || null }
+            ? { thread_id: activeThreadId, parent_message_id: normalizedSourceMessageId }
             : { previous_message_id: effectivePreviousMessageId }),
         })
         .select('id')
@@ -782,9 +907,13 @@ export async function POST(request: NextRequest) {
 
       if (userMsgError) {
         console.error('Error saving user message:', userMsgError);
+        return NextResponse.json({ error: 'Failed to save message' }, { status: 500 });
       }
 
       latestUserMessageId = userMessageRow?.id ?? null;
+      if (!latestUserMessageId) {
+        return NextResponse.json({ error: 'Failed to save message' }, { status: 500 });
+      }
 
       if (latestUserMessageId && loadedAttachments.length > 0) {
         const attachmentRows = loadedAttachments.map((attachment, index) => ({
@@ -805,6 +934,13 @@ export async function POST(request: NextRequest) {
 
         if (attachmentInsertError) {
           console.error('Error saving message attachments:', attachmentInsertError);
+          await supabase.storage
+            .from(CHAT_IMAGE_BUCKET)
+            .remove(loadedAttachments.map((attachment) => attachment.storagePath));
+          return NextResponse.json(
+            { error: 'Failed to save image attachments' },
+            { status: 500 }
+          );
         }
       }
 
@@ -940,19 +1076,6 @@ export async function POST(request: NextRequest) {
           replyContext
         )
       : buildSystemPrompt(memoryContext, replyContext);
-
-    const resolvedSelection = resolveChatModelSelection(
-      modelId ?? mentor?.model_id ?? null
-    );
-    if (!resolvedSelection) {
-      return NextResponse.json(
-        {
-          error:
-            'No chat model is configured. Set at least one of OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_GENERATIVE_AI_API_KEY.',
-        },
-        { status: 503 }
-      );
-    }
 
     let chatModel;
     try {
@@ -1125,7 +1248,7 @@ export async function POST(request: NextRequest) {
                   content: assistantResponse,
                   search_metadata: capturedSearch.metadata,
                   ...(activeThreadId
-                    ? { thread_id: activeThreadId, parent_message_id: sourceMessageId || null }
+                    ? { thread_id: activeThreadId, parent_message_id: normalizedSourceMessageId }
                     : { previous_message_id: latestUserMessageId }),
                 })
                 .select('id')

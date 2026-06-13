@@ -83,6 +83,7 @@ export function resolveChatModelSelection(
     label: option.label,
     provider: option.provider,
     apiModelId: option.apiModelId,
+    supportsImages: option.supportsImages,
   };
 }
 

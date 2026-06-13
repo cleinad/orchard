@@ -73,6 +73,7 @@ describe('chat model resolver', () => {
       label: 'Sonnet 4.6',
       provider: 'anthropic',
       apiModelId: 'claude-sonnet-4-6',
+      supportsImages: true,
     });
   });
 
@@ -86,6 +87,7 @@ describe('chat model resolver', () => {
       label: 'Gemini 3',
       provider: 'google',
       apiModelId: 'gemini-3-flash-preview',
+      supportsImages: true,
     });
   });
 

@@ -28,6 +28,7 @@ export interface ResolvedChatModelSelection {
   label: string;
   provider: ChatModelProvider;
   apiModelId: string;
+  supportsImages: boolean;
 }
 
 export const DEFAULT_CHAT_MODEL_ID: ChatModelId = 'gemini-3-flash-preview';

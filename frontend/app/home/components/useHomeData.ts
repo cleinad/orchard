@@ -3,7 +3,6 @@ import { supabase } from '@/lib/supabase';
 import type { MentorListItem } from '@/lib/mentors/types';
 import { parsePersistedSearchMetadata } from '@/lib/search-citations';
 import {
-  CHAT_IMAGE_BUCKET,
   type ChatImageAttachment,
   type ChatImageMimeType,
 } from '@/lib/chat-attachments';
@@ -243,15 +242,6 @@ export function useHomeData() {
           width: number | null;
           height: number | null;
         }>;
-        const signedUrls = await supabase.storage
-          .from(CHAT_IMAGE_BUCKET)
-          .createSignedUrls(
-            rows.map((row) => row.storage_path),
-            60 * 60
-          );
-        const signedUrlByPath = new Map(
-          (signedUrls.data || []).map((entry) => [entry.path, entry.signedUrl])
-        );
         const attachmentsByMessageId = new Map<string, ChatImageAttachment[]>();
 
         for (const row of rows) {
@@ -265,7 +255,7 @@ export function useHomeData() {
             sizeBytes: row.size_bytes,
             width: row.width,
             height: row.height,
-            url: signedUrlByPath.get(row.storage_path) ?? null,
+            url: `/api/chat/images/${row.id}`,
           });
           attachmentsByMessageId.set(row.message_id, existing);
         }

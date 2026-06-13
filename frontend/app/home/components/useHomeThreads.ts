@@ -202,7 +202,7 @@ export function useHomeThreads(
     const messageId = messageEl?.getAttribute('data-message-id');
     const messageRole = messageEl?.getAttribute('data-message-role');
 
-    if (!messageId || messageRole !== 'assistant') {
+    if (!messageId || messageRole !== 'assistant' || messageId.startsWith('streaming-')) {
       return;
     }
 

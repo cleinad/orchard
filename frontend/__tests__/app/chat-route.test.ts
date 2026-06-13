@@ -12,6 +12,23 @@ const mockProcessMemoryV2 = vi.fn();
 const mockBuildMentorPrompt = vi.fn();
 const mockRunSearchPipeline = vi.fn();
 const mockStorageDownload = vi.fn();
+const mockResolveChatModelSelection = vi.fn((_modelId?: string | null) => ({
+  id: 'gpt-5-mini',
+  label: 'GPT 5 Mini',
+  provider: 'openai',
+  apiModelId: 'gpt-5-mini',
+  supportsImages: true,
+}));
+const testPngBytes = new Uint8Array([
+  0x89,
+  0x50,
+  0x4e,
+  0x47,
+  0x0d,
+  0x0a,
+  0x1a,
+  0x0a,
+]);
 
 vi.mock('next/server', async (importOriginal) => {
   const actual = await importOriginal<typeof import('next/server')>();
@@ -117,10 +134,8 @@ vi.mock('@/lib/memory-agent', () => ({
 
 vi.mock('@/lib/models', () => ({
   getChatModel: vi.fn(() => 'mock-chat-model'),
-  resolveChatModelSelection: vi.fn(() => ({
-    id: 'gpt-5-mini',
-    provider: 'openai',
-  })),
+  resolveChatModelSelection: (modelId?: string | null) =>
+    mockResolveChatModelSelection(modelId),
 }));
 
 vi.mock('@/lib/search/pipeline', () => ({
@@ -222,8 +237,15 @@ describe('chat route memory contract', () => {
       ],
     });
     mockStorageDownload.mockResolvedValue({
-      data: new Blob([new Uint8Array([1, 2, 3])], { type: 'image/png' }),
+      data: new Blob([testPngBytes], { type: 'image/png' }),
       error: null,
+    });
+    mockResolveChatModelSelection.mockReturnValue({
+      id: 'gpt-5-mini',
+      label: 'GPT 5 Mini',
+      provider: 'openai',
+      apiModelId: 'gpt-5-mini',
+      supportsImages: true,
     });
   });
 
@@ -359,6 +381,49 @@ describe('chat route memory contract', () => {
     expect(mockProcessMemoryV2).not.toHaveBeenCalled();
   });
 
+  it('rejects invalid persistent thread source ids before creating a thread', async () => {
+    const { response, body, tracker } = await runChatRequest(
+      {
+        message: 'Explain this',
+        conversationId: '11111111-1111-4111-8111-111111111111',
+        sourceMessageId: 'streaming-1780862329520',
+        highlightedText: 'selected text',
+        startOffset: 0,
+        endOffset: 13,
+      },
+      {
+        conversations: {
+          rows: [{ id: '11111111-1111-4111-8111-111111111111', mentor_id: null }],
+        },
+      }
+    );
+
+    expect(response.status).toBe(400);
+    expect(body.error).toBe('Invalid source message id');
+    expect(tracker.inserts('threads')).toHaveLength(0);
+    expect(mockStreamText).not.toHaveBeenCalled();
+  });
+
+  it('rejects invalid persistent previous message ids before saving a message', async () => {
+    const { response, body, tracker } = await runChatRequest(
+      {
+        message: 'Continue',
+        conversationId: '11111111-1111-4111-8111-111111111111',
+        previousMessageId: 'streaming-1780862329520',
+      },
+      {
+        conversations: {
+          rows: [{ id: '11111111-1111-4111-8111-111111111111', mentor_id: null }],
+        },
+      }
+    );
+
+    expect(response.status).toBe(400);
+    expect(body.error).toBe('Invalid previous message id');
+    expect(tracker.inserts('messages')).toHaveLength(0);
+    expect(mockStreamText).not.toHaveBeenCalled();
+  });
+
   it('passes mentor actor and mentorId into memory read/write paths', async () => {
     const { response, supabase } = await runChatRequest(
       {
@@ -468,7 +533,7 @@ describe('chat route memory contract', () => {
       storagePath: `user-1/image-${index}.png`,
       fileName: `image-${index}.png`,
       mimeType: 'image/png',
-      sizeBytes: 123,
+      sizeBytes: testPngBytes.byteLength,
     }));
 
     const { response, body } = await runChatRequest({
@@ -491,7 +556,7 @@ describe('chat route memory contract', () => {
           storagePath: 'user-1/screenshot.png',
           fileName: 'screenshot.png',
           mimeType: 'image/png',
-          sizeBytes: 123,
+          sizeBytes: testPngBytes.byteLength,
           width: 640,
           height: 480,
         },
@@ -519,6 +584,53 @@ describe('chat route memory contract', () => {
     );
   });
 
+  it('rejects image attachments when the resolved model cannot read images', async () => {
+    mockResolveChatModelSelection.mockReturnValue({
+      id: 'gpt-5-mini',
+      label: 'Text Model',
+      provider: 'openai',
+      apiModelId: 'gpt-5-mini',
+      supportsImages: false,
+    });
+
+    const { response, body } = await runChatRequest({
+      message: 'Read this',
+      chatMode: 'temporary',
+      attachments: [
+        {
+          storagePath: 'user-1/image.png',
+          fileName: 'image.png',
+          mimeType: 'image/png',
+          sizeBytes: testPngBytes.byteLength,
+        },
+      ],
+    });
+
+    expect(response.status).toBe(400);
+    expect(body.error).toBe('Text Model cannot read images. Choose a vision-capable model.');
+    expect(mockStorageDownload).not.toHaveBeenCalled();
+    expect(mockStreamText).not.toHaveBeenCalled();
+  });
+
+  it('rejects image attachments when stored bytes do not match client metadata', async () => {
+    const { response, body } = await runChatRequest({
+      message: 'Read this',
+      chatMode: 'temporary',
+      attachments: [
+        {
+          storagePath: 'user-1/image.png',
+          fileName: 'image.png',
+          mimeType: 'image/png',
+          sizeBytes: testPngBytes.byteLength + 1,
+        },
+      ],
+    });
+
+    expect(response.status).toBe(400);
+    expect(body.error).toBe('Image upload metadata did not match the stored image');
+    expect(mockStreamText).not.toHaveBeenCalled();
+  });
+
   it('keeps image-only turns attached to the current prompt in existing conversations', async () => {
     const { response } = await runChatRequest(
       {
@@ -529,7 +641,7 @@ describe('chat route memory contract', () => {
             storagePath: 'user-1/image-only.png',
             fileName: 'image-only.png',
             mimeType: 'image/png',
-            sizeBytes: 123,
+            sizeBytes: testPngBytes.byteLength,
           },
         ],
       },
@@ -602,7 +714,7 @@ describe('chat route memory contract', () => {
             storagePath: 'user-1/photo.png',
             fileName: 'photo.png',
             mimeType: 'image/png',
-            sizeBytes: 123,
+            sizeBytes: testPngBytes.byteLength,
             width: 800,
             height: 600,
           },
@@ -629,7 +741,7 @@ describe('chat route memory contract', () => {
         storage_path: 'user-1/photo.png',
         file_name: 'photo.png',
         mime_type: 'image/png',
-        size_bytes: 123,
+        size_bytes: testPngBytes.byteLength,
         width: 800,
         height: 600,
         position: 0,

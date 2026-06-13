@@ -49,7 +49,7 @@ import type {
   ThreadSource,
 } from '@/app/home/components/threadTypes';
 import type { SearchMetadata } from '@/lib/chat-search';
-import { CHAT_IMAGE_BUCKET } from '@/lib/chat-attachments';
+import { CHAT_IMAGE_BUCKET, type ChatImageAttachment } from '@/lib/chat-attachments';
 import {
   CHAT_MODEL_OPTIONS,
   DEFAULT_CHAT_MODEL_ID,
@@ -556,6 +556,7 @@ function HomePageInner() {
     invokePrepareForChatSwitch,
     registerCloseTempChatCleanup,
     replacePersistentConversationUrl,
+    replaceHomeWorkspaceUrl,
     openHomeWorkspace,
     buildHomeHref,
     routeConversationId,
@@ -702,6 +703,9 @@ function HomePageInner() {
       : null;
   const isLoading = activePendingChatRequest !== null;
   const activeSearchState = searchStatesByChatKey[activeComposerStateKey] ?? null;
+  const selectedChatModel = chatModels.find((model) => model.id === selectedModelId) ?? null;
+  const selectedModelSupportsImages = selectedChatModel?.supportsImages ?? true;
+  const selectedModelRejectsGifImages = selectedChatModel?.provider === 'google';
   const activeThreadsMap = isTemporaryChat
     ? recordToThreadsMap(selectedTemporaryChat?.threadsMap)
     : selectedChat?.kind === 'persistent'
@@ -867,6 +871,24 @@ function HomePageInner() {
       return;
     }
 
+    if (!selectedModelSupportsImages) {
+      setImageWarning('The selected model cannot read images. Choose a vision-capable model.');
+      return;
+    }
+
+    if (
+      selectedModelRejectsGifImages
+      && files.some((file) => file.type === 'image/gif' || file.name.toLowerCase().endsWith('.gif'))
+    ) {
+      setImageWarning('Google models do not support GIF images here. Use PNG, JPEG, or WebP.');
+      return;
+    }
+
+    if (isUploadingImages) {
+      setImageWarning('Wait for the current image upload to finish.');
+      return;
+    }
+
     const result = await createPendingChatImageAttachments(
       files,
       pendingImageAttachments.length
@@ -877,7 +899,12 @@ function HomePageInner() {
     }
 
     setImageWarning(result.error);
-  }, [pendingImageAttachments.length]);
+  }, [
+    isUploadingImages,
+    pendingImageAttachments.length,
+    selectedModelRejectsGifImages,
+    selectedModelSupportsImages,
+  ]);
 
   const handleRemoveImageAttachment = useCallback((id: string) => {
     setPendingImageAttachments((current) => {
@@ -901,65 +928,6 @@ function HomePageInner() {
     });
     setImageWarning(null);
   }, []);
-
-  const handleDeleteImageAttachment = useCallback(async (
-    messageId: string,
-    attachmentId: string
-  ) => {
-    const message = activeConversationMessages.find((item) => item.id === messageId);
-    const attachment = message?.attachments?.find((item) => item.id === attachmentId);
-    if (!message || !attachment) {
-      return;
-    }
-
-    if (attachment.url?.startsWith('blob:')) {
-      URL.revokeObjectURL(attachment.url);
-    }
-
-    const removeFromMessages = (messages: Message[]) =>
-      messages.map((item) =>
-        item.id === messageId
-          ? {
-              ...item,
-              attachments: (item.attachments || []).filter((image) => image.id !== attachmentId),
-            }
-          : item
-      );
-
-    if (selectedChat?.kind === 'temporary') {
-      updateTemporaryChat(selectedChat.tempChatId, (chat) => ({
-        ...chat,
-        messages: removeFromMessages(chat.messages),
-        updatedAt: new Date().toISOString(),
-      }));
-    } else if (selectedChat?.kind === 'draft') {
-      updateDraftChat(selectedChat.draftId, (draft) => ({
-        ...draft,
-        messages: removeFromMessages(draft.messages),
-        updatedAt: new Date().toISOString(),
-      }));
-    } else if (selectedChat?.kind === 'persistent') {
-      setPersistentMessages((messages) => removeFromMessages(messages));
-    }
-
-    try {
-      await supabase
-        .from('message_attachments')
-        .delete()
-        .eq('storage_path', attachment.storagePath);
-      await supabase.storage
-        .from(CHAT_IMAGE_BUCKET)
-        .remove([attachment.storagePath]);
-    } catch (error) {
-      setImageWarning(error instanceof Error ? error.message : 'Failed to delete image.');
-    }
-  }, [
-    activeConversationMessages,
-    selectedChat,
-    setPersistentMessages,
-    updateDraftChat,
-    updateTemporaryChat,
-  ]);
 
   const clearComposerInputForSelection = useCallback((selection: SelectedChat | null) => {
     const key = getComposerStateKey(selection);
@@ -1635,7 +1603,12 @@ function HomePageInner() {
       clearComposerInputForSelection(closedSelection);
       clearSearchStateForSelection(closedSelection);
       clearPendingChatRequestForSelection(closedSelection);
-      clearPendingImageAttachments();
+      if (
+        selectedChatRef.current?.kind === 'temporary'
+        && selectedChatRef.current.tempChatId === tempChatId
+      ) {
+        clearPendingImageAttachments();
+      }
     });
   }, [
     registerCloseTempChatCleanup,
@@ -2513,6 +2486,7 @@ function HomePageInner() {
     setPersistentSelectedBranchIds,
     setPersistentThreadsMap,
     replacePersistentConversationUrl,
+    replaceHomeWorkspaceUrl,
     setSearchStateForSelection,
     setSelectedChat,
     setUserHasScrolledState,
@@ -2604,24 +2578,81 @@ function HomePageInner() {
     e.preventDefault();
     const textToSend = input.trim();
     const imagesToSend = pendingImageAttachmentsRef.current;
+    let shouldRevokeLocalImageUrls = imagesToSend.length > 0;
 
     if (!textToSend && imagesToSend.length === 0) {
       return;
     }
 
+    if (imagesToSend.length > 0 && !selectedModelSupportsImages) {
+      setImageWarning('The selected model cannot read images. Choose a vision-capable model.');
+      return;
+    }
+
+    if (
+      selectedModelRejectsGifImages
+      && imagesToSend.some((attachment) => attachment.mimeType === 'image/gif')
+    ) {
+      setImageWarning('Google models do not support GIF images here. Use PNG, JPEG, or WebP.');
+      return;
+    }
+
     try {
-      setIsUploadingImages(true);
-      setImageWarning(null);
-      const uploadedAttachments = await uploadChatImageAttachments(imagesToSend);
-      for (const attachment of imagesToSend) {
-        URL.revokeObjectURL(attachment.url);
+      if (imagesToSend.length > 0) {
+        setIsUploadingImages(true);
       }
+      setImageWarning(null);
+      const displayAttachments: ChatImageAttachment[] = imagesToSend.map((attachment) => ({
+        id: attachment.id,
+        storagePath: '',
+        fileName: attachment.fileName,
+        mimeType: attachment.mimeType,
+        sizeBytes: attachment.sizeBytes,
+        width: attachment.width,
+        height: attachment.height,
+        url: attachment.url,
+      }));
       setPendingImageAttachments([]);
-      await sendMessage(textToSend, uploadedAttachments);
+      const result = await sendMessage(textToSend, {
+        displayAttachments,
+        prepareUploadedAttachments: () => uploadChatImageAttachments(imagesToSend),
+      });
+      if (!result.accepted && result.error) {
+        setImageWarning(result.error);
+      }
+      if (!result.accepted && textToSend) {
+        setComposerInputForSelection(
+          result.restoreComposerSelection ?? composerStateSelection,
+          textToSend
+        );
+      }
+      if (!result.accepted && imagesToSend.length > 0) {
+        setPendingImageAttachments(imagesToSend);
+        shouldRevokeLocalImageUrls = false;
+      }
+      if (!result.accepted && result.uploadedAttachments && result.uploadedAttachments.length > 0) {
+        await supabase.storage
+          .from(CHAT_IMAGE_BUCKET)
+          .remove(result.uploadedAttachments.map((attachment) => attachment.storagePath));
+      }
     } catch (error) {
       setImageWarning(error instanceof Error ? error.message : 'Failed to upload image.');
+      if (textToSend) {
+        setComposerInputForSelection(composerStateSelection, textToSend);
+      }
+      if (imagesToSend.length > 0) {
+        setPendingImageAttachments(imagesToSend);
+        shouldRevokeLocalImageUrls = false;
+      }
     } finally {
-      setIsUploadingImages(false);
+      if (shouldRevokeLocalImageUrls) {
+        for (const attachment of imagesToSend) {
+          URL.revokeObjectURL(attachment.url);
+        }
+      }
+      if (imagesToSend.length > 0) {
+        setIsUploadingImages(false);
+      }
     }
   };
 
@@ -2705,7 +2736,6 @@ function HomePageInner() {
                 onThreadClick={handleThreadMarkerClick}
                 onSelectBranch={handleSelectBranch}
                 onCreateBranch={handleCreateBranch}
-                onDeleteImageAttachment={handleDeleteImageAttachment}
                 onAssistantPointerUp={handlePointerUp}
               />
               <TextSelectionPopover
@@ -2755,6 +2785,7 @@ function HomePageInner() {
           chatModels={chatModels}
           input={input}
           isLoading={isLoading}
+          imageInputDisabled={!selectedModelSupportsImages}
           isUploadingImages={isUploadingImages}
           micActive={micActive}
           pendingImageAttachments={pendingImageAttachments}

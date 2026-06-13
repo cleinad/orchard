@@ -268,6 +268,7 @@ interface HomeDataContextValue {
   // Route helpers the page needs
   openPersistentConversation: (id: string, opts?: { replace?: boolean }) => void;
   replacePersistentConversationUrl: (id: string) => void;
+  replaceHomeWorkspaceUrl: () => void;
   openHomeWorkspace: () => void;
   buildHomeHref: (pathname: string) => string;
   routeConversationId: string | null;
@@ -491,6 +492,11 @@ export function HomeDataProvider({
     [buildHomeHref]
   );
 
+  const replaceHomeWorkspaceUrl = useCallback(() => {
+    setClientRouteConversationId(null);
+    window.history.replaceState(window.history.state, '', buildHomeHref('/home'));
+  }, [buildHomeHref]);
+
   // ------------------------------------------------------------------
   // Selection actions
   // ------------------------------------------------------------------
@@ -654,6 +660,7 @@ export function HomeDataProvider({
     registerCloseTempChatCleanup,
     openPersistentConversation,
     replacePersistentConversationUrl,
+    replaceHomeWorkspaceUrl,
     openHomeWorkspace,
     buildHomeHref,
     routeConversationId: clientRouteConversationId,

@@ -26,7 +26,6 @@ interface ConversationViewProps {
   onThreadClick: (thread: InlineThreadMarker) => void;
   onSelectBranch: (sourceMessageId: string, branchId: string | null) => void;
   onCreateBranch: (sourceMessageId: string) => void;
-  onDeleteImageAttachment: (messageId: string, attachmentId: string) => void;
   onAssistantPointerUp: () => void;
 }
 
@@ -46,7 +45,6 @@ export default function ConversationView({
   onThreadClick,
   onSelectBranch,
   onCreateBranch,
-  onDeleteImageAttachment,
   onAssistantPointerUp,
 }: ConversationViewProps) {
   const [openSourceTray, setOpenSourceTray] = useState<{
@@ -237,30 +235,6 @@ export default function ConversationView({
                             </button>
                           ) : (
                             <div className="aspect-video w-full bg-foreground/[0.04]" />
-                          )}
-                          {message.role === 'user' && !message.isStreaming && (
-                            <button
-                              type="button"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                if (selectedImage?.id === attachment.id) {
-                                  setSelectedImage(null);
-                                }
-                                onDeleteImageAttachment(message.id, attachment.id);
-                              }}
-                              aria-label={`Delete ${attachment.fileName}`}
-                              className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-background/90 text-muted shadow-sm transition hover:text-foreground"
-                            >
-                              <svg
-                                className="h-3.5 w-3.5"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2.4"
-                                viewBox="0 0 24 24"
-                              >
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 6l12 12M18 6L6 18" />
-                              </svg>
-                            </button>
                           )}
                         </div>
                       ))}

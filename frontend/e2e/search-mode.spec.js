@@ -62,17 +62,17 @@ test('search mode sends explicit search requests and renders a scalable source t
   const state = await mockHomeDataRoutes(page, {
     conversations: [],
     messagesByConversationId: {},
+    createdConversations: [
+      createConversation({
+        id: conversationId,
+        title: 'OpenAI Pricing Changes',
+      }),
+    ],
   });
 
   await mockChatRoute(page, async (body) => {
     expect(body.searchEnabled).toBe(true);
 
-    state.conversations.unshift(
-      createConversation({
-        id: conversationId,
-        title: 'OpenAI Pricing Changes',
-      })
-    );
     state.messagesByConversationId[conversationId] = [
       createMessage({
         id: 'message-user-1',

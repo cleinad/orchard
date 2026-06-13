@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import {
   CHAT_IMAGE_BUCKET,
+  CHAT_IMAGE_SIGNED_URL_TTL_SECONDS,
   MAX_CHAT_IMAGE_ATTACHMENTS,
   MAX_CHAT_IMAGE_BYTES,
   type ChatImageAttachment,
@@ -127,9 +128,16 @@ export async function uploadChatImageAttachments(
       throw new Error(error.message || 'Failed to upload image.');
     }
 
-    const { data: signedUrl } = await supabase.storage
+    const { data: signedUrl, error: signedUrlError } = await supabase.storage
       .from(CHAT_IMAGE_BUCKET)
-      .createSignedUrl(storagePath, 60 * 60);
+      .createSignedUrl(storagePath, CHAT_IMAGE_SIGNED_URL_TTL_SECONDS);
+
+    if (signedUrlError || !signedUrl?.signedUrl) {
+      await supabase.storage
+        .from(CHAT_IMAGE_BUCKET)
+        .remove([...uploaded.map((item) => item.storagePath), storagePath]);
+      throw new Error('Failed to prepare image preview.');
+    }
 
     uploaded.push({
       id: attachment.id,
@@ -139,7 +147,7 @@ export async function uploadChatImageAttachments(
       sizeBytes: attachment.sizeBytes,
       width: attachment.width,
       height: attachment.height,
-      url: signedUrl?.signedUrl ?? attachment.url,
+      url: signedUrl.signedUrl,
     });
   }
 
