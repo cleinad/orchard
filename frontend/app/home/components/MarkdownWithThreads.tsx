@@ -4,6 +4,7 @@ import ReactMarkdown, { type Options } from "react-markdown";
 import {
   isValidElement,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ComponentPropsWithoutRef,
@@ -13,6 +14,7 @@ import {
 import {
   markdownRehypePlugins,
   markdownRemarkPlugins,
+  normalizeMathMarkdown,
 } from "@/lib/markdown";
 import type { InlineThreadMarker } from "@/app/home/components/threadTypes";
 import type { PersistedSearchMetadata } from "@/lib/chat-search";
@@ -170,7 +172,7 @@ function CodeBlock({ children, className, ...props }: PreProps) {
 
   return (
     <div className="code-block">
-      <div className="code-block__header">
+      <div className="code-block__header" data-selection-exclude="true">
         <div className="code-block__meta">
           <span className="code-block__traffic" aria-hidden="true">
             <span className="code-block__traffic-dot code-block__traffic-dot--love" />
@@ -206,10 +208,10 @@ function ThreadIndicator({
 }) {
   const statusClassName =
     thread.status === "loading"
-      ? "bg-sky-200/45 text-sky-950 ring-sky-500/25 hover:bg-sky-200/70 hover:ring-sky-500/40 dark:bg-sky-300/15 dark:text-sky-100 dark:ring-sky-300/20 dark:hover:bg-sky-300/25"
+      ? "bg-sky-200/45 text-sky-950 hover:bg-sky-200/70 dark:bg-sky-300/15 dark:text-sky-100 dark:hover:bg-sky-300/25"
       : thread.status === "error"
-        ? "bg-rose-200/45 text-rose-950 ring-rose-500/25 hover:bg-rose-200/70 hover:ring-rose-500/40 dark:bg-rose-300/15 dark:text-rose-100 dark:ring-rose-300/20 dark:hover:bg-rose-300/25"
-        : "bg-amber-200/45 text-stone-950 ring-amber-500/25 hover:bg-amber-200/70 hover:ring-amber-500/40 dark:bg-amber-300/15 dark:text-amber-100 dark:ring-amber-300/20 dark:hover:bg-amber-300/25";
+        ? "bg-rose-200/45 text-rose-950 hover:bg-rose-200/70 dark:bg-rose-300/15 dark:text-rose-100 dark:hover:bg-rose-300/25"
+        : "bg-[#fef3c7] text-stone-950 hover:bg-[#fde68a] dark:bg-[#5b4516] dark:text-amber-100 dark:hover:bg-[#6f5419]";
 
   return (
     <span
@@ -225,7 +227,7 @@ function ThreadIndicator({
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") onClick(thread);
       }}
-      className={`box-decoration-clone cursor-pointer rounded-[0.35rem] px-1 py-0.5 font-medium ring-1 transition-colors ${statusClassName}`}
+      className={`box-decoration-clone cursor-pointer rounded-[2px] px-1 py-0.5 font-medium transition-colors ${statusClassName}`}
       title="View thread"
     >
       {children}
@@ -274,14 +276,60 @@ function getClassNames(node: HastNode): string[] {
   return [];
 }
 
+function getPropertyString(node: HastNode, propertyName: string) {
+  const value = node.properties?.[propertyName];
+  return typeof value === "string" ? value : null;
+}
+
+function getSelectionText(node: HastNode) {
+  return getPropertyString(node, "data-selection-text");
+}
+
+function isSelectionExcluded(node: HastNode) {
+  return node.properties?.["data-selection-exclude"] !== undefined;
+}
+
+function annotateSelectionTextNodes(nodes: HastNode[] | undefined): HastNode[] | undefined {
+  if (!nodes || nodes.length === 0) {
+    return nodes;
+  }
+
+  return nodes.map((node) => {
+    if (node.type !== "element") {
+      return node;
+    }
+
+    const classNames = getClassNames(node);
+    if (classNames.includes("katex-mathml")) {
+      return {
+        ...node,
+        properties: {
+          ...node.properties,
+          "data-selection-exclude": "true",
+        },
+      };
+    }
+
+    return {
+      ...node,
+      children: annotateSelectionTextNodes(node.children),
+    };
+  });
+}
+
+function rehypeSelectionText() {
+  return (tree: HastNode) => {
+    tree.children = annotateSelectionTextNodes(tree.children);
+  };
+}
+
 function shouldSkipInlineThreadWrapping(node: HastNode) {
   const classNames = getClassNames(node);
   return (
-    node.tagName === "pre" ||
+    isSelectionExcluded(node) ||
     node.tagName === "math" ||
     node.tagName === "annotation" ||
-    classNames.includes("hljs") ||
-    classNames.some((className) => className.startsWith("katex"))
+    classNames.includes("katex-mathml")
   );
 }
 
@@ -301,6 +349,17 @@ function shouldSkipInlineCitationWrapping(node: HastNode) {
 function getHastTextLength(node: HastNode): number {
   if (node.type === "text") {
     return node.value?.length ?? 0;
+  }
+
+  if (node.type === "element") {
+    if (isSelectionExcluded(node)) {
+      return 0;
+    }
+
+    const selectionText = getSelectionText(node);
+    if (selectionText !== null) {
+      return selectionText.length;
+    }
   }
 
   return (node.children || []).reduce((total, child) => total + getHastTextLength(child), 0);
@@ -370,6 +429,34 @@ function splitTextNode(node: HastNode, matches: TextMatch[], cursorRef: CursorRe
   return parts;
 }
 
+function annotateAtomicThreadNode(
+  node: HastNode,
+  matches: TextMatch[],
+  cursorRef: CursorRef
+): HastNode {
+  const selectionText = getSelectionText(node) ?? "";
+  const textStartOffset = cursorRef.current;
+  const textEndOffset = textStartOffset + selectionText.length;
+  const match = matches.find(
+    (candidate) => candidate.start < textEndOffset && candidate.end > textStartOffset
+  );
+
+  cursorRef.current = textEndOffset;
+
+  if (!match) {
+    return node;
+  }
+
+  return {
+    type: "element",
+    tagName: "span",
+    properties: {
+      "data-inline-thread-id": match.thread.markerId,
+    },
+    children: [node],
+  };
+}
+
 function annotateThreadNodes(
   nodes: HastNode[] | undefined,
   matches: TextMatch[],
@@ -391,6 +478,11 @@ function annotateThreadNodes(
       if (shouldSkipInlineThreadWrapping(child)) {
         cursorRef.current += getHastTextLength(child);
         nextChildren.push(child);
+        continue;
+      }
+
+      if (getSelectionText(child) !== null) {
+        nextChildren.push(annotateAtomicThreadNode(child, matches, cursorRef));
         continue;
       }
 
@@ -489,87 +581,99 @@ export default function MarkdownWithThreads({
   activeCitationSourceId = null,
   onCitationClick,
 }: MarkdownWithThreadsProps) {
-  const matches = normalizeThreadMatches(threads);
-  const threadById = new Map(matches.map((match) => [match.thread.markerId, match.thread]));
-  const validCitationSourceIds =
-    searchMetadata?.status === "success" && onCitationClick
-      ? new Set(searchMetadata.sources.map((source) => source.id))
-      : new Set<number>();
-  const inlineThreadPlugin =
-    [rehypeInlineThreads, matches] as unknown as NonNullable<Options["rehypePlugins"]>[number];
-  const inlineCitationPlugin =
-    [rehypeInlineCitations, validCitationSourceIds] as unknown as NonNullable<
-      Options["rehypePlugins"]
-    >[number];
-  const rehypePlugins: NonNullable<Options["rehypePlugins"]> =
-    [
+  const matches = useMemo(() => normalizeThreadMatches(threads), [threads]);
+  const threadById = useMemo(
+    () => new Map(matches.map((match) => [match.thread.markerId, match.thread])),
+    [matches]
+  );
+  const validCitationSourceIds = useMemo(
+    () =>
+      searchMetadata?.status === "success" && onCitationClick
+        ? new Set(searchMetadata.sources.map((source) => source.id))
+        : new Set<number>(),
+    [onCitationClick, searchMetadata]
+  );
+  const rehypePlugins: NonNullable<Options["rehypePlugins"]> = useMemo(() => {
+    const inlineThreadPlugin =
+      [rehypeInlineThreads, matches] as unknown as NonNullable<Options["rehypePlugins"]>[number];
+    const inlineCitationPlugin =
+      [rehypeInlineCitations, validCitationSourceIds] as unknown as NonNullable<
+        Options["rehypePlugins"]
+      >[number];
+
+    return [
       ...markdownRehypePlugins,
+      rehypeSelectionText as unknown as NonNullable<Options["rehypePlugins"]>[number],
       ...(matches.length > 0 ? [inlineThreadPlugin] : []),
       ...(validCitationSourceIds.size > 0 ? [inlineCitationPlugin] : []),
     ];
+  }, [matches, validCitationSourceIds]);
+  const components = useMemo<NonNullable<Options["components"]>>(
+    () => ({
+      pre: CodeBlock,
+      span: ({ children, ...props }: SpanProps) => {
+        const threadId = props["data-inline-thread-id"];
+        if (typeof threadId === "string") {
+          const thread = threadById.get(threadId);
+          if (thread) {
+            const rest = { ...props };
+            delete rest["data-inline-thread-id"];
+            return (
+              <ThreadIndicator thread={thread} onClick={onThreadClick}>
+                <span {...rest}>{children}</span>
+              </ThreadIndicator>
+            );
+          }
+        }
+
+        return <span {...props}>{children}</span>;
+      },
+      button: ({ children, ...props }: ButtonProps) => {
+        const sourceId = props["data-citation-source-id"];
+        if (typeof sourceId === "string" && onCitationClick) {
+          const numericSourceId = Number(sourceId);
+          if (Number.isInteger(numericSourceId)) {
+            const rest = { ...props };
+            delete rest["data-citation-source-id"];
+            delete rest.type;
+
+            return (
+              <button
+                {...rest}
+                type="button"
+                data-testid="search-citation"
+                data-source-id={numericSourceId}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onCitationClick(numericSourceId);
+                }}
+                aria-pressed={activeCitationSourceId === numericSourceId}
+                className={`mx-0.5 inline-flex h-5 min-w-5 translate-y-[-0.05rem] items-center justify-center rounded-full border px-1.5 align-baseline text-[11px] font-medium transition-colors ${
+                  activeCitationSourceId === numericSourceId
+                    ? "border-foreground/20 bg-foreground/[0.08] text-foreground"
+                    : "border-border-subtle text-muted hover:bg-foreground/[0.04] hover:text-foreground"
+                }`}
+              >
+                {children}
+              </button>
+            );
+          }
+        }
+
+        return <button {...props}>{children}</button>;
+      },
+    }),
+    [activeCitationSourceId, onCitationClick, onThreadClick, threadById]
+  );
+  const normalizedContent = normalizeMathMarkdown(content);
 
   return (
     <ReactMarkdown
       remarkPlugins={markdownRemarkPlugins}
       rehypePlugins={rehypePlugins}
-      components={{
-        pre: CodeBlock,
-        span: ({ children, ...props }: SpanProps) => {
-          const threadId = props["data-inline-thread-id"];
-          if (typeof threadId === "string") {
-            const thread = threadById.get(threadId);
-            if (thread) {
-              const { ["data-inline-thread-id"]: _ignored, ...rest } = props;
-              return (
-                <ThreadIndicator thread={thread} onClick={onThreadClick}>
-                  <span {...rest}>{children}</span>
-                </ThreadIndicator>
-              );
-            }
-          }
-
-          return <span {...props}>{children}</span>;
-        },
-        button: ({ children, ...props }: ButtonProps) => {
-          const sourceId = props["data-citation-source-id"];
-          if (typeof sourceId === "string" && onCitationClick) {
-            const numericSourceId = Number(sourceId);
-            if (Number.isInteger(numericSourceId)) {
-              const {
-                ["data-citation-source-id"]: _ignoredSourceId,
-                type: _ignoredType,
-                ...rest
-              } = props;
-
-              return (
-                <button
-                  {...rest}
-                  type="button"
-                  data-testid="search-citation"
-                  data-source-id={numericSourceId}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onCitationClick(numericSourceId);
-                  }}
-                  onPointerUp={(event) => event.stopPropagation()}
-                  aria-pressed={activeCitationSourceId === numericSourceId}
-                  className={`mx-0.5 inline-flex h-5 min-w-5 translate-y-[-0.05rem] items-center justify-center rounded-full border px-1.5 align-baseline text-[11px] font-medium transition-colors ${
-                    activeCitationSourceId === numericSourceId
-                      ? "border-foreground/20 bg-foreground/[0.08] text-foreground"
-                      : "border-border-subtle text-muted hover:bg-foreground/[0.04] hover:text-foreground"
-                  }`}
-                >
-                  {children}
-                </button>
-              );
-            }
-          }
-
-          return <button {...props}>{children}</button>;
-        },
-      }}
+      components={components}
     >
-      {content}
+      {normalizedContent}
     </ReactMarkdown>
   );
 }

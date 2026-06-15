@@ -49,10 +49,10 @@ The hook:
 
 - limits selection handling to assistant messages
 - finds the nearest `[data-message-content]` root
-- calculates `startOffset` and `endOffset` by measuring text length from the start of that content root to the selection boundaries
+- calculates `startOffset` and `endOffset` through the shared selectable-text index for that content root
 - stores the active selection for popover placement and highlight reconstruction
 
-The browser’s native selection is then cleared. After that point, the app relies on its own persistent highlight state.
+The browser’s native selection is preserved so normal copy remains available. The app also rebuilds its own persistent highlight state from offsets so the source remains visible when focus moves.
 
 ### 2. Active highlight reconstruction
 
@@ -93,7 +93,7 @@ Instead it:
 
 - normalizes the message’s thread ranges into non-overlapping offset matches
 - adds a rehype transform to the markdown pipeline
-- walks the rendered HAST tree in text-stream order
+- walks the rendered HAST tree in the same selectable text-stream order used for capture and highlight restoration
 - splits text nodes wherever a thread’s `[startOffset, endOffset)` range intersects
 - wraps that span in a marker node carrying `data-inline-thread-id`
 
@@ -101,17 +101,15 @@ At render time, those marker spans become clickable `ThreadIndicator` elements.
 
 ## Wrapping Rules
 
-The renderer intentionally skips inline-thread wrapping inside some regions.
+The renderer intentionally skips inline-thread wrapping inside non-selectable or unsafe regions.
 
 Today it skips:
 
-- `pre`
 - `math`
 - `annotation`
-- nodes with `hljs`
-- nodes with KaTeX-related classes
+- nodes explicitly marked with `data-selection-exclude`, such as code-block chrome and hidden KaTeX MathML
 
-That means future work on code/math threadability should start by revisiting the skip rules in [MarkdownWithThreads.tsx](../../frontend/app/home/components/MarkdownWithThreads.tsx), not by reintroducing substring matching.
+Code text and visible KaTeX HTML are threadable. Hidden renderer fallbacks stay out of the selectable text stream so offsets, active highlights, copy text, and durable markers agree.
 
 ## What Future Chat-Display Changes Can Break
 

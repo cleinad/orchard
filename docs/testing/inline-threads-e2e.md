@@ -38,6 +38,7 @@ Fixture URLs:
 - `/home?e2e=inline-threads-ordered-list`
 - `/home?e2e=inline-threads-repeated-text`
 - `/home?e2e=inline-threads-bullet-list`
+- `/home?e2e=inline-threads-rich-selection`
 
 These fixtures:
 
@@ -80,6 +81,7 @@ The focused suite currently exercises:
 - ordered-list selections where the visible highlighted text includes a marker such as `3.`
 - repeated-text selections where offsets must target the correct occurrence
 - bullet-list selections where the visible prefix is not safe to recover by substring matching
+- rich markdown selection across paragraph text, inline code, fenced code, inline math, display math, list text, citations, source copy, popover paste, and code-block copy
 
 These cases exist specifically to guard against regressions in chat-display, state ownership, and markdown-rendering changes. If inline thread rendering or session orchestration changes, this suite should be rerun before shipping.
 

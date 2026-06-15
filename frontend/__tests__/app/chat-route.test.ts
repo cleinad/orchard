@@ -504,6 +504,20 @@ describe('chat route memory contract', () => {
     );
   });
 
+  it('adds concise KaTeX markdown math formatting guidance to answer generation', async () => {
+    const { response } = await runChatRequest({
+      message: 'Show me a matrix example',
+      chatMode: 'temporary',
+    });
+
+    expect(response.status).toBe(200);
+    expect(mockStreamText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        system: expect.stringContaining('Use KaTeX Markdown for math'),
+      })
+    );
+  });
+
   it('retries with generateText when the streamed response is empty', async () => {
     mockStreamText.mockImplementation(({ onFinish }: { onFinish?: (result: { text: string }) => Promise<void> }) => {
       return {
@@ -578,6 +592,146 @@ describe('chat route memory contract', () => {
                 image: expect.any(Uint8Array),
               }),
             ],
+          }),
+        ],
+      })
+    );
+  });
+
+  it('reattaches the latest temporary chat image turn for text-only follow-ups', async () => {
+    const { response } = await runChatRequest({
+      message: 'What color is the main object?',
+      chatMode: 'temporary',
+      history: [
+        {
+          role: 'user',
+          content: 'Describe this image',
+          attachments: [
+            {
+              storagePath: 'user-1/previous-screenshot.png',
+              fileName: 'previous-screenshot.png',
+              mimeType: 'image/png',
+              sizeBytes: testPngBytes.byteLength,
+            },
+          ],
+        },
+        {
+          role: 'assistant',
+          content: 'It shows a product screenshot.',
+        },
+      ],
+    });
+
+    expect(response.status).toBe(200);
+    expect(mockStorageDownload).toHaveBeenCalledWith('user-1/previous-screenshot.png');
+    expect(mockStreamText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: [
+          expect.objectContaining({
+            role: 'user',
+            content: [
+              { type: 'text', text: 'Describe this image' },
+              expect.objectContaining({
+                type: 'image',
+                mediaType: 'image/png',
+                image: expect.any(Uint8Array),
+              }),
+            ],
+          }),
+          expect.objectContaining({
+            role: 'assistant',
+            content: 'It shows a product screenshot.',
+          }),
+          expect.objectContaining({
+            role: 'user',
+            content: 'What color is the main object?',
+          }),
+        ],
+      })
+    );
+  });
+
+  it('reattaches the latest persistent chat image turn for text-only follow-ups', async () => {
+    const { response } = await runChatRequest(
+      {
+        message: 'What color is the main object?',
+        conversationId: 'conv-existing-image-context',
+        previousMessageId: '22222222-2222-4222-8222-222222222222',
+      },
+      {
+        conversations: {
+          rows: [{ id: 'conv-existing-image-context', mentor_id: null }],
+        },
+        messages: {
+          rows: [
+            {
+              id: '11111111-1111-4111-8111-111111111111',
+              role: 'user',
+              content: 'Describe this image',
+              previous_message_id: null,
+              created_at: '2026-06-04T12:00:00.000Z',
+            },
+            {
+              id: '22222222-2222-4222-8222-222222222222',
+              role: 'assistant',
+              content: 'It shows a product screenshot.',
+              previous_message_id: '11111111-1111-4111-8111-111111111111',
+              created_at: '2026-06-04T12:00:01.000Z',
+            },
+            {
+              id: '33333333-3333-4333-8333-333333333333',
+              role: 'user',
+              content: 'What color is the main object?',
+              previous_message_id: '22222222-2222-4222-8222-222222222222',
+              created_at: '2026-06-04T12:00:02.000Z',
+            },
+          ],
+          returnOnMutate: [
+            { id: '33333333-3333-4333-8333-333333333333' },
+            { id: '44444444-4444-4444-8444-444444444444' },
+          ],
+        },
+        message_attachments: {
+          rows: [
+            {
+              message_id: '11111111-1111-4111-8111-111111111111',
+              user_id: 'user-1',
+              storage_path: 'user-1/persisted-screenshot.png',
+              file_name: 'persisted-screenshot.png',
+              mime_type: 'image/png',
+              size_bytes: testPngBytes.byteLength,
+              width: 640,
+              height: 480,
+              position: 0,
+            },
+          ],
+        },
+      }
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockStorageDownload).toHaveBeenCalledWith('user-1/persisted-screenshot.png');
+    expect(mockStreamText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: [
+          expect.objectContaining({
+            role: 'user',
+            content: [
+              { type: 'text', text: 'Describe this image' },
+              expect.objectContaining({
+                type: 'image',
+                mediaType: 'image/png',
+                image: expect.any(Uint8Array),
+              }),
+            ],
+          }),
+          expect.objectContaining({
+            role: 'assistant',
+            content: 'It shows a product screenshot.',
+          }),
+          expect.objectContaining({
+            role: 'user',
+            content: 'What color is the main object?',
           }),
         ],
       })

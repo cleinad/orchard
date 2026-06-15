@@ -5,24 +5,58 @@ async function selectTextInMessage(page, messageId, text) {
       return false;
     }
 
-    const walker = document.createTreeWalker(messageEl, NodeFilter.SHOW_TEXT);
-    const textNodes = [];
+    const contentEl = messageEl.querySelector('[data-message-content]');
+    if (!(contentEl instanceof HTMLElement)) {
+      return false;
+    }
+
+    const segments = [];
     let combinedText = '';
 
-    while (walker.nextNode()) {
-      const node = walker.currentNode;
-      const content = node.textContent ?? '';
-      if (!content) {
-        continue;
+    const appendSegment = (segment) => {
+      if (!segment.text) return;
+
+      segments.push({
+        ...segment,
+        start: combinedText.length,
+        end: combinedText.length + segment.text.length,
+      });
+      combinedText += segment.text;
+    };
+
+    const walk = (node) => {
+      if (node.nodeType === Node.TEXT_NODE) {
+        appendSegment({
+          kind: 'text',
+          node,
+          text: node.textContent ?? '',
+        });
+        return;
       }
 
-      textNodes.push({
-        node,
-        start: combinedText.length,
-        end: combinedText.length + content.length,
-      });
-      combinedText += content;
-    }
+      if (!(node instanceof HTMLElement)) {
+        node.childNodes.forEach(walk);
+        return;
+      }
+
+      if (node.matches('[data-selection-exclude]')) {
+        return;
+      }
+
+      const selectionText = node.getAttribute('data-selection-text');
+      if (selectionText !== null) {
+        appendSegment({
+          kind: 'atomic',
+          element: node,
+          text: selectionText,
+        });
+        return;
+      }
+
+      node.childNodes.forEach(walk);
+    };
+
+    contentEl.childNodes.forEach(walk);
 
     const start = combinedText.indexOf(text);
     if (start === -1) {
@@ -30,16 +64,25 @@ async function selectTextInMessage(page, messageId, text) {
     }
 
     const end = start + text.length;
-    const startEntry = textNodes.find((entry) => start < entry.end);
-    const endEntry = textNodes.find((entry) => end <= entry.end);
+    const startEntry = segments.find((entry) => start < entry.end);
+    const endEntry = segments.find((entry) => end <= entry.end);
 
     if (!startEntry || !endEntry) {
       return false;
     }
 
     const range = document.createRange();
-    range.setStart(startEntry.node, start - startEntry.start);
-    range.setEnd(endEntry.node, end - endEntry.start);
+    if (startEntry.kind === 'atomic') {
+      range.setStartBefore(startEntry.element);
+    } else {
+      range.setStart(startEntry.node, start - startEntry.start);
+    }
+
+    if (endEntry.kind === 'atomic') {
+      range.setEndAfter(endEntry.element);
+    } else {
+      range.setEnd(endEntry.node, end - endEntry.start);
+    }
 
     const selection = window.getSelection();
     if (!selection) {

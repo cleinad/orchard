@@ -1,4 +1,5 @@
 import type { PersistedSearchMetadata } from '@/lib/chat-search';
+import type { ChatImageAttachment, ChatImageAttachmentRequest } from '@/lib/chat-attachments';
 import { stripCitationMarkers } from '@/lib/search-citations';
 
 export const CHAT_MODES = ['persistent', 'temporary'] as const;
@@ -13,22 +14,47 @@ export const DEFAULT_TEMPORARY_MEMORY_MODE: TemporaryMemoryMode = 'off';
 export interface ChatHistoryMessage {
   role: 'user' | 'assistant';
   content: string;
+  attachments?: ChatImageAttachmentRequest[];
+}
+
+function toAttachmentRequests(
+  attachments: ChatImageAttachment[] | undefined
+): ChatImageAttachmentRequest[] {
+  if (!attachments || attachments.length === 0) {
+    return [];
+  }
+
+  return attachments.map((attachment) => ({
+    storagePath: attachment.storagePath,
+    fileName: attachment.fileName,
+    mimeType: attachment.mimeType,
+    sizeBytes: attachment.sizeBytes,
+    width: attachment.width,
+    height: attachment.height,
+  }));
 }
 
 export function toChatHistory(
   messages: Array<
     Pick<ChatHistoryMessage, 'role' | 'content'> & {
+      attachments?: ChatImageAttachment[];
       searchMetadata?: PersistedSearchMetadata | null;
     }
   >
 ): ChatHistoryMessage[] {
-  return messages.map((message) => ({
-    role: message.role,
-    content:
-      message.role === 'assistant'
-        ? stripCitationMarkers(message.content, message.searchMetadata)
-        : message.content,
-  }));
+  return messages.map((message) => {
+    const attachments =
+      message.role === 'user' ? toAttachmentRequests(message.attachments) : [];
+
+    return {
+      role: message.role,
+      content:
+        message.role === 'assistant'
+          ? stripCitationMarkers(message.content, message.searchMetadata)
+          : message.content,
+      ...(attachments.length > 0 ? { attachments } : {}),
+    };
+  });
 }
 
 export function createTemporaryId(prefix: string): string {
