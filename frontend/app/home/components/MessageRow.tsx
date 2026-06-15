@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useState, type MouseEvent } from 'react';
+import { memo, useCallback, useEffect, useState, type MouseEvent } from 'react';
 import MarkdownWithThreads from '@/app/home/components/MarkdownWithThreads';
 import SearchSourcesTray from '@/app/home/components/SearchSourcesTray';
 import type { BranchChip } from '@/app/home/components/conversationTree';
@@ -62,6 +62,21 @@ function MessageRow({
     (sourceId: number) => onTraySourceSelect(message.id, sourceId),
     [message.id, onTraySourceSelect]
   );
+
+  useEffect(() => {
+    if (!selectedImage) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setSelectedImage(null);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedImage]);
 
   return (
     <div
@@ -193,18 +208,35 @@ function MessageRow({
       </div>
 
       {selectedImage?.url && (
-        <button
-          type="button"
-          className="fixed inset-0 z-50 flex cursor-zoom-out items-center justify-center bg-background/90 p-4 backdrop-blur-sm"
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={selectedImage.fileName}
+          className="fixed inset-0 z-50 flex cursor-zoom-out items-center justify-center bg-black/75 p-4 backdrop-blur-[2px]"
           onClick={() => setSelectedImage(null)}
-          aria-label="Close image preview"
         >
-          <img
-            src={selectedImage.url}
-            alt={selectedImage.fileName}
-            className="max-h-full max-w-full rounded-md object-contain shadow-2xl"
-          />
-        </button>
+          <div
+            className="relative flex max-h-[82vh] max-w-[88vw] cursor-default flex-col items-center"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <img
+              src={selectedImage.url}
+              alt={selectedImage.fileName}
+              className="max-h-[78vh] max-w-[84vw] rounded-md object-contain shadow-2xl ring-1 ring-white/15"
+            />
+            <button
+              type="button"
+              onClick={() => setSelectedImage(null)}
+              aria-label="Close image preview"
+              className="absolute right-2 top-2 flex h-7 w-7 cursor-pointer items-center justify-center rounded-full bg-black/45 font-sans text-base leading-none text-white/80 shadow-sm transition hover:bg-black/60 hover:text-white"
+            >
+              &times;
+            </button>
+            <div className="mt-2 max-w-full truncate font-sans text-xs text-white/65">
+              {selectedImage.fileName}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
