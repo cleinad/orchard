@@ -129,15 +129,47 @@ describe('search citations helpers', () => {
     ]);
   });
 
+  it('splits adjacent valid citation markers into separate compact parts', () => {
+    expect(
+      splitTextWithCitations('A cited sentence [1][2].', new Set([1, 2]))
+    ).toEqual([
+      { type: 'text', text: 'A cited sentence ' },
+      { type: 'citation', text: '[1]', sourceId: 1 },
+      { type: 'citation', text: '[2]', sourceId: 2 },
+      { type: 'text', text: '.' },
+    ]);
+  });
+
+  it('does not treat numeric brackets inside words as citations', () => {
+    expect(
+      splitTextWithCitations('Use array[1] as the second item.', new Set([1]))
+    ).toEqual([{ type: 'text', text: 'Use array[1] as the second item.' }]);
+    expect(
+      splitTextWithCitations('Use array[1][2] as the nested item.', new Set([1, 2]))
+    ).toEqual([{ type: 'text', text: 'Use array[1][2] as the nested item.' }]);
+    expect(
+      stripCitationMarkers('Use array[1][2] as the nested item.', searchMetadata)
+    ).toBe('Use array[1][2] as the nested item.');
+    expect(
+      stripInvalidCitationMarkers('Use array[1][7] as the nested item.', searchMetadata)
+    ).toBe('Use array[1][7] as the nested item.');
+  });
+
   it('strips valid citation markers for context reuse', () => {
     expect(
       stripCitationMarkers('A cited sentence [1] [2].', searchMetadata)
+    ).toBe('A cited sentence.');
+    expect(
+      stripCitationMarkers('A cited sentence [1][2].', searchMetadata)
     ).toBe('A cited sentence.');
   });
 
   it('strips invalid citation markers while preserving valid ones', () => {
     expect(
       stripInvalidCitationMarkers('A cited sentence [1] [7].', searchMetadata)
+    ).toBe('A cited sentence [1].');
+    expect(
+      stripInvalidCitationMarkers('A cited sentence [1][7].', searchMetadata)
     ).toBe('A cited sentence [1].');
   });
 

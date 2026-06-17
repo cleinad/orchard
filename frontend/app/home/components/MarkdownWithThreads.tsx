@@ -19,6 +19,7 @@ import {
 import type { InlineThreadMarker } from "@/app/home/components/threadTypes";
 import type { PersistedSearchMetadata } from "@/lib/chat-search";
 import { splitTextWithCitations } from "@/lib/search-citations";
+import SourceFavicon from "@/app/home/components/SourceFavicon";
 
 interface MarkdownWithThreadsProps {
   content: string;
@@ -588,10 +589,14 @@ export default function MarkdownWithThreads({
   );
   const validCitationSourceIds = useMemo(
     () =>
-      searchMetadata?.status === "success" && onCitationClick
+      (searchMetadata?.status === "success" || searchMetadata?.status === "partial") && onCitationClick
         ? new Set(searchMetadata.sources.map((source) => source.id))
         : new Set<number>(),
     [onCitationClick, searchMetadata]
+  );
+  const sourceById = useMemo(
+    () => new Map((searchMetadata?.sources ?? []).map((source) => [source.id, source])),
+    [searchMetadata]
   );
   const rehypePlugins: NonNullable<Options["rehypePlugins"]> = useMemo(() => {
     const inlineThreadPlugin =
@@ -636,6 +641,7 @@ export default function MarkdownWithThreads({
             const rest = { ...props };
             delete rest["data-citation-source-id"];
             delete rest.type;
+            const source = sourceById.get(numericSourceId);
 
             return (
               <button
@@ -648,13 +654,22 @@ export default function MarkdownWithThreads({
                   onCitationClick(numericSourceId);
                 }}
                 aria-pressed={activeCitationSourceId === numericSourceId}
-                className={`mx-0.5 inline-flex h-5 min-w-5 translate-y-[-0.05rem] items-center justify-center rounded-full border px-1.5 align-baseline text-[11px] font-medium transition-colors ${
+                title={source ? `${source.title} — ${source.domain}` : undefined}
+                className={`mx-0.5 inline-flex h-[1.35rem] min-w-[1.35rem] translate-y-[-0.08rem] items-center justify-center gap-1 rounded-full border px-1.5 align-baseline font-sans text-[11px] font-medium transition-colors ${
                   activeCitationSourceId === numericSourceId
-                    ? "border-foreground/20 bg-foreground/[0.08] text-foreground"
-                    : "border-border-subtle text-muted hover:bg-foreground/[0.04] hover:text-foreground"
+                    ? "border-foreground/20 bg-foreground/[0.07] text-foreground"
+                    : "border-border-subtle bg-surface/60 text-muted hover:bg-foreground/[0.04] hover:text-foreground"
                 }`}
               >
-                {children}
+                {source && (
+                  <SourceFavicon
+                    domain={source.domain}
+                    title={source.title}
+                    size={13}
+                    className="opacity-90"
+                  />
+                )}
+                <span>{numericSourceId}</span>
               </button>
             );
           }
@@ -663,7 +678,7 @@ export default function MarkdownWithThreads({
         return <button {...props}>{children}</button>;
       },
     }),
-    [activeCitationSourceId, onCitationClick, onThreadClick, threadById]
+    [activeCitationSourceId, onCitationClick, onThreadClick, sourceById, threadById]
   );
   const normalizedContent = normalizeMathMarkdown(content);
 

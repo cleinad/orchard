@@ -2,6 +2,8 @@
 
 import type { PersistedSearchMetadata } from "@/lib/chat-search";
 import { hasUsableSearchSources } from "@/lib/search-citations";
+import SourceFavicon from "@/app/home/components/SourceFavicon";
+import { formatSourceDate } from "@/lib/source-display";
 
 interface SearchSourcesTrayProps {
   searchMetadata: PersistedSearchMetadata;
@@ -23,15 +25,22 @@ export default function SearchSourcesTray({
   }
 
   return (
-    <div className="mt-3 rounded-2xl border border-border-subtle bg-surface/80 px-4 py-3 font-sans shadow-sm">
-      <div className="flex flex-col gap-3 lg:grid lg:grid-cols-[minmax(0,15rem)_minmax(0,1fr)]">
-        <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
-          {sources.map((source) => {
-            const isActive = source.id === selectedSource.id;
+    <div className="mt-2 border-l border-border-subtle pl-3 font-sans">
+      <div className="space-y-2">
+        {sources.map((source) => {
+          const isActive = source.id === selectedSource.id;
+          const dateLabel = formatSourceDate(source.publishedAt);
 
-            return (
+          return (
+            <div
+              key={source.id}
+              className={`group flex w-full items-start gap-2.5 rounded-md transition-colors ${
+                isActive
+                  ? "bg-foreground/[0.04] text-foreground"
+                  : "text-muted hover:bg-foreground/[0.025] hover:text-foreground"
+              }`}
+            >
               <button
-                key={source.id}
                 type="button"
                 data-testid="search-source-tab"
                 data-source-id={source.id}
@@ -40,75 +49,60 @@ export default function SearchSourcesTray({
                   onSourceSelect(source.id);
                 }}
                 onPointerUp={(event) => event.stopPropagation()}
-                className={`w-full rounded-2xl border px-3 py-2 text-left transition-colors ${
-                  isActive
-                    ? "border-foreground/15 bg-foreground/[0.06] text-foreground"
-                    : "border-border-subtle text-muted hover:bg-foreground/[0.04] hover:text-foreground"
-                }`}
+                className="flex min-w-0 flex-1 items-start gap-2.5 px-1.5 py-1.5 text-left"
                 aria-pressed={isActive}
               >
-                <div className="flex items-start gap-2">
-                  <span className="mt-0.5 inline-flex h-6 min-w-6 items-center justify-center rounded-full border border-current/15 px-2 text-[11px] font-medium">
-                    {source.id}
+                <SourceFavicon
+                  domain={source.domain}
+                  title={source.title}
+                  size={16}
+                  className="mt-0.5"
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium leading-snug">
+                    {source.title}
                   </span>
-                  <div className="min-w-0">
-                    <p className="line-clamp-2 text-sm font-medium leading-snug text-current">
-                      {source.title}
-                    </p>
-                    <p className="mt-1 text-[11px] uppercase tracking-[0.16em] text-current/60">
-                      {source.domain}
-                    </p>
-                    {(source.provider || source.sourceType) && (
-                      <p className="mt-1 text-[11px] text-current/65">
-                        {[source.provider, source.sourceType].filter(Boolean).join(" · ")}
-                      </p>
-                    )}
-                  </div>
-                </div>
+                  <span className="mt-0.5 block text-xs leading-snug text-current/62">
+                    {[source.domain, source.sourceType, dateLabel]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </span>
+                  {isActive && source.snippet && (
+                    <span className="mt-1.5 block font-reading text-sm leading-relaxed text-muted">
+                      {source.snippet}
+                    </span>
+                  )}
+                </span>
+                <span className="mt-0.5 text-xs text-current/45">{source.id}</span>
               </button>
-            );
-          })}
-        </div>
-
-        <div className="min-w-0 rounded-2xl border border-border-subtle bg-background/40 p-4">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className="font-reading text-sm font-medium leading-snug text-foreground">
-                {selectedSource.title}
-              </p>
-              <p className="mt-1 text-[11px] uppercase tracking-[0.18em] text-muted/70">
-                {selectedSource.domain}
-              </p>
-              {(selectedSource.provider || selectedSource.sourceType || selectedSource.publishedAt) && (
-                <p className="mt-2 text-xs text-muted">
-                  {[
-                    selectedSource.provider,
-                    selectedSource.sourceType,
-                    selectedSource.publishedAt
-                      ? new Date(selectedSource.publishedAt).toLocaleDateString()
-                      : null,
-                  ]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </p>
-              )}
+              <a
+                href={source.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={`Open source: ${source.title}`}
+                title="Open source"
+                onClick={(event) => event.stopPropagation()}
+                onPointerUp={(event) => event.stopPropagation()}
+                className="mr-1.5 mt-1.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-current/45 transition-colors hover:bg-foreground/[0.06] hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foreground/40"
+              >
+                <svg
+                  className="h-3.5 w-3.5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="1.8"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                >
+                  <path d="M14 4h6v6" />
+                  <path d="M10 14 20 4" />
+                  <path d="M20 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4" />
+                </svg>
+              </a>
             </div>
-
-            <a
-              href={selectedSource.url}
-              target="_blank"
-              rel="noreferrer"
-              onClick={(event) => event.stopPropagation()}
-              className="inline-flex flex-shrink-0 items-center gap-1 rounded-full border border-border-subtle px-2.5 py-1 text-[11px] font-medium text-foreground transition-colors hover:bg-foreground/[0.04]"
-            >
-              Open source
-            </a>
-          </div>
-
-          <p className="mt-3 font-reading text-sm leading-relaxed text-muted">
-            {selectedSource.snippet}
-          </p>
-        </div>
+          );
+        })}
       </div>
     </div>
   );

@@ -51,7 +51,9 @@ export type CitationPart =
   | { type: 'citation'; text: string; sourceId: number };
 
 const MAX_PERSISTED_SNIPPET_LENGTH = 220;
-const CITATION_PATTERN = /(^|[\s(])\[(\d+)\](?=$|[\s).,;:!?])/g;
+const CITATION_PATTERN = /\[(\d+)\]/g;
+const CITATION_BEFORE_BOUNDARY = /[\s([{,;:]/;
+const CITATION_AFTER_BOUNDARY = /[\s)\].,;:!?\[]/;
 
 interface LegacyPersistedSearchSource {
   id: number;
@@ -173,30 +175,45 @@ function normalizeSource(source: unknown): SearchSource | null {
 function withCitationMatches(
   text: string,
   iteratee: (match: {
-    prefix: string;
     sourceId: number;
     citationStart: number;
     citationEnd: number;
     citationText: string;
-  }) => void
+  }) => boolean
 ) {
   CITATION_PATTERN.lastIndex = 0;
+  let lastAcceptedCitationEnd: number | null = null;
 
   for (const match of text.matchAll(CITATION_PATTERN)) {
-    const prefix = match[1] ?? '';
-    const sourceId = Number(match[2]);
-    const matchStart = match.index ?? 0;
-    const citationStart = matchStart + prefix.length;
+    const sourceId = Number(match[1]);
+    const citationStart = match.index ?? 0;
     const citationText = `[${sourceId}]`;
     const citationEnd = citationStart + citationText.length;
+    const previousChar = citationStart > 0 ? text[citationStart - 1] : '';
+    const nextChar = citationEnd < text.length ? text[citationEnd] : '';
+    const isAdjacentToAcceptedCitation = lastAcceptedCitationEnd === citationStart;
+    const hasValidStart =
+      citationStart === 0
+      || isAdjacentToAcceptedCitation
+      || CITATION_BEFORE_BOUNDARY.test(previousChar);
+    const hasValidEnd =
+      citationEnd === text.length
+      || nextChar === '['
+      || CITATION_AFTER_BOUNDARY.test(nextChar);
 
-    iteratee({
-      prefix,
+    if (!hasValidStart || !hasValidEnd) {
+      continue;
+    }
+
+    const wasAccepted = iteratee({
       sourceId,
       citationStart,
       citationEnd,
       citationText,
     });
+    if (wasAccepted) {
+      lastAcceptedCitationEnd = citationEnd;
+    }
   }
 }
 
@@ -413,7 +430,7 @@ export function splitTextWithCitations(
 
   withCitationMatches(text, ({ citationStart, citationEnd, citationText, sourceId }) => {
     if (!validSourceIds.has(sourceId)) {
-      return;
+      return false;
     }
 
     if (citationStart > lastIndex) {
@@ -429,6 +446,7 @@ export function splitTextWithCitations(
       sourceId,
     });
     lastIndex = citationEnd;
+    return true;
   });
 
   if (lastIndex < text.length) {
@@ -455,11 +473,12 @@ export function stripCitationMarkers(
 
   withCitationMatches(text, ({ citationStart, citationEnd, sourceId }) => {
     if (!validSourceIds.has(sourceId)) {
-      return;
+      return false;
     }
 
     nextText += text.slice(lastIndex, citationStart);
     lastIndex = citationEnd;
+    return true;
   });
 
   nextText += text.slice(lastIndex);
@@ -480,11 +499,12 @@ export function stripInvalidCitationMarkers(
 
   withCitationMatches(text, ({ citationStart, citationEnd, sourceId }) => {
     if (validSourceIds.has(sourceId)) {
-      return;
+      return true;
     }
 
     nextText += text.slice(lastIndex, citationStart);
     lastIndex = citationEnd;
+    return true;
   });
 
   nextText += text.slice(lastIndex);

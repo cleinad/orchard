@@ -8,6 +8,7 @@ import type { InlineThreadMarker } from '@/app/home/components/threadTypes';
 import type { Message } from '@/app/home/types';
 import { markdownContentClassName } from '@/lib/markdown';
 import { hasUsableSearchSources } from '@/lib/search-citations';
+import SourceFavicon from '@/app/home/components/SourceFavicon';
 
 interface MessageRowProps {
   activeName: string;
@@ -60,6 +61,13 @@ function MessageRow({
     (sourceId: number) => onTraySourceSelect(message.id, sourceId),
     [message.id, onTraySourceSelect]
   );
+  const handleFooterSourceClick = useCallback(
+    (event: MouseEvent<HTMLButtonElement>, sourceId: number) => {
+      event.stopPropagation();
+      onTraySourceSelect(message.id, sourceId);
+    },
+    [message.id, onTraySourceSelect]
+  );
 
   return (
     <div
@@ -105,19 +113,45 @@ function MessageRow({
 
         {!message.isStreaming && hasSources && replySearchMetadata && (
           <>
-            <div className="mt-3">
+            <div className="mt-2 flex min-h-7 flex-wrap items-center gap-x-2 gap-y-1 font-sans text-xs text-muted">
               <button
                 type="button"
                 onClick={handleSourcesClick}
                 onPointerUp={(event) => event.stopPropagation()}
-                className={`inline-flex items-center rounded-full border px-3 py-1 font-sans text-xs font-medium transition-colors ${
+                className={`inline-flex h-7 items-center gap-1.5 rounded-md border px-2 transition-colors ${
                   isSourceTrayOpen
-                    ? 'border-foreground/15 bg-foreground/[0.05] text-foreground'
-                    : 'border-border-subtle text-muted hover:bg-foreground/[0.04] hover:text-foreground'
+                    ? 'border-foreground/15 bg-foreground/[0.04] text-foreground'
+                    : 'border-transparent text-muted hover:border-border-subtle hover:bg-foreground/[0.025] hover:text-foreground'
                 }`}
               >
-                Sources {replySearchMetadata.sources.length}
+                <span>Sources</span>
+                <span className="text-current/55">{replySearchMetadata.sources.length}</span>
               </button>
+              <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                {replySearchMetadata.sources.slice(0, 3).map((source) => (
+                  <button
+                    key={source.id}
+                    type="button"
+                    className="inline-flex min-w-0 max-w-[9rem] items-center gap-1.5 rounded-md px-1 py-0.5 text-muted/80 transition-colors hover:bg-foreground/[0.025] hover:text-foreground"
+                    title={source.title}
+                    onClick={(event) => handleFooterSourceClick(event, source.id)}
+                    onPointerUp={(event) => event.stopPropagation()}
+                  >
+                    <SourceFavicon domain={source.domain} title={source.title} size={14} />
+                    <span className="truncate">{source.domain}</span>
+                  </button>
+                ))}
+                {replySearchMetadata.sources.length > 3 && (
+                  <button
+                    type="button"
+                    className="rounded-md px-1 py-0.5 text-muted/60 transition-colors hover:bg-foreground/[0.025] hover:text-foreground"
+                    onClick={handleSourcesClick}
+                    onPointerUp={(event) => event.stopPropagation()}
+                  >
+                    +{replySearchMetadata.sources.length - 3}
+                  </button>
+                )}
+              </span>
             </div>
 
             {isSourceTrayOpen && (
