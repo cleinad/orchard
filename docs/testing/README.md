@@ -62,6 +62,12 @@ Notes:
 
 - `frontend/__tests__/app/chat-route.test.ts`: `/api/chat` contract coverage, including memory loading, memory writes, and route-level orchestration
 - `frontend/__tests__/app/chat-route-search.test.ts`: explicit search-mode orchestration, v2 `search_metadata` persistence, invalid citation stripping, and clean memory handoff
+- `frontend/__tests__/app/billing-routes.test.ts`: Stripe Checkout and Customer Portal route contracts without opening Stripe UI
+- `frontend/__tests__/app/stripe-webhook-route.test.ts`: signed Stripe webhook POST handling, signature failures, event persistence, and duplicate delivery behavior
+- `frontend/__tests__/app/chat-models-route-billing.test.ts`: billing entitlement projection in the chat model list route
+- `frontend/__tests__/app/chat-route-billing.test.ts`: server-side paid-model and monthly usage-limit enforcement before model calls
+- `frontend/__tests__/app/settings-billing-page.test.ts`: `/settings/billing` plan, subscription state, usage, and checkout-return rendering
+- `frontend/__tests__/app/settings-billing-link.test.ts`: settings navigation to `/settings/billing`
 - `frontend/__tests__/app/memory-items-routes.test.ts`: memory item CRUD auth, scope filters, normalization, and embedding side effects
 - `frontend/__tests__/app/tts-route.test.ts`: `/api/tts` auth and request/config validation
 - `frontend/__tests__/proxy.test.ts`: page auth protection, login redirects, and the fixture-only E2E bypass guardrails
@@ -69,6 +75,7 @@ Notes:
 ### Vitest Library Coverage
 
 - `frontend/__tests__/lib/auth-redirect.test.ts`: safe post-login redirect sanitization
+- `frontend/__tests__/lib/billing.test.ts`: billing entitlement computation, display-state mapping, projection safety, and usage periods
 - `frontend/__tests__/lib/chat-models.test.ts`: static chat model catalog validation
 - `frontend/__tests__/lib/models.test.ts`: model resolution, provider availability, and fallback behavior
 - `frontend/__tests__/lib/memory-items.test.ts`: deterministic memory normalization and scoring helpers
@@ -77,6 +84,7 @@ Notes:
 - `frontend/__tests__/lib/search-telemetry.test.ts`: structured search logging redaction and event payload rules
 - `frontend/__tests__/lib/search-router.test.ts`: deterministic query classification for freshness, research, official-priority, and social intent
 - `frontend/__tests__/lib/search-pipeline.test.ts`: provider orchestration, fallback, dedupe, and authority-aware reranking
+- `frontend/__tests__/lib/stripe-billing.test.ts`: Stripe subscription/webhook projection, idempotency, stale-event handling, and invoice transitions
 
 ### Playwright Browser Coverage
 
@@ -119,6 +127,31 @@ npm test -- __tests__/lib/auth-redirect.test.ts __tests__/proxy.test.ts __tests_
 cd frontend
 npx vitest run __tests__/lib/chat-models.test.ts __tests__/lib/models.test.ts
 ```
+
+### Stripe Billing
+
+- Smoke doc: [stripe-billing-smoke.md](./stripe-billing-smoke.md)
+- Run the fast deterministic billing suite:
+
+```bash
+cd frontend
+npm test -- --run \
+  __tests__/app/billing-routes.test.ts \
+  __tests__/app/stripe-webhook-route.test.ts \
+  __tests__/app/chat-models-route-billing.test.ts \
+  __tests__/app/chat-route-billing.test.ts \
+  __tests__/app/settings-billing-page.test.ts \
+  __tests__/app/settings-billing-link.test.ts \
+  __tests__/lib/billing.test.ts \
+  __tests__/lib/stripe-billing.test.ts
+npx tsc --noEmit
+```
+
+This suite is deterministic and does not open Stripe Checkout or the Customer Portal. It signs webhook fixtures with a test secret, mocks Stripe/Supabase, and verifies billing projections, duplicate webhook handling, checkout/portal contracts, page states, and server-side model/usage enforcement.
+
+For hosted Checkout, Customer Portal, real Stripe credentials, and local Stripe
+CLI forwarding, use the manual smoke checklist in
+[stripe-billing-smoke.md](./stripe-billing-smoke.md).
 
 ### Inline Threads
 
@@ -170,6 +203,7 @@ npm run test:e2e -- e2e/search-mode.spec.js
 - If you change memory loading, memory writing, memory CRUD, or mentor memory scoping, run the memory canary suite.
 - If you change proxy logic, login redirect handling, protected-route behavior, or TTS auth, run the auth canary suite.
 - If you change model catalog data, provider resolution, or chat model selection UI behavior, run the model-selection tests.
+- If you change Stripe billing routes, webhook processing, entitlement computation, usage limits, paid-model gating, or `/settings/billing`, run the Stripe Billing canary.
 - If you change conversation-map layout, branch-route activation, transcript/map scroll sync, map resize behavior, or mobile map takeover behavior, run the conversation-map Playwright suite.
 - If you change home route hydration, routed loading UI, sidebar-driven chat navigation, draft promotion, or temporary chat route behavior, run the home-routing Playwright suite and manually verify the first-click `/home/<conversationId>` to temporary-chat handoff.
 - If you change inline threads, selection handling, markdown rendering, or thread panel behavior, run the inline-thread Playwright suite.
@@ -181,6 +215,7 @@ npm run test:e2e -- e2e/search-mode.spec.js
 - [home-routing-e2e.md](./home-routing-e2e.md): routed home-chat browser coverage, mocks, and regression targets including delayed hydration UI
 - [inline-threads-e2e.md](./inline-threads-e2e.md): browser fixtures, mocks, and regression targets for inline threads
 - [search-citations-and-source-ui.md](./search-citations-and-source-ui.md): search-mode citation test scope, focused canary, manual checks, and current gaps
+- [stripe-billing-smoke.md](./stripe-billing-smoke.md): manual hosted Stripe smoke checklist and semi-automated smoke-script outline
 - [search-tuning-playbook.md](./search-tuning-playbook.md): manual live-provider tuning workflow using real API keys and structured search telemetry
 - [../tests/memory-tests.md](../tests/memory-tests.md): memory canary suite map, rationale, and remaining gaps
 - [../tests/chat-model-selection-tests.md](../tests/chat-model-selection-tests.md): automated and manual verification for model selection

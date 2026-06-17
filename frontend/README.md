@@ -13,9 +13,81 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 ```bash
 NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
 ```
 
 You can find these values in your Supabase project settings: https://app.supabase.com/project/_/settings/api
+
+2. Add the Stripe Billing variables:
+
+```bash
+STRIPE_SECRET_KEY=sk_test_or_live_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+STRIPE_PRICE_MONTHLY_ID=price_...
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+```
+
+Keep `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, and `SUPABASE_SERVICE_ROLE_KEY` server-only. Do not prefix them with `NEXT_PUBLIC_`.
+
+### Stripe Dashboard Setup
+
+1. Create a product for Keen's monthly plan.
+2. Create one recurring monthly price and copy its price ID into `STRIPE_PRICE_MONTHLY_ID`.
+3. Configure the Customer Portal for subscription cancellation, payment method updates, and invoice history.
+4. Add a webhook endpoint for:
+
+```text
+{NEXT_PUBLIC_APP_URL}/api/stripe/webhook
+```
+
+5. Subscribe the endpoint to these events:
+
+```text
+checkout.session.completed
+customer.subscription.created
+customer.subscription.updated
+customer.subscription.deleted
+invoice.payment_succeeded
+invoice.payment_failed
+```
+
+### Local Stripe Testing
+
+Install and log in to the Stripe CLI, then forward webhook events to the local app:
+
+```bash
+stripe login
+stripe listen --forward-to localhost:3000/api/stripe/webhook
+```
+
+Copy the printed `whsec_...` value into `STRIPE_WEBHOOK_SECRET`. Use Stripe's test cards through `/settings/billing`, or trigger events from the CLI:
+
+```bash
+stripe trigger checkout.session.completed
+stripe trigger customer.subscription.updated
+stripe trigger invoice.payment_failed
+```
+
+Run the Supabase migration in `../supabase/migrations/20260612120000_stripe_billing.sql` before testing billing routes.
+
+### Automated Stripe Billing Tests
+
+Most billing regressions should be caught without clicking through Stripe Checkout or the Customer Portal. Run the deterministic billing canary from `frontend/`:
+
+```bash
+npm test -- --run \
+  __tests__/app/billing-routes.test.ts \
+  __tests__/app/stripe-webhook-route.test.ts \
+  __tests__/app/chat-models-route-billing.test.ts \
+  __tests__/app/chat-route-billing.test.ts \
+  __tests__/app/settings-billing-page.test.ts \
+  __tests__/app/settings-billing-link.test.ts \
+  __tests__/lib/billing.test.ts \
+  __tests__/lib/stripe-billing.test.ts
+npx tsc --noEmit
+```
+
+For the full testing index and when to run this suite, see [`../docs/testing/README.md`](../docs/testing/README.md). For the manual hosted Stripe smoke checklist, see [`../docs/testing/stripe-billing-smoke.md`](../docs/testing/stripe-billing-smoke.md).
 
 ### Running the Development Server
 
