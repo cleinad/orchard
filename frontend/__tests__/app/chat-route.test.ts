@@ -12,6 +12,7 @@ const mockProcessMemoryV2 = vi.fn();
 const mockBuildMentorPrompt = vi.fn();
 const mockRunSearchPipeline = vi.fn();
 const mockStorageDownload = vi.fn();
+const mockStorageRemove = vi.fn();
 const mockResolveChatModelSelection = vi.fn((_modelId?: string | null) => ({
   id: 'gpt-5-mini',
   label: 'GPT 5 Mini',
@@ -29,6 +30,14 @@ const testPngBytes = new Uint8Array([
   0x1a,
   0x0a,
 ]);
+
+type TestMutationOperation = 'insert' | 'update' | 'upsert' | 'delete';
+
+type TestTableConfig = {
+  rows: object[];
+  returnOnMutate?: object[];
+  mutateError?: unknown | ((operation: TestMutationOperation, args: unknown) => unknown);
+};
 
 vi.mock('next/server', async (importOriginal) => {
   const actual = await importOriginal<typeof import('next/server')>();
@@ -146,7 +155,7 @@ vi.mock('@/lib/mentors/prompts', () => ({
   buildMentorPrompt: (...args: unknown[]) => mockBuildMentorPrompt(...args),
 }));
 
-function createAuthenticatedSupabase(tables: Record<string, { rows: object[]; returnOnMutate?: object[] }> = {}) {
+function createAuthenticatedSupabase(tables: Record<string, TestTableConfig> = {}) {
   const { client, tracker } = createMockSupabase({
     tables: {
       profiles: {
@@ -167,6 +176,7 @@ function createAuthenticatedSupabase(tables: Record<string, { rows: object[]; re
     storage: {
       from: vi.fn(() => ({
         download: (...args: unknown[]) => mockStorageDownload(...args),
+        remove: (...args: unknown[]) => mockStorageRemove(...args),
       })),
     },
   };
@@ -176,7 +186,7 @@ function createAuthenticatedSupabase(tables: Record<string, { rows: object[]; re
 
 async function runChatRequest(
   body: Record<string, unknown>,
-  tables: Record<string, { rows: object[]; returnOnMutate?: object[] }> = {}
+  tables: Record<string, TestTableConfig> = {}
 ) {
   const { supabase, tracker } = createAuthenticatedSupabase(tables);
   mockCreateSupabaseServerClient.mockResolvedValue(supabase);
@@ -240,6 +250,7 @@ describe('chat route memory contract', () => {
       data: new Blob([testPngBytes], { type: 'image/png' }),
       error: null,
     });
+    mockStorageRemove.mockResolvedValue({ data: null, error: null });
     mockResolveChatModelSelection.mockReturnValue({
       id: 'gpt-5-mini',
       label: 'GPT 5 Mini',
@@ -901,5 +912,150 @@ describe('chat route memory contract', () => {
         position: 0,
       }),
     ]);
+  });
+
+  it('rolls back the user message and deletes unreferenced new uploads when attachment persistence fails', async () => {
+    const { response, body, tracker } = await runChatRequest(
+      {
+        message: 'Describe this image',
+        attachments: [
+          {
+            storagePath: 'user-1/photo.png',
+            fileName: 'photo.png',
+            mimeType: 'image/png',
+            sizeBytes: testPngBytes.byteLength,
+            width: 800,
+            height: 600,
+            cleanupOnFailure: true,
+          },
+        ],
+      },
+      {
+        conversations: {
+          rows: [],
+          returnOnMutate: [{ id: 'conv-image-rollback' }],
+        },
+        messages: {
+          rows: [],
+          returnOnMutate: [{ id: 'msg-user-image-rollback' }],
+        },
+        message_attachments: {
+          rows: [],
+          mutateError: (operation: TestMutationOperation) =>
+            operation === 'insert' ? { message: 'insert failed' } : null,
+        },
+      }
+    );
+
+    expect(response.status).toBe(500);
+    expect(body.error).toBe('Failed to save image attachments');
+    expect(tracker.deletes('message_attachments')[0].filters).toEqual({
+      'eq:message_id': 'msg-user-image-rollback',
+      'eq:user_id': 'user-1',
+    });
+    expect(tracker.deletes('messages')[0].filters).toEqual({
+      'eq:id': 'msg-user-image-rollback',
+      'eq:user_id': 'user-1',
+    });
+    expect(mockStorageRemove).toHaveBeenCalledWith(['user-1/photo.png']);
+  });
+
+  it('does not delete new-upload cleanup paths that are already referenced when attachment persistence fails', async () => {
+    const { response, body, tracker } = await runChatRequest(
+      {
+        message: 'Describe this image',
+        attachments: [
+          {
+            storagePath: 'user-1/photo.png',
+            fileName: 'photo.png',
+            mimeType: 'image/png',
+            sizeBytes: testPngBytes.byteLength,
+            width: 800,
+            height: 600,
+            cleanupOnFailure: true,
+          },
+        ],
+      },
+      {
+        conversations: {
+          rows: [],
+          returnOnMutate: [{ id: 'conv-image-referenced-rollback' }],
+        },
+        messages: {
+          rows: [],
+          returnOnMutate: [{ id: 'msg-user-image-referenced-rollback' }],
+        },
+        message_attachments: {
+          rows: [
+            {
+              storage_path: 'user-1/photo.png',
+            },
+          ],
+          mutateError: (operation: TestMutationOperation) =>
+            operation === 'insert' ? { message: 'duplicate key' } : null,
+        },
+      }
+    );
+
+    expect(response.status).toBe(500);
+    expect(body.error).toBe('Failed to save image attachments');
+    expect(tracker.deletes('message_attachments')[0].filters).toEqual({
+      'eq:message_id': 'msg-user-image-referenced-rollback',
+      'eq:user_id': 'user-1',
+    });
+    expect(tracker.deletes('messages')[0].filters).toEqual({
+      'eq:id': 'msg-user-image-referenced-rollback',
+      'eq:user_id': 'user-1',
+    });
+    expect(mockStorageRemove).not.toHaveBeenCalled();
+  });
+
+  it('rolls back the user message without deleting reused context images when attachment persistence fails', async () => {
+    const { response, body, tracker } = await runChatRequest(
+      {
+        message: 'Describe this image again',
+        attachments: [
+          {
+            storagePath: 'user-1/photo.png',
+            fileName: 'photo.png',
+            mimeType: 'image/png',
+            sizeBytes: testPngBytes.byteLength,
+            width: 800,
+            height: 600,
+          },
+        ],
+      },
+      {
+        conversations: {
+          rows: [],
+          returnOnMutate: [{ id: 'conv-image-context-rollback' }],
+        },
+        messages: {
+          rows: [],
+          returnOnMutate: [{ id: 'msg-user-image-context-rollback' }],
+        },
+        message_attachments: {
+          rows: [
+            {
+              storage_path: 'user-1/photo.png',
+            },
+          ],
+          mutateError: (operation: TestMutationOperation) =>
+            operation === 'insert' ? { message: 'duplicate key' } : null,
+        },
+      }
+    );
+
+    expect(response.status).toBe(500);
+    expect(body.error).toBe('Failed to save image attachments');
+    expect(tracker.deletes('message_attachments')[0].filters).toEqual({
+      'eq:message_id': 'msg-user-image-context-rollback',
+      'eq:user_id': 'user-1',
+    });
+    expect(tracker.deletes('messages')[0].filters).toEqual({
+      'eq:id': 'msg-user-image-context-rollback',
+      'eq:user_id': 'user-1',
+    });
+    expect(mockStorageRemove).not.toHaveBeenCalled();
   });
 });
