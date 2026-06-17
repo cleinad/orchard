@@ -57,6 +57,7 @@ export interface ChatImageAttachmentRequest {
   sizeBytes: number;
   width?: number | null;
   height?: number | null;
+  cleanupOnFailure?: boolean;
 }
 
 export function isChatImageMimeType(value: unknown): value is ChatImageMimeType {

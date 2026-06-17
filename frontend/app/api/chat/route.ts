@@ -74,6 +74,8 @@ interface LoadedChatImageAttachment extends ChatImageAttachmentRequest {
   bytes: Uint8Array;
 }
 
+type SupabaseServerClient = Awaited<ReturnType<typeof createSupabaseServerClient>>;
+
 interface ReplyContext {
   currentTime: string;
   userName: string | null;
@@ -286,6 +288,7 @@ function validateAttachmentRequests(
     const height = typeof record.height === 'number' && Number.isFinite(record.height)
       ? Math.max(1, Math.round(record.height))
       : null;
+    const cleanupOnFailure = record.cleanupOnFailure === true;
 
     if (
       !storagePath
@@ -316,6 +319,7 @@ function validateAttachmentRequests(
       sizeBytes: Math.round(sizeBytes),
       width,
       height,
+      ...(cleanupOnFailure ? { cleanupOnFailure } : {}),
     });
   }
 
@@ -454,6 +458,52 @@ async function loadChatImageAttachments(
   }
 
   return { attachments: loaded, error: null };
+}
+
+async function removeUnreferencedCleanupAttachmentStorage(
+  supabase: SupabaseServerClient,
+  attachments: Array<Pick<ChatImageAttachmentRequest, 'storagePath' | 'cleanupOnFailure'>>
+) {
+  const cleanupStoragePaths = Array.from(new Set(
+    attachments
+      .filter((attachment) => attachment.cleanupOnFailure)
+      .map((attachment) => attachment.storagePath)
+  ));
+
+  if (cleanupStoragePaths.length === 0) {
+    return;
+  }
+
+  const { data: referencedAttachments, error: referenceLookupError } = await supabase
+    .from('message_attachments')
+    .select('storage_path')
+    .eq('storage_bucket', CHAT_IMAGE_BUCKET)
+    .in('storage_path', cleanupStoragePaths);
+
+  if (referenceLookupError) {
+    console.error('Error checking image attachment references:', referenceLookupError);
+    return;
+  }
+
+  const referencedPaths = new Set(
+    (referencedAttachments ?? [])
+      .map((row) => row.storage_path)
+      .filter((storagePath): storagePath is string => typeof storagePath === 'string')
+  );
+  const unreferencedStoragePaths = cleanupStoragePaths.filter(
+    (storagePath) => !referencedPaths.has(storagePath)
+  );
+
+  if (unreferencedStoragePaths.length === 0) {
+    return;
+  }
+
+  const { error: storageRemoveError } = await supabase.storage
+    .from(CHAT_IMAGE_BUCKET)
+    .remove(unreferencedStoragePaths);
+  if (storageRemoveError) {
+    console.error('Error removing image attachment storage:', storageRemoveError);
+  }
 }
 
 function sanitizeAssistantContentForReuse(
@@ -640,6 +690,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (modelId != null && !isChatModelId(modelId)) {
+      await removeUnreferencedCleanupAttachmentStorage(supabase, attachments);
       return NextResponse.json(
         { error: 'Invalid model selection' },
         { status: 400 }
@@ -672,6 +723,7 @@ export async function POST(request: NextRequest) {
         .single();
 
       if (mentorError || !mentorRow) {
+        await removeUnreferencedCleanupAttachmentStorage(supabase, attachments);
         return NextResponse.json({ error: 'Mentor not found' }, { status: 404 });
       }
 
@@ -682,6 +734,7 @@ export async function POST(request: NextRequest) {
       modelId ?? mentor?.model_id ?? null
     );
     if (!resolvedSelection) {
+      await removeUnreferencedCleanupAttachmentStorage(supabase, attachments);
       return NextResponse.json(
         {
           error:
@@ -698,12 +751,14 @@ export async function POST(request: NextRequest) {
         : 0;
     const modelAttachmentError = validateAttachmentsForModel(attachments, resolvedSelection);
     if (modelAttachmentError) {
+      await removeUnreferencedCleanupAttachmentStorage(supabase, attachments);
       return NextResponse.json({ error: modelAttachmentError }, { status: 400 });
     }
 
     const { attachments: loadedAttachments, error: attachmentLoadError } =
       await loadChatImageAttachments(supabase, attachments);
     if (attachmentLoadError) {
+      await removeUnreferencedCleanupAttachmentStorage(supabase, attachments);
       return NextResponse.json({ error: attachmentLoadError }, { status: 400 });
     }
 
@@ -719,6 +774,7 @@ export async function POST(request: NextRequest) {
           .single();
 
         if (conversationError || !existingConversation) {
+          await removeUnreferencedCleanupAttachmentStorage(supabase, loadedAttachments);
           return NextResponse.json(
             { error: 'Conversation not found' },
             { status: 404 }
@@ -726,6 +782,7 @@ export async function POST(request: NextRequest) {
         }
 
         if (mentor && existingConversation.mentor_id !== mentor.id) {
+          await removeUnreferencedCleanupAttachmentStorage(supabase, loadedAttachments);
           return NextResponse.json(
             { error: 'Conversation does not match the selected mentor' },
             { status: 400 }
@@ -759,6 +816,7 @@ export async function POST(request: NextRequest) {
 
         if (convError || !conversation) {
           console.error('Error creating conversation:', convError);
+          await removeUnreferencedCleanupAttachmentStorage(supabase, loadedAttachments);
           return NextResponse.json(
             { error: 'Failed to create conversation' },
             { status: 500 }
@@ -839,6 +897,7 @@ export async function POST(request: NextRequest) {
 
         if (threadError || !threadRow) {
           console.error('Error creating thread:', threadError);
+          await removeUnreferencedCleanupAttachmentStorage(supabase, loadedAttachments);
           return NextResponse.json({ error: 'Failed to create thread' }, { status: 500 });
         }
 
@@ -936,11 +995,13 @@ export async function POST(request: NextRequest) {
 
       if (userMsgError) {
         console.error('Error saving user message:', userMsgError);
+        await removeUnreferencedCleanupAttachmentStorage(supabase, loadedAttachments);
         return NextResponse.json({ error: 'Failed to save message' }, { status: 500 });
       }
 
       latestUserMessageId = userMessageRow?.id ?? null;
       if (!latestUserMessageId) {
+        await removeUnreferencedCleanupAttachmentStorage(supabase, loadedAttachments);
         return NextResponse.json({ error: 'Failed to save message' }, { status: 500 });
       }
 
@@ -963,9 +1024,25 @@ export async function POST(request: NextRequest) {
 
         if (attachmentInsertError) {
           console.error('Error saving message attachments:', attachmentInsertError);
-          await supabase.storage
-            .from(CHAT_IMAGE_BUCKET)
-            .remove(loadedAttachments.map((attachment) => attachment.storagePath));
+          const { error: attachmentRollbackError } = await supabase
+            .from('message_attachments')
+            .delete()
+            .eq('message_id', latestUserMessageId)
+            .eq('user_id', user.id);
+          if (attachmentRollbackError) {
+            console.error('Error rolling back message attachments:', attachmentRollbackError);
+          }
+
+          const { error: messageRollbackError } = await supabase
+            .from('messages')
+            .delete()
+            .eq('id', latestUserMessageId)
+            .eq('user_id', user.id);
+          if (messageRollbackError) {
+            console.error('Error rolling back user message:', messageRollbackError);
+          }
+
+          await removeUnreferencedCleanupAttachmentStorage(supabase, loadedAttachments);
           return NextResponse.json(
             { error: 'Failed to save image attachments' },
             { status: 500 }

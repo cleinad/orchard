@@ -750,10 +750,14 @@ function HomePageInner() {
         shouldRevokeLocalImageUrls = false;
       }
 
-      if (!result.accepted && result.uploadedAttachments && result.uploadedAttachments.length > 0) {
+      if (
+        !result.accepted
+        && result.cleanupUploadedAttachments
+        && result.cleanupUploadedAttachments.length > 0
+      ) {
         await supabase.storage
           .from(CHAT_IMAGE_BUCKET)
-          .remove(result.uploadedAttachments.map((attachment) => attachment.storagePath));
+          .remove(result.cleanupUploadedAttachments.map((attachment) => attachment.storagePath));
       }
     } catch (error) {
       setImageWarning(error instanceof Error ? error.message : 'Failed to upload image.');

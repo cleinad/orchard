@@ -76,6 +76,7 @@ interface SendMessageResult {
   error?: string;
   restoreComposerSelection?: SelectedChat | null;
   uploadedAttachments?: UploadedChatImageAttachment[];
+  cleanupUploadedAttachments?: UploadedChatImageAttachment[];
 }
 
 /**
@@ -864,6 +865,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
             sizeBytes: attachment.sizeBytes,
             width: attachment.width,
             height: attachment.height,
+            cleanupOnFailure: true,
           })),
           searchEnabled: params.searchEnabled,
           timezone: getBrowserTimeZone(),
@@ -1089,6 +1091,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
           error: 'Sorry, there was an error processing your message.',
           restoreComposerSelection,
           uploadedAttachments,
+          cleanupUploadedAttachments: uploadedAttachments,
         };
       }
 
