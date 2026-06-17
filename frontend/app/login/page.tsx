@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { getSafeRedirectPath } from '@/lib/auth-redirect';
@@ -16,12 +17,12 @@ function AuthFrame({ children }: { children: React.ReactNode }) {
 
       <div className="relative z-10 flex min-h-[100dvh] flex-col px-6 pb-10 pt-7 sm:px-10 sm:pt-9 lg:px-14">
         <header className="flex w-full items-center">
-          <a
+          <Link
             href="/"
             className="font-heading text-[1.4rem] tracking-[-0.04em] text-[#142033]"
           >
             Keen
-          </a>
+          </Link>
         </header>
 
         <main className="flex flex-1 items-center justify-center">

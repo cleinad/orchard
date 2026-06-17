@@ -11,6 +11,33 @@ const mockLoadMemoryContextV2 = vi.fn();
 const mockProcessMemoryV2 = vi.fn();
 const mockBuildMentorPrompt = vi.fn();
 const mockRunSearchPipeline = vi.fn();
+const mockStorageDownload = vi.fn();
+const mockStorageRemove = vi.fn();
+const mockResolveChatModelSelection = vi.fn((_modelId?: string | null) => ({
+  id: 'gpt-5-mini',
+  label: 'GPT 5 Mini',
+  provider: 'openai',
+  apiModelId: 'gpt-5-mini',
+  supportsImages: true,
+}));
+const testPngBytes = new Uint8Array([
+  0x89,
+  0x50,
+  0x4e,
+  0x47,
+  0x0d,
+  0x0a,
+  0x1a,
+  0x0a,
+]);
+
+type TestMutationOperation = 'insert' | 'update' | 'upsert' | 'delete';
+
+type TestTableConfig = {
+  rows: object[];
+  returnOnMutate?: object[];
+  mutateError?: unknown | ((operation: TestMutationOperation, args: unknown) => unknown);
+};
 
 vi.mock('next/server', async (importOriginal) => {
   const actual = await importOriginal<typeof import('next/server')>();
@@ -116,10 +143,8 @@ vi.mock('@/lib/memory-agent', () => ({
 
 vi.mock('@/lib/models', () => ({
   getChatModel: vi.fn(() => 'mock-chat-model'),
-  resolveChatModelSelection: vi.fn(() => ({
-    id: 'gpt-5-mini',
-    provider: 'openai',
-  })),
+  resolveChatModelSelection: (modelId?: string | null) =>
+    mockResolveChatModelSelection(modelId),
 }));
 
 vi.mock('@/lib/search/pipeline', () => ({
@@ -130,7 +155,7 @@ vi.mock('@/lib/mentors/prompts', () => ({
   buildMentorPrompt: (...args: unknown[]) => mockBuildMentorPrompt(...args),
 }));
 
-function createAuthenticatedSupabase(tables: Record<string, { rows: object[]; returnOnMutate?: object[] }> = {}) {
+function createAuthenticatedSupabase(tables: Record<string, TestTableConfig> = {}) {
   const { client, tracker } = createMockSupabase({
     tables: {
       profiles: {
@@ -148,6 +173,12 @@ function createAuthenticatedSupabase(tables: Record<string, { rows: object[]; re
         error: null,
       }),
     },
+    storage: {
+      from: vi.fn(() => ({
+        download: (...args: unknown[]) => mockStorageDownload(...args),
+        remove: (...args: unknown[]) => mockStorageRemove(...args),
+      })),
+    },
   };
 
   return { supabase, tracker };
@@ -155,7 +186,7 @@ function createAuthenticatedSupabase(tables: Record<string, { rows: object[]; re
 
 async function runChatRequest(
   body: Record<string, unknown>,
-  tables: Record<string, { rows: object[]; returnOnMutate?: object[] }> = {}
+  tables: Record<string, TestTableConfig> = {}
 ) {
   const { supabase, tracker } = createAuthenticatedSupabase(tables);
   mockCreateSupabaseServerClient.mockResolvedValue(supabase);
@@ -214,6 +245,18 @@ describe('chat route memory contract', () => {
           publishedAt: null,
         },
       ],
+    });
+    mockStorageDownload.mockResolvedValue({
+      data: new Blob([testPngBytes], { type: 'image/png' }),
+      error: null,
+    });
+    mockStorageRemove.mockResolvedValue({ data: null, error: null });
+    mockResolveChatModelSelection.mockReturnValue({
+      id: 'gpt-5-mini',
+      label: 'GPT 5 Mini',
+      provider: 'openai',
+      apiModelId: 'gpt-5-mini',
+      supportsImages: true,
     });
   });
 
@@ -349,6 +392,77 @@ describe('chat route memory contract', () => {
     expect(mockProcessMemoryV2).not.toHaveBeenCalled();
   });
 
+  it('rejects invalid persistent thread source ids before creating a thread', async () => {
+    const { response, body, tracker } = await runChatRequest(
+      {
+        message: 'Explain this',
+        conversationId: '11111111-1111-4111-8111-111111111111',
+        sourceMessageId: 'streaming-1780862329520',
+        highlightedText: 'selected text',
+        startOffset: 0,
+        endOffset: 13,
+      },
+      {
+        conversations: {
+          rows: [{ id: '11111111-1111-4111-8111-111111111111', mentor_id: null }],
+        },
+      }
+    );
+
+    expect(response.status).toBe(400);
+    expect(body.error).toBe('Invalid source message id');
+    expect(tracker.inserts('threads')).toHaveLength(0);
+    expect(mockStreamText).not.toHaveBeenCalled();
+  });
+
+  it('rejects invalid persistent previous message ids before saving a message', async () => {
+    const { response, body, tracker } = await runChatRequest(
+      {
+        message: 'Continue',
+        conversationId: '11111111-1111-4111-8111-111111111111',
+        previousMessageId: 'streaming-1780862329520',
+      },
+      {
+        conversations: {
+          rows: [{ id: '11111111-1111-4111-8111-111111111111', mentor_id: null }],
+        },
+      }
+    );
+
+    expect(response.status).toBe(400);
+    expect(body.error).toBe('Invalid previous message id');
+    expect(tracker.inserts('messages')).toHaveLength(0);
+    expect(mockStreamText).not.toHaveBeenCalled();
+  });
+
+  it('cleans newly uploaded image paths when persistent id validation fails', async () => {
+    const { response, body, tracker } = await runChatRequest({
+      message: 'Continue with this image',
+      conversationId: '11111111-1111-4111-8111-111111111111',
+      previousMessageId: 'streaming-1780862329520',
+      attachments: [
+        {
+          storagePath: 'user-1/photo.png',
+          fileName: 'photo.png',
+          mimeType: 'image/png',
+          sizeBytes: testPngBytes.byteLength,
+          width: 800,
+          height: 600,
+          cleanupOnFailure: true,
+        },
+      ],
+    });
+
+    expect(response.status).toBe(400);
+    expect(body.error).toBe('Invalid previous message id');
+    expect(mockStorageDownload).not.toHaveBeenCalled();
+    expect(mockStorageRemove).toHaveBeenCalledWith(['user-1/photo.png']);
+    expect(tracker.selects('conversations')).toHaveLength(0);
+    expect(tracker.inserts('conversations')).toHaveLength(0);
+    expect(tracker.inserts('messages')).toHaveLength(0);
+    expect(mockStreamText).not.toHaveBeenCalled();
+  });
+
   it('passes mentor actor and mentorId into memory read/write paths', async () => {
     const { response, supabase } = await runChatRequest(
       {
@@ -465,5 +579,511 @@ describe('chat route memory contract', () => {
         system: expect.stringContaining('Do not return an empty response.'),
       })
     );
+  });
+
+  it('rejects more than five image attachments', async () => {
+    const attachments = Array.from({ length: 6 }, (_, index) => ({
+      storagePath: `user-1/image-${index}.png`,
+      fileName: `image-${index}.png`,
+      mimeType: 'image/png',
+      sizeBytes: testPngBytes.byteLength,
+    }));
+
+    const { response, body } = await runChatRequest({
+      message: 'Read these',
+      chatMode: 'temporary',
+      attachments,
+    });
+
+    expect(response.status).toBe(400);
+    expect(body.error).toBe('Attach up to 5 images at a time');
+    expect(mockStorageDownload).not.toHaveBeenCalled();
+  });
+
+  it('sends the latest user image attachments as model image parts', async () => {
+    const { response } = await runChatRequest({
+      message: 'What does this screenshot say?',
+      chatMode: 'temporary',
+      attachments: [
+        {
+          storagePath: 'user-1/screenshot.png',
+          fileName: 'screenshot.png',
+          mimeType: 'image/png',
+          sizeBytes: testPngBytes.byteLength,
+          width: 640,
+          height: 480,
+        },
+      ],
+    });
+
+    expect(response.status).toBe(200);
+    expect(mockStorageDownload).toHaveBeenCalledWith('user-1/screenshot.png');
+    expect(mockStreamText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: [
+          expect.objectContaining({
+            role: 'user',
+            content: [
+              { type: 'text', text: 'What does this screenshot say?' },
+              expect.objectContaining({
+                type: 'image',
+                mediaType: 'image/png',
+                image: expect.any(Uint8Array),
+              }),
+            ],
+          }),
+        ],
+      })
+    );
+  });
+
+  it('reattaches the latest temporary chat image turn for text-only follow-ups', async () => {
+    const { response } = await runChatRequest({
+      message: 'What color is the main object?',
+      chatMode: 'temporary',
+      history: [
+        {
+          role: 'user',
+          content: 'Describe this image',
+          attachments: [
+            {
+              storagePath: 'user-1/previous-screenshot.png',
+              fileName: 'previous-screenshot.png',
+              mimeType: 'image/png',
+              sizeBytes: testPngBytes.byteLength,
+            },
+          ],
+        },
+        {
+          role: 'assistant',
+          content: 'It shows a product screenshot.',
+        },
+      ],
+    });
+
+    expect(response.status).toBe(200);
+    expect(mockStorageDownload).toHaveBeenCalledWith('user-1/previous-screenshot.png');
+    expect(mockStreamText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: [
+          expect.objectContaining({
+            role: 'user',
+            content: [
+              { type: 'text', text: 'Describe this image' },
+              expect.objectContaining({
+                type: 'image',
+                mediaType: 'image/png',
+                image: expect.any(Uint8Array),
+              }),
+            ],
+          }),
+          expect.objectContaining({
+            role: 'assistant',
+            content: 'It shows a product screenshot.',
+          }),
+          expect.objectContaining({
+            role: 'user',
+            content: 'What color is the main object?',
+          }),
+        ],
+      })
+    );
+  });
+
+  it('reattaches the latest persistent chat image turn for text-only follow-ups', async () => {
+    const { response } = await runChatRequest(
+      {
+        message: 'What color is the main object?',
+        conversationId: 'conv-existing-image-context',
+        previousMessageId: '22222222-2222-4222-8222-222222222222',
+      },
+      {
+        conversations: {
+          rows: [{ id: 'conv-existing-image-context', mentor_id: null }],
+        },
+        messages: {
+          rows: [
+            {
+              id: '11111111-1111-4111-8111-111111111111',
+              role: 'user',
+              content: 'Describe this image',
+              previous_message_id: null,
+              created_at: '2026-06-04T12:00:00.000Z',
+            },
+            {
+              id: '22222222-2222-4222-8222-222222222222',
+              role: 'assistant',
+              content: 'It shows a product screenshot.',
+              previous_message_id: '11111111-1111-4111-8111-111111111111',
+              created_at: '2026-06-04T12:00:01.000Z',
+            },
+            {
+              id: '33333333-3333-4333-8333-333333333333',
+              role: 'user',
+              content: 'What color is the main object?',
+              previous_message_id: '22222222-2222-4222-8222-222222222222',
+              created_at: '2026-06-04T12:00:02.000Z',
+            },
+          ],
+          returnOnMutate: [
+            { id: '33333333-3333-4333-8333-333333333333' },
+            { id: '44444444-4444-4444-8444-444444444444' },
+          ],
+        },
+        message_attachments: {
+          rows: [
+            {
+              message_id: '11111111-1111-4111-8111-111111111111',
+              user_id: 'user-1',
+              storage_path: 'user-1/persisted-screenshot.png',
+              file_name: 'persisted-screenshot.png',
+              mime_type: 'image/png',
+              size_bytes: testPngBytes.byteLength,
+              width: 640,
+              height: 480,
+              position: 0,
+            },
+          ],
+        },
+      }
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockStorageDownload).toHaveBeenCalledWith('user-1/persisted-screenshot.png');
+    expect(mockStreamText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: [
+          expect.objectContaining({
+            role: 'user',
+            content: [
+              { type: 'text', text: 'Describe this image' },
+              expect.objectContaining({
+                type: 'image',
+                mediaType: 'image/png',
+                image: expect.any(Uint8Array),
+              }),
+            ],
+          }),
+          expect.objectContaining({
+            role: 'assistant',
+            content: 'It shows a product screenshot.',
+          }),
+          expect.objectContaining({
+            role: 'user',
+            content: 'What color is the main object?',
+          }),
+        ],
+      })
+    );
+  });
+
+  it('rejects image attachments when the resolved model cannot read images', async () => {
+    mockResolveChatModelSelection.mockReturnValue({
+      id: 'gpt-5-mini',
+      label: 'Text Model',
+      provider: 'openai',
+      apiModelId: 'gpt-5-mini',
+      supportsImages: false,
+    });
+
+    const { response, body } = await runChatRequest({
+      message: 'Read this',
+      chatMode: 'temporary',
+      attachments: [
+        {
+          storagePath: 'user-1/image.png',
+          fileName: 'image.png',
+          mimeType: 'image/png',
+          sizeBytes: testPngBytes.byteLength,
+        },
+      ],
+    });
+
+    expect(response.status).toBe(400);
+    expect(body.error).toBe('Text Model cannot read images. Choose a vision-capable model.');
+    expect(mockStorageDownload).not.toHaveBeenCalled();
+    expect(mockStreamText).not.toHaveBeenCalled();
+  });
+
+  it('rejects image attachments when stored bytes do not match client metadata', async () => {
+    const { response, body } = await runChatRequest({
+      message: 'Read this',
+      chatMode: 'temporary',
+      attachments: [
+        {
+          storagePath: 'user-1/image.png',
+          fileName: 'image.png',
+          mimeType: 'image/png',
+          sizeBytes: testPngBytes.byteLength + 1,
+        },
+      ],
+    });
+
+    expect(response.status).toBe(400);
+    expect(body.error).toBe('Image upload metadata did not match the stored image');
+    expect(mockStreamText).not.toHaveBeenCalled();
+  });
+
+  it('keeps image-only turns attached to the current prompt in existing conversations', async () => {
+    const { response } = await runChatRequest(
+      {
+        message: '',
+        conversationId: 'conv-existing-image-only',
+        attachments: [
+          {
+            storagePath: 'user-1/image-only.png',
+            fileName: 'image-only.png',
+            mimeType: 'image/png',
+            sizeBytes: testPngBytes.byteLength,
+          },
+        ],
+      },
+      {
+        conversations: {
+          rows: [{ id: 'conv-existing-image-only', mentor_id: null }],
+        },
+        messages: {
+          rows: [
+            {
+              id: 'msg-user-previous',
+              role: 'user',
+              content: 'Earlier prompt',
+              previous_message_id: null,
+              created_at: '2026-06-04T12:00:00.000Z',
+            },
+            {
+              id: 'msg-assistant-previous',
+              role: 'assistant',
+              content: 'Earlier reply',
+              previous_message_id: 'msg-user-previous',
+              created_at: '2026-06-04T12:00:01.000Z',
+            },
+            {
+              id: 'msg-user-image-only',
+              role: 'user',
+              content: '',
+              previous_message_id: 'msg-assistant-previous',
+              created_at: '2026-06-04T12:00:02.000Z',
+            },
+          ],
+          returnOnMutate: [{ id: 'msg-user-image-only' }, { id: 'msg-assistant-image-only' }],
+        },
+      }
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockStreamText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: [
+          expect.objectContaining({
+            role: 'user',
+            content: 'Earlier prompt',
+          }),
+          expect.objectContaining({
+            role: 'assistant',
+            content: 'Earlier reply',
+          }),
+          expect.objectContaining({
+            role: 'user',
+            content: [
+              { type: 'text', text: 'Please answer based on the attached image.' },
+              expect.objectContaining({
+                type: 'image',
+                mediaType: 'image/png',
+              }),
+            ],
+          }),
+        ],
+      })
+    );
+  });
+
+  it('persists image attachment metadata for persistent user messages', async () => {
+    const { response, tracker } = await runChatRequest(
+      {
+        message: 'Describe this image',
+        attachments: [
+          {
+            storagePath: 'user-1/photo.png',
+            fileName: 'photo.png',
+            mimeType: 'image/png',
+            sizeBytes: testPngBytes.byteLength,
+            width: 800,
+            height: 600,
+          },
+        ],
+      },
+      {
+        conversations: {
+          rows: [],
+          returnOnMutate: [{ id: 'conv-image-1' }],
+        },
+        messages: {
+          rows: [],
+          returnOnMutate: [{ id: 'msg-user-image-1' }, { id: 'msg-assistant-image-1' }],
+        },
+      }
+    );
+
+    expect(response.status).toBe(200);
+    expect(tracker.inserts('message_attachments')[0].args).toEqual([
+      expect.objectContaining({
+        message_id: 'msg-user-image-1',
+        user_id: 'user-1',
+        storage_bucket: 'chat-images',
+        storage_path: 'user-1/photo.png',
+        file_name: 'photo.png',
+        mime_type: 'image/png',
+        size_bytes: testPngBytes.byteLength,
+        width: 800,
+        height: 600,
+        position: 0,
+      }),
+    ]);
+  });
+
+  it('rolls back the user message and deletes unreferenced new uploads when attachment persistence fails', async () => {
+    const { response, body, tracker } = await runChatRequest(
+      {
+        message: 'Describe this image',
+        attachments: [
+          {
+            storagePath: 'user-1/photo.png',
+            fileName: 'photo.png',
+            mimeType: 'image/png',
+            sizeBytes: testPngBytes.byteLength,
+            width: 800,
+            height: 600,
+            cleanupOnFailure: true,
+          },
+        ],
+      },
+      {
+        conversations: {
+          rows: [],
+          returnOnMutate: [{ id: 'conv-image-rollback' }],
+        },
+        messages: {
+          rows: [],
+          returnOnMutate: [{ id: 'msg-user-image-rollback' }],
+        },
+        message_attachments: {
+          rows: [],
+          mutateError: (operation: TestMutationOperation) =>
+            operation === 'insert' ? { message: 'insert failed' } : null,
+        },
+      }
+    );
+
+    expect(response.status).toBe(500);
+    expect(body.error).toBe('Failed to save image attachments');
+    expect(tracker.deletes('message_attachments')[0].filters).toEqual({
+      'eq:message_id': 'msg-user-image-rollback',
+      'eq:user_id': 'user-1',
+    });
+    expect(tracker.deletes('messages')[0].filters).toEqual({
+      'eq:id': 'msg-user-image-rollback',
+      'eq:user_id': 'user-1',
+    });
+    expect(mockStorageRemove).toHaveBeenCalledWith(['user-1/photo.png']);
+  });
+
+  it('does not delete new-upload cleanup paths that are already referenced when attachment persistence fails', async () => {
+    const { response, body, tracker } = await runChatRequest(
+      {
+        message: 'Describe this image',
+        attachments: [
+          {
+            storagePath: 'user-1/photo.png',
+            fileName: 'photo.png',
+            mimeType: 'image/png',
+            sizeBytes: testPngBytes.byteLength,
+            width: 800,
+            height: 600,
+            cleanupOnFailure: true,
+          },
+        ],
+      },
+      {
+        conversations: {
+          rows: [],
+          returnOnMutate: [{ id: 'conv-image-referenced-rollback' }],
+        },
+        messages: {
+          rows: [],
+          returnOnMutate: [{ id: 'msg-user-image-referenced-rollback' }],
+        },
+        message_attachments: {
+          rows: [
+            {
+              storage_path: 'user-1/photo.png',
+            },
+          ],
+          mutateError: (operation: TestMutationOperation) =>
+            operation === 'insert' ? { message: 'duplicate key' } : null,
+        },
+      }
+    );
+
+    expect(response.status).toBe(500);
+    expect(body.error).toBe('Failed to save image attachments');
+    expect(tracker.deletes('message_attachments')[0].filters).toEqual({
+      'eq:message_id': 'msg-user-image-referenced-rollback',
+      'eq:user_id': 'user-1',
+    });
+    expect(tracker.deletes('messages')[0].filters).toEqual({
+      'eq:id': 'msg-user-image-referenced-rollback',
+      'eq:user_id': 'user-1',
+    });
+    expect(mockStorageRemove).not.toHaveBeenCalled();
+  });
+
+  it('rolls back the user message without deleting reused context images when attachment persistence fails', async () => {
+    const { response, body, tracker } = await runChatRequest(
+      {
+        message: 'Describe this image again',
+        attachments: [
+          {
+            storagePath: 'user-1/photo.png',
+            fileName: 'photo.png',
+            mimeType: 'image/png',
+            sizeBytes: testPngBytes.byteLength,
+            width: 800,
+            height: 600,
+          },
+        ],
+      },
+      {
+        conversations: {
+          rows: [],
+          returnOnMutate: [{ id: 'conv-image-context-rollback' }],
+        },
+        messages: {
+          rows: [],
+          returnOnMutate: [{ id: 'msg-user-image-context-rollback' }],
+        },
+        message_attachments: {
+          rows: [
+            {
+              storage_path: 'user-1/photo.png',
+            },
+          ],
+          mutateError: (operation: TestMutationOperation) =>
+            operation === 'insert' ? { message: 'duplicate key' } : null,
+        },
+      }
+    );
+
+    expect(response.status).toBe(500);
+    expect(body.error).toBe('Failed to save image attachments');
+    expect(tracker.deletes('message_attachments')[0].filters).toEqual({
+      'eq:message_id': 'msg-user-image-context-rollback',
+      'eq:user_id': 'user-1',
+    });
+    expect(tracker.deletes('messages')[0].filters).toEqual({
+      'eq:id': 'msg-user-image-context-rollback',
+      'eq:user_id': 'user-1',
+    });
+    expect(mockStorageRemove).not.toHaveBeenCalled();
   });
 });
