@@ -697,6 +697,34 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const normalizedThreadId = normalizeOptionalId(threadId);
+    const normalizedSourceMessageId = normalizeOptionalId(sourceMessageId);
+    const normalizedPreviousMessageId = normalizeOptionalId(previousMessageId);
+    const normalizedBranchSourceMessageId = normalizeOptionalId(branchSourceMessageId);
+    activeThreadId = normalizedThreadId;
+
+    if (!isTemporaryChat) {
+      if (normalizedThreadId && !isUuid(normalizedThreadId)) {
+        await removeUnreferencedCleanupAttachmentStorage(supabase, attachments);
+        return NextResponse.json({ error: 'Invalid thread id' }, { status: 400 });
+      }
+
+      if (normalizedSourceMessageId && !isUuid(normalizedSourceMessageId)) {
+        await removeUnreferencedCleanupAttachmentStorage(supabase, attachments);
+        return NextResponse.json({ error: 'Invalid source message id' }, { status: 400 });
+      }
+
+      if (normalizedPreviousMessageId && !isUuid(normalizedPreviousMessageId)) {
+        await removeUnreferencedCleanupAttachmentStorage(supabase, attachments);
+        return NextResponse.json({ error: 'Invalid previous message id' }, { status: 400 });
+      }
+
+      if (normalizedBranchSourceMessageId && !isUuid(normalizedBranchSourceMessageId)) {
+        await removeUnreferencedCleanupAttachmentStorage(supabase, attachments);
+        return NextResponse.json({ error: 'Invalid branch source message id' }, { status: 400 });
+      }
+    }
+
     const fallbackConversationTitle = fallbackChatTitleFromMessage(messageForTitle);
     let activeConversationId = isTemporaryChat ? null : conversationId ?? null;
     let createdConversation = false;
@@ -828,30 +856,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const normalizedThreadId = normalizeOptionalId(threadId);
-    const normalizedSourceMessageId = normalizeOptionalId(sourceMessageId);
-    const normalizedPreviousMessageId = normalizeOptionalId(previousMessageId);
-    const normalizedBranchSourceMessageId = normalizeOptionalId(branchSourceMessageId);
-    activeThreadId = normalizedThreadId;
     let existingThreadHighlightedText: string | null = null;
 
     if (!isTemporaryChat) {
-      if (normalizedThreadId && !isUuid(normalizedThreadId)) {
-        return NextResponse.json({ error: 'Invalid thread id' }, { status: 400 });
-      }
-
-      if (normalizedSourceMessageId && !isUuid(normalizedSourceMessageId)) {
-        return NextResponse.json({ error: 'Invalid source message id' }, { status: 400 });
-      }
-
-      if (normalizedPreviousMessageId && !isUuid(normalizedPreviousMessageId)) {
-        return NextResponse.json({ error: 'Invalid previous message id' }, { status: 400 });
-      }
-
-      if (normalizedBranchSourceMessageId && !isUuid(normalizedBranchSourceMessageId)) {
-        return NextResponse.json({ error: 'Invalid branch source message id' }, { status: 400 });
-      }
-
       if (activeThreadId) {
         const { data: existingThread, error: threadCheckError } = await supabase
           .from('threads')
@@ -861,6 +868,7 @@ export async function POST(request: NextRequest) {
           .single();
 
         if (threadCheckError || !existingThread) {
+          await removeUnreferencedCleanupAttachmentStorage(supabase, loadedAttachments);
           return NextResponse.json({ error: 'Thread not found' }, { status: 404 });
         }
         existingThreadHighlightedText = existingThread.highlighted_text || null;
@@ -876,6 +884,7 @@ export async function POST(request: NextRequest) {
           || normalizedStartOffset < 0
           || normalizedEndOffset <= normalizedStartOffset
         ) {
+          await removeUnreferencedCleanupAttachmentStorage(supabase, loadedAttachments);
           return NextResponse.json(
             { error: 'Valid selection offsets are required to create a thread' },
             { status: 400 }
@@ -925,6 +934,7 @@ export async function POST(request: NextRequest) {
           .single();
 
         if (sourceMessageError || !sourceMessageRow || sourceMessageRow.role !== 'assistant') {
+          await removeUnreferencedCleanupAttachmentStorage(supabase, loadedAttachments);
           return NextResponse.json(
             { error: 'Branch source message not found' },
             { status: 404 }

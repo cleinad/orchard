@@ -2,7 +2,9 @@
 
 ## Scope
 
-Chat supports up to 5 image attachments per user message. The first version uses model-native vision only: images are sent to the selected multimodal model for the current turn. There is no OCR, indexing, or image memory extraction yet.
+Chat supports up to 5 image attachments per user message. The first version uses model-native vision only: images are sent to the selected multimodal model. There is no OCR, indexing, or image memory extraction yet.
+
+For text-only follow-up turns, the API may reattach the most recent prior user image turn as model context, subject to provider attachment limits. If the latest user message includes new images, those new images take priority and prior images are not reattached.
 
 Client-accepted types for models/providers that support them:
 
@@ -35,6 +37,7 @@ Composer pending images
   -> send storage paths to POST /api/chat
   -> API validates ownership, model support, provider limits, and downloads bytes
   -> API sends latest user message as text + image parts to the AI SDK
+  -> API may attach the latest prior image turn for text-only follow-ups
   -> persistent chats store message_attachments metadata
   -> transcript loads attachment metadata and renders stable image proxy URLs
 ```
@@ -72,6 +75,8 @@ The model catalog exposes `supportsImages`. Provider limits live in `CHAT_IMAGE_
 
 The client removes uploaded objects when upload succeeds but chat submission fails before the turn is accepted.
 
+The API also best-effort removes cleanup-marked uploads on validation and persistence failures before the message is accepted. Before deleting, it checks `message_attachments` so a replayed or reused storage path that is already referenced is not removed.
+
 Known cleanup boundaries:
 
 - If the browser closes mid-request, uploaded objects may still become orphaned.
@@ -81,7 +86,7 @@ Known cleanup boundaries:
 ## Future Work
 
 - Add a server-side orphan cleanup job for old `chat-images` objects without `message_attachments` rows.
-- Add OCR or image summaries for search, memory, and future-turn context.
+- Add OCR or image summaries for search, memory, and richer future-turn context.
 - Add provider-specific resizing/conversion for large images.
 - Add HEIC support for mobile uploads.
 - Add modal focus trapping, zoom/pan, and arrow navigation.

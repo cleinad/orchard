@@ -435,6 +435,34 @@ describe('chat route memory contract', () => {
     expect(mockStreamText).not.toHaveBeenCalled();
   });
 
+  it('cleans newly uploaded image paths when persistent id validation fails', async () => {
+    const { response, body, tracker } = await runChatRequest({
+      message: 'Continue with this image',
+      conversationId: '11111111-1111-4111-8111-111111111111',
+      previousMessageId: 'streaming-1780862329520',
+      attachments: [
+        {
+          storagePath: 'user-1/photo.png',
+          fileName: 'photo.png',
+          mimeType: 'image/png',
+          sizeBytes: testPngBytes.byteLength,
+          width: 800,
+          height: 600,
+          cleanupOnFailure: true,
+        },
+      ],
+    });
+
+    expect(response.status).toBe(400);
+    expect(body.error).toBe('Invalid previous message id');
+    expect(mockStorageDownload).not.toHaveBeenCalled();
+    expect(mockStorageRemove).toHaveBeenCalledWith(['user-1/photo.png']);
+    expect(tracker.selects('conversations')).toHaveLength(0);
+    expect(tracker.inserts('conversations')).toHaveLength(0);
+    expect(tracker.inserts('messages')).toHaveLength(0);
+    expect(mockStreamText).not.toHaveBeenCalled();
+  });
+
   it('passes mentor actor and mentorId into memory read/write paths', async () => {
     const { response, supabase } = await runChatRequest(
       {
