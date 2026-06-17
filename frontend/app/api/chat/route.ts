@@ -7,6 +7,8 @@ import {
   streamText,
 } from 'ai';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
+import { consumeChatUsage, getBillingEntitlement } from '@/lib/billing';
+import { isPaidChatModel } from '@/lib/billing-config';
 import { loadMemoryContextV2 } from '@/lib/memory-reader';
 import { processMemoryV2 } from '@/lib/memory-agent';
 import { isChatModelId } from '@/lib/chat-models';
@@ -455,28 +457,68 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      if (!activeConversationId) {
-        const { data: conversation, error: convError } = await supabase
-          .from('conversations')
-          .insert({
-            user_id: user.id,
-            title: fallbackConversationTitle,
-            mentor_id: mentor?.id ?? null,
-          })
-          .select('id')
-          .single();
+    }
 
-        if (convError || !conversation) {
-          console.error('Error creating conversation:', convError);
-          return NextResponse.json(
-            { error: 'Failed to create conversation' },
-            { status: 500 }
-          );
-        }
+    const resolvedSelection = resolveChatModelSelection(
+      modelId ?? mentor?.model_id ?? null
+    );
+    if (!resolvedSelection) {
+      return NextResponse.json(
+        {
+          error:
+            'No chat model is configured. Set at least one of OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_GENERATIVE_AI_API_KEY.',
+        },
+        { status: 503 }
+      );
+    }
 
-        activeConversationId = conversation.id;
-        createdConversation = true;
+    const entitlement = await getBillingEntitlement(supabase, user.id);
+    if (isPaidChatModel(resolvedSelection.id) && !entitlement.canUseCloudModels) {
+      return NextResponse.json(
+        {
+          error: 'Upgrade required',
+          code: 'billing_upgrade_required',
+          message: 'Upgrade to the monthly plan to use this model.',
+          requiredPlan: 'keen_monthly',
+        },
+        { status: 402 }
+      );
+    }
+
+    const usageResult = await consumeChatUsage(supabase, user.id, entitlement);
+    if (!usageResult.allowed) {
+      return NextResponse.json(
+        {
+          error: 'Monthly usage limit reached',
+          code: 'billing_usage_limit_reached',
+          message: 'Upgrade to continue using Keen this month.',
+          usage: usageResult.usage,
+        },
+        { status: 429 }
+      );
+    }
+
+    if (!isTemporaryChat && !activeConversationId) {
+      const { data: conversation, error: convError } = await supabase
+        .from('conversations')
+        .insert({
+          user_id: user.id,
+          title: fallbackConversationTitle,
+          mentor_id: mentor?.id ?? null,
+        })
+        .select('id')
+        .single();
+
+      if (convError || !conversation) {
+        console.error('Error creating conversation:', convError);
+        return NextResponse.json(
+          { error: 'Failed to create conversation' },
+          { status: 500 }
+        );
       }
+
+      activeConversationId = conversation.id;
+      createdConversation = true;
     }
 
     activeThreadId = threadId || null;
@@ -547,7 +589,7 @@ export async function POST(request: NextRequest) {
 
     let latestUserMessageId: string | null = null;
     let effectivePreviousMessageId = normalizedPreviousMessageId;
-    let branchSourceForMessage = normalizedBranchSourceMessageId;
+    const branchSourceForMessage = normalizedBranchSourceMessageId;
     let materializedMainBranch = false;
     let existingMainContinuationId: string | null = null;
     let existingBranchPositions: number[] = [];
@@ -761,19 +803,6 @@ export async function POST(request: NextRequest) {
           replyContext
         )
       : buildSystemPrompt(memoryContext, replyContext);
-
-    const resolvedSelection = resolveChatModelSelection(
-      modelId ?? mentor?.model_id ?? null
-    );
-    if (!resolvedSelection) {
-      return NextResponse.json(
-        {
-          error:
-            'No chat model is configured. Set at least one of OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_GENERATIVE_AI_API_KEY.',
-        },
-        { status: 503 }
-      );
-    }
 
     let chatModel;
     try {

@@ -10,6 +10,8 @@ import {
   type ChatModelOption,
   type ResolvedChatModelSelection,
 } from '@/lib/chat-models';
+import type { BillingEntitlement } from '@/lib/billing';
+import { isPaidChatModel } from '@/lib/billing-config';
 
 export const MEMORY_MODEL = anthropic('claude-haiku-4-5-20251001');
 
@@ -46,15 +48,22 @@ export function getDefaultChatModelId(): ChatModelId | null {
   return getAvailableChatModelOptions()[0]?.id ?? null;
 }
 
-export function getChatModelListItems(): ChatModelListItem[] {
+export function getChatModelListItems(entitlement?: BillingEntitlement): ChatModelListItem[] {
   const defaultModelId = getDefaultChatModelId();
 
   return CHAT_MODEL_OPTIONS.map((option) => ({
     id: option.id,
     label: option.label,
     provider: option.provider,
-    available: isModelConfigured(option),
+    available:
+      isModelConfigured(option)
+      && (!isPaidChatModel(option.id) || Boolean(entitlement?.canUseCloudModels)),
     isDefault: option.id === defaultModelId,
+    requiresPaidPlan: isPaidChatModel(option.id),
+    unavailableReason:
+      isPaidChatModel(option.id) && !entitlement?.canUseCloudModels
+        ? 'Upgrade to use'
+        : null,
   }));
 }
 

@@ -19,6 +19,8 @@ export interface ChatModelListItem {
   provider: ChatModelProvider;
   available: boolean;
   isDefault: boolean;
+  requiresPaidPlan: boolean;
+  unavailableReason: string | null;
 }
 
 export interface ResolvedChatModelSelection {

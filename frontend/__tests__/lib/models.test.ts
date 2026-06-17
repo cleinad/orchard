@@ -38,8 +38,10 @@ describe('chat model resolver', () => {
         id: 'gpt-5.4',
         label: 'GPT 5.4',
         provider: 'openai',
-        available: true,
+        available: false,
         isDefault: true,
+        requiresPaidPlan: true,
+        unavailableReason: 'Upgrade to use',
       },
       {
         id: 'claude-sonnet-4-6',
@@ -47,6 +49,8 @@ describe('chat model resolver', () => {
         provider: 'anthropic',
         available: false,
         isDefault: false,
+        requiresPaidPlan: true,
+        unavailableReason: 'Upgrade to use',
       },
       {
         id: 'gemini-3-flash-preview',
@@ -54,8 +58,34 @@ describe('chat model resolver', () => {
         provider: 'google',
         available: false,
         isDefault: false,
+        requiresPaidPlan: false,
+        unavailableReason: null,
       },
     ]);
+  });
+
+  it('marks paid models available when entitlement allows cloud models', async () => {
+    vi.stubEnv('OPENAI_API_KEY', 'test-openai-key');
+
+    const { getChatModelListItems } = await import('@/lib/models');
+    const items = getChatModelListItems({
+      planKey: 'keen_monthly',
+      canUseCloudModels: true,
+      monthlyLimit: 1000,
+      status: 'active',
+      subscriptionId: 'sub_123',
+      currentPeriodStart: null,
+      currentPeriodEnd: null,
+      displayState: 'active',
+      refreshedAt: null,
+    });
+
+    expect(items[0]).toMatchObject({
+      id: 'gpt-5.4',
+      available: true,
+      requiresPaidPlan: true,
+      unavailableReason: null,
+    });
   });
 
   it('resolves the requested configured model', async () => {

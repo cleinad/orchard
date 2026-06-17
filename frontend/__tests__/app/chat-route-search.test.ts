@@ -117,8 +117,8 @@ vi.mock('@/lib/memory-agent', () => ({
 vi.mock('@/lib/models', () => ({
   getChatModel: vi.fn(() => 'mock-chat-model'),
   resolveChatModelSelection: vi.fn(() => ({
-    id: 'gpt-5.4',
-    provider: 'openai',
+    id: 'gemini-3-flash-preview',
+    provider: 'google',
   })),
 }));
 

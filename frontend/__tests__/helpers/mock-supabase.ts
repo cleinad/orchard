@@ -152,6 +152,12 @@ export function createMockSupabase(options: MockSupabaseOptions = {}) {
     rpc: (fn: string, args: unknown) => {
       rpcs.push({ fn, args });
       const result = rpcResults[fn];
+      if (!result && fn === 'consume_model_usage') {
+        return Promise.resolve({
+          data: [{ allowed: true, used_count: 1, monthly_limit: 20 }],
+          error: null,
+        });
+      }
       return Promise.resolve(result ?? { data: [], error: null });
     },
   };
