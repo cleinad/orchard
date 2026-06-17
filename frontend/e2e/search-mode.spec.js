@@ -62,6 +62,8 @@ test('search mode sends explicit search requests and renders a scalable source t
   const state = await mockHomeDataRoutes(page, {
     conversations: [],
     messagesByConversationId: {},
+    nextConversationId: conversationId,
+    nextConversationTitle: 'OpenAI Pricing Changes',
   });
 
   await mockChatRoute(page, async (body) => {

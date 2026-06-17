@@ -162,7 +162,7 @@ export function applyUserMessageToTree(params: {
   const childrenByPreviousId = buildChildrenByPreviousId(normalizedMessages);
   const sourceMessageId = params.pendingBranch.sourceMessageId;
   const existingBranches = getActualBranchesForSource(params.branches, sourceMessageId);
-  let nextBranches = [...params.branches];
+  const nextBranches = [...params.branches];
 
   if (existingBranches.length === 0) {
     const currentMainEntry = getFirstChildMessage(childrenByPreviousId, sourceMessageId);

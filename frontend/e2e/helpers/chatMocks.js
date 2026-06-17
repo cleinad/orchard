@@ -26,15 +26,60 @@ function normalizeRouteResult(result) {
   };
 }
 
+function toSseLine(part) {
+  return `data: ${JSON.stringify(part)}\n\n`;
+}
+
+function toChatStreamBody(json) {
+  const message = typeof json?.message === 'string' ? json.message : '';
+
+  return [
+    ...(message ? [toSseLine({ type: 'text-delta', delta: message })] : []),
+    toSseLine({ type: 'text-end' }),
+    toSseLine({ type: 'data-chatMeta', data: json }),
+    'data: [DONE]\n\n',
+  ].join('');
+}
+
 async function mockChatRoute(page, handler) {
-  await page.route('**/api/chat', async (route) => {
-    const body = route.request().postDataJSON();
-    const result = normalizeRouteResult(await handler(body, route.request()));
+  await page.context().route(/\/api\/chat\/?(?:\?.*)?$/, async (route) => {
+    const request = route.request();
+    if (request.method() !== 'POST') {
+      await route.fallback();
+      return;
+    }
+
+    const body = request.postDataJSON();
+    let result;
+
+    try {
+      result = normalizeRouteResult(await handler(body, request));
+    } catch (error) {
+      await route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      });
+      return;
+    }
+
+    if (result.status >= 400) {
+      await route.fulfill({
+        status: result.status,
+        headers: result.headers,
+        contentType: 'application/json',
+        body: JSON.stringify(result.json),
+      });
+      return;
+    }
+
     await route.fulfill({
       status: result.status,
       headers: result.headers,
-      contentType: 'application/json',
-      body: JSON.stringify(result.json),
+      contentType: 'text/event-stream',
+      body: toChatStreamBody(result.json),
     });
   });
 }

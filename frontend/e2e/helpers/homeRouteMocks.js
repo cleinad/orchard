@@ -22,6 +22,44 @@ function parseEqFilter(value) {
   return decodeURIComponent(value.slice(3));
 }
 
+function fallbackChatTitleFromMessage(message) {
+  const text = typeof message === 'string' ? message.trim() : '';
+  if (!text) {
+    return 'New chat';
+  }
+
+  return text.length > 48 ? `${text.slice(0, 45)}...` : text;
+}
+
+function fallbackConversationIdFromMessage(message) {
+  const slug = (typeof message === 'string' ? message : '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 48);
+
+  return `conversation-${slug || 'new-chat'}`;
+}
+
+function normalizeCreatedConversation(conversation, body) {
+  const createdAt = conversation?.createdAt || conversation?.created_at || new Date().toISOString();
+  const updatedAt = conversation?.updatedAt || conversation?.updated_at || createdAt;
+
+  return {
+    id: conversation?.id || fallbackConversationIdFromMessage(body.initialMessage),
+    title:
+      conversation?.title
+      || fallbackChatTitleFromMessage(body.initialMessage),
+    mentorId:
+      conversation?.mentorId
+      ?? conversation?.mentor_id
+      ?? body.mentorId
+      ?? null,
+    createdAt,
+    updatedAt,
+  };
+}
+
 async function fulfillJson(route, json, status = 200) {
   await route.fulfill({
     status,
@@ -41,6 +79,45 @@ async function mockHomeDataRoutes(page, state) {
     chatModels: DEFAULT_CHAT_MODELS,
     ...state,
   };
+
+  await page.route('**/api/conversations', async (route) => {
+    const request = route.request();
+
+    if (request.method() === 'POST') {
+      const body = request.postDataJSON();
+      const conversation =
+        typeof resolvedState.createConversation === 'function'
+          ? await resolvedState.createConversation(body, resolvedState)
+          : {
+              id: resolvedState.nextConversationId,
+              title: resolvedState.nextConversationTitle,
+              mentorId: body.mentorId,
+            };
+
+      await fulfillJson(
+        route,
+        {
+          conversation: normalizeCreatedConversation(conversation, body),
+        },
+        201
+      );
+      return;
+    }
+
+    if (request.method() === 'DELETE') {
+      const body = request.postDataJSON();
+      if (body?.conversationId) {
+        resolvedState.conversations = resolvedState.conversations.filter(
+          (conversation) => conversation.id !== body.conversationId
+        );
+      }
+
+      await fulfillJson(route, { success: true });
+      return;
+    }
+
+    await route.fallback();
+  });
 
   await page.route('**/api/chat/models', async (route) => {
     await fulfillJson(route, { models: resolvedState.chatModels });

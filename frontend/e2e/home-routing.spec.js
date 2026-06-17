@@ -199,11 +199,12 @@ test('the first draft send replaces /home with the new persistent conversation r
   const state = await mockHomeDataRoutes(page, {
     conversations: [],
     messagesByConversationId: {},
+    nextConversationId: conversationId,
+    nextConversationTitle: title,
   });
 
   await mockChatRoute(page, async (body) => {
     expect(body.chatMode).toBe('persistent');
-    expect(body.conversationId).toBeUndefined();
     expect(body.mentorId).toBeUndefined();
     expect(body.message).toBe(message);
 
@@ -491,6 +492,8 @@ test('background draft promotion does not steal focus from the chat you switched
         }),
       ],
     },
+    nextConversationId: promotedConversationId,
+    nextConversationTitle: 'Background Draft',
   });
 
   await mockChatRoute(page, async (body) => {

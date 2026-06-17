@@ -420,16 +420,18 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
     const now = new Date();
     const nextUpdatedAt = now.toISOString();
 
-    let effectiveSelection = params.selectedChat;
+    let effectiveSelection: SelectedChat;
     let effectiveDraft = params.selectedDraftChat;
-    let effectiveTempChat = params.selectedTemporaryChat;
+    const effectiveTempChat = params.selectedTemporaryChat;
     const effectivePendingBranch = params.pendingBranch;
     const activePathTailMessageId =
       params.activeMessages[params.activeMessages.length - 1]?.id ?? null;
     const previousMessageId = effectivePendingBranch?.sourceMessageId ?? activePathTailMessageId;
     const branchSourceMessageId = effectivePendingBranch?.sourceMessageId ?? null;
 
-    if (!effectiveSelection) {
+    if (params.selectedChat) {
+      effectiveSelection = params.selectedChat;
+    } else {
       effectiveDraft = params.getOrCreateDraft(null);
       effectiveSelection = {
         kind: 'draft',
@@ -737,10 +739,12 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
       }
     };
 
+    const canApplyResponseForSelection = (selection: SelectedChat) =>
+      selection.kind !== 'temporary'
+      || params.temporaryChatsRef.current.some((chat) => chat.id === selection.tempChatId);
+
     const showErrorMessage = (errorText: string) => {
-      const canApplyTemporaryResponse =
-        effectiveSelection.kind !== 'temporary'
-        || params.temporaryChatsRef.current.some((chat) => chat.id === effectiveSelection.tempChatId);
+      const canApplyTemporaryResponse = canApplyResponseForSelection(effectiveSelection);
 
       if (!canApplyTemporaryResponse) {
         return;
@@ -857,11 +861,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
 
       const data = await readChatStream(response, appendChunk, {
         onTextEnd: (content) => {
-          const canApplyTemporaryResponse =
-            effectiveSelection.kind !== 'temporary'
-            || params.temporaryChatsRef.current.some(
-              (chat) => chat.id === effectiveSelection.tempChatId
-            );
+          const canApplyTemporaryResponse = canApplyResponseForSelection(effectiveSelection);
 
           if (canApplyTemporaryResponse) {
             finalizeVisibleAssistant(content || latestStreamedContent);
@@ -870,9 +870,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
       });
       logResolvedChatModel(data, 'composer');
 
-      const canApplyTemporaryResponse =
-        effectiveSelection.kind !== 'temporary'
-        || params.temporaryChatsRef.current.some((chat) => chat.id === effectiveSelection.tempChatId);
+      const canApplyTemporaryResponse = canApplyResponseForSelection(effectiveSelection);
 
       if (data.error) {
         showErrorMessage(data.error);
@@ -917,6 +915,43 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
         });
       }
 
+      if (
+        effectiveSelection.kind === 'draft'
+        && data.conversationId
+        && effectiveDraft
+      ) {
+        const promotedSelection: SelectedChat = {
+          kind: 'persistent',
+          conversationId: data.conversationId,
+          mentorId: data.mentorId ?? effectiveSelection.mentorId,
+        };
+        const promotedMessages = [
+          ...(draftNextTree?.messages ?? effectiveDraft.messages),
+          {
+            ...assistantMessage,
+            searchMetadata: finalSearchMetadata,
+          },
+        ];
+        const promotedDraftId = effectiveDraft.id;
+
+        params.movePendingChatRequestBetweenSelections(effectiveSelection, promotedSelection);
+        params.clearSearchStateForSelection(effectiveSelection);
+        params.setPersistentMessages(promotedMessages);
+        params.setPersistentBranches(draftNextTree?.branches ?? effectiveDraft.branches);
+        params.setPersistentSelectedBranchIds(
+          draftNextTree?.selectedBranchIds ?? effectiveDraft.selectedBranchIds
+        );
+        params.setPersistentThreadsMap(new Map());
+        params.hydratedRouteConversationIdRef.current = promotedSelection.conversationId;
+        params.selectedChatRef.current = promotedSelection;
+        params.setSelectedChat(promotedSelection);
+        params.replacePersistentConversationUrl(promotedSelection.conversationId);
+        params.setDraftChats((prev) => prev.filter((draft) => draft.id !== promotedDraftId));
+
+        effectiveSelection = promotedSelection;
+        effectiveDraft = null;
+      }
+
       if (effectiveSelection.kind === 'temporary') {
         if (!canApplyTemporaryResponse) {
           return;
@@ -930,15 +965,17 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
           updatedAt: new Date().toISOString(),
         }));
       } else if (effectiveSelection.kind === 'persistent') {
+        const persistentSelection = effectiveSelection;
+
         scheduleDeferredRenderWork(() => {
           void (async () => {
             try {
-              if (isSameSelectedChat(params.selectedChatRef.current, effectiveSelection)) {
+              if (isSameSelectedChat(params.selectedChatRef.current, persistentSelection)) {
                 const loadedConversation = await params.loadConversationMessages(
-                  effectiveSelection.conversationId
+                  persistentSelection.conversationId
                 );
 
-                if (isSameSelectedChat(params.selectedChatRef.current, effectiveSelection)) {
+                if (isSameSelectedChat(params.selectedChatRef.current, persistentSelection)) {
                   const mergedSelections = mergeReloadedBranchSelections({
                     loadedSelectedBranchIds: loadedConversation.selectedBranchIds,
                     latestSelectedBranchIds: params.persistentSelectedBranchIdsRef.current,
@@ -959,7 +996,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
                 }
               }
             } catch (error) {
-              if (isSameSelectedChat(params.selectedChatRef.current, effectiveSelection)) {
+              if (isSameSelectedChat(params.selectedChatRef.current, persistentSelection)) {
                 params.setListError(
                   error instanceof Error ? error.message : 'Failed to reload conversation'
                 );
@@ -989,9 +1026,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
         params.tts.speak(stripCitationMarkers(data.message, finalSearchMetadata));
       }
     } catch {
-      const canApplyTemporaryResponse =
-        effectiveSelection.kind !== 'temporary'
-        || params.temporaryChatsRef.current.some((chat) => chat.id === effectiveSelection.tempChatId);
+      const canApplyTemporaryResponse = canApplyResponseForSelection(effectiveSelection);
 
       if (canApplyTemporaryResponse) {
         replaceStreamingMessage({
