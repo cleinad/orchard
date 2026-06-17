@@ -166,7 +166,11 @@ export default function ChatModelPicker({
 
                   {!model.available ? (
                     <span className="ml-4 flex-shrink-0 text-[10px] font-medium text-muted/75">
-                      Unavailable
+                      {model.unavailableReason ?? 'Unavailable'}
+                    </span>
+                  ) : model.requiresPaidPlan ? (
+                    <span className="ml-4 flex-shrink-0 text-[10px] font-medium text-muted/75">
+                      Paid
                     </span>
                   ) : active ? (
                     <span className="ml-4 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-foreground/[0.05] text-muted">

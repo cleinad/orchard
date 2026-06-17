@@ -476,6 +476,8 @@ function HomePageInner() {
       provider: option.provider,
       available: true,
       isDefault: option.id === DEFAULT_CHAT_MODEL_ID,
+      requiresPaidPlan: false,
+      unavailableReason: null,
     }))
   );
   const [searchStatesByChatKey, setSearchStatesByChatKey] = useState<

@@ -79,6 +79,15 @@ export default function SettingsPage() {
 
       <SettingsGroup title="Data & session" id="session">
         <SettingsRow
+          label="Billing"
+          hint="Manage plan, invoices, payment method, and subscription status."
+          action={
+            <ActionButton onClick={() => router.push('/settings/billing')}>
+              Open
+            </ActionButton>
+          }
+        />
+        <SettingsRow
           label="Memories"
           action={
             <ActionButton onClick={() => router.push('/memory')}>
