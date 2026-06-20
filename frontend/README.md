@@ -70,6 +70,26 @@ stripe trigger invoice.payment_failed
 
 Run the Supabase migration in `../supabase/migrations/20260612120000_stripe_billing.sql` before testing billing routes.
 
+### Billing Reconciliation Model
+
+The db billing tables are the durable projection used by app-wide model access,
+usage limits, and webhook processing. Stripe is treated as the live authority on
+`/settings/billing` when the page has a lookup path:
+
+- a successful Checkout return with `session_id`
+- an existing `billing_customers.stripe_customer_id`
+
+On those visits, the page retrieves Stripe state, persists the latest customer,
+subscription, and entitlement projection, and renders from the fresh Stripe
+result. If Stripe cannot be reached, the page falls back to the current db
+projection and does not downgrade paid access just because live sync failed.
+
+Canceled users usually still have a Stripe customer and historical subscription,
+so `/settings/billing` should continue to reconcile them with
+`status: all` subscription lookups. A period-end cancellation should render paid
+access with `Canceling at period end`; an immediately canceled or expired
+subscription should render free access once Stripe returns the canceled state.
+
 ### Automated Stripe Billing Tests
 
 Most billing regressions should be caught without clicking through Stripe Checkout or the Customer Portal. Run the deterministic billing canary from `frontend/`:

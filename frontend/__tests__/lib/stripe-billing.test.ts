@@ -3,6 +3,7 @@ import {
   markWebhookEventProcessing,
   processStripeEvent,
   refreshBillingEntitlement,
+  syncBillingCustomerFromStripe,
   syncCheckoutSessionBilling,
 } from '@/lib/stripe-billing';
 import {
@@ -299,7 +300,7 @@ describe('stripe subscription projection transitions', () => {
   it('syncs a successful checkout return from Stripe when the webhook projection is delayed', async () => {
     const supabase = createInMemoryBillingSupabase();
 
-    await syncCheckoutSessionBilling(
+    const result = await syncCheckoutSessionBilling(
       supabase as never,
       {
         checkout: {
@@ -324,6 +325,15 @@ describe('stripe subscription projection transitions', () => {
       'cs_123'
     );
 
+    expect(result).toMatchObject({
+      userId: 'user-1',
+      stripeCustomerId: 'cus_123',
+      entitlement: {
+        planKey: 'keen_monthly',
+        canUseCloudModels: true,
+        displayState: 'active',
+      },
+    });
     expect(supabase.state.billing_customers[0]).toMatchObject({
       user_id: 'user-1',
       stripe_customer_id: 'cus_123',
@@ -337,6 +347,484 @@ describe('stripe subscription projection transitions', () => {
       plan_key: 'keen_monthly',
       can_use_cloud_models: true,
       display_state: 'active',
+    });
+  });
+
+  it('fails checkout return sync loudly when the monthly Stripe price is not configured', async () => {
+    vi.unstubAllEnvs();
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const supabase = createInMemoryBillingSupabase();
+
+    await expect(
+      syncCheckoutSessionBilling(
+        supabase as never,
+        {
+          checkout: {
+            sessions: {
+              retrieve: async () => ({
+                id: 'cs_123',
+                mode: 'subscription',
+                client_reference_id: 'user-1',
+                metadata: { user_id: 'user-1' },
+                customer: 'cus_123',
+                subscription: 'sub_123',
+              }),
+            },
+          },
+          subscriptions: {
+            retrieve: async () => createSubscriptionFixture({ status: 'active' }),
+          },
+        } as never,
+        'user-1',
+        'cs_123'
+      )
+    ).rejects.toThrow('Stripe monthly price is not configured');
+
+    expect(consoleError).toHaveBeenCalledWith(
+      '[billing] Stripe monthly price is not configured; skipping live billing reconciliation'
+    );
+    expect(supabase.state.billing_customers).toHaveLength(0);
+    expect(supabase.state.billing_subscriptions).toHaveLength(0);
+    expect(supabase.state.billing_entitlements).toHaveLength(0);
+    consoleError.mockRestore();
+  });
+
+  it('does not sync checkout return subscriptions for a different Stripe price', async () => {
+    const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const supabase = createInMemoryBillingSupabase();
+
+    const result = await syncCheckoutSessionBilling(
+      supabase as never,
+      {
+        checkout: {
+          sessions: {
+            retrieve: async () => ({
+              id: 'cs_123',
+              mode: 'subscription',
+              client_reference_id: 'user-1',
+              metadata: { user_id: 'user-1' },
+              customer: 'cus_123',
+              subscription: 'sub_123',
+            }),
+          },
+        },
+        subscriptions: {
+          retrieve: async () =>
+            createSubscriptionFixture({ status: 'active', priceId: 'price_other' }),
+        },
+      } as never,
+      'user-1',
+      'cs_123'
+    );
+
+    expect(result).toBeNull();
+    expect(consoleWarn).toHaveBeenCalledWith(
+      '[billing] checkout subscription does not include configured monthly price',
+      { subscriptionId: 'sub_123' }
+    );
+    expect(supabase.state.billing_customers[0]).toMatchObject({
+      user_id: 'user-1',
+      stripe_customer_id: 'cus_123',
+    });
+    expect(supabase.state.billing_subscriptions).toHaveLength(0);
+    expect(supabase.state.billing_entitlements).toHaveLength(0);
+    consoleWarn.mockRestore();
+  });
+
+  it('syncs a mapped customer from Stripe when the webhook projection is delayed', async () => {
+    const supabase = createInMemoryBillingSupabase();
+    supabase.state.billing_customers.push({
+      user_id: 'user-1',
+      stripe_customer_id: 'cus_123',
+    });
+    const liveSubscription = createSubscriptionFixture({ status: 'active' });
+
+    const result = await syncBillingCustomerFromStripe(
+      supabase as never,
+      {
+        subscriptions: {
+          list: async () => ({ data: [liveSubscription] }),
+          retrieve: async (subscriptionId: string) =>
+            createSubscriptionFixture({ id: subscriptionId, status: 'active' }),
+        },
+      } as never,
+      'user-1',
+      { now: new Date('2026-06-19T00:00:00.000Z') }
+    );
+
+    expect(result).toMatchObject({
+      userId: 'user-1',
+      stripeCustomerId: 'cus_123',
+      entitlement: {
+        planKey: 'keen_monthly',
+        canUseCloudModels: true,
+        displayState: 'active',
+      },
+    });
+    expect(supabase.state.billing_subscriptions[0]).toMatchObject({
+      subscription_id: 'sub_123',
+      status: 'active',
+      last_stripe_event_id: 'billing.customer.sync:sub_123:1781827200',
+    });
+    expect(supabase.state.billing_entitlements[0]).toMatchObject({
+      plan_key: 'keen_monthly',
+      can_use_cloud_models: true,
+      display_state: 'active',
+    });
+  });
+
+  it('stores the configured monthly price when it is not the first Stripe item', async () => {
+    const supabase = createInMemoryBillingSupabase();
+    supabase.state.billing_customers.push({
+      user_id: 'user-1',
+      stripe_customer_id: 'cus_123',
+    });
+    const liveSubscription = createSubscriptionFixture({ status: 'active' });
+    liveSubscription.items.data.unshift({
+      ...liveSubscription.items.data[0],
+      id: 'si_other',
+      price: {
+        ...liveSubscription.items.data[0].price,
+        id: 'price_other',
+      },
+    });
+
+    const result = await syncBillingCustomerFromStripe(
+      supabase as never,
+      {
+        subscriptions: {
+          list: async () => ({ data: [liveSubscription] }),
+          retrieve: async () => liveSubscription,
+        },
+      } as never,
+      'user-1',
+      { now: new Date('2026-06-19T00:00:00.000Z') }
+    );
+
+    expect(supabase.state.billing_subscriptions[0]).toMatchObject({
+      subscription_id: 'sub_123',
+      price_id: 'price_monthly',
+      status: 'active',
+    });
+    expect(result).toMatchObject({
+      entitlement: {
+        planKey: 'keen_monthly',
+        canUseCloudModels: true,
+        displayState: 'active',
+      },
+    });
+  });
+
+  it('checks every Stripe subscription page before projecting free access', async () => {
+    const supabase = createInMemoryBillingSupabase();
+    supabase.state.billing_customers.push({
+      user_id: 'user-1',
+      stripe_customer_id: 'cus_123',
+    });
+    const otherSubscription = createSubscriptionFixture({
+      id: 'sub_other',
+      status: 'active',
+      priceId: 'price_other',
+    });
+    const monthlySubscription = createSubscriptionFixture({ status: 'active' });
+    const list = vi.fn()
+      .mockResolvedValueOnce({ data: [otherSubscription], has_more: true })
+      .mockResolvedValueOnce({ data: [monthlySubscription], has_more: false });
+
+    const result = await syncBillingCustomerFromStripe(
+      supabase as never,
+      {
+        subscriptions: {
+          list,
+          retrieve: async (subscriptionId: string) =>
+            subscriptionId === 'sub_other' ? otherSubscription : monthlySubscription,
+        },
+      } as never,
+      'user-1',
+      { now: new Date('2026-06-19T00:00:00.000Z') }
+    );
+
+    expect(list).toHaveBeenNthCalledWith(1, {
+      customer: 'cus_123',
+      status: 'all',
+      limit: 100,
+    });
+    expect(list).toHaveBeenNthCalledWith(2, {
+      customer: 'cus_123',
+      status: 'all',
+      limit: 100,
+      starting_after: 'sub_other',
+    });
+    expect(result).toMatchObject({
+      entitlement: {
+        planKey: 'keen_monthly',
+        canUseCloudModels: true,
+        displayState: 'active',
+      },
+    });
+  });
+
+  it('preserves billing customer email when subscription sync has no email', async () => {
+    const supabase = createInMemoryBillingSupabase();
+    supabase.state.billing_customers.push({
+      user_id: 'user-1',
+      stripe_customer_id: 'cus_123',
+      email: 'user@example.com',
+    });
+
+    await syncBillingCustomerFromStripe(
+      supabase as never,
+      {
+        subscriptions: {
+          list: async () => ({ data: [createSubscriptionFixture({ status: 'active' })] }),
+          retrieve: async () => createSubscriptionFixture({ status: 'active' }),
+        },
+      } as never,
+      'user-1',
+      { now: new Date('2026-06-19T00:00:00.000Z') }
+    );
+
+    expect(supabase.state.billing_customers[0]).toMatchObject({
+      user_id: 'user-1',
+      stripe_customer_id: 'cus_123',
+      email: 'user@example.com',
+    });
+  });
+
+  it('syncs portal cancel-at-period-end changes from live Stripe', async () => {
+    const supabase = createInMemoryBillingSupabase();
+
+    await processStripeEvent(
+      createEventFixture({
+        type: 'customer.subscription.updated',
+        object: createSubscriptionFixture({ status: 'active' }),
+        created: unixSeconds('2026-06-12T00:00:00.000Z'),
+      }) as never,
+      {
+        subscriptions: {
+          retrieve: async () => createSubscriptionFixture({ status: 'active' }),
+        },
+      } as never,
+      supabase as never
+    );
+
+    const result = await syncBillingCustomerFromStripe(
+      supabase as never,
+      {
+        subscriptions: {
+          list: async () => ({ data: [createSubscriptionFixture({ status: 'active' })] }),
+          retrieve: async () =>
+            createSubscriptionFixture({ status: 'active', cancelAtPeriodEnd: true }),
+        },
+      } as never,
+      'user-1',
+      { now: new Date('2026-06-19T00:00:00.000Z') }
+    );
+
+    expect(result).toMatchObject({
+      entitlement: {
+        planKey: 'keen_monthly',
+        canUseCloudModels: true,
+        displayState: 'canceling_at_period_end',
+      },
+    });
+    expect(supabase.state.billing_subscriptions[0]).toMatchObject({
+      status: 'active',
+      cancel_at_period_end: true,
+    });
+    expect(supabase.state.billing_entitlements[0]).toMatchObject({
+      plan_key: 'keen_monthly',
+      can_use_cloud_models: true,
+      display_state: 'canceling_at_period_end',
+    });
+  });
+
+  it('lets live Stripe sync overwrite rows that webhook ordering would reject', async () => {
+    const supabase = createInMemoryBillingSupabase();
+    supabase.state.billing_customers.push({
+      user_id: 'user-1',
+      stripe_customer_id: 'cus_123',
+    });
+    supabase.state.billing_subscriptions.push({
+      subscription_id: 'sub_123',
+      stripe_customer_id: 'cus_123',
+      user_id: 'user-1',
+      price_id: 'price_monthly',
+      status: 'active',
+      current_period_start: '2026-06-01T00:00:00.000Z',
+      current_period_end: '2026-07-01T00:00:00.000Z',
+      cancel_at_period_end: false,
+      latest_invoice_status: null,
+      last_stripe_event_id: 'evt_future',
+      last_stripe_event_created: '2099-01-01T00:00:00.000Z',
+    });
+
+    const result = await syncBillingCustomerFromStripe(
+      supabase as never,
+      {
+        subscriptions: {
+          list: async () => ({ data: [createSubscriptionFixture({ status: 'canceled' })] }),
+          retrieve: async () => createSubscriptionFixture({ status: 'canceled' }),
+        },
+      } as never,
+      'user-1',
+      { now: new Date('2026-06-19T00:00:00.000Z') }
+    );
+
+    expect(supabase.state.billing_subscriptions[0]).toMatchObject({
+      subscription_id: 'sub_123',
+      status: 'canceled',
+      last_stripe_event_id: 'billing.customer.sync:sub_123:1781827200',
+    });
+    expect(result).toMatchObject({
+      entitlement: {
+        planKey: 'free',
+        canUseCloudModels: false,
+        displayState: 'canceled',
+      },
+    });
+    expect(supabase.state.billing_entitlements[0]).toMatchObject({
+      plan_key: 'free',
+      can_use_cloud_models: false,
+      display_state: 'canceled',
+    });
+  });
+
+  it('preserves payment failure details from live Stripe subscription invoices', async () => {
+    const supabase = createInMemoryBillingSupabase();
+    supabase.state.billing_customers.push({
+      user_id: 'user-1',
+      stripe_customer_id: 'cus_123',
+    });
+    const failedSubscription = {
+      ...createSubscriptionFixture({ status: 'past_due' }),
+      latest_invoice: {
+        id: 'in_failed',
+        object: 'invoice',
+        status: 'open',
+        payment_intent: {
+          id: 'pi_failed',
+          object: 'payment_intent',
+          status: 'requires_payment_method',
+        },
+      },
+    };
+
+    const result = await syncBillingCustomerFromStripe(
+      supabase as never,
+      {
+        subscriptions: {
+          list: async () => ({ data: [failedSubscription] }),
+          retrieve: async () => failedSubscription,
+        },
+      } as never,
+      'user-1',
+      { now: new Date('2026-06-19T00:00:00.000Z') }
+    );
+
+    expect(supabase.state.billing_subscriptions[0]).toMatchObject({
+      status: 'past_due',
+      latest_invoice_id: 'in_failed',
+      latest_invoice_status: 'payment_failed',
+      latest_payment_intent_status: 'requires_payment_method',
+    });
+    expect(result).toMatchObject({
+      entitlement: {
+        planKey: 'free',
+        canUseCloudModels: false,
+        displayState: 'payment_failed',
+      },
+    });
+  });
+
+  it('fails live customer sync loudly when the monthly Stripe price is not configured', async () => {
+    vi.unstubAllEnvs();
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const supabase = createInMemoryBillingSupabase();
+    supabase.state.billing_customers.push({
+      user_id: 'user-1',
+      stripe_customer_id: 'cus_123',
+    });
+
+    await expect(
+      syncBillingCustomerFromStripe(
+        supabase as never,
+        {
+          subscriptions: {
+            list: async () => ({ data: [createSubscriptionFixture({ status: 'active' })] }),
+            retrieve: async () => createSubscriptionFixture({ status: 'active' }),
+          },
+        } as never,
+        'user-1'
+      )
+    ).rejects.toThrow('Stripe monthly price is not configured');
+
+    expect(consoleError).toHaveBeenCalledWith(
+      '[billing] Stripe monthly price is not configured; skipping live billing reconciliation'
+    );
+    expect(supabase.state.billing_subscriptions).toHaveLength(0);
+    expect(supabase.state.billing_entitlements).toHaveLength(0);
+    consoleError.mockRestore();
+  });
+
+  it('projects free access when live Stripe has no app subscription for a mapped customer', async () => {
+    const supabase = createInMemoryBillingSupabase();
+
+    await processStripeEvent(
+      createEventFixture({
+        type: 'customer.subscription.updated',
+        object: createSubscriptionFixture({ status: 'active' }),
+        created: unixSeconds('2026-06-12T00:00:00.000Z'),
+      }) as never,
+      {
+        subscriptions: {
+          retrieve: async () => createSubscriptionFixture({ status: 'active' }),
+        },
+      } as never,
+      supabase as never
+    );
+
+    const result = await syncBillingCustomerFromStripe(
+      supabase as never,
+      {
+        subscriptions: {
+          list: async () => ({
+            data: [createSubscriptionFixture({ status: 'active', priceId: 'price_other' })],
+          }),
+          retrieve: async () =>
+            createSubscriptionFixture({ status: 'active', priceId: 'price_other' }),
+        },
+      } as never,
+      'user-1',
+      { now: new Date('2026-06-19T00:00:00.000Z') }
+    );
+
+    expect(result).toMatchObject({
+      userId: 'user-1',
+      stripeCustomerId: 'cus_123',
+      entitlement: {
+        planKey: 'free',
+        canUseCloudModels: false,
+        displayState: 'canceled',
+      },
+    });
+    expect(supabase.state.billing_subscriptions[0]).toMatchObject({
+      subscription_id: 'sub_123',
+      status: 'canceled',
+      last_stripe_event_id: 'billing.customer.sync:stale:sub_123:1781827200',
+    });
+    expect(supabase.state.billing_entitlements[0]).toMatchObject({
+      plan_key: 'free',
+      can_use_cloud_models: false,
+      display_state: 'canceled',
+    });
+
+    await refreshBillingEntitlement(supabase as never, 'user-1');
+
+    expect(supabase.state.billing_entitlements[0]).toMatchObject({
+      plan_key: 'free',
+      can_use_cloud_models: false,
+      display_state: 'canceled',
     });
   });
 

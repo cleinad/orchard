@@ -2,12 +2,35 @@ import type Stripe from 'stripe';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   computeEntitlementFromSubscription,
+  getFreeBillingEntitlement,
+  type BillingEntitlement,
   type BillingSubscriptionProjection,
 } from '@/lib/billing';
 import { PAID_MONTHLY_PLAN_KEY } from '@/lib/billing-config';
 
 type StripeLike = Pick<Stripe, 'subscriptions'>;
 type StripeCheckoutLike = Pick<Stripe, 'checkout' | 'subscriptions'>;
+
+export interface BillingSyncResult {
+  userId: string;
+  stripeCustomerId: string | null;
+  entitlement: BillingEntitlement;
+}
+
+interface BillingCustomerSyncOptions {
+  now?: Date;
+  stripeCustomerId?: string | null;
+}
+
+const FAILED_PAYMENT_INTENT_STATUSES = new Set([
+  'canceled',
+  'requires_action',
+  'requires_payment_method',
+]);
+
+function stringOrNull(value: unknown) {
+  return typeof value === 'string' ? value : null;
+}
 
 function stripeObjectId(value: unknown): string | null {
   if (!value) {
@@ -51,8 +74,79 @@ function getSubscriptionPeriod(subscription: Stripe.Subscription) {
   };
 }
 
-function getSubscriptionPriceId(subscription: Stripe.Subscription) {
+function getSubscriptionPriceId(
+  subscription: Stripe.Subscription,
+  preferredPriceId?: string | null
+) {
+  if (
+    preferredPriceId
+    && subscription.items.data.some((item) => item.price?.id === preferredPriceId)
+  ) {
+    return preferredPriceId;
+  }
+
   return subscription.items.data[0]?.price?.id ?? null;
+}
+
+function requireMonthlyStripePriceId() {
+  const monthlyPriceId = process.env.STRIPE_PRICE_MONTHLY_ID;
+
+  if (!monthlyPriceId) {
+    console.error(
+      '[billing] Stripe monthly price is not configured; skipping live billing reconciliation'
+    );
+    throw new Error(
+      'Stripe monthly price is not configured. Set STRIPE_PRICE_MONTHLY_ID.'
+    );
+  }
+
+  return monthlyPriceId;
+}
+
+function subscriptionHasConfiguredMonthlyPrice(
+  subscription: Stripe.Subscription,
+  monthlyPriceId: string
+) {
+  return subscription.items.data.some((item) => item.price?.id === monthlyPriceId);
+}
+
+function getExpandedInvoice(subscription: Stripe.Subscription) {
+  const rawSubscription = subscription as unknown as {
+    latest_invoice?: string | {
+      status?: string | null;
+      payment_intent?: string | { status?: string | null } | null;
+    } | null;
+  };
+
+  return rawSubscription.latest_invoice
+    && typeof rawSubscription.latest_invoice === 'object'
+    ? rawSubscription.latest_invoice
+    : null;
+}
+
+function getSubscriptionPaymentIntentStatus(subscription: Stripe.Subscription) {
+  const invoice = getExpandedInvoice(subscription);
+
+  if (
+    invoice?.payment_intent
+    && typeof invoice.payment_intent === 'object'
+    && typeof invoice.payment_intent.status === 'string'
+  ) {
+    return invoice.payment_intent.status;
+  }
+
+  return null;
+}
+
+function getSubscriptionInvoiceStatus(subscription: Stripe.Subscription) {
+  const invoice = getExpandedInvoice(subscription);
+  const paymentIntentStatus = getSubscriptionPaymentIntentStatus(subscription);
+
+  if (paymentIntentStatus && FAILED_PAYMENT_INTENT_STATUSES.has(paymentIntentStatus)) {
+    return 'payment_failed';
+  }
+
+  return typeof invoice?.status === 'string' ? invoice.status : null;
 }
 
 async function getUserIdForCustomer(
@@ -78,17 +172,24 @@ async function upsertBillingCustomer(
   stripeCustomerId: string,
   email?: string | null
 ) {
+  const row: {
+    user_id: string;
+    stripe_customer_id: string;
+    updated_at: string;
+    email?: string | null;
+  } = {
+    user_id: userId,
+    stripe_customer_id: stripeCustomerId,
+    updated_at: new Date().toISOString(),
+  };
+
+  if (email !== undefined) {
+    row.email = email;
+  }
+
   const { error } = await supabase
     .from('billing_customers')
-    .upsert(
-      {
-        user_id: userId,
-        stripe_customer_id: stripeCustomerId,
-        email: email ?? null,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'user_id' }
-    );
+    .upsert(row, { onConflict: 'user_id' });
 
   if (error) {
     throw new Error(`Failed to upsert billing customer: ${error.message}`);
@@ -122,13 +223,29 @@ function sortSubscriptionsForEntitlement(
   });
 }
 
+function computeEntitlementForSubscriptions(
+  subscriptions: BillingSubscriptionProjection[]
+) {
+  const sortedSubscriptions = sortSubscriptionsForEntitlement(subscriptions);
+  const activeSubscription =
+    sortedSubscriptions.find(
+      (subscription) =>
+        computeEntitlementFromSubscription(subscription).planKey === PAID_MONTHLY_PLAN_KEY
+    )
+    ?? sortedSubscriptions[0]
+    ?? null;
+
+  return computeEntitlementFromSubscription(activeSubscription);
+}
+
 function buildSubscriptionPayload(
   subscription: Stripe.Subscription,
   stripeCustomerId: string,
   userId: string,
   event: Pick<Stripe.Event, 'id' | 'created'>,
   latestInvoiceStatus?: string | null,
-  latestPaymentIntentStatus?: string | null
+  latestPaymentIntentStatus?: string | null,
+  priceId?: string | null
 ) {
   const { currentPeriodStart, currentPeriodEnd } = getSubscriptionPeriod(subscription);
   const rawSubscription = subscription as unknown as {
@@ -142,7 +259,7 @@ function buildSubscriptionPayload(
     subscription_id: subscription.id,
     stripe_customer_id: stripeCustomerId,
     user_id: userId,
-    price_id: getSubscriptionPriceId(subscription),
+    price_id: getSubscriptionPriceId(subscription, priceId),
     status: subscription.status,
     current_period_start: currentPeriodStart,
     current_period_end: currentPeriodEnd,
@@ -176,34 +293,101 @@ async function upsertSubscriptionIfNewer(
   return data === true;
 }
 
-export async function refreshBillingEntitlement(
+async function upsertLiveSubscription(
   supabase: SupabaseClient,
-  userId: string
+  payload: ReturnType<typeof buildSubscriptionPayload>
+) {
+  const { error } = await supabase
+    .from('billing_subscriptions')
+    .upsert(payload, { onConflict: 'subscription_id' });
+
+  if (error) {
+    throw new Error(`Failed to upsert live billing subscription: ${error.message}`);
+  }
+}
+
+async function cancelStaleMonthlySubscriptions(
+  supabase: SupabaseClient,
+  userId: string,
+  monthlyPriceId: string,
+  syncedSubscriptionIds: Set<string>,
+  eventCreated: number
 ) {
   const { data, error } = await supabase
     .from('billing_subscriptions')
     .select(
-      'subscription_id, price_id, status, current_period_start, current_period_end, cancel_at_period_end, cancel_at, latest_invoice_status, last_stripe_event_created'
+      'subscription_id, stripe_customer_id, price_id, status, current_period_start, current_period_end, cancel_at_period_end, cancel_at, canceled_at, trial_end, latest_invoice_id, latest_invoice_status, latest_payment_intent_status, metadata, last_stripe_event_id, last_stripe_event_created'
     )
-    .eq('user_id', userId);
+    .eq('user_id', userId)
+    .eq('price_id', monthlyPriceId);
 
   if (error) {
-    throw new Error(`Failed to load billing subscriptions: ${error.message}`);
+    throw new Error(`Failed to load stale billing subscriptions: ${error.message}`);
   }
 
-  const subscriptions = sortSubscriptionsForEntitlement(
-    (data ?? []) as BillingSubscriptionProjection[]
-  );
-  const activeSubscription =
-    subscriptions.find(
-      (subscription) =>
-        computeEntitlementFromSubscription(subscription).planKey === PAID_MONTHLY_PLAN_KEY
-    )
-    ?? subscriptions[0]
-    ?? null;
-  const entitlement = computeEntitlementFromSubscription(activeSubscription);
+  const canceledAt = new Date().toISOString();
+  const lastStripeEventCreated = unixToIso(eventCreated);
+  const canceledSubscriptions: BillingSubscriptionProjection[] = [];
 
-  const { error: upsertError } = await supabase
+  for (const subscription of (data ?? []) as Array<Record<string, unknown>>) {
+    const subscriptionId =
+      typeof subscription.subscription_id === 'string'
+        ? subscription.subscription_id
+        : null;
+    const stripeCustomerId =
+      typeof subscription.stripe_customer_id === 'string'
+        ? subscription.stripe_customer_id
+        : null;
+
+    if (!subscriptionId || !stripeCustomerId || syncedSubscriptionIds.has(subscriptionId)) {
+      continue;
+    }
+
+    const payload = {
+      subscription_id: subscriptionId,
+      stripe_customer_id: stripeCustomerId,
+      user_id: userId,
+      price_id: monthlyPriceId,
+      status: 'canceled',
+      current_period_start: stringOrNull(subscription.current_period_start),
+      current_period_end: stringOrNull(subscription.current_period_end),
+      cancel_at_period_end: false,
+      cancel_at: null,
+      canceled_at:
+        typeof subscription.canceled_at === 'string'
+          ? subscription.canceled_at
+          : canceledAt,
+      trial_end: stringOrNull(subscription.trial_end),
+      latest_invoice_id: stringOrNull(subscription.latest_invoice_id),
+      latest_invoice_status: stringOrNull(subscription.latest_invoice_status),
+      latest_payment_intent_status: stringOrNull(
+        subscription.latest_payment_intent_status
+      ),
+      metadata:
+        subscription.metadata && typeof subscription.metadata === 'object'
+          ? subscription.metadata
+          : {},
+      last_stripe_event_id: `billing.customer.sync:stale:${subscriptionId}:${eventCreated}`,
+      last_stripe_event_created: lastStripeEventCreated,
+      updated_at: canceledAt,
+    };
+
+    await upsertLiveSubscription(
+      supabase,
+      payload as ReturnType<typeof buildSubscriptionPayload>
+    );
+    canceledSubscriptions.push(payload as BillingSubscriptionProjection);
+  }
+
+  return canceledSubscriptions;
+}
+
+async function upsertBillingEntitlement(
+  supabase: SupabaseClient,
+  userId: string,
+  entitlement: BillingEntitlement
+) {
+  const { error } = await supabase
     .from('billing_entitlements')
     .upsert(
       {
@@ -222,10 +406,31 @@ export async function refreshBillingEntitlement(
       { onConflict: 'user_id' }
     );
 
-  if (upsertError) {
-    throw new Error(`Failed to upsert billing entitlement: ${upsertError.message}`);
+  if (error) {
+    throw new Error(`Failed to upsert billing entitlement: ${error.message}`);
+  }
+}
+
+export async function refreshBillingEntitlement(
+  supabase: SupabaseClient,
+  userId: string
+) {
+  const { data, error } = await supabase
+    .from('billing_subscriptions')
+    .select(
+      'subscription_id, price_id, status, current_period_start, current_period_end, cancel_at_period_end, cancel_at, latest_invoice_status, last_stripe_event_created'
+    )
+    .eq('user_id', userId);
+
+  if (error) {
+    throw new Error(`Failed to load billing subscriptions: ${error.message}`);
   }
 
+  const entitlement = computeEntitlementForSubscriptions(
+    (data ?? []) as BillingSubscriptionProjection[]
+  );
+
+  await upsertBillingEntitlement(supabase, userId, entitlement);
   return entitlement;
 }
 
@@ -269,14 +474,66 @@ export async function persistStripeSubscription(
     )
   );
 
-  await refreshBillingEntitlement(supabase, userId);
-  return userId;
+  const entitlement = await refreshBillingEntitlement(supabase, userId);
+  return { userId, stripeCustomerId, entitlement };
+}
+
+async function persistLiveStripeSubscription(
+  supabase: SupabaseClient,
+  subscription: Stripe.Subscription,
+  userId: string,
+  event: Pick<Stripe.Event, 'id' | 'created'>,
+  monthlyPriceId: string
+) {
+  const stripeCustomerId = stripeObjectId(subscription.customer);
+  if (!stripeCustomerId) {
+    return null;
+  }
+
+  await upsertBillingCustomer(supabase, userId, stripeCustomerId);
+
+  const payload = buildSubscriptionPayload(
+    subscription,
+    stripeCustomerId,
+    userId,
+    event,
+    getSubscriptionInvoiceStatus(subscription),
+    getSubscriptionPaymentIntentStatus(subscription),
+    monthlyPriceId
+  );
+
+  await upsertLiveSubscription(supabase, payload);
+  return payload;
 }
 
 async function retrieveSubscription(stripe: StripeLike, subscriptionId: string) {
   return stripe.subscriptions.retrieve(subscriptionId, {
     expand: ['latest_invoice.payment_intent'],
   });
+}
+
+async function listCustomerSubscriptions(
+  stripe: StripeLike,
+  stripeCustomerId: string
+) {
+  const subscriptions: Stripe.Subscription[] = [];
+  let startingAfter: string | undefined;
+
+  do {
+    const page = await stripe.subscriptions.list({
+      customer: stripeCustomerId,
+      status: 'all',
+      limit: 100,
+      ...(startingAfter ? { starting_after: startingAfter } : {}),
+    });
+
+    subscriptions.push(...page.data);
+    startingAfter = page.has_more
+      ? page.data[page.data.length - 1]?.id
+      : undefined;
+  } while (startingAfter);
+
+  return subscriptions;
 }
 
 export async function syncCheckoutSessionBilling(
@@ -296,6 +553,7 @@ export async function syncCheckoutSessionBilling(
     return null;
   }
 
+  const monthlyPriceId = requireMonthlyStripePriceId();
   const stripeCustomerId = stripeObjectId(session.customer);
   if (stripeCustomerId) {
     await upsertBillingCustomer(
@@ -308,21 +566,116 @@ export async function syncCheckoutSessionBilling(
 
   const subscriptionId = stripeObjectId(session.subscription);
   if (!subscriptionId) {
-    await refreshBillingEntitlement(supabase, userId);
-    return userId;
+    const entitlement = await refreshBillingEntitlement(supabase, userId);
+    return { userId, stripeCustomerId, entitlement };
   }
 
   const subscription = await retrieveSubscription(stripe, subscriptionId);
-  await persistStripeSubscription(
+  if (!subscriptionHasConfiguredMonthlyPrice(subscription, monthlyPriceId)) {
+    console.warn('[billing] checkout subscription does not include configured monthly price', {
+      subscriptionId: subscription.id,
+    });
+    return null;
+  }
+
+  const event = {
+    id: `checkout.session.sync:${session.id}`,
+    created: Math.floor(Date.now() / 1000),
+  };
+  const payload = await persistLiveStripeSubscription(
     supabase,
     subscription,
-    {
-      id: `checkout.session.sync:${session.id}`,
-      created: Math.floor(Date.now() / 1000),
-    }
+    userId,
+    event,
+    monthlyPriceId
   );
 
-  return userId;
+  if (!payload) {
+    return null;
+  }
+
+  const entitlement = computeEntitlementForSubscriptions([payload]);
+  await upsertBillingEntitlement(supabase, userId, entitlement);
+  return { userId, stripeCustomerId: payload.stripe_customer_id, entitlement };
+}
+
+export async function syncBillingCustomerFromStripe(
+  supabase: SupabaseClient,
+  stripe: StripeLike,
+  userId: string,
+  options: BillingCustomerSyncOptions = {}
+) {
+  let stripeCustomerId =
+    options.stripeCustomerId === undefined ? null : options.stripeCustomerId;
+
+  if (stripeCustomerId === null) {
+    const { data: customer, error } = await supabase
+      .from('billing_customers')
+      .select('stripe_customer_id')
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (error) {
+      throw new Error(`Failed to load billing customer: ${error.message}`);
+    }
+
+    stripeCustomerId = typeof customer?.stripe_customer_id === 'string'
+      ? customer.stripe_customer_id
+      : null;
+  }
+
+  if (!stripeCustomerId) {
+    return null;
+  }
+
+  const monthlyPriceId = requireMonthlyStripePriceId();
+  const subscriptions = await listCustomerSubscriptions(stripe, stripeCustomerId);
+  const eventCreated = Math.floor((options.now ?? new Date()).getTime() / 1000);
+  const syncedSubscriptions: BillingSubscriptionProjection[] = [];
+  const syncedSubscriptionIds = new Set<string>();
+
+  for (const listedSubscription of subscriptions) {
+    const subscription = await retrieveSubscription(stripe, listedSubscription.id);
+
+    if (!subscriptionHasConfiguredMonthlyPrice(subscription, monthlyPriceId)) {
+      continue;
+    }
+
+    const event = {
+      id: `billing.customer.sync:${subscription.id}:${eventCreated}`,
+      created: eventCreated,
+    };
+    const payload = await persistLiveStripeSubscription(
+      supabase,
+      subscription,
+      userId,
+      event,
+      monthlyPriceId
+    );
+
+    if (payload) {
+      syncedSubscriptions.push(payload);
+      syncedSubscriptionIds.add(payload.subscription_id);
+    }
+  }
+
+  syncedSubscriptions.push(
+    ...(await cancelStaleMonthlySubscriptions(
+      supabase,
+      userId,
+      monthlyPriceId,
+      syncedSubscriptionIds,
+      eventCreated
+    ))
+  );
+
+  const entitlement = syncedSubscriptions.length > 0
+    ? computeEntitlementForSubscriptions(syncedSubscriptions)
+    : getFreeBillingEntitlement();
+
+  await upsertBillingEntitlement(supabase, userId, entitlement);
+
+  return { userId, stripeCustomerId, entitlement };
 }
 
 function getInvoiceSubscriptionId(invoice: Stripe.Invoice) {

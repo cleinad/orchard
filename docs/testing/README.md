@@ -9,13 +9,10 @@ Start here if you need to know:
 - how to run the full suite vs a focused canary
 - which deeper testing doc to read for a specific feature area
 
-Suite-specific testing docs currently live in both `docs/testing/` and `docs/tests/` for historical reasons. Use this file as the index instead of browsing those folders directly.
-
 ## Current Test Surface
 
 - Automated tests currently live in `frontend/`.
-- The repo currently has no backend automated tests.
-- The frontend uses two runners: Vitest and Playwright.
+- The app uses two runners: Vitest and Playwright.
 
 ## Test Runners
 
@@ -58,7 +55,7 @@ Notes:
 
 ## Test Inventory
 
-### Vitest Route And Server Coverage
+### Vitest App, Route, And Server Coverage
 
 - `frontend/__tests__/app/chat-route.test.ts`: `/api/chat` contract coverage, including memory loading, memory writes, and route-level orchestration
 - `frontend/__tests__/app/chat-route-search.test.ts`: explicit search-mode orchestration, v2 `search_metadata` persistence, invalid citation stripping, and clean memory handoff
@@ -66,8 +63,11 @@ Notes:
 - `frontend/__tests__/app/stripe-webhook-route.test.ts`: signed Stripe webhook POST handling, signature failures, event persistence, and duplicate delivery behavior
 - `frontend/__tests__/app/chat-models-route-billing.test.ts`: billing entitlement projection in the chat model list route
 - `frontend/__tests__/app/chat-route-billing.test.ts`: server-side paid-model and monthly usage-limit enforcement before model calls
-- `frontend/__tests__/app/settings-billing-page.test.ts`: `/settings/billing` plan, subscription state, usage, and checkout-return rendering
+- `frontend/__tests__/app/settings-billing-page.test.ts`: `/settings/billing` plan, subscription state, usage, checkout-return rendering, live Stripe reconciliation, and db fallback behavior
 - `frontend/__tests__/app/settings-billing-link.test.ts`: settings navigation to `/settings/billing`
+- `frontend/__tests__/app/conversations-route.test.ts`: conversation creation, mentor ownership validation, request validation, and empty-conversation cleanup
+- `frontend/__tests__/app/deepgram-token-route.test.ts`: `/api/deepgram/token` auth, env validation, and Deepgram token response handling
+- `frontend/__tests__/app/home/conversation-map-model.test.ts`: pure conversation-map projection, route patching, active-path positioning, and zoom-stable node presence
 - `frontend/__tests__/app/memory-items-routes.test.ts`: memory item CRUD auth, scope filters, normalization, and embedding side effects
 - `frontend/__tests__/app/tts-route.test.ts`: `/api/tts` auth and request/config validation
 - `frontend/__tests__/proxy.test.ts`: page auth protection, login redirects, and the fixture-only E2E bypass guardrails
@@ -84,7 +84,7 @@ Notes:
 - `frontend/__tests__/lib/search-telemetry.test.ts`: structured search logging redaction and event payload rules
 - `frontend/__tests__/lib/search-router.test.ts`: deterministic query classification for freshness, research, official-priority, and social intent
 - `frontend/__tests__/lib/search-pipeline.test.ts`: provider orchestration, fallback, dedupe, and authority-aware reranking
-- `frontend/__tests__/lib/stripe-billing.test.ts`: Stripe subscription/webhook projection, idempotency, stale-event handling, and invoice transitions
+- `frontend/__tests__/lib/stripe-billing.test.ts`: Stripe subscription/webhook projection, live customer reconciliation, idempotency, stale-event handling, and invoice transitions
 
 ### Playwright Browser Coverage
 
@@ -100,7 +100,7 @@ Use the smallest relevant suite first.
 
 ### Memory
 
-- Doc: [../tests/memory-tests.md](../tests/memory-tests.md)
+- Doc: [memory.md](./memory.md)
 - Run:
 
 ```bash
@@ -120,7 +120,7 @@ npm test -- __tests__/lib/auth-redirect.test.ts __tests__/proxy.test.ts __tests_
 
 ### Chat Model Selection
 
-- Doc: [../tests/chat-model-selection-tests.md](../tests/chat-model-selection-tests.md)
+- Doc: [chat-model-selection.md](./chat-model-selection.md)
 - Run:
 
 ```bash
@@ -147,7 +147,7 @@ npm test -- --run \
 npx tsc --noEmit
 ```
 
-This suite is deterministic and does not open Stripe Checkout or the Customer Portal. It signs webhook fixtures with a test secret, mocks Stripe/Supabase, and verifies billing projections, duplicate webhook handling, checkout/portal contracts, page states, and server-side model/usage enforcement.
+This suite is deterministic and does not open Stripe Checkout or the Customer Portal. It signs webhook fixtures with a test secret, mocks Stripe/db calls, and verifies billing projections, duplicate webhook handling, checkout/portal contracts, `/settings/billing` live Stripe reconciliation with db fallback, and server-side model/usage enforcement.
 
 For hosted Checkout, Customer Portal, real Stripe credentials, and local Stripe
 CLI forwarding, use the manual smoke checklist in
@@ -217,8 +217,8 @@ npm run test:e2e -- e2e/search-mode.spec.js
 - [search-citations-and-source-ui.md](./search-citations-and-source-ui.md): search-mode citation test scope, focused canary, manual checks, and current gaps
 - [stripe-billing-smoke.md](./stripe-billing-smoke.md): manual hosted Stripe smoke checklist and semi-automated smoke-script outline
 - [search-tuning-playbook.md](./search-tuning-playbook.md): manual live-provider tuning workflow using real API keys and structured search telemetry
-- [../tests/memory-tests.md](../tests/memory-tests.md): memory canary suite map, rationale, and remaining gaps
-- [../tests/chat-model-selection-tests.md](../tests/chat-model-selection-tests.md): automated and manual verification for model selection
+- [memory.md](./memory.md): memory canary suite map, rationale, and remaining gaps
+- [chat-model-selection.md](./chat-model-selection.md): automated and manual verification for model selection
 - [../features/auth-and-route-protection.md](../features/auth-and-route-protection.md): auth/proxy testing coverage and focused command
 
 ## For Coding Agents

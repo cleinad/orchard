@@ -4,6 +4,12 @@ import { createMockSupabase } from '../helpers/mock-supabase';
 
 const mockCreateSupabaseServerClient = vi.fn();
 const mockCreateSupabaseServiceRoleClient = vi.fn();
+const mockSyncCheckoutSessionBilling = vi.fn();
+const mockSyncBillingCustomerFromStripe = vi.fn();
+const mockStripe = {
+  checkout: { sessions: { retrieve: vi.fn() } },
+  subscriptions: { retrieve: vi.fn(), list: vi.fn() },
+};
 
 vi.mock('@/lib/supabase-server', () => ({
   createSupabaseServerClient: () => mockCreateSupabaseServerClient(),
@@ -11,10 +17,14 @@ vi.mock('@/lib/supabase-server', () => ({
 }));
 
 vi.mock('@/lib/stripe', () => ({
-  getStripe: () => ({
-    checkout: { sessions: { retrieve: vi.fn() } },
-    subscriptions: { retrieve: vi.fn() },
-  }),
+  getStripe: () => mockStripe,
+}));
+
+vi.mock('@/lib/stripe-billing', () => ({
+  syncCheckoutSessionBilling: (...args: unknown[]) =>
+    mockSyncCheckoutSessionBilling(...args),
+  syncBillingCustomerFromStripe: (...args: unknown[]) =>
+    mockSyncBillingCustomerFromStripe(...args),
 }));
 
 vi.mock('next/navigation', () => ({
@@ -85,10 +95,59 @@ function entitlementRow({
   };
 }
 
+function billingEntitlement({
+  planKey = 'free',
+  canUseCloudModels = false,
+  monthlyLimit = 20,
+  status = 'none',
+  displayState = 'no_subscription',
+  subscriptionId = null,
+  currentPeriodStart = null,
+  currentPeriodEnd = null,
+}: {
+  planKey?: string;
+  canUseCloudModels?: boolean;
+  monthlyLimit?: number;
+  status?: string;
+  displayState?: string;
+  subscriptionId?: string | null;
+  currentPeriodStart?: string | null;
+  currentPeriodEnd?: string | null;
+} = {}) {
+  return {
+    planKey,
+    canUseCloudModels,
+    monthlyLimit,
+    status,
+    subscriptionId,
+    currentPeriodStart,
+    currentPeriodEnd,
+    displayState,
+    refreshedAt: '2099-06-12T00:00:00.000Z',
+  };
+}
+
+function billingSyncResult({
+  stripeCustomerId = 'cus_123',
+  entitlement = billingEntitlement(),
+}: {
+  stripeCustomerId?: string | null;
+  entitlement?: ReturnType<typeof billingEntitlement>;
+} = {}) {
+  return {
+    userId: 'user-1',
+    stripeCustomerId,
+    entitlement,
+  };
+}
+
 describe('settings billing page', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    mockCreateSupabaseServiceRoleClient.mockReturnValue({ serviceRole: true });
+    mockSyncCheckoutSessionBilling.mockResolvedValue(null);
+    mockSyncBillingCustomerFromStripe.mockResolvedValue(null);
   });
 
   it('renders free plan, usage, upgrade, and syncing checkout state', async () => {
@@ -111,6 +170,7 @@ describe('settings billing page', () => {
     expect(html).toContain('7 / 20');
     expect(html).toContain('Upgrade');
     expect(html).not.toContain('Manage billing');
+    expect(mockSyncBillingCustomerFromStripe).not.toHaveBeenCalled();
   });
 
   it('renders paid plan state and manage billing action for mapped customers', async () => {
@@ -142,6 +202,144 @@ describe('settings billing page', () => {
     expect(html).toContain('42 / 1000');
     expect(html).toContain('Manage billing');
     expect(html).not.toContain('Upgrade');
+    expect(mockSyncBillingCustomerFromStripe).toHaveBeenCalledWith(
+      { serviceRole: true },
+      mockStripe,
+      'user-1',
+      { stripeCustomerId: 'cus_123' }
+    );
+  });
+
+  it('runs checkout sync before live customer sync on successful checkout returns', async () => {
+    const paidEntitlement = billingEntitlement({
+      planKey: 'keen_monthly',
+      canUseCloudModels: true,
+      monthlyLimit: 1000,
+      status: 'active',
+      displayState: 'active',
+      subscriptionId: 'sub_123',
+      currentPeriodStart: '2099-06-01T00:00:00.000Z',
+      currentPeriodEnd: '2099-07-01T00:00:00.000Z',
+    });
+    mockSyncCheckoutSessionBilling.mockResolvedValue(
+      billingSyncResult({ entitlement: paidEntitlement })
+    );
+    mockSyncBillingCustomerFromStripe.mockResolvedValue(
+      billingSyncResult({ entitlement: paidEntitlement })
+    );
+    mockCreateSupabaseServerClient.mockResolvedValue(
+      createBillingPageSupabase({
+        usageRows: [{ count: 0 }],
+      })
+    );
+
+    const { default: BillingPage } = await import('@/app/settings/billing/page');
+    const element = await BillingPage({
+      searchParams: Promise.resolve({ checkout: 'success', session_id: 'cs_123' }),
+    });
+    const html = renderToStaticMarkup(element);
+
+    expect(mockSyncCheckoutSessionBilling).toHaveBeenCalledWith(
+      { serviceRole: true },
+      mockStripe,
+      'user-1',
+      'cs_123'
+    );
+    expect(mockSyncBillingCustomerFromStripe).toHaveBeenCalledWith(
+      { serviceRole: true },
+      mockStripe,
+      'user-1',
+      { stripeCustomerId: 'cus_123' }
+    );
+    expect(mockSyncCheckoutSessionBilling.mock.invocationCallOrder[0]).toBeLessThan(
+      mockSyncBillingCustomerFromStripe.mock.invocationCallOrder[0]
+    );
+    expect(html).toContain('Checkout succeeded. Your subscription is active.');
+    expect(html).toContain('Monthly plan');
+    expect(html).toContain('Active');
+    expect(html).toContain('0 / 1000');
+  });
+
+  it('renders live Stripe cancellation over stale db active state', async () => {
+    mockSyncBillingCustomerFromStripe.mockResolvedValue(
+      billingSyncResult({
+        entitlement: billingEntitlement({
+          planKey: 'free',
+          canUseCloudModels: false,
+          monthlyLimit: 20,
+          status: 'canceled',
+          displayState: 'canceled',
+          subscriptionId: 'sub_123',
+          currentPeriodStart: '2099-06-01T00:00:00.000Z',
+          currentPeriodEnd: '2099-07-01T00:00:00.000Z',
+        }),
+      })
+    );
+    mockCreateSupabaseServerClient.mockResolvedValue(
+      createBillingPageSupabase({
+        entitlementRows: [
+          entitlementRow({
+            planKey: 'keen_monthly',
+            canUseCloudModels: true,
+            monthlyLimit: 1000,
+            status: 'active',
+            subscriptionId: 'sub_123',
+            currentPeriodStart: '2099-06-01T00:00:00.000Z',
+            currentPeriodEnd: '2099-07-01T00:00:00.000Z',
+            displayState: 'active',
+          }),
+        ],
+        usageRows: [{ count: 0 }],
+        customerRows: [{ stripe_customer_id: 'cus_123' }],
+      })
+    );
+
+    const { default: BillingPage } = await import('@/app/settings/billing/page');
+    const element = await BillingPage({ searchParams: Promise.resolve({}) });
+    const html = renderToStaticMarkup(element);
+
+    expect(html).toContain('Free');
+    expect(html).toContain('Canceled');
+    expect(html).toContain('0 / 20');
+    expect(html).toContain('Upgrade');
+    expect(html).toContain('Manage billing');
+  });
+
+  it('falls back to db state when live Stripe sync fails', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockSyncBillingCustomerFromStripe.mockRejectedValue(new Error('stripe timeout'));
+    mockCreateSupabaseServerClient.mockResolvedValue(
+      createBillingPageSupabase({
+        entitlementRows: [
+          entitlementRow({
+            planKey: 'keen_monthly',
+            canUseCloudModels: true,
+            monthlyLimit: 1000,
+            status: 'active',
+            subscriptionId: 'sub_123',
+            currentPeriodStart: '2099-06-01T00:00:00.000Z',
+            currentPeriodEnd: '2099-07-01T00:00:00.000Z',
+            displayState: 'active',
+          }),
+        ],
+        usageRows: [{ count: 9 }],
+        customerRows: [{ stripe_customer_id: 'cus_123' }],
+      })
+    );
+
+    const { default: BillingPage } = await import('@/app/settings/billing/page');
+    const element = await BillingPage({ searchParams: Promise.resolve({}) });
+    const html = renderToStaticMarkup(element);
+
+    expect(html).toContain('Monthly plan');
+    expect(html).toContain('Active');
+    expect(html).toContain('9 / 1000');
+    expect(html).toContain('Manage billing');
+    expect(consoleError).toHaveBeenCalledWith(
+      '[billing] customer sync failed',
+      expect.any(Error)
+    );
+    consoleError.mockRestore();
   });
 
   it('renders canceling subscriptions as paid access until period end', async () => {

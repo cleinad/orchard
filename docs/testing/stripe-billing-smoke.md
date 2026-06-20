@@ -8,6 +8,23 @@ For daily development, prefer the deterministic billing tests in
 [README.md](./README.md). Those tests do not open Stripe Checkout or the Customer
 Portal.
 
+## Billing Page Sync Expectations
+
+`/settings/billing` reconciles against live Stripe state whenever it has a
+Checkout `session_id` or a mapped Stripe customer id. The db billing projection
+is still the durable fallback for webhooks, app-wide gates, and Stripe outages.
+
+Expected behavior:
+
+- A successful Checkout return should render the paid monthly plan without a
+  manual refresh, even if the webhook has not arrived yet.
+- Returning from the Customer Portal after canceling at period end should render
+  `Canceling at period end` without a manual refresh.
+- If Stripe reports an immediately canceled or expired subscription, the page
+  should render free access without requiring an extra refresh.
+- If live Stripe retrieval fails, the page should preserve the current db
+  projection instead of downgrading the user.
+
 ## Manual Smoke Checklist
 
 Prerequisites:
@@ -60,7 +77,7 @@ Checklist:
 7. Complete Checkout with Stripe test card `4242 4242 4242 4242`, any future
    expiry, any CVC, and any billing ZIP/postal code.
 8. Confirm Checkout returns to `/settings/billing?checkout=success...`.
-9. Confirm the page first shows a syncing/success state, then updates to:
+9. Without manually refreshing, confirm the page shows:
    - `Current plan: Monthly plan`
    - `Subscription state: Active`
    - a Manage billing button
@@ -69,11 +86,13 @@ Checklist:
 12. Click Manage billing.
 13. Confirm the app redirects to the Stripe Customer Portal.
 14. Cancel the subscription in the portal.
-15. Return to `/settings/billing` and confirm:
+15. Return to `/settings/billing` and, without manually refreshing, confirm:
    - `Current plan: Monthly plan`
    - `Subscription state: Canceling at period end`
-16. Optionally use Stripe Dashboard or CLI to force a failed-payment or deleted
-   subscription test event, then confirm the app returns to free access.
+16. Optionally use Stripe Dashboard or CLI to cancel immediately, force a
+   failed-payment, or delete the subscription. Reopen `/settings/billing` and,
+   without an extra refresh, confirm the app renders the corresponding free or
+   payment-failed state.
 
 After the smoke test, clean up the test customer/subscription in Stripe test mode
 if needed.

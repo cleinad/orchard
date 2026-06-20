@@ -1,6 +1,14 @@
 import { redirect } from 'next/navigation';
-import { getBillingEntitlement, getUsageSummary } from '@/lib/billing';
-import { syncCheckoutSessionBilling } from '@/lib/stripe-billing';
+import {
+  getBillingEntitlement,
+  getUsageSummary,
+  type BillingEntitlement,
+} from '@/lib/billing';
+import {
+  type BillingSyncResult,
+  syncBillingCustomerFromStripe,
+  syncCheckoutSessionBilling,
+} from '@/lib/stripe-billing';
 import { getStripe } from '@/lib/stripe';
 import {
   createSupabaseServerClient,
@@ -11,6 +19,10 @@ import { BillingActions } from './BillingActions';
 interface BillingPageProps {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }
+
+type BillingCustomer = { stripe_customer_id: string | null } | null;
+
+export const dynamic = 'force-dynamic';
 
 const STATE_LABELS: Record<string, string> = {
   active: 'Active',
@@ -52,6 +64,115 @@ function getSessionId(
   return Array.isArray(sessionId) ? sessionId[0] : sessionId;
 }
 
+async function getBillingCustomer(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  userId: string
+): Promise<BillingCustomer> {
+  const { data } = await supabase
+    .from('billing_customers')
+    .select('stripe_customer_id')
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  return data;
+}
+
+function applyStripeResult(
+  result: BillingSyncResult | null,
+  fallbackCustomer: BillingCustomer
+) {
+  if (!result) {
+    return null;
+  }
+
+  return {
+    entitlement: result.entitlement,
+    customer: {
+      stripe_customer_id:
+        result.stripeCustomerId ?? fallbackCustomer?.stripe_customer_id ?? null,
+    },
+  };
+}
+
+async function resolveBillingPageState({
+  checkoutSessionId,
+  checkoutState,
+  entitlement,
+  customer,
+  userId,
+}: {
+  checkoutSessionId?: string;
+  checkoutState?: string;
+  entitlement: BillingEntitlement;
+  customer: BillingCustomer;
+  userId: string;
+}) {
+  let resolvedEntitlement = entitlement;
+  let resolvedCustomer = customer;
+  let stripeCustomerId = customer?.stripe_customer_id ?? null;
+  const hasCheckoutSession = checkoutState === 'success' && Boolean(checkoutSessionId);
+  let serviceRoleSupabase: ReturnType<typeof createSupabaseServiceRoleClient> | null = null;
+  let stripe: ReturnType<typeof getStripe> | null = null;
+
+  function getServiceRoleSupabase() {
+    serviceRoleSupabase ??= createSupabaseServiceRoleClient();
+    return serviceRoleSupabase;
+  }
+
+  function getStripeClient() {
+    stripe ??= getStripe();
+    return stripe;
+  }
+
+  if (hasCheckoutSession && checkoutSessionId) {
+    try {
+      const checkoutResult = applyStripeResult(
+        await syncCheckoutSessionBilling(
+          getServiceRoleSupabase(),
+          getStripeClient(),
+          userId,
+          checkoutSessionId
+        ),
+        resolvedCustomer
+      );
+
+      if (checkoutResult) {
+        resolvedEntitlement = checkoutResult.entitlement;
+        resolvedCustomer = checkoutResult.customer;
+        stripeCustomerId = checkoutResult.customer.stripe_customer_id;
+      }
+    } catch (error) {
+      console.error('[billing] checkout return sync failed', error);
+    }
+  }
+
+  if (stripeCustomerId) {
+    try {
+      const customerResult = applyStripeResult(
+        await syncBillingCustomerFromStripe(
+          getServiceRoleSupabase(),
+          getStripeClient(),
+          userId,
+          { stripeCustomerId }
+        ),
+        resolvedCustomer
+      );
+
+      if (customerResult) {
+        resolvedEntitlement = customerResult.entitlement;
+        resolvedCustomer = customerResult.customer;
+      }
+    } catch (error) {
+      console.error('[billing] customer sync failed', error);
+    }
+  }
+
+  return {
+    entitlement: resolvedEntitlement,
+    customer: resolvedCustomer,
+  };
+}
+
 function BillingRow({
   label,
   value,
@@ -89,30 +210,18 @@ export default async function BillingPage({ searchParams }: BillingPageProps) {
     redirect('/login?redirect=/settings/billing');
   }
 
-  let entitlement = await getBillingEntitlement(supabase, user.id);
+  const dbEntitlement = await getBillingEntitlement(supabase, user.id);
   const checkoutState = getCheckoutState(resolvedSearchParams);
   const checkoutSessionId = getSessionId(resolvedSearchParams);
-
-  if (checkoutState === 'success' && checkoutSessionId && !entitlement.canUseCloudModels) {
-    try {
-      await syncCheckoutSessionBilling(
-        createSupabaseServiceRoleClient(),
-        getStripe(),
-        user.id,
-        checkoutSessionId
-      );
-      entitlement = await getBillingEntitlement(supabase, user.id);
-    } catch (error) {
-      console.error('[billing] checkout return sync failed', error);
-    }
-  }
-
+  const dbCustomer = await getBillingCustomer(supabase, user.id);
+  const { entitlement, customer } = await resolveBillingPageState({
+    checkoutSessionId,
+    checkoutState,
+    entitlement: dbEntitlement,
+    customer: dbCustomer,
+    userId: user.id,
+  });
   const usage = await getUsageSummary(supabase, user.id, entitlement);
-  const { data: customer } = await supabase
-    .from('billing_customers')
-    .select('stripe_customer_id')
-    .eq('user_id', user.id)
-    .maybeSingle();
   const isSyncingAfterCheckout =
     checkoutState === 'success' && !entitlement.canUseCloudModels;
 
