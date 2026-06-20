@@ -22,42 +22,21 @@ function parseEqFilter(value) {
   return decodeURIComponent(value.slice(3));
 }
 
-function fallbackChatTitleFromMessage(message) {
-  const text = typeof message === 'string' ? message.trim() : '';
-  if (!text) {
-    return 'New chat';
+function parseInFilter(value) {
+  if (!value || !value.startsWith('in.(') || !value.endsWith(')')) {
+    return [];
   }
 
-  return text.length > 48 ? `${text.slice(0, 45)}...` : text;
+  return value
+    .slice(4, -1)
+    .split(',')
+    .map((item) => decodeURIComponent(item.trim()))
+    .filter(Boolean);
 }
 
-function fallbackConversationIdFromMessage(message) {
-  const slug = (typeof message === 'string' ? message : '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
-    .slice(0, 48);
-
-  return `conversation-${slug || 'new-chat'}`;
-}
-
-function normalizeCreatedConversation(conversation, body) {
-  const createdAt = conversation?.createdAt || conversation?.created_at || new Date().toISOString();
-  const updatedAt = conversation?.updatedAt || conversation?.updated_at || createdAt;
-
-  return {
-    id: conversation?.id || fallbackConversationIdFromMessage(body.initialMessage),
-    title:
-      conversation?.title
-      || fallbackChatTitleFromMessage(body.initialMessage),
-    mentorId:
-      conversation?.mentorId
-      ?? conversation?.mentor_id
-      ?? body.mentorId
-      ?? null,
-    createdAt,
-    updatedAt,
-  };
+function fallbackTitleFromMessage(message) {
+  const normalized = typeof message === 'string' ? message.trim() : '';
+  return normalized.length > 0 ? normalized.slice(0, 60) : 'New chat';
 }
 
 async function fulfillJson(route, json, status = 200) {
@@ -74,50 +53,13 @@ async function mockHomeDataRoutes(page, state) {
     mentors: [],
     conversations: [],
     messagesByConversationId: {},
+    attachmentsByMessageId: {},
     branchesByConversationId: {},
     threadsByConversationId: {},
     chatModels: DEFAULT_CHAT_MODELS,
+    createdConversations: [],
     ...state,
   };
-
-  await page.route('**/api/conversations', async (route) => {
-    const request = route.request();
-
-    if (request.method() === 'POST') {
-      const body = request.postDataJSON();
-      const conversation =
-        typeof resolvedState.createConversation === 'function'
-          ? await resolvedState.createConversation(body, resolvedState)
-          : {
-              id: resolvedState.nextConversationId,
-              title: resolvedState.nextConversationTitle,
-              mentorId: body.mentorId,
-            };
-
-      await fulfillJson(
-        route,
-        {
-          conversation: normalizeCreatedConversation(conversation, body),
-        },
-        201
-      );
-      return;
-    }
-
-    if (request.method() === 'DELETE') {
-      const body = request.postDataJSON();
-      if (body?.conversationId) {
-        resolvedState.conversations = resolvedState.conversations.filter(
-          (conversation) => conversation.id !== body.conversationId
-        );
-      }
-
-      await fulfillJson(route, { success: true });
-      return;
-    }
-
-    await route.fallback();
-  });
 
   await page.route('**/api/chat/models', async (route) => {
     await fulfillJson(route, { models: resolvedState.chatModels });
@@ -125,6 +67,48 @@ async function mockHomeDataRoutes(page, state) {
 
   await page.route('**/api/mentors', async (route) => {
     await fulfillJson(route, resolvedState.mentors);
+  });
+
+  await page.route('**/api/conversations', async (route) => {
+    const method = route.request().method();
+
+    if (method === 'POST') {
+      const body = route.request().postDataJSON();
+      const queuedConversation = resolvedState.createdConversations.shift();
+      const now = new Date().toISOString();
+      const conversation = queuedConversation || {
+        id: `conversation-e2e-created-${resolvedState.conversations.length + 1}`,
+        title: fallbackTitleFromMessage(body?.initialMessage),
+        mentor_id: body?.mentorId ?? null,
+        created_at: now,
+        updated_at: now,
+      };
+
+      resolvedState.conversations.unshift(conversation);
+      await fulfillJson(route, {
+        conversation: {
+          id: conversation.id,
+          title: conversation.title,
+          mentorId: conversation.mentor_id ?? conversation.mentorId ?? null,
+          createdAt: conversation.created_at ?? conversation.createdAt ?? now,
+          updatedAt: conversation.updated_at ?? conversation.updatedAt ?? now,
+        },
+      }, 201);
+      return;
+    }
+
+    if (method === 'DELETE') {
+      const body = route.request().postDataJSON();
+      const conversationId = body?.conversationId;
+      resolvedState.conversations = resolvedState.conversations.filter(
+        (conversation) => conversation.id !== conversationId
+      );
+      delete resolvedState.messagesByConversationId[conversationId];
+      await fulfillJson(route, { ok: true });
+      return;
+    }
+
+    await route.fallback();
   });
 
   await page.route('**/auth/v1/user*', async (route) => {
@@ -202,6 +186,24 @@ async function mockHomeDataRoutes(page, state) {
     }
 
     await fulfillJson(route, messages);
+  });
+
+  await page.route('**/rest/v1/message_attachments*', async (route) => {
+    const url = new URL(route.request().url());
+    const messageIdFilter = parseEqFilter(url.searchParams.get('message_id'));
+    const messageIdFilters = parseInFilter(url.searchParams.get('message_id'));
+    const messageIds = messageIdFilter
+      ? [messageIdFilter]
+      : messageIdFilters.length > 0
+        ? messageIdFilters
+        : Object.values(resolvedState.messagesByConversationId)
+          .flat()
+          .map((message) => message.id);
+    const attachments = messageIds.flatMap(
+      (messageId) => resolvedState.attachmentsByMessageId[messageId] || []
+    );
+
+    await fulfillJson(route, attachments);
   });
 
   await page.route('**/rest/v1/conversation_branches*', async (route) => {

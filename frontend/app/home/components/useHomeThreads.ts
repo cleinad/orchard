@@ -1,4 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
+import {
+  getOffsetsFromRange,
+  restoreRangeFromOffsets,
+} from '@/app/home/components/selectableTextIndex';
 import type { PopoverState } from '@/app/home/components/TextSelectionPopover';
 import type { ThreadSession, ThreadSource } from '@/app/home/components/threadTypes';
 
@@ -13,6 +17,10 @@ function ensureHighlightStylesInjected() {
   style.textContent = `
 ::highlight(${ACTIVE_SELECTION_HIGHLIGHT}) {
   background-color: color-mix(in srgb, var(--accent) 28%, transparent);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: 0.16em;
 }
 .dark::highlight(${ACTIVE_SELECTION_HIGHLIGHT}) {
   background-color: color-mix(in srgb, var(--accent) 36%, transparent);
@@ -118,58 +126,6 @@ export function useHomeThreads(
     return node.parentElement?.closest('[data-message-content]') ?? null;
   };
 
-  const getSelectionOffsets = (messageEl: Element, range: Range) => {
-    const startRange = document.createRange();
-    startRange.selectNodeContents(messageEl);
-    startRange.setEnd(range.startContainer, range.startOffset);
-
-    const endRange = document.createRange();
-    endRange.selectNodeContents(messageEl);
-    endRange.setEnd(range.endContainer, range.endOffset);
-
-    return {
-      startOffset: startRange.toString().length,
-      endOffset: endRange.toString().length,
-    };
-  };
-
-  const restoreRangeFromOffsets = (messageEl: Element, startOffset: number, endOffset: number) => {
-    const walker = document.createTreeWalker(messageEl, NodeFilter.SHOW_TEXT);
-    let currentOffset = 0;
-    let startNode: Node | null = null;
-    let endNode: Node | null = null;
-    let startNodeOffset = 0;
-    let endNodeOffset = 0;
-
-    while (walker.nextNode()) {
-      const node = walker.currentNode;
-      const textLength = node.textContent?.length ?? 0;
-      const nextOffset = currentOffset + textLength;
-
-      if (!startNode && startOffset <= nextOffset) {
-        startNode = node;
-        startNodeOffset = Math.max(0, startOffset - currentOffset);
-      }
-
-      if (startNode && endOffset <= nextOffset) {
-        endNode = node;
-        endNodeOffset = Math.max(0, endOffset - currentOffset);
-        break;
-      }
-
-      currentOffset = nextOffset;
-    }
-
-    if (!startNode || !endNode) {
-      return null;
-    }
-
-    const range = document.createRange();
-    range.setStart(startNode, startNodeOffset);
-    range.setEnd(endNode, endNodeOffset);
-    return range;
-  };
-
   const resolveActiveSelection = useCallback(() => {
     if (!learningMode) {
       return;
@@ -185,11 +141,6 @@ export function useHomeThreads(
       return;
     }
 
-    const selectedText = selection.toString().trim();
-    if (selectedText.length < 2 || selectedText.length > 500) {
-      return;
-    }
-
     const range = selection.getRangeAt(0);
     const messageContentEl = resolveMessageContentElement(range.startContainer);
     const endMessageContentEl = resolveMessageContentElement(range.endContainer);
@@ -198,15 +149,24 @@ export function useHomeThreads(
       return;
     }
 
+    const resolvedOffsets = getOffsetsFromRange(messageContentEl, range);
+    if (!resolvedOffsets) {
+      return;
+    }
+
+    const selectedText = resolvedOffsets.selectedText;
+    if (selectedText.length < 2 || selectedText.length > 500) {
+      return;
+    }
+
     const messageEl = messageContentEl.closest('[data-message-id]');
     const messageId = messageEl?.getAttribute('data-message-id');
     const messageRole = messageEl?.getAttribute('data-message-role');
 
-    if (!messageId || messageRole !== 'assistant') {
+    if (!messageId || messageRole !== 'assistant' || messageId.startsWith('streaming-')) {
       return;
     }
 
-    const offsets = getSelectionOffsets(messageContentEl, range);
     const clientRects = Array.from(range.getClientRects()).filter(
       (rect) => rect.width > 0 || rect.height > 0
     );
@@ -221,8 +181,8 @@ export function useHomeThreads(
       },
       selectedText,
       sourceMessageId: messageId,
-      startOffset: offsets.startOffset,
-      endOffset: offsets.endOffset,
+      startOffset: resolvedOffsets.startOffset,
+      endOffset: resolvedOffsets.endOffset,
     };
 
     setHighlightSource({
@@ -239,8 +199,6 @@ export function useHomeThreads(
       startOffset: nextSelection.startOffset,
       endOffset: nextSelection.endOffset,
     });
-
-    selection.removeAllRanges();
   }, [learningMode, scrollContainerRef]);
 
   const handlePointerUp = useCallback(() => {

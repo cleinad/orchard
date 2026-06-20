@@ -29,6 +29,7 @@ module.exports = defineConfig({
     env: {
       ...process.env,
       KEEN_E2E_BYPASS_AUTH: '1',
+      NEXT_DIST_DIR: process.env.NEXT_DIST_DIR || '.next-e2e',
       NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://example.supabase.co',
       NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'e2e-anon-key',
     },
