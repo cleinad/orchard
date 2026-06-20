@@ -64,6 +64,7 @@ export function getChatModelListItems(entitlement?: BillingEntitlement): ChatMod
       isPaidChatModel(option.id) && !entitlement?.canUseCloudModels
         ? 'Upgrade to use'
         : null,
+    supportsImages: option.supportsImages,
   }));
 }
 
@@ -91,6 +92,7 @@ export function resolveChatModelSelection(
     label: option.label,
     provider: option.provider,
     apiModelId: option.apiModelId,
+    supportsImages: option.supportsImages,
   };
 }
 

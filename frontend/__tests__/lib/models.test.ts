@@ -42,6 +42,7 @@ describe('chat model resolver', () => {
         isDefault: true,
         requiresPaidPlan: true,
         unavailableReason: 'Upgrade to use',
+        supportsImages: true,
       },
       {
         id: 'claude-sonnet-4-6',
@@ -51,6 +52,7 @@ describe('chat model resolver', () => {
         isDefault: false,
         requiresPaidPlan: true,
         unavailableReason: 'Upgrade to use',
+        supportsImages: true,
       },
       {
         id: 'gemini-3-flash-preview',
@@ -60,6 +62,7 @@ describe('chat model resolver', () => {
         isDefault: false,
         requiresPaidPlan: false,
         unavailableReason: null,
+        supportsImages: true,
       },
     ]);
   });
@@ -100,6 +103,7 @@ describe('chat model resolver', () => {
       label: 'Sonnet 4.6',
       provider: 'anthropic',
       apiModelId: 'claude-sonnet-4-6',
+      supportsImages: true,
     });
   });
 
@@ -113,6 +117,7 @@ describe('chat model resolver', () => {
       label: 'Gemini 3',
       provider: 'google',
       apiModelId: 'gemini-3-flash-preview',
+      supportsImages: true,
     });
   });
 
