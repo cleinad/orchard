@@ -1,6 +1,6 @@
 # Memory System Test Suite
 
-For the overall test inventory, runner commands, and canary map, start with [../testing/README.md](../testing/README.md).
+For the overall test inventory, runner commands, and canary map, start with [README.md](./README.md).
 
 ## Why These Tests Exist
 
@@ -73,7 +73,7 @@ npm test -- __tests__/app/chat-route.test.ts __tests__/app/memory-items-routes.t
 
 ## Test Files
 
-### `__tests__/app/chat-route.test.ts` (5 tests)
+### `__tests__/app/chat-route.test.ts`
 
 Route-level contract tests for `app/api/chat/route.ts`.
 
@@ -86,7 +86,7 @@ These exist because the highest-risk regressions often happen at the handoff bou
 
 The service-role-key regression was exactly this kind of failure. The route test that asserts the authenticated Supabase client is passed into `processMemoryV2()` is intended to permanently lock down that behavior.
 
-### `__tests__/app/memory-items-routes.test.ts` (6 tests)
+### `__tests__/app/memory-items-routes.test.ts`
 
 Route-level tests for the memory item CRUD APIs.
 
@@ -98,7 +98,7 @@ These protect the user-managed memory surface:
 
 These tests matter because route regressions here often do not break chat immediately, but they do break memory hygiene and user trust.
 
-### `__tests__/lib/memory-items.test.ts` (36 tests)
+### `__tests__/lib/memory-items.test.ts`
 
 Unit tests for pure utility functions in `lib/memory-items.ts`. No mocking — all functions are pure input/output.
 
@@ -111,7 +111,7 @@ Unit tests for pure utility functions in `lib/memory-items.ts`. No mocking — a
 - `lexicalOverlapScore` — query token coverage in target text
 - `parseMemoryScope` / `parseMentorScope` — scope string parsing and validation
 
-### `__tests__/lib/memory-integration.test.ts` (19 tests)
+### `__tests__/lib/memory-integration.test.ts`
 
 Integration tests for the write path (`processMemoryV2`) and read path (`loadMemoryContextV2`) with mocked externals.
 
@@ -140,6 +140,7 @@ Integration tests for the write path (`processMemoryV2`) and read path (`loadMem
 |------|----------|
 | Empty DB | Returns empty string |
 | Core profile selection | Stable high-salience items appear under `## Core Profile`, profile/goal/preference types ranked higher |
+| Unrelated stable interests | Irrelevant stable interests stay out of core and recall |
 | Token budget trimming | Episodic items dropped first, core items preserved (min 3 for default actor) |
 | Mentor scoping | Mentor actor sees `## Global Profile` header, only mentor-owned items in relevant recall, other mentors excluded |
 | RPC semantic ranking | Relevant recall prefers RPC semantic winners when available |
