@@ -1,9 +1,17 @@
-import type { FormEventHandler, KeyboardEventHandler, RefObject } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type FormEventHandler,
+  type KeyboardEventHandler,
+  type RefObject,
+} from 'react';
 import Tooltip from '@/app/components/Tooltip';
 import ChatModelPicker from '@/app/home/components/ChatModelPicker';
 import type { MicStatus } from '@/app/home/components/useMicrophone';
 import type { TranscriptStatus } from '@/app/home/components/useTranscription';
 import type { TemporaryMemoryMode } from '@/lib/chat-session';
+import type { SearchMode } from '@/lib/chat-search';
 import {
   type ChatModelId,
   type ChatModelListItem,
@@ -17,7 +25,7 @@ interface ChatComposerProps {
   micActive: boolean;
   selectedModelId: ChatModelId;
   ttsEnabled: boolean;
-  searchEnabled: boolean;
+  searchMode: SearchMode;
   learningMode: boolean;
   temporaryChatEnabled: boolean;
   showTemporaryIntro: boolean;
@@ -38,7 +46,7 @@ interface ChatComposerProps {
   onModelChange: (modelId: ChatModelId) => void;
   onToggleMic: () => void;
   onToggleTts: () => void;
-  onToggleSearch: () => void;
+  onSearchModeChange: (mode: SearchMode) => void;
   onToggleLearningMode: () => void;
   onTemporaryMemoryModeChange: (mode: TemporaryMemoryMode) => void;
   onSubmit: FormEventHandler<HTMLFormElement>;
@@ -64,7 +72,7 @@ export default function ChatComposer({
   micActive,
   selectedModelId,
   ttsEnabled,
-  searchEnabled,
+  searchMode,
   learningMode,
   temporaryChatEnabled,
   showTemporaryIntro,
@@ -85,7 +93,7 @@ export default function ChatComposer({
   onModelChange,
   onToggleMic,
   onToggleTts,
-  onToggleSearch,
+  onSearchModeChange,
   onToggleLearningMode,
   onTemporaryMemoryModeChange,
   onSubmit,
@@ -93,6 +101,37 @@ export default function ChatComposer({
 }: ChatComposerProps) {
   const hasTranscript = finalTranscript.length > 0 || interimTranscript.length > 0;
   const hasAvailableChatModels = chatModels.some((model) => model.available);
+  const [searchMenuOpen, setSearchMenuOpen] = useState(false);
+  const searchMenuRef = useRef<HTMLDivElement | null>(null);
+  const searchModeLabels: Record<SearchMode, string> = {
+    auto: 'Auto',
+    required: 'Always search',
+    off: 'Off',
+  };
+  const searchModeTooltip: Record<SearchMode, string> = {
+    auto: 'Search auto: Keen will decide when live sources are needed',
+    required: 'Always search: Keen will ground this reply with live sources',
+    off: 'Search off: Keen will answer without live retrieval',
+  };
+
+  useEffect(() => {
+    if (!searchMenuOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (
+        searchMenuRef.current
+        && event.target instanceof Node
+        && !searchMenuRef.current.contains(event.target)
+      ) {
+        setSearchMenuOpen(false);
+      }
+    };
+
+    window.addEventListener('pointerdown', handlePointerDown);
+    return () => window.removeEventListener('pointerdown', handlePointerDown);
+  }, [searchMenuOpen]);
 
   return (
     <div className="mx-auto w-full max-w-2xl px-4">
@@ -321,40 +360,75 @@ export default function ChatComposer({
                 </button>
               </Tooltip>
 
-              <Tooltip
-                content={
-                  searchEnabled
-                    ? 'Search mode on: Keen will ground this reply with live sources'
-                    : 'Search mode off: Keen will answer without live retrieval'
-                }
-                side="bottom"
-              >
-                <button
-                  type="button"
-                  aria-pressed={searchEnabled}
-                  aria-label={searchEnabled ? 'Search mode on' : 'Search mode off'}
-                  onClick={onToggleSearch}
-                  className={`flex h-7 w-7 items-center justify-center rounded-md border transition-colors ${
-                    searchEnabled
-                      ? 'border-foreground/[0.10] bg-foreground/[0.05] text-foreground'
-                      : 'border-border-subtle text-muted hover:bg-foreground/[0.04] hover:text-foreground/70'
-                  } disabled:cursor-not-allowed disabled:opacity-50`}
-                >
-                  <svg
-                    className="h-3.5 w-3.5"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.2"
-                    viewBox="0 0 24 24"
+              <div ref={searchMenuRef} className="relative">
+                <Tooltip content={searchModeTooltip[searchMode]} side="bottom">
+                  <button
+                    type="button"
+                    aria-haspopup="menu"
+                    aria-expanded={searchMenuOpen}
+                    aria-label={`Search mode ${searchModeLabels[searchMode].toLowerCase()}`}
+                    onClick={() => setSearchMenuOpen((open) => !open)}
+                    className={`flex h-7 w-7 items-center justify-center rounded-md border transition-colors ${
+                      searchMode === 'required'
+                        ? 'border-foreground/[0.10] bg-foreground/[0.05] text-foreground'
+                        : searchMode === 'off'
+                          ? 'border-border-subtle text-muted/60 hover:bg-foreground/[0.04] hover:text-foreground/70'
+                          : 'border-border-subtle text-muted hover:bg-foreground/[0.04] hover:text-foreground/70'
+                    }`}
                   >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M21 21l-4.35-4.35m1.85-5.15a7 7 0 11-14 0 7 7 0 0114 0z"
-                    />
-                  </svg>
-                </button>
-              </Tooltip>
+                    <svg
+                      className="h-3.5 w-3.5"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M12 21a9 9 0 100-18 9 9 0 000 18z"
+                      />
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M3.6 9h16.8M3.6 15h16.8M12 3c2.1 2.25 3.15 5.25 3.15 9S14.1 18.75 12 21M12 3C9.9 5.25 8.85 8.25 8.85 12S9.9 18.75 12 21"
+                      />
+                    </svg>
+                  </button>
+                </Tooltip>
+
+                {searchMenuOpen && (
+                  <div
+                    role="menu"
+                    aria-label="Search mode"
+                    className="absolute bottom-9 left-0 z-30 w-max rounded-lg border border-border-subtle bg-surface p-1 font-sans text-xs shadow-lg"
+                  >
+                    <span className="pointer-events-none absolute -bottom-1 left-3 h-2 w-2 rotate-45 border-b border-r border-border-subtle bg-surface" />
+                    {(['auto', 'required', 'off'] as const).map((mode) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        role="menuitemradio"
+                        aria-checked={searchMode === mode}
+                        onClick={() => {
+                          onSearchModeChange(mode);
+                          setSearchMenuOpen(false);
+                        }}
+                        className={`grid h-8 w-full grid-cols-[1fr_0.375rem] items-center gap-3 whitespace-nowrap rounded-md px-2.5 text-left transition-colors ${
+                          searchMode === mode
+                            ? 'bg-foreground/[0.06] text-foreground'
+                            : 'text-muted hover:bg-foreground/[0.04] hover:text-foreground'
+                        }`}
+                      >
+                        <span>{searchModeLabels[mode]}</span>
+                        {searchMode === mode && (
+                          <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
 
               <Tooltip
                 content={

@@ -6,12 +6,14 @@ import {
   deleteRecordKey,
   getComposerStateKey,
 } from '@/app/home/components/homeSelection';
-import type { SearchMetadata } from '@/lib/chat-search';
+import type { SearchMetadata, SearchMode } from '@/lib/chat-search';
 
 interface UsePerChatComposerStateParams {
   storageKey: string;
   selection: SelectedChat | null;
 }
+
+const searchModesSessionStore: Record<string, SearchMode> = {};
 
 export function usePerChatComposerState({
   storageKey,
@@ -23,7 +25,11 @@ export function usePerChatComposerState({
   const [searchStatesByChatKey, setSearchStatesByChatKey] = useState<
     Record<string, SearchMetadata | null>
   >({});
+  const [searchModesByChatKey, setSearchModesByChatKey] = useState<
+    Record<string, SearchMode>
+  >(() => ({ ...searchModesSessionStore }));
   const composerDraftInputsRef = useRef<Record<string, string>>({});
+  const previousComposerStateKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     composerDraftInputsRef.current = composerDraftInputsByChatKey;
@@ -32,6 +38,36 @@ export function usePerChatComposerState({
   const activeComposerStateKey = getComposerStateKey(selection);
   const input = composerDraftInputsByChatKey[activeComposerStateKey] ?? '';
   const activeSearchState = searchStatesByChatKey[activeComposerStateKey] ?? null;
+  const activeSearchMode = searchModesByChatKey[activeComposerStateKey] ?? 'auto';
+
+  useEffect(() => {
+    const previousKey = previousComposerStateKeyRef.current;
+    previousComposerStateKeyRef.current = activeComposerStateKey;
+
+    if (
+      !previousKey
+      || previousKey === activeComposerStateKey
+      || (
+        !previousKey.startsWith('blank:')
+        && !previousKey.startsWith('draft:')
+      )
+    ) {
+      return;
+    }
+
+    setSearchModesByChatKey((prev) => {
+      const previousMode = prev[previousKey];
+      if (!previousMode || prev[activeComposerStateKey]) {
+        return prev;
+      }
+
+      const next = { ...prev, [activeComposerStateKey]: previousMode };
+      delete next[previousKey];
+      searchModesSessionStore[activeComposerStateKey] = previousMode;
+      delete searchModesSessionStore[previousKey];
+      return next;
+    });
+  }, [activeComposerStateKey]);
 
   const setInputForSelection = useCallback(
     (nextSelection: SelectedChat | null, value: string) => {
@@ -83,6 +119,32 @@ export function usePerChatComposerState({
     setSearchStatesByChatKey((prev) => deleteRecordKey(prev, key));
   }, []);
 
+  const setSearchModeForSelection = useCallback(
+    (nextSelection: SelectedChat | null, mode: SearchMode) => {
+      const key = nextSelection
+        ? getComposerStateKey(nextSelection)
+        : activeComposerStateKey;
+
+      setSearchModesByChatKey((prev) => {
+        if (mode === 'auto') {
+          delete searchModesSessionStore[key];
+          return deleteRecordKey(prev, key);
+        }
+
+        if (prev[key] === mode) {
+          return prev;
+        }
+
+        searchModesSessionStore[key] = mode;
+        return {
+          ...prev,
+          [key]: mode,
+        };
+      });
+    },
+    [activeComposerStateKey]
+  );
+
   const clearSelectionState = useCallback(
     (nextSelection: SelectedChat | null) => {
       clearInputForSelection(nextSelection);
@@ -94,6 +156,10 @@ export function usePerChatComposerState({
   const resetAllComposerState = useCallback(() => {
     setComposerDraftInputsByChatKey({});
     setSearchStatesByChatKey({});
+    for (const key of Object.keys(searchModesSessionStore)) {
+      delete searchModesSessionStore[key];
+    }
+    setSearchModesByChatKey({});
   }, []);
 
   useEffect(() => {
@@ -129,6 +195,7 @@ export function usePerChatComposerState({
   }, [composerDraftInputsByChatKey, storageKey]);
 
   return {
+    activeSearchMode,
     activeSearchState,
     composerDraftInputsRef,
     input,
@@ -137,6 +204,7 @@ export function usePerChatComposerState({
     clearSelectionState,
     resetAllComposerState,
     setInputForSelection,
+    setSearchModeForSelection,
     setSearchStateForSelection,
   };
 }

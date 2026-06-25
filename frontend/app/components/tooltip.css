@@ -13,7 +13,7 @@
   max-width: 240px;
   color: var(--foreground);
   background: color-mix(in srgb, var(--foreground) 12%, var(--background));
-  pointer-events: auto;
+  pointer-events: none;
 
   opacity: 0;
   transition:
@@ -24,6 +24,15 @@
 
 .tooltip-popover:popover-open {
   opacity: 1;
+}
+
+.tooltip-popover::before {
+  content: "";
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  rotate: 45deg;
+  background: color-mix(in srgb, var(--foreground) 12%, var(--background));
 }
 
 @starting-style {
@@ -38,26 +47,50 @@
   position-area: bottom;
   justify-self: anchor-center;
   position-try-fallbacks: flip-block;
-  margin-top: 6px;
+  margin-top: 8px;
+}
+
+.tooltip-popover[data-side="bottom"]::before {
+  top: -4px;
+  left: 50%;
+  translate: -50% 0;
 }
 
 .tooltip-popover[data-side="top"] {
   position-area: top;
   justify-self: anchor-center;
   position-try-fallbacks: flip-block;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
+}
+
+.tooltip-popover[data-side="top"]::before {
+  bottom: -4px;
+  left: 50%;
+  translate: -50% 0;
 }
 
 .tooltip-popover[data-side="left"] {
   position-area: left;
   align-self: anchor-center;
   position-try-fallbacks: flip-inline;
-  margin-right: 6px;
+  margin-right: 8px;
+}
+
+.tooltip-popover[data-side="left"]::before {
+  right: -4px;
+  top: 50%;
+  translate: 0 -50%;
 }
 
 .tooltip-popover[data-side="right"] {
   position-area: right;
   align-self: anchor-center;
   position-try-fallbacks: flip-inline;
-  margin-left: 6px;
+  margin-left: 8px;
+}
+
+.tooltip-popover[data-side="right"]::before {
+  left: -4px;
+  top: 50%;
+  translate: 0 -50%;
 }

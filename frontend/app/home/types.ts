@@ -1,4 +1,5 @@
 import type { PersistedSearchMetadata } from '@/lib/chat-search';
+import type { SearchActivitySummary } from '@/lib/search/types';
 
 export interface Message {
   id: string;
@@ -7,6 +8,7 @@ export interface Message {
   content: string;
   timestamp: Date;
   searchMetadata?: PersistedSearchMetadata | null;
+  searchActivity?: SearchActivitySummary | null;
   previousMessageId: string | null;
   isStreaming?: boolean;
 }

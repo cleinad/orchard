@@ -210,14 +210,19 @@ export function useHomeData() {
       created_at: string;
       search_metadata?: unknown;
       previous_message_id: string | null;
-    }>).map((message) => ({
-      id: message.id,
-      role: message.role,
-      content: message.content,
-      timestamp: new Date(message.created_at),
-      searchMetadata: parsePersistedSearchMetadata(message.search_metadata),
-      previousMessageId: message.previous_message_id ?? null,
-    }));
+    }>).map((message) => {
+      const searchMetadata = parsePersistedSearchMetadata(message.search_metadata);
+
+      return {
+        id: message.id,
+        role: message.role,
+        content: message.content,
+        timestamp: new Date(message.created_at),
+        searchMetadata,
+        searchActivity: searchMetadata?.version === 2 ? searchMetadata.activity ?? null : null,
+        previousMessageId: message.previous_message_id ?? null,
+      };
+    });
 
     const { data: branchRows, error: branchesError } = await supabase
       .from('conversation_branches')

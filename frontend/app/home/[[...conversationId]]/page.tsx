@@ -85,7 +85,6 @@ export default function HomePage() {
 }
 
 function HomePageInner() {
-  const [searchEnabled, setSearchEnabled] = useState(false);
   const [selectedModelId, setSelectedModelId] = usePersistedString<ChatModelId>(
     CHAT_MODEL_STORAGE_KEY,
     DEFAULT_CHAT_MODEL_ID,
@@ -209,6 +208,7 @@ function HomePageInner() {
       : null
   );
   const {
+    activeSearchMode,
     activeSearchState,
     composerDraftInputsRef,
     input,
@@ -216,6 +216,7 @@ function HomePageInner() {
     clearSearchStateForSelection,
     resetAllComposerState,
     setInputForSelection: setComposerInputForSelection,
+    setSearchModeForSelection,
     setSearchStateForSelection,
   } = usePerChatComposerState({
     storageKey: COMPOSER_DRAFT_INPUTS_STORAGE_KEY,
@@ -539,7 +540,7 @@ function HomePageInner() {
     persistentSelectedBranchIds,
     persistentSelectedBranchIdsRef,
     refreshSidebarData,
-    searchEnabled,
+    searchMode: activeSearchMode,
     selectedChat,
     selectedChatRef,
     selectedDraftChat,
@@ -701,7 +702,7 @@ function HomePageInner() {
           micActive={micActive}
           selectedModelId={selectedModelId}
           ttsEnabled={ttsEnabled}
-          searchEnabled={searchEnabled}
+          searchMode={activeSearchMode}
           learningMode={learningMode}
           temporaryChatEnabled={isTemporaryChat}
           showTemporaryIntro={isTemporaryChat && activeMessages.length === 0}
@@ -722,7 +723,7 @@ function HomePageInner() {
           onModelChange={setSelectedModelId}
           onToggleMic={toggleMic}
           onToggleTts={toggleTtsEnabled}
-          onToggleSearch={() => setSearchEnabled((prev) => !prev)}
+          onSearchModeChange={(mode) => setSearchModeForSelection(composerStateSelection, mode)}
           onToggleLearningMode={toggleLearningMode}
           onTemporaryMemoryModeChange={updateSelectedTemporaryMemoryMode}
           onSubmit={handleSubmit}

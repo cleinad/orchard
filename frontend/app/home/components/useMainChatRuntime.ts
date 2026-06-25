@@ -29,7 +29,8 @@ import type {
   ConversationBranch,
   Message,
 } from '@/app/home/types';
-import type { SearchMetadata } from '@/lib/chat-search';
+import type { SearchMetadata, SearchMode } from '@/lib/chat-search';
+import type { SearchActivitySummary } from '@/lib/search/types';
 import {
   createTemporaryId,
   DEFAULT_TEMPORARY_MEMORY_MODE,
@@ -50,11 +51,13 @@ export interface ChatResponse {
   resolvedModelId?: string;
   resolvedProvider?: string;
   search?: SearchMetadata;
+  searchActivity?: SearchActivitySummary | null;
   error?: string;
 }
 
 interface ReadChatStreamOptions {
   onTextEnd?: (content: string) => void;
+  onSearchActivity?: (activity: SearchActivitySummary) => void;
 }
 
 interface PendingChatRequest {
@@ -108,6 +111,10 @@ export async function readChatStream(
       finishVisibleText();
     } else if (event.type === 'data-chatMeta' && event.data) {
       metadata = event.data as ChatResponse;
+    } else if (event.type === 'data-searchActivity' && event.data) {
+      const activity = event.data as SearchActivitySummary;
+      metadata = { ...metadata, searchActivity: activity };
+      options.onSearchActivity?.(activity);
     } else if (event.type === 'error' && typeof event.errorText === 'string') {
       metadata = { error: event.errorText };
     }
@@ -218,6 +225,13 @@ function isLikelySamePersistedMessage(a: Message, b: Message) {
   );
 }
 
+function getSearchActivityFromMessage(message: Message) {
+  return (
+    message.searchActivity
+    ?? (message.searchMetadata?.version === 2 ? message.searchMetadata.activity ?? null : null)
+  );
+}
+
 function mergeReloadedMessagesForRender(params: {
   loadedMessages: Message[];
   currentMessages: Message[];
@@ -252,7 +266,10 @@ function mergeReloadedMessagesForRender(params: {
     return {
       ...loadedMessage,
       renderId: currentMessage.renderId,
-      searchMetadata: currentMessage.searchMetadata ?? null,
+      searchMetadata: currentMessage.searchMetadata ?? loadedMessage.searchMetadata ?? null,
+      searchActivity:
+        getSearchActivityFromMessage(currentMessage)
+        ?? getSearchActivityFromMessage(loadedMessage),
     };
   });
 
@@ -307,7 +324,7 @@ interface MainChatRuntimeParams {
   persistentSelectedBranchIds: BranchSelectionMap;
   persistentSelectedBranchIdsRef: MutableRefObject<BranchSelectionMap>;
   refreshSidebarData: () => Promise<void>;
-  searchEnabled: boolean;
+  searchMode: SearchMode;
   selectedChat: SelectedChat | null;
   selectedChatRef: MutableRefObject<SelectedChat | null>;
   selectedDraftChat: PersistentDraftChat | null;
@@ -531,6 +548,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
     let visibleAssistantContent = '';
     let visibleAssistantMessage: Message | null = null;
     let visibleFinalized = false;
+    let latestSearchActivity: SearchActivitySummary | null = null;
 
     const appendChunk = (delta: string) => {
       latestStreamedContent += delta;
@@ -556,6 +574,33 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
           messages: draft.messages.map((m) =>
             m.id === streamingMessageId ? { ...m, content: m.content + delta } : m
           ),
+        }));
+      }
+    };
+
+    const updateSearchActivity = (activity: SearchActivitySummary) => {
+      latestSearchActivity = activity;
+
+      const applyActivity = (messages: Message[]) =>
+        messages.map((message) =>
+          message.id === streamingMessageId || message.renderId === streamingMessageId
+            ? { ...message, searchActivity: activity }
+            : message
+        );
+
+      if (effectiveSelection.kind === 'temporary') {
+        params.updateTemporaryChat(effectiveSelection.tempChatId, (chat) => ({
+          ...chat,
+          messages: applyActivity(chat.messages),
+        }));
+      } else if (effectiveSelection.kind === 'persistent') {
+        if (isSameSelectedChat(params.selectedChatRef.current, effectiveSelection)) {
+          params.setPersistentMessages((prev) => applyActivity(prev));
+        }
+      } else if (effectiveDraft) {
+        params.updateDraftChat(effectiveDraft.id, (draft) => ({
+          ...draft,
+          messages: applyActivity(draft.messages),
         }));
       }
     };
@@ -599,6 +644,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
         content,
         timestamp: new Date(),
         searchMetadata: null,
+        searchActivity: latestSearchActivity,
         previousMessageId: userMessage.id,
       };
       visibleAssistantContent = content;
@@ -730,7 +776,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
           modelId: params.selectedModelId,
           previousMessageId,
           branchSourceMessageId: branchSourceMessageId ?? undefined,
-          searchEnabled: params.searchEnabled,
+          searchMode: params.searchMode,
           timezone: getBrowserTimeZone(),
           chatMode:
             effectiveSelection.kind === 'temporary' ? 'temporary' : 'persistent',
@@ -751,6 +797,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
       }
 
       const data = await readChatStream(response, appendChunk, {
+        onSearchActivity: updateSearchActivity,
         onTextEnd: (content) => {
           const canApplyTemporaryResponse =
             canApplyTemporaryResponseForSelection(effectiveSelection);
@@ -777,6 +824,11 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
       });
 
       const finalSearchMetadata = data.search?.metadata ?? null;
+      const finalSearchActivity =
+        data.searchActivity
+        ?? (finalSearchMetadata?.version === 2
+          ? finalSearchMetadata.activity ?? latestSearchActivity
+          : latestSearchActivity);
       const visibleContent = visibleAssistantContent || latestStreamedContent;
       const assistantMessage: Message = {
         id:
@@ -788,6 +840,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
         content: data.message ?? visibleContent,
         timestamp: new Date(),
         searchMetadata: null,
+        searchActivity: finalSearchActivity,
         previousMessageId: userMessage.id,
       };
 

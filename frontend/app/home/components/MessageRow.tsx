@@ -8,6 +8,7 @@ import type { InlineThreadMarker } from '@/app/home/components/threadTypes';
 import type { Message } from '@/app/home/types';
 import { markdownContentClassName } from '@/lib/markdown';
 import { hasUsableSearchSources } from '@/lib/search-citations';
+import type { SearchActivityEvent } from '@/lib/search/types';
 import SourceFavicon from '@/app/home/components/SourceFavicon';
 
 interface MessageRowProps {
@@ -25,6 +26,37 @@ interface MessageRowProps {
   onSourcesToggle: (messageId: string, sourceId: number) => void;
   onThreadClick: (thread: InlineThreadMarker) => void;
   onTraySourceSelect: (messageId: string, sourceId: number) => void;
+}
+
+function searchActivityEventLabel(event: SearchActivityEvent) {
+  switch (event.type) {
+    case 'planning_started':
+      return event.label;
+    case 'search_decision_started':
+      return event.label;
+    case 'search_decision_completed':
+      return event.shouldSearch
+        ? `Auto search: ${event.reason}`
+        : `Auto skipped search: ${event.reason}`;
+    case 'search_skipped':
+      return event.label;
+    case 'plan_selected':
+      return `Planned search for ${event.resolvedIntent}`;
+    case 'prior_sources_checked':
+      return event.reusedCount > 0
+        ? `Checked prior sources and reused ${event.reusedCount}`
+        : 'Checked prior sources';
+    case 'search_started':
+      return `Searched: ${event.query}`;
+    case 'relevance_checked':
+      return event.reason;
+    case 'search_completed':
+      return event.collapsedLabel;
+    default: {
+      const exhaustiveCheck: never = event;
+      return exhaustiveCheck;
+    }
+  }
 }
 
 function MessageRow({
@@ -45,6 +77,18 @@ function MessageRow({
 }: MessageRowProps) {
   const replySearchMetadata =
     message.role === 'assistant' ? message.searchMetadata ?? null : null;
+  const searchActivity =
+    message.role === 'assistant'
+      ? message.searchActivity
+        ?? (replySearchMetadata?.version === 2 ? replySearchMetadata.activity ?? null : null)
+      : null;
+  const searchActivityLabel = searchActivity?.collapsedLabel ?? null;
+  const searchActivitySteps =
+    searchActivity?.events
+      .map(searchActivityEventLabel)
+      .filter((label, index, labels) => label && labels.indexOf(label) === index)
+    ?? [];
+  const canExpandSearchActivity = searchActivitySteps.length > 1;
   const hasSources = hasUsableSearchSources(replySearchMetadata);
   const handleCitationClick = useCallback(
     (sourceId: number) => onCitationClick(message.id, sourceId),
@@ -94,6 +138,32 @@ function MessageRow({
             })}
           </span>
         </div>
+
+        {searchActivityLabel && (
+          <div
+            className="mt-2 font-sans text-xs text-muted/70"
+            onPointerUp={(event) => event.stopPropagation()}
+          >
+            {canExpandSearchActivity ? (
+              <details className="group">
+                <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 rounded-md py-0.5 text-muted/80 transition-colors hover:text-foreground">
+                  <span>{searchActivityLabel}</span>
+                  <span className="text-muted/45 transition group-open:rotate-90">&gt;</span>
+                </summary>
+                <ol className="mt-1.5 space-y-1 pl-3 text-muted/60">
+                  {searchActivitySteps.map((step, index) => (
+                    <li key={`${index}-${step}`} className="list-decimal pl-1">
+                      {step}
+                    </li>
+                  ))}
+                </ol>
+              </details>
+            ) : (
+              <span>{searchActivityLabel}</span>
+            )}
+          </div>
+        )}
+
         <div
           data-message-content="true"
           className={`${markdownContentClassName} mt-2 text-base leading-relaxed text-foreground`}
