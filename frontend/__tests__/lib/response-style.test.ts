@@ -57,11 +57,11 @@ describe('response style', () => {
     expect(buildResponseStylePrompt({ length: 'concise', level: 'familiar', sessionNote: '' }))
       .toContain('Answer in 1 to 2 sentences.');
     expect(buildResponseStylePrompt({ length: 'brief', level: 'familiar', sessionNote: '' }))
-      .toContain('Answer in 1 to 2 short paragraphs.');
+      .toContain('Answer directly with concise, skimmable prose');
     expect(buildResponseStylePrompt({ length: 'detailed', level: 'familiar', sessionNote: '' }))
       .toContain('Use a focused teaching style');
     expect(buildResponseStylePrompt({ length: 'deep', level: 'familiar', sessionNote: '' }))
-      .toContain('Give a comprehensive study answer');
+      .toContain('Give a deeper, high-signal response');
   });
 
   it('calibrates assumed familiarity across the four level stops', () => {

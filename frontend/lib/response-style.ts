@@ -45,11 +45,11 @@ const LENGTH_GUIDANCE: Record<ResponseStyleLength, string> = {
   concise:
     'Answer in 1 to 2 sentences. Skip setup, broad caveats, and examples unless the answer would be unclear without one.',
   brief:
-    'Answer in 1 to 2 short paragraphs. Give the direct answer plus just enough context or reasoning to make it useful.',
+    'Answer directly with concise, skimmable prose. Use short paragraphs or only minimal structure when it helps clarity.',
   detailed:
     'Use a focused teaching style with structure, examples, caveats, or steps when they materially improve understanding.',
   deep:
-    'Give a comprehensive study answer with context, mechanisms, examples, tradeoffs, edge cases, caveats, and useful connections.',
+    'Give a deeper, high-signal response with useful context, tradeoffs, edge cases, and practical caveats; stay focused and avoid unnecessary length.',
 };
 
 const LEVEL_GUIDANCE: Record<ResponseStyleLevel, string> = {
@@ -65,9 +65,9 @@ const LEVEL_GUIDANCE: Record<ResponseStyleLevel, string> = {
 
 export const RESPONSE_STYLE_LENGTH_DESCRIPTIONS: Record<ResponseStyleLength, string> = {
   concise: '1-2 sentences',
-  brief: '1-2 short paragraphs',
+  brief: 'Concise and skimmable',
   detailed: 'Structured explanation',
-  deep: 'Comprehensive study mode',
+  deep: 'In-depth but focused',
 };
 
 export const RESPONSE_STYLE_LEVEL_DESCRIPTIONS: Record<ResponseStyleLevel, string> = {
