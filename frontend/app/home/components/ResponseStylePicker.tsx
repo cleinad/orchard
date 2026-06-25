@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import {
   DEFAULT_RESPONSE_STYLE,
   RESPONSE_STYLE_LENGTH_DESCRIPTIONS,
@@ -28,14 +28,66 @@ interface ResponseStylePickerProps {
   onChange: (value: ResponseStyle) => void;
 }
 
-function getOptionIndex<T extends string>(options: readonly T[], value: T) {
-  const index = options.indexOf(value);
-  return index >= 0 ? index : 0;
+interface SegmentGroupProps<T extends string> {
+  id: string;
+  label: string;
+  value: T;
+  options: readonly T[];
+  labels: Record<T, string>;
+  descriptions: Record<T, string>;
+  onChange: (value: T) => void;
 }
 
-function getSliderProgress<T extends string>(options: readonly T[], value: T) {
-  const index = getOptionIndex(options, value);
-  return `${(index / (options.length - 1)) * 100}%`;
+function SegmentGroup<T extends string>({
+  id,
+  label,
+  value,
+  options,
+  labels,
+  descriptions,
+  onChange,
+}: SegmentGroupProps<T>) {
+  return (
+    <fieldset className="space-y-2">
+      <div className="flex items-start justify-between gap-4">
+        <span
+          id={id}
+          className="shrink-0 text-[12px] font-semibold leading-4 text-foreground"
+        >
+          {label}
+        </span>
+        <p className="min-w-0 text-right text-[11px] leading-4 text-foreground/55">
+          {descriptions[value]}
+        </p>
+      </div>
+
+      <div
+        role="group"
+        aria-labelledby={id}
+        className="grid grid-cols-4 gap-1 rounded-xl border border-border-subtle bg-surface/75 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.55)] dark:shadow-none"
+      >
+        {options.map((option) => {
+          const selected = value === option;
+
+          return (
+            <button
+              key={option}
+              type="button"
+              aria-pressed={selected}
+              onClick={() => onChange(option)}
+              className={`relative h-9 min-w-0 rounded-lg px-1.5 text-center text-[11px] font-semibold leading-none transition ${
+                selected
+                  ? 'bg-background text-foreground shadow-[0_1px_6px_rgba(15,23,42,0.10)] ring-1 ring-black/[0.04] dark:ring-white/[0.08]'
+                  : 'text-foreground/52 hover:bg-background/70 hover:text-foreground'
+              }`}
+            >
+              <span className="block truncate">{labels[option]}</span>
+            </button>
+          );
+        })}
+      </div>
+    </fieldset>
+  );
 }
 
 export default function ResponseStylePicker({
@@ -99,19 +151,6 @@ export default function ResponseStylePicker({
     setShowSessionNote(false);
   };
 
-  const lengthSliderStyle = {
-    '--response-style-progress': getSliderProgress(
-      RESPONSE_STYLE_LENGTH_OPTIONS,
-      value.length
-    ),
-  } as CSSProperties;
-  const levelSliderStyle = {
-    '--response-style-progress': getSliderProgress(
-      RESPONSE_STYLE_LEVEL_OPTIONS,
-      value.level
-    ),
-  } as CSSProperties;
-
   return (
     <>
       <button
@@ -123,7 +162,7 @@ export default function ResponseStylePicker({
         aria-haspopup="dialog"
         onClick={togglePopover}
         disabled={disabled}
-        className={`inline-flex h-8 min-w-[6.75rem] max-w-[8.5rem] items-center justify-between gap-2 rounded-full border px-3 text-left font-sans font-medium transition sm:min-w-[8.5rem] ${
+        className={`inline-flex h-8 min-w-[6.75rem] max-w-[8.5rem] items-center justify-between gap-2 rounded-lg border px-3 text-left font-sans font-medium transition sm:min-w-[8.5rem] ${
           isOpen || active
             ? 'border-foreground/[0.08] bg-foreground/[0.055] text-foreground'
             : 'border-transparent bg-background text-foreground/88 hover:bg-foreground/[0.035] hover:text-foreground'
@@ -160,11 +199,16 @@ export default function ResponseStylePicker({
           setIsOpen(toggleEvent.newState === 'open');
         }}
       >
-        <div className="w-[min(22rem,calc(100vw-1rem))] rounded-2xl bg-background p-4 font-sans text-foreground shadow-[0_16px_36px_rgba(15,23,42,0.12)] ring-1 ring-black/[0.06] dark:shadow-[0_18px_40px_rgba(0,0,0,0.28)] dark:ring-white/[0.06]">
+        <div className="w-[min(23rem,calc(100vw-1rem))] rounded-2xl bg-background p-4 font-sans text-foreground shadow-[0_16px_36px_rgba(15,23,42,0.12)] ring-1 ring-black/[0.06] dark:shadow-[0_18px_40px_rgba(0,0,0,0.28)] dark:ring-white/[0.06]">
           <div className="flex items-center justify-between gap-4">
-            <p className="text-[13px] font-semibold leading-5 text-foreground">
-              Response style
-            </p>
+            <div>
+              <p className="text-[13px] font-semibold leading-5 text-foreground">
+                Response style
+              </p>
+              <p className="mt-0.5 text-[11px] leading-4 text-foreground/50">
+                {summary}
+              </p>
+            </div>
             {active && (
               <button
                 type="button"
@@ -176,106 +220,26 @@ export default function ResponseStylePicker({
             )}
           </div>
 
-          <div className="mt-4 space-y-5">
-            <div className="space-y-2">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <label
-                    id={lengthId}
-                    className="text-[12px] font-semibold leading-4 text-foreground"
-                  >
-                    Length
-                  </label>
-                  <p className="mt-0.5 text-[11px] leading-4 text-foreground/55">
-                    {RESPONSE_STYLE_LENGTH_DESCRIPTIONS[value.length]}
-                  </p>
-                </div>
-                <span className="text-[13px] font-semibold leading-5 text-foreground">
-                  {RESPONSE_STYLE_LENGTH_LABELS[value.length]}
-                </span>
-              </div>
-              <input
-                type="range"
-                min={0}
-                max={RESPONSE_STYLE_LENGTH_OPTIONS.length - 1}
-                step={1}
-                value={getOptionIndex(RESPONSE_STYLE_LENGTH_OPTIONS, value.length)}
-                aria-labelledby={lengthId}
-                className="response-style-slider"
-                style={lengthSliderStyle}
-                onChange={(event) => {
-                  updateLength(
-                    RESPONSE_STYLE_LENGTH_OPTIONS[Number(event.currentTarget.value)]
-                  );
-                }}
-              />
-              <div className="grid grid-cols-4 gap-1.5 text-center text-[11px] font-medium text-foreground/55">
-                {RESPONSE_STYLE_LENGTH_OPTIONS.map((option) => (
-                  <button
-                    key={option}
-                    type="button"
-                    onClick={() => updateLength(option)}
-                    className={`h-7 truncate rounded-md px-1 transition-colors ${
-                      value.length === option
-                        ? 'font-semibold text-foreground'
-                        : 'hover:bg-foreground/[0.035] hover:text-foreground'
-                    }`}
-                  >
-                    {RESPONSE_STYLE_LENGTH_LABELS[option]}
-                  </button>
-                ))}
-              </div>
-            </div>
+          <div className="mt-4 space-y-4">
+            <SegmentGroup
+              id={lengthId}
+              label="Length"
+              value={value.length}
+              options={RESPONSE_STYLE_LENGTH_OPTIONS}
+              labels={RESPONSE_STYLE_LENGTH_LABELS}
+              descriptions={RESPONSE_STYLE_LENGTH_DESCRIPTIONS}
+              onChange={updateLength}
+            />
 
-            <div className="space-y-2">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <label
-                    id={levelId}
-                    className="text-[12px] font-semibold leading-4 text-foreground"
-                  >
-                    Level
-                  </label>
-                  <p className="mt-0.5 text-[11px] leading-4 text-foreground/55">
-                    {RESPONSE_STYLE_LEVEL_DESCRIPTIONS[value.level]}
-                  </p>
-                </div>
-                <span className="text-[13px] font-semibold leading-5 text-foreground">
-                  {RESPONSE_STYLE_LEVEL_LABELS[value.level]}
-                </span>
-              </div>
-              <input
-                type="range"
-                min={0}
-                max={RESPONSE_STYLE_LEVEL_OPTIONS.length - 1}
-                step={1}
-                value={getOptionIndex(RESPONSE_STYLE_LEVEL_OPTIONS, value.level)}
-                aria-labelledby={levelId}
-                className="response-style-slider"
-                style={levelSliderStyle}
-                onChange={(event) => {
-                  updateLevel(
-                    RESPONSE_STYLE_LEVEL_OPTIONS[Number(event.currentTarget.value)]
-                  );
-                }}
-              />
-              <div className="grid grid-cols-4 gap-1.5 text-center text-[11px] font-medium text-foreground/55">
-                {RESPONSE_STYLE_LEVEL_OPTIONS.map((option) => (
-                  <button
-                    key={option}
-                    type="button"
-                    onClick={() => updateLevel(option)}
-                    className={`h-7 truncate rounded-md px-1 transition-colors ${
-                      value.level === option
-                        ? 'font-semibold text-foreground'
-                        : 'hover:bg-foreground/[0.035] hover:text-foreground'
-                    }`}
-                  >
-                    {RESPONSE_STYLE_LEVEL_LABELS[option]}
-                  </button>
-                ))}
-              </div>
-            </div>
+            <SegmentGroup
+              id={levelId}
+              label="Level"
+              value={value.level}
+              options={RESPONSE_STYLE_LEVEL_OPTIONS}
+              labels={RESPONSE_STYLE_LEVEL_LABELS}
+              descriptions={RESPONSE_STYLE_LEVEL_DESCRIPTIONS}
+              onChange={updateLevel}
+            />
 
             <div className="border-t border-border-subtle pt-3.5">
               {showSessionNote ? (
