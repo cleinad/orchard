@@ -103,6 +103,14 @@ async function selectTextInMessage(page, messageId, text) {
   if (!selected) {
     throw new Error(`Could not select "${text}" inside message ${messageId}`);
   }
+
+  await page.waitForFunction(
+    (expectedText) => {
+      const popover = document.querySelector('[data-testid="selection-popover"]');
+      return popover?.textContent?.includes(expectedText);
+    },
+    text
+  );
 }
 
 async function hasPersistentSelectionHighlight(page) {

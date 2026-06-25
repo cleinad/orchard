@@ -55,6 +55,7 @@ export function getChatModelListItems(): ChatModelListItem[] {
     provider: option.provider,
     available: isModelConfigured(option),
     isDefault: option.id === defaultModelId,
+    supportsImages: option.supportsImages,
   }));
 }
 
@@ -82,6 +83,7 @@ export function resolveChatModelSelection(
     label: option.label,
     provider: option.provider,
     apiModelId: option.apiModelId,
+    supportsImages: option.supportsImages,
   };
 }
 

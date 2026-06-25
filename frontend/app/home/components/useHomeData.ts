@@ -2,6 +2,10 @@ import { useCallback, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { MentorListItem } from '@/lib/mentors/types';
 import { parsePersistedSearchMetadata } from '@/lib/search-citations';
+import {
+  type ChatImageAttachment,
+  type ChatImageMimeType,
+} from '@/lib/chat-attachments';
 import type {
   BranchSelectionMap,
   ConversationBranch,
@@ -218,6 +222,51 @@ export function useHomeData() {
       searchMetadata: parsePersistedSearchMetadata(message.search_metadata),
       previousMessageId: message.previous_message_id ?? null,
     }));
+
+    const messageIds = nextMessages.map((message) => message.id);
+    if (messageIds.length > 0) {
+      const { data: attachmentRows, error: attachmentsError } = await supabase
+        .from('message_attachments')
+        .select('id, message_id, storage_path, file_name, mime_type, size_bytes, width, height')
+        .in('message_id', messageIds)
+        .order('position', { ascending: true });
+
+      if (!attachmentsError && attachmentRows && attachmentRows.length > 0) {
+        const rows = attachmentRows as Array<{
+          id: string;
+          message_id: string;
+          storage_path: string;
+          file_name: string;
+          mime_type: ChatImageMimeType;
+          size_bytes: number;
+          width: number | null;
+          height: number | null;
+        }>;
+        const attachmentsByMessageId = new Map<string, ChatImageAttachment[]>();
+
+        for (const row of rows) {
+          const existing = attachmentsByMessageId.get(row.message_id) || [];
+          existing.push({
+            id: row.id,
+            messageId: row.message_id,
+            storagePath: row.storage_path,
+            fileName: row.file_name,
+            mimeType: row.mime_type,
+            sizeBytes: row.size_bytes,
+            width: row.width,
+            height: row.height,
+            url: `/api/chat/images/${row.id}`,
+          });
+          attachmentsByMessageId.set(row.message_id, existing);
+        }
+
+        for (const message of nextMessages) {
+          message.attachments = attachmentsByMessageId.get(message.id) || [];
+        }
+      } else if (attachmentsError) {
+        console.error('Failed to load message attachments:', attachmentsError);
+      }
+    }
 
     const { data: branchRows, error: branchesError } = await supabase
       .from('conversation_branches')

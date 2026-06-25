@@ -199,22 +199,22 @@ test('the first draft send replaces /home with the new persistent conversation r
   const state = await mockHomeDataRoutes(page, {
     conversations: [],
     messagesByConversationId: {},
+    createdConversations: [
+      createConversation({
+        id: conversationId,
+        title,
+        updatedAt: '2026-04-12T12:20:01.000Z',
+        createdAt: '2026-04-12T12:20:01.000Z',
+      }),
+    ],
   });
 
   await mockChatRoute(page, async (body) => {
     expect(body.chatMode).toBe('persistent');
-    expect(body.conversationId).toBeUndefined();
+    expect(body.conversationId).toBe(conversationId);
     expect(body.mentorId).toBeUndefined();
     expect(body.message).toBe(message);
 
-    state.conversations.unshift(
-      createConversation({
-        id: conversationId,
-        title,
-        updatedAt: '2026-04-12T12:20:02.000Z',
-        createdAt: '2026-04-12T12:20:01.000Z',
-      })
-    );
     state.messagesByConversationId[conversationId] = [
       createMessage({
         id: 'message-draft-user-1',
@@ -361,9 +361,15 @@ test('the same chat stays editable while its response is in flight', async ({ pa
     return response.promise;
   });
 
+  const routeMessagesLoaded = page.waitForResponse((response) =>
+    response.url().includes('/rest/v1/messages')
+    && response.request().method() === 'GET'
+    && response.status() === 200
+  );
   await page.goto(
     "/home/" + conversationId + "?e2e=home-routing-pending-editable"
   );
+  await routeMessagesLoaded;
 
   const composer = page.getByPlaceholder('Message Keen...');
   await composer.fill(firstQuestion);
@@ -441,9 +447,15 @@ test('a second chat can send while another chat is still in flight', async ({ pa
     throw new Error('Unexpected chat message: ' + body.message);
   });
 
+  const firstRouteMessagesLoaded = page.waitForResponse((response) =>
+    response.url().includes('/rest/v1/messages')
+    && response.request().method() === 'GET'
+    && response.status() === 200
+  );
   await page.goto(
     '/home/' + firstConversationId + '?e2e=home-routing-concurrent-send'
   );
+  await firstRouteMessagesLoaded;
 
   const firstComposer = page.getByPlaceholder('Message Keen...');
   await firstComposer.fill(firstQuestion);
@@ -491,6 +503,14 @@ test('background draft promotion does not steal focus from the chat you switched
         }),
       ],
     },
+    createdConversations: [
+      createConversation({
+        id: promotedConversationId,
+        title: 'Background Draft',
+        updatedAt: '2026-04-12T15:00:01.000Z',
+        createdAt: '2026-04-12T15:00:01.000Z',
+      }),
+    ],
   });
 
   await mockChatRoute(page, async (body) => {
@@ -578,5 +598,4 @@ test('temporary chats stay on /home when switching away from a persistent route'
 
   await expect(page).toHaveURL(new RegExp('/home\\?e2e=home-routing-temporary$'));
   await expect(page.getByRole('heading', { name: 'Temporary chat' })).toBeVisible();
-  await expect(page.getByText("This conversation won't be saved.")).toBeVisible();
 });

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { marketingBackdropStyle } from "@/lib/marketing-backdrop";
 
 export default function Home() {
@@ -7,18 +8,18 @@ export default function Home() {
 
       <div className="relative z-10 flex min-h-[100dvh] flex-col px-6 pb-10 pt-7 sm:px-10 sm:pt-9 lg:px-14">
         <header className="flex w-full items-center justify-between">
-          <a
+          <Link
             href="/"
             className="font-heading text-[1.4rem] tracking-[-0.04em] text-neutral-900"
           >
             Keen
-          </a>
-          <a
+          </Link>
+          <Link
             href="/login"
             className="font-sans text-sm text-neutral-600 transition hover:text-neutral-900"
           >
             Log in
-          </a>
+          </Link>
         </header>
 
         <main className="flex flex-1 items-center justify-center">
@@ -33,12 +34,12 @@ export default function Home() {
               understanding over time without restarting from scratch.
             </p>
             <div className="mt-10">
-              <a
+              <Link
                 href="/home"
                 className="inline-flex items-center justify-center rounded-full bg-neutral-900 px-6 py-3 font-sans text-sm text-white transition hover:opacity-90"
               >
                 Start exploring
-              </a>
+              </Link>
             </div>
           </section>
         </main>

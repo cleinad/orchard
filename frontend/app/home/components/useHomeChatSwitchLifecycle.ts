@@ -19,6 +19,7 @@ interface UseHomeChatSwitchLifecycleParams {
   clearPendingChatRequestForSelection: (selection: SelectedChat) => void;
   clearResponseStyleForSelection: (selection: SelectedChat | null) => void;
   clearSearchStateForSelection: (selection: SelectedChat | null) => void;
+  cleanupTemporaryChatAttachments: (tempChatId: string) => void;
   composerDraftInputsRef: MutableRefObject<Record<string, string>>;
   endProgrammaticTranscriptNavigation: () => void;
   registerCloseTempChatCleanup: (fn: (tempChatId: string) => void) => void;
@@ -45,6 +46,7 @@ export function useHomeChatSwitchLifecycle({
   clearPendingChatRequestForSelection,
   clearResponseStyleForSelection,
   clearSearchStateForSelection,
+  cleanupTemporaryChatAttachments,
   composerDraftInputsRef,
   endProgrammaticTranscriptNavigation,
   registerCloseTempChatCleanup,
@@ -145,6 +147,7 @@ export function useHomeChatSwitchLifecycle({
 
   useEffect(() => {
     registerCloseTempChatCleanup((tempChatId: string) => {
+      cleanupTemporaryChatAttachments(tempChatId);
       const closedSelection: SelectedChat = { kind: 'temporary', tempChatId };
       clearComposerInputForSelection(closedSelection);
       clearResponseStyleForSelection(closedSelection);
@@ -156,6 +159,7 @@ export function useHomeChatSwitchLifecycle({
     clearPendingChatRequestForSelection,
     clearResponseStyleForSelection,
     clearSearchStateForSelection,
+    cleanupTemporaryChatAttachments,
     registerCloseTempChatCleanup,
   ]);
 }
