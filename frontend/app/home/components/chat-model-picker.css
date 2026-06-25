@@ -20,13 +20,95 @@
     overlay 160ms allow-discrete;
 }
 
+.response-style-picker-popover {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  border: none;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  transform-origin: top right;
+  position-area: bottom;
+  justify-self: anchor-end;
+  position-try-fallbacks: flip-block flip-inline;
+  margin-top: 6px;
+  opacity: 0;
+  transform: translateY(-3px) scale(0.99);
+  transition:
+    opacity 160ms ease,
+    transform 160ms ease,
+    display 160ms allow-discrete,
+    overlay 160ms allow-discrete;
+}
+
 .chat-model-picker-popover:popover-open {
   opacity: 1;
   transform: translateY(0) scale(1);
 }
 
+.response-style-picker-popover:popover-open {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.response-style-slider {
+  width: 100%;
+  height: 1rem;
+  appearance: none;
+  cursor: pointer;
+  background: transparent;
+}
+
+.response-style-slider::-webkit-slider-runnable-track {
+  height: 0.25rem;
+  border-radius: 999px;
+  background:
+    linear-gradient(
+      to right,
+      color-mix(in srgb, currentColor 58%, transparent) 0 var(--response-style-progress),
+      color-mix(in srgb, currentColor 12%, transparent) var(--response-style-progress) 100%
+    );
+}
+
+.response-style-slider::-webkit-slider-thumb {
+  width: 1rem;
+  height: 1rem;
+  appearance: none;
+  margin-top: -0.375rem;
+  border: 1px solid color-mix(in srgb, currentColor 16%, transparent);
+  border-radius: 999px;
+  background: var(--color-background, Canvas);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.16);
+}
+
+.response-style-slider::-moz-range-track {
+  height: 0.25rem;
+  border-radius: 999px;
+  background:
+    linear-gradient(
+      to right,
+      color-mix(in srgb, currentColor 58%, transparent) 0 var(--response-style-progress),
+      color-mix(in srgb, currentColor 12%, transparent) var(--response-style-progress) 100%
+    );
+}
+
+.response-style-slider::-moz-range-thumb {
+  width: 1rem;
+  height: 1rem;
+  border: 1px solid color-mix(in srgb, currentColor 16%, transparent);
+  border-radius: 999px;
+  background: var(--color-background, Canvas);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.16);
+}
+
 @starting-style {
   .chat-model-picker-popover:popover-open {
+    opacity: 0;
+    transform: translateY(-3px) scale(0.99);
+  }
+
+  .response-style-picker-popover:popover-open {
     opacity: 0;
     transform: translateY(-3px) scale(0.99);
   }
