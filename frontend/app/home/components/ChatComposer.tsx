@@ -1,6 +1,7 @@
 import type { FormEventHandler, KeyboardEventHandler, RefObject } from 'react';
 import Tooltip from '@/app/components/Tooltip';
 import ChatModelPicker from '@/app/home/components/ChatModelPicker';
+import ResponseStylePicker from '@/app/home/components/ResponseStylePicker';
 import type { MicStatus } from '@/app/home/components/useMicrophone';
 import type { TranscriptStatus } from '@/app/home/components/useTranscription';
 import type { TemporaryMemoryMode } from '@/lib/chat-session';
@@ -8,6 +9,7 @@ import {
   type ChatModelId,
   type ChatModelListItem,
 } from '@/lib/chat-models';
+import type { ResponseStyle } from '@/lib/response-style';
 
 interface ChatComposerProps {
   activeName: string;
@@ -15,10 +17,10 @@ interface ChatComposerProps {
   input: string;
   isLoading: boolean;
   micActive: boolean;
+  responseStyle: ResponseStyle;
   selectedModelId: ChatModelId;
   ttsEnabled: boolean;
   searchEnabled: boolean;
-  learningMode: boolean;
   temporaryChatEnabled: boolean;
   showTemporaryIntro: boolean;
   temporaryMemoryMode: TemporaryMemoryMode;
@@ -36,10 +38,11 @@ interface ChatComposerProps {
   waveformContainerRef: RefObject<HTMLDivElement | null>;
   onInputChange: (value: string) => void;
   onModelChange: (modelId: ChatModelId) => void;
+  onResponseStyleChange: (value: ResponseStyle) => void;
+  // Voice controls are hidden for now, but the wiring stays in place for later cleanup or restoration.
   onToggleMic: () => void;
   onToggleTts: () => void;
   onToggleSearch: () => void;
-  onToggleLearningMode: () => void;
   onTemporaryMemoryModeChange: (mode: TemporaryMemoryMode) => void;
   onSubmit: FormEventHandler<HTMLFormElement>;
   onKeyDown: KeyboardEventHandler<HTMLTextAreaElement>;
@@ -62,10 +65,9 @@ export default function ChatComposer({
   input,
   isLoading,
   micActive,
+  responseStyle,
   selectedModelId,
-  ttsEnabled,
   searchEnabled,
-  learningMode,
   temporaryChatEnabled,
   showTemporaryIntro,
   temporaryMemoryMode,
@@ -83,10 +85,8 @@ export default function ChatComposer({
   waveformContainerRef,
   onInputChange,
   onModelChange,
-  onToggleMic,
-  onToggleTts,
+  onResponseStyleChange,
   onToggleSearch,
-  onToggleLearningMode,
   onTemporaryMemoryModeChange,
   onSubmit,
   onKeyDown,
@@ -215,38 +215,11 @@ export default function ChatComposer({
               onKeyDown={onKeyDown}
               placeholder={micActive ? 'Listening...' : `Message ${activeName}...`}
               rows={1}
-              className="composer-scrollbar w-full min-h-10 min-w-0 resize-none bg-transparent pl-3 pr-[5.5rem] py-2.5 font-sans text-sm leading-relaxed text-foreground placeholder-muted/50 outline-none disabled:cursor-not-allowed disabled:opacity-50 overflow-y-auto"
+              className="composer-scrollbar w-full min-h-10 min-w-0 resize-none bg-transparent pl-3 pr-12 py-2.5 font-sans text-sm leading-relaxed text-foreground placeholder-muted/50 outline-none disabled:cursor-not-allowed disabled:opacity-50 overflow-y-auto"
               style={{ maxHeight: '200px' }}
             />
 
-            {/* Buttons pinned to bottom-right, so scrollbar sits to their left at the far right of the card */}
-            <div className="absolute bottom-1.5 right-2 flex flex-none items-center gap-2">
-              <button
-                type="button"
-                onClick={onToggleMic}
-                disabled={isLoading}
-                aria-label={micActive ? 'Stop microphone' : 'Start microphone'}
-                className={`flex h-9 w-9 items-center justify-center rounded-md border p-0 transition-colors ${
-                  micActive
-                    ? 'border-foreground/[0.10] bg-foreground/[0.05] text-foreground'
-                    : 'border-transparent text-muted hover:border-foreground/[0.08] hover:bg-foreground/[0.04] hover:text-foreground/70'
-                } disabled:cursor-not-allowed disabled:opacity-50`}
-              >
-                <svg
-                  className="h-4 w-4"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z"
-                  />
-                </svg>
-              </button>
-
+            <div className="absolute bottom-1.5 right-2 flex flex-none items-center">
               <button
                 type="submit"
                 disabled={!input.trim() || isLoading}
@@ -269,58 +242,8 @@ export default function ChatComposer({
             </div>
           </div>
 
-          <div className="mt-1.5 flex items-center justify-between gap-3 px-1">
+          <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2 px-1">
             <div className="flex items-center gap-1.5">
-              <Tooltip
-                content={
-                  ttsEnabled
-                    ? 'Voice — Text-to-speech for responses'
-                    : 'Voice — Currently off'
-                }
-                side="bottom"
-              >
-                <button
-                  type="button"
-                  aria-pressed={ttsEnabled}
-                  aria-label={ttsEnabled ? 'Voice on' : 'Voice off'}
-                  onClick={onToggleTts}
-                  className={`flex h-7 w-7 items-center justify-center rounded-md border transition-colors ${
-                    ttsEnabled
-                      ? 'border-foreground/[0.10] bg-foreground/[0.05] text-foreground'
-                      : 'border-border-subtle text-muted hover:bg-foreground/[0.04] hover:text-foreground/70'
-                  }`}
-                >
-                  <svg
-                    className="h-3.5 w-3.5"
-                    fill={ttsEnabled ? 'currentColor' : 'none'}
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    viewBox="0 0 24 24"
-                  >
-                    {ttsEnabled ? (
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M11.25 5.25L6.75 9H4.5v6h2.25l4.5 3.75V5.25zm4.5 4.5a4.5 4.5 0 010 4.5m2.25-6.75a7.5 7.5 0 010 9"
-                      />
-                    ) : (
-                      <>
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M11.25 5.25L6.75 9H4.5v6h2.25l4.5 3.75V5.25z"
-                        />
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M15.75 9.75l4.5 4.5m0-4.5l-4.5 4.5"
-                        />
-                      </>
-                    )}
-                  </svg>
-                </button>
-              </Tooltip>
-
               <Tooltip
                 content={
                   searchEnabled
@@ -355,49 +278,20 @@ export default function ChatComposer({
                   </svg>
                 </button>
               </Tooltip>
-
-              <Tooltip
-                content={
-                  learningMode
-                    ? 'Learning mode on'
-                    : 'Learning mode off'
-                }
-                side="bottom"
-              >
-                <button
-                  type="button"
-                  aria-pressed={learningMode}
-                  aria-label={learningMode ? 'Learning mode on' : 'Learning mode off'}
-                  onClick={onToggleLearningMode}
-                  className={`flex h-7 w-7 items-center justify-center rounded-md border transition-colors ${
-                    learningMode
-                      ? 'border-foreground/[0.10] bg-foreground/[0.05] text-foreground'
-                      : 'border-border-subtle text-muted hover:bg-foreground/[0.04] hover:text-foreground/70'
-                  }`}
-                >
-                  <svg
-                    className="h-3.5 w-3.5"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"
-                    />
-                  </svg>
-                </button>
-              </Tooltip>
             </div>
 
-            <ChatModelPicker
-              chatModels={chatModels}
-              selectedModelId={selectedModelId}
-              disabled={!hasAvailableChatModels}
-              onChange={onModelChange}
-            />
+            <div className="ml-auto flex min-w-0 items-center gap-1.5">
+              <ResponseStylePicker
+                value={responseStyle}
+                onChange={onResponseStyleChange}
+              />
+              <ChatModelPicker
+                chatModels={chatModels}
+                selectedModelId={selectedModelId}
+                disabled={!hasAvailableChatModels}
+                onChange={onModelChange}
+              />
+            </div>
           </div>
 
           {searchWarning && (
