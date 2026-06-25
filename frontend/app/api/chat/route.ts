@@ -25,6 +25,10 @@ import {
   stripCitationMarkers,
   stripInvalidCitationMarkers,
 } from '@/lib/search-citations';
+import {
+  buildResponseStylePrompt,
+  sanitizeResponseStyle,
+} from '@/lib/response-style';
 import { runSearchPipeline } from '@/lib/search/pipeline';
 import { createSearchTelemetry } from '@/lib/search/telemetry';
 import { buildMentorPrompt } from '@/lib/mentors/prompts';
@@ -39,13 +43,13 @@ import {
   sanitizeGeneratedChatTitle,
 } from '@/lib/chat-session';
 
-const BASE_SYSTEM_PROMPT = `You are Keen, a thinking partner. You explain things to the user with precision, accuracy and understandability.
+const BASE_SYSTEM_PROMPT = `You are Keen, a thinking partner. You explain things to the user with precision, accuracy, and understandability.
 
 Core traits:
-- You remember context from the conversation and reference it if the user brings up the same/similar topic, you don't force a connection.
-- You're concise but substantive. No fluff, no generic advice. Go deep.
-
-Be thorough with responses, when the user is diving deeper into topics give more detailed, precise answers, beyond scratching the surface.`;
+- You remember context from the conversation and reference it only if the user brings up the same or a closely related topic.
+- You do not force connections to prior conversation context or memory.
+- You avoid fluff, generic advice, and unnecessary preamble.
+- You match the requested response style and the user's assumed familiarity for the current chat.`;
 
 const MEMORY_USE_POLICY = `Use memory only when it directly improves the answer: continuing an existing thread or project, applying a known preference or constraint, resolving ambiguity, or avoiding asking for context the user already gave.
 Do not use memory to personalize examples, make analogies, or connect the current topic to unrelated interests unless the user asks for that kind of connection.
@@ -76,6 +80,7 @@ interface ChatRequest {
   startOffset?: number;
   endOffset?: number;
   searchEnabled?: boolean;
+  responseStyle?: unknown;
   timezone?: string;
   chatMode?: ChatMode;
   memoryMode?: TemporaryMemoryMode;
@@ -359,6 +364,7 @@ export async function POST(request: NextRequest) {
       startOffset,
       endOffset,
       searchEnabled = false,
+      responseStyle: responseStyleFromBody,
       timezone,
       chatMode = 'persistent',
       memoryMode: memoryModeFromBody,
@@ -372,6 +378,7 @@ export async function POST(request: NextRequest) {
       (isTemporaryChat ? DEFAULT_TEMPORARY_MEMORY_MODE : 'use_existing');
     const sanitizedHistory = sanitizeHistoryMessages(history, 50);
     const sanitizedThreadHistory = sanitizeHistoryMessages(threadHistory, 30);
+    const responseStyle = sanitizeResponseStyle(responseStyleFromBody);
 
     if (!message?.trim()) {
       return NextResponse.json(
@@ -550,7 +557,7 @@ export async function POST(request: NextRequest) {
 
     let latestUserMessageId: string | null = null;
     let effectivePreviousMessageId = normalizedPreviousMessageId;
-    let branchSourceForMessage = normalizedBranchSourceMessageId;
+    const branchSourceForMessage = normalizedBranchSourceMessageId;
     let materializedMainBranch = false;
     let existingMainContinuationId: string | null = null;
     let existingBranchPositions: number[] = [];
@@ -829,7 +836,7 @@ export async function POST(request: NextRequest) {
         const groundedSystemPrompt = persistedSearchMetadata
           ? buildGroundedSearchSystemPrompt(baseSystemPrompt, persistedSearchMetadata)
           : baseSystemPrompt;
-        finalSystemPrompt = `${groundedSystemPrompt}\n\nReply directly in 2 to 4 sentences. Do not return an empty response.`;
+        finalSystemPrompt = `${groundedSystemPrompt}\n\nReply directly. Do not return an empty response.`;
       } catch (error) {
         searchTelemetry.logPipelineFailed({
           durationMs: Date.now() - searchStartedAt,
@@ -845,7 +852,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    finalSystemPrompt = `${finalSystemPrompt}\n\n${RESPONSE_FORMATTING_PROMPT}`;
+    finalSystemPrompt = `${finalSystemPrompt}\n\n${buildResponseStylePrompt(responseStyle)}\n\n${RESPONSE_FORMATTING_PROMPT}`;
 
     // Capture loop variables for use inside onFinish (which runs asynchronously after the stream closes).
     const capturedSearch = search;

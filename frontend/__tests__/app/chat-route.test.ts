@@ -443,6 +443,71 @@ describe('chat route memory contract', () => {
     );
   });
 
+  it('adds response style guidance to answer generation', async () => {
+    const { response } = await runChatRequest({
+      message: 'Explain eigenvectors',
+      chatMode: 'temporary',
+      responseStyle: {
+        length: 'deep',
+        level: 'new',
+        sessionNote: 'Give examples in every response.',
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(mockStreamText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        system: expect.stringContaining('Length: Deep'),
+      })
+    );
+    expect(mockStreamText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        system: expect.stringContaining('Level: New'),
+      })
+    );
+    expect(mockStreamText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        system: expect.stringContaining('Give examples in every response.'),
+      })
+    );
+  });
+
+  it('passes concrete concise length guidance through to the model prompt', async () => {
+    const { response } = await runChatRequest({
+      message: 'Define entropy',
+      chatMode: 'temporary',
+      responseStyle: {
+        length: 'concise',
+        level: 'fluent',
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(mockStreamText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        system: expect.stringContaining('Answer in 1 to 2 sentences.'),
+      })
+    );
+    expect(mockStreamText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        system: expect.stringContaining('comfortable operating in the domain'),
+      })
+    );
+  });
+
+  it('does not keep the old hardcoded deep-answer bias in the base prompt', async () => {
+    const { response } = await runChatRequest({
+      message: 'Hello',
+      chatMode: 'temporary',
+    });
+
+    expect(response.status).toBe(200);
+    const systemPrompt = mockStreamText.mock.calls.at(-1)?.[0]?.system as string;
+    expect(systemPrompt).not.toContain('Go deep');
+    expect(systemPrompt).not.toContain('Be thorough with responses');
+    expect(systemPrompt).toContain('You do not force connections');
+  });
+
   it('retries with generateText when the streamed response is empty', async () => {
     mockStreamText.mockImplementation(({ onFinish }: { onFinish?: (result: { text: string }) => Promise<void> }) => {
       return {
