@@ -38,6 +38,7 @@ import {
 } from '@/lib/chat-session';
 import { getBrowserTimeZone } from '@/lib/browser-timezone';
 import { stripCitationMarkers } from '@/lib/search-citations';
+import type { ChatModelEffortLevel } from '@/lib/chat-models';
 
 export interface ChatResponse {
   message?: string;
@@ -312,6 +313,8 @@ interface MainChatRuntimeParams {
   selectedChatRef: MutableRefObject<SelectedChat | null>;
   selectedDraftChat: PersistentDraftChat | null;
   selectedModelId: string;
+  selectedModelEffort: ChatModelEffortLevel | null;
+  thinkingEnabled: boolean | null;
   selectedTemporaryChat: TemporaryChatSession | null;
   setDraftChats: Dispatch<SetStateAction<PersistentDraftChat[]>>;
   setListError: (error: string | null) => void;
@@ -728,6 +731,12 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
               ? undefined
               : effectiveSelection.mentorId ?? undefined,
           modelId: params.selectedModelId,
+          ...(params.selectedModelEffort
+            ? { modelEffort: params.selectedModelEffort }
+            : {}),
+          ...(params.thinkingEnabled !== null
+            ? { thinkingEnabled: params.thinkingEnabled }
+            : {}),
           previousMessageId,
           branchSourceMessageId: branchSourceMessageId ?? undefined,
           searchEnabled: params.searchEnabled,

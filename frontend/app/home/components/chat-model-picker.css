@@ -6,13 +6,14 @@
   padding: 0;
   background: transparent;
   color: inherit;
-  transform-origin: top right;
-  position-area: bottom;
-  justify-self: anchor-end;
-  position-try-fallbacks: flip-block flip-inline;
-  margin-top: 6px;
+  max-height: none;
+  max-width: none;
+  overflow: visible;
+  right: var(--chat-model-picker-right, 8px);
+  bottom: var(--chat-model-picker-bottom, 8px);
+  transform-origin: bottom right;
   opacity: 0;
-  transform: translateY(-3px) scale(0.99);
+  transform: translateY(3px) scale(0.99);
   transition:
     opacity 160ms ease,
     transform 160ms ease,
@@ -28,6 +29,23 @@
 @starting-style {
   .chat-model-picker-popover:popover-open {
     opacity: 0;
-    transform: translateY(-3px) scale(0.99);
+    transform: translateY(3px) scale(0.99);
   }
+}
+
+.chat-model-picker-panels {
+  position: relative;
+  width: min(18rem, calc(100vw - 1rem));
+}
+
+.chat-model-effort-panel {
+  position: absolute;
+  top: var(--chat-model-effort-top, 0);
+  left: calc(100% + 4px);
+  width: var(--chat-model-effort-width, 15rem);
+}
+
+.chat-model-picker-popover[data-effort-placement="left"] .chat-model-effort-panel {
+  right: calc(100% + 4px);
+  left: auto;
 }

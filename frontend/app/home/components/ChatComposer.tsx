@@ -5,8 +5,11 @@ import type { MicStatus } from '@/app/home/components/useMicrophone';
 import type { TranscriptStatus } from '@/app/home/components/useTranscription';
 import type { TemporaryMemoryMode } from '@/lib/chat-session';
 import {
+  type ChatModelEffortOverrides,
+  type ChatModelEffortLevel,
   type ChatModelId,
   type ChatModelListItem,
+  type ChatModelThinkingOverrides,
 } from '@/lib/chat-models';
 
 interface ChatComposerProps {
@@ -16,6 +19,8 @@ interface ChatComposerProps {
   isLoading: boolean;
   micActive: boolean;
   selectedModelId: ChatModelId;
+  modelEffortOverrides: ChatModelEffortOverrides;
+  thinkingEnabledOverrides: ChatModelThinkingOverrides;
   ttsEnabled: boolean;
   searchEnabled: boolean;
   learningMode: boolean;
@@ -36,6 +41,8 @@ interface ChatComposerProps {
   waveformContainerRef: RefObject<HTMLDivElement | null>;
   onInputChange: (value: string) => void;
   onModelChange: (modelId: ChatModelId) => void;
+  onModelEffortChange: (modelId: ChatModelId, effort: ChatModelEffortLevel) => void;
+  onThinkingEnabledChange: (modelId: ChatModelId, enabled: boolean) => void;
   onToggleMic: () => void;
   onToggleTts: () => void;
   onToggleSearch: () => void;
@@ -63,6 +70,8 @@ export default function ChatComposer({
   isLoading,
   micActive,
   selectedModelId,
+  modelEffortOverrides,
+  thinkingEnabledOverrides,
   ttsEnabled,
   searchEnabled,
   learningMode,
@@ -83,6 +92,8 @@ export default function ChatComposer({
   waveformContainerRef,
   onInputChange,
   onModelChange,
+  onModelEffortChange,
+  onThinkingEnabledChange,
   onToggleMic,
   onToggleTts,
   onToggleSearch,
@@ -395,8 +406,12 @@ export default function ChatComposer({
             <ChatModelPicker
               chatModels={chatModels}
               selectedModelId={selectedModelId}
+              modelEffortOverrides={modelEffortOverrides}
+              thinkingEnabledOverrides={thinkingEnabledOverrides}
               disabled={!hasAvailableChatModels}
               onChange={onModelChange}
+              onEffortChange={onModelEffortChange}
+              onThinkingEnabledChange={onThinkingEnabledChange}
             />
           </div>
 
