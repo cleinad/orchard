@@ -42,6 +42,7 @@ import {
   type TemporaryMemoryMode,
 } from '@/lib/chat-session';
 import { getBrowserTimeZone } from '@/lib/browser-timezone';
+import type { ResponseStyle } from '@/lib/response-style';
 
 interface UseInlineThreadRuntimeParams {
   activeConversationId: string | null;
@@ -58,6 +59,7 @@ interface UseInlineThreadRuntimeParams {
   selectedChat: SelectedChat | null;
   selectedChatRef: MutableRefObject<SelectedChat | null>;
   selectedModelId: string;
+  responseStyle: ResponseStyle;
   selectedTemporaryChat: TemporaryChatSession | null;
   setPersistentThreadRuntimes: Dispatch<SetStateAction<PersistentThreadRuntimeRecord>>;
   setPersistentThreadsMap: Dispatch<SetStateAction<Map<string, ThreadMeta[]>>>;
@@ -85,6 +87,7 @@ export function useInlineThreadRuntime({
   selectedChat,
   selectedChatRef,
   selectedModelId,
+  responseStyle,
   selectedTemporaryChat,
   setPersistentThreadRuntimes,
   setPersistentThreadsMap,
@@ -391,6 +394,7 @@ export function useInlineThreadRuntime({
                 ? undefined
                 : params.selection.mentorId ?? undefined,
             modelId: selectedModelId,
+            responseStyle,
             sourceMessageId: params.source.sourceMessageId,
             highlightedText: params.source.highlightedText,
             startOffset: params.source.startOffset,
@@ -471,6 +475,7 @@ export function useInlineThreadRuntime({
       activeMessages,
       activeTemporaryMemoryMode,
       persistThreadResult,
+      responseStyle,
       selectedModelId,
       threadSessionsRef,
       updateThreadSession,
