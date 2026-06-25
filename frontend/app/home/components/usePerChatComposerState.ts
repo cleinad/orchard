@@ -29,7 +29,6 @@ export function usePerChatComposerState({
     Record<string, SearchMode>
   >(() => ({ ...searchModesSessionStore }));
   const composerDraftInputsRef = useRef<Record<string, string>>({});
-  const previousComposerStateKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     composerDraftInputsRef.current = composerDraftInputsByChatKey;
@@ -39,35 +38,6 @@ export function usePerChatComposerState({
   const input = composerDraftInputsByChatKey[activeComposerStateKey] ?? '';
   const activeSearchState = searchStatesByChatKey[activeComposerStateKey] ?? null;
   const activeSearchMode = searchModesByChatKey[activeComposerStateKey] ?? 'auto';
-
-  useEffect(() => {
-    const previousKey = previousComposerStateKeyRef.current;
-    previousComposerStateKeyRef.current = activeComposerStateKey;
-
-    if (
-      !previousKey
-      || previousKey === activeComposerStateKey
-      || (
-        !previousKey.startsWith('blank:')
-        && !previousKey.startsWith('draft:')
-      )
-    ) {
-      return;
-    }
-
-    setSearchModesByChatKey((prev) => {
-      const previousMode = prev[previousKey];
-      if (!previousMode || prev[activeComposerStateKey]) {
-        return prev;
-      }
-
-      const next = { ...prev, [activeComposerStateKey]: previousMode };
-      delete next[previousKey];
-      searchModesSessionStore[activeComposerStateKey] = previousMode;
-      delete searchModesSessionStore[previousKey];
-      return next;
-    });
-  }, [activeComposerStateKey]);
 
   const setInputForSelection = useCallback(
     (nextSelection: SelectedChat | null, value: string) => {
