@@ -61,6 +61,7 @@ import type { TemporaryMemoryMode } from '@/lib/chat-session';
 const TTS_STORAGE_KEY = 'keen-tts-enabled';
 const CHAT_MODEL_STORAGE_KEY = 'keen-chat-model';
 const COMPOSER_DRAFT_INPUTS_STORAGE_KEY = 'keen-home-composer-draft-inputs-v1';
+const RESPONSE_STYLE_STORAGE_KEY = 'keen-home-response-styles-v1';
 const PERSISTENT_THREAD_RUNTIME_STORAGE_KEY = 'keen-persistent-thread-runtime-v1';
 const TEMP_CHAT_TITLE = 'Temporary chat';
 
@@ -105,7 +106,7 @@ function HomePageInner() {
   const [currentMapMessageId, setCurrentMapMessageId] = useState<string | null>(null);
   const [isDesktopViewport, setIsDesktopViewport] = useState(false);
 
-  const { learningMode, toggleLearningMode } = useLearningMode();
+  const { learningMode } = useLearningMode();
   const { isOpen: sidePanelOpen } = useSidePanel();
 
   useEffect(() => {
@@ -170,6 +171,9 @@ function HomePageInner() {
     stopMic: stopVoiceCapture,
     toggleTtsEnabled,
   } = useHomeVoice(TTS_STORAGE_KEY);
+  // Voice controls are hidden for now; keep the underlying wiring dormant until the feature is revisited.
+  const voiceControlsEnabled = false;
+  const voiceOutputEnabled = voiceControlsEnabled && ttsEnabled;
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -209,15 +213,20 @@ function HomePageInner() {
       : null
   );
   const {
+    activeResponseStyle,
     activeSearchState,
     composerDraftInputsRef,
     input,
     clearInputForSelection: clearComposerInputForSelection,
+    clearResponseStyleForSelection,
     clearSearchStateForSelection,
+    moveResponseStyleBetweenSelections,
     resetAllComposerState,
     setInputForSelection: setComposerInputForSelection,
+    setResponseStyleForSelection,
     setSearchStateForSelection,
   } = usePerChatComposerState({
+    responseStyleStorageKey: RESPONSE_STYLE_STORAGE_KEY,
     storageKey: COMPOSER_DRAFT_INPUTS_STORAGE_KEY,
     selection: composerStateSelection,
   });
@@ -428,6 +437,7 @@ function HomePageInner() {
   useHomeChatSwitchLifecycle({
     clearComposerInputForSelection,
     clearPendingChatRequestForSelection,
+    clearResponseStyleForSelection,
     clearSearchStateForSelection,
     composerDraftInputsRef,
     endProgrammaticTranscriptNavigation,
@@ -468,6 +478,7 @@ function HomePageInner() {
     selectedChat,
     selectedChatRef,
     selectedModelId,
+    responseStyle: activeResponseStyle,
     selectedTemporaryChat,
     setPersistentThreadRuntimes,
     setPersistentThreadsMap,
@@ -532,6 +543,7 @@ function HomePageInner() {
     isHomeE2eFixture,
     loadConversationMessages,
     movePendingChatRequestBetweenSelections,
+    moveResponseStyleBetweenSelections,
     pendingBranch,
     pendingChatRequestsRef,
     persistentBranches,
@@ -539,6 +551,7 @@ function HomePageInner() {
     persistentSelectedBranchIds,
     persistentSelectedBranchIdsRef,
     refreshSidebarData,
+    responseStyle: activeResponseStyle,
     searchEnabled,
     selectedChat,
     selectedChatRef,
@@ -562,7 +575,7 @@ function HomePageInner() {
     tempChatTitle: TEMP_CHAT_TITLE,
     transcription,
     tts,
-    ttsEnabled,
+    ttsEnabled: voiceOutputEnabled,
     updateDraftChat,
     updateTemporaryChat,
   });
@@ -699,10 +712,10 @@ function HomePageInner() {
           input={input}
           isLoading={isLoading}
           micActive={micActive}
+          responseStyle={activeResponseStyle}
           selectedModelId={selectedModelId}
-          ttsEnabled={ttsEnabled}
+          ttsEnabled={voiceOutputEnabled}
           searchEnabled={searchEnabled}
-          learningMode={learningMode}
           temporaryChatEnabled={isTemporaryChat}
           showTemporaryIntro={isTemporaryChat && activeMessages.length === 0}
           temporaryMemoryMode={activeTemporaryMemoryMode}
@@ -720,10 +733,12 @@ function HomePageInner() {
           waveformContainerRef={visualization.visualRef}
           onInputChange={(value) => setComposerInputForSelection(composerStateSelection, value)}
           onModelChange={setSelectedModelId}
+          onResponseStyleChange={(value) =>
+            setResponseStyleForSelection(composerStateSelection, value)
+          }
           onToggleMic={toggleMic}
           onToggleTts={toggleTtsEnabled}
           onToggleSearch={() => setSearchEnabled((prev) => !prev)}
-          onToggleLearningMode={toggleLearningMode}
           onTemporaryMemoryModeChange={updateSelectedTemporaryMemoryMode}
           onSubmit={handleSubmit}
           onKeyDown={handleKeyDown}
