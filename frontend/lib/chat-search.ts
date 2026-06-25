@@ -7,8 +7,19 @@ import type { SearchPipelineOutput } from '@/lib/search/types';
 
 export type { PersistedSearchMetadata } from '@/lib/search-citations';
 
-export const SEARCH_MODES = ['off', 'required'] as const;
+export const SEARCH_MODES = ['auto', 'required', 'off'] as const;
 export type SearchMode = (typeof SEARCH_MODES)[number];
+export type SearchSkipReason = 'mode_off' | 'auto_decision';
+export type SearchFreshnessRisk = 'none' | 'low' | 'medium' | 'high';
+
+export interface SearchDecision {
+  shouldSearch: boolean;
+  reason: string;
+  confidence: number;
+  freshnessRisk: SearchFreshnessRisk;
+  provider?: string;
+  providerModelId?: string;
+}
 
 export type SearchStatus = 'not_attempted' | SearchAttemptStatus;
 
@@ -19,6 +30,8 @@ export interface SearchMetadata {
   resultCount: number;
   warning: string | null;
   metadata: PersistedSearchMetadata | null;
+  decision?: SearchDecision;
+  skippedReason?: SearchSkipReason;
 }
 
 function getSearchWarning(
@@ -87,6 +100,20 @@ export function createSearchMetadataFromPersisted(
 
 export function createNotAttemptedSearchMetadata(searchMode: SearchMode): SearchMetadata {
   return createSearchMetadataFromPersisted(searchMode, null);
+}
+
+export function withSearchDebugMetadata(
+  metadata: SearchMetadata,
+  debug: {
+    decision?: SearchDecision | null;
+    skippedReason?: SearchSkipReason | null;
+  }
+): SearchMetadata {
+  return {
+    ...metadata,
+    ...(debug.decision ? { decision: debug.decision } : {}),
+    ...(debug.skippedReason ? { skippedReason: debug.skippedReason } : {}),
+  };
 }
 
 export function createSearchMetadataFromOutput(

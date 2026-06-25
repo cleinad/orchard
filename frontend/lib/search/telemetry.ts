@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import type { SearchMode } from '@/lib/chat-search';
 import type {
   SearchPipelineOutput,
   SearchPipelineStatus,
@@ -12,7 +13,7 @@ const MAX_QUERY_PREVIEW_LENGTH = 120;
 type SearchTelemetryLogger = Pick<Console, 'error' | 'info'>;
 
 export interface SearchTelemetry {
-  logRequestStarted(details: { searchMode: 'required' }): void;
+  logRequestStarted(details: { searchMode: SearchMode }): void;
   logRouteSelected(route: SearchRoute): void;
   logProviderFinished(details: {
     provider: SearchProvider;

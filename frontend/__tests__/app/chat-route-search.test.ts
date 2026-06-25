@@ -116,6 +116,12 @@ vi.mock('@/lib/memory-agent', () => ({
 
 vi.mock('@/lib/models', () => ({
   getChatModel: vi.fn(() => 'mock-chat-model'),
+  getSearchPlannerModel: vi.fn(() => null),
+  getSearchDecisionModelConfig: vi.fn(() => ({
+    primary: null,
+    fallback: null,
+  })),
+  SEARCH_PLANNER_MODEL_ID: 'qwen/qwen-2.5-7b-instruct',
   resolveChatModelSelection: vi.fn(() => ({
     id: 'gpt-5.4',
     provider: 'openai',
@@ -235,7 +241,7 @@ describe('chat route search citations', () => {
     vi.setSystemTime(new Date('2026-01-02T03:04:05.000Z'));
 
     const { response, body, tracker } = await runChatRequest(
-      { message: 'Help me brainstorm names', timezone: 'America/Vancouver' },
+      { message: 'Help me brainstorm names', searchMode: 'off', timezone: 'America/Vancouver' },
       {
         conversations: {
           rows: [],
@@ -261,6 +267,38 @@ describe('chat route search citations', () => {
       search_metadata?: unknown;
     };
     expect(assistantInsert.search_metadata).toBeNull();
+  });
+
+  it('defaults missing search mode to auto and skips search when the decision says no', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-02T03:04:05.000Z'));
+
+    const { response, body } = await runChatRequest(
+      { message: 'Help me brainstorm names', timezone: 'America/Vancouver' },
+      {
+        conversations: {
+          rows: [],
+          returnOnMutate: [{ id: 'conv-1' }],
+        },
+        messages: {
+          rows: [{ role: 'user', content: 'Help me brainstorm names', search_metadata: null }],
+          returnOnMutate: [{ id: 'msg-user-1' }, { id: 'msg-assistant-1' }],
+        },
+      }
+    );
+
+    expect(response.status).toBe(200);
+    expect(body.search).toMatchObject({
+      mode: 'auto',
+      attempted: false,
+      status: 'not_attempted',
+      metadata: null,
+      decision: {
+        shouldSearch: false,
+      },
+      skippedReason: 'auto_decision',
+    });
+    expect(mockRunSearchPipeline).not.toHaveBeenCalled();
   });
 
   it('persists normalized search metadata and strips invalid citations for required mode', async () => {
@@ -295,6 +333,7 @@ describe('chat route search citations', () => {
 
     expect(response.status).toBe(200);
     expect(body.search).toMatchObject({
+      mode: 'required',
       attempted: true,
       status: 'success',
       resultCount: 2,
@@ -375,5 +414,103 @@ describe('chat route search citations', () => {
       })
     );
     expect(mockGenerateObject).not.toHaveBeenCalled();
+  });
+
+  it('searches resolved contextual follow-up queries and records the final query', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-16T12:00:00.000Z'));
+    mockRunSearchPipeline.mockImplementationOnce(async (query: string) => ({
+      status: 'success',
+      profile: 'fresh_web',
+      query,
+      providers: ['brave'],
+      results: [
+        {
+          title: 'Iran war ceasefire talks continue',
+          url: 'https://example.com/iran-war-ceasefire',
+          domain: 'example.com',
+          snippet: 'Latest current status on Iran war ceasefire negotiations.',
+          provider: 'brave',
+          sourceType: 'news',
+          publishedAt: '2026-06-16T00:00:00.000Z',
+        },
+      ],
+    }));
+
+    const { response, body } = await runChatRequest({
+      message: 'what about now?',
+      searchEnabled: true,
+      chatMode: 'temporary',
+      timezone: 'America/Vancouver',
+      history: [
+        {
+          role: 'user',
+          content: 'what is happening in Iran? did the war end?',
+        },
+        {
+          role: 'assistant',
+          content: 'I do not have live search enabled for that.',
+        },
+      ],
+    });
+
+    const plannedQuery = mockRunSearchPipeline.mock.calls[0]?.[0];
+
+    expect(response.status).toBe(200);
+    expect(plannedQuery).toContain('Iran war');
+    expect(plannedQuery).toContain('ceasefire');
+    expect(plannedQuery).not.toBe('what about now?');
+    expect(body.search).toMatchObject({
+      attempted: true,
+      status: 'success',
+      metadata: {
+        query: plannedQuery,
+        sources: [
+          expect.objectContaining({
+            title: 'Iran war ceasefire talks continue',
+          }),
+        ],
+      },
+    });
+  });
+
+  it('plans today follow-up searches using the user timezone date', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-17T01:00:00.000Z'));
+    mockRunSearchPipeline.mockImplementationOnce(async (query: string) => ({
+      status: 'success',
+      profile: 'fresh_web',
+      query,
+      providers: ['brave'],
+      results: [
+        {
+          title: 'OpenAI model release updates',
+          url: 'https://example.com/openai-model-release',
+          domain: 'example.com',
+          snippet: 'Latest updates on the OpenAI model release.',
+          provider: 'brave',
+          sourceType: 'news',
+          publishedAt: '2026-06-16T23:00:00.000Z',
+        },
+      ],
+    }));
+
+    const { response } = await runChatRequest({
+      message: 'what happened today?',
+      searchEnabled: true,
+      chatMode: 'temporary',
+      timezone: 'America/Vancouver',
+      history: [
+        {
+          role: 'user',
+          content: 'Can you track the OpenAI model release?',
+        },
+      ],
+    });
+
+    expect(response.status).toBe(200);
+    expect(mockRunSearchPipeline.mock.calls[0]?.[0]).toBe(
+      'today 2026-06-16 track OpenAI model release latest updates'
+    );
   });
 });

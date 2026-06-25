@@ -105,6 +105,67 @@ describe('search citations helpers', () => {
     });
   });
 
+  it('preserves persisted search activity and source origin', () => {
+    const metadata = createPersistedSearchMetadataV2({
+      status: 'success',
+      profile: 'fresh_web',
+      query: 'latest Iran ceasefire current status',
+      queries: ['latest Iran ceasefire current status'],
+      resolvedIntent: 'Find the current status of Iran ceasefire talks.',
+      topicEntities: ['Iran', 'ceasefire'],
+      activity: {
+        collapsedLabel: 'Searched Iran ceasefire talks across 2 sources',
+        events: [
+          {
+            type: 'search_started',
+            query: 'latest Iran ceasefire current status',
+            attempt: 1,
+          },
+          {
+            type: 'search_completed',
+            sourceCount: 2,
+            collapsedLabel: 'Searched Iran ceasefire talks across 2 sources',
+          },
+        ],
+      },
+      providers: ['brave'],
+      results: [
+        {
+          title: 'Prior source',
+          url: 'https://example.com/prior',
+          domain: 'example.com',
+          snippet: 'Prior source snippet',
+          provider: 'brave',
+          sourceType: 'news',
+          publishedAt: null,
+          origin: 'prior',
+        },
+      ],
+    });
+
+    expect(parsePersistedSearchMetadata(metadata)).toMatchObject({
+      version: 2,
+      activity: {
+        collapsedLabel: 'Searched Iran ceasefire talks across 2 sources',
+        events: [
+          expect.objectContaining({
+            type: 'search_started',
+            query: 'latest Iran ceasefire current status',
+          }),
+          expect.objectContaining({
+            type: 'search_completed',
+            sourceCount: 2,
+          }),
+        ],
+      },
+      sources: [
+        expect.objectContaining({
+          origin: 'prior',
+        }),
+      ],
+    });
+  });
+
   it('parses valid persisted search metadata and rejects malformed values', () => {
     expect(parsePersistedSearchMetadata(legacySearchMetadata)).toEqual(legacySearchMetadata);
     expect(parsePersistedSearchMetadata(searchMetadata)).toEqual(searchMetadata);

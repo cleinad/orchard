@@ -35,12 +35,12 @@ function makeCandidate(
 
 describe('search pipeline', () => {
   it('retrieves providers in parallel and preserves both provider families for research routes', async () => {
-    const braveSearch = vi.fn(async (_route: SearchRoute) =>
+    const braveSearch = vi.fn(async () =>
       makeProviderResult('brave', {
         results: [makeCandidate({ url: 'https://openai.com/pricing', domain: 'openai.com', sourceType: 'official', authorityScoreHint: 3 })],
       })
     );
-    const exaSearch = vi.fn(async (_route: SearchRoute) =>
+    const exaSearch = vi.fn(async () =>
       makeProviderResult('exa', {
         results: [makeCandidate({ provider: 'exa', url: 'https://arxiv.org/abs/1234', domain: 'arxiv.org', sourceType: 'research', authorityScoreHint: 3 })],
       })
@@ -223,6 +223,135 @@ describe('search pipeline', () => {
     expect(result.results[0]).toMatchObject({
       domain: 'pubmed.ncbi.nlm.nih.gov',
       sourceType: 'research',
+    });
+  });
+
+  it('re-searches once when the first result set is off-topic', async () => {
+    const braveSearch = vi.fn(async (route: SearchRoute) => {
+      if (braveSearch.mock.calls.length === 1) {
+        return makeProviderResult('brave', {
+          results: [
+            makeCandidate({
+              title: 'What About Now Lyrics',
+              url: 'https://genius.com/example/what-about-now-lyrics',
+              domain: 'genius.com',
+              snippet: 'Lyrics for the song What About Now.',
+              sourceType: 'news',
+            }),
+            makeCandidate({
+              title: 'What About Now official video',
+              url: 'https://youtube.com/watch?v=123',
+              domain: 'youtube.com',
+              snippet: 'Music video and album stream.',
+              sourceType: 'video',
+            }),
+          ],
+        });
+      }
+
+      expect(route.query).toContain('Iran war');
+      expect(route.query).toContain('-lyrics');
+
+      return makeProviderResult('brave', {
+        results: [
+          makeCandidate({
+            title: 'Iran war ceasefire talks continue',
+            url: 'https://example.com/iran-war-ceasefire',
+            domain: 'example.com',
+            snippet: 'Latest current status on Iran war ceasefire negotiations.',
+            sourceType: 'news',
+          }),
+        ],
+      });
+    });
+
+    const result = await runSearchPipeline('latest Iran war ceasefire current status', {
+      braveSearch,
+    });
+
+    expect(braveSearch).toHaveBeenCalledTimes(2);
+    expect(result.query).toContain('-lyrics');
+    expect(result.results).toHaveLength(1);
+    expect(result.results[0]).toMatchObject({
+      title: 'Iran war ceasefire talks continue',
+    });
+  });
+
+  it('does not retry when visible results are relevant', async () => {
+    const braveSearch = vi.fn(async () =>
+      makeProviderResult('brave', {
+        results: [
+          makeCandidate({
+            title: 'Iran war ceasefire talks continue',
+            url: 'https://example.com/iran-war-ceasefire',
+            domain: 'example.com',
+            snippet: 'Latest current status on Iran war ceasefire negotiations.',
+            sourceType: 'news',
+          }),
+        ],
+      })
+    );
+
+    const result = await runSearchPipeline('latest Iran war ceasefire current status', {
+      braveSearch,
+    });
+
+    expect(braveSearch).toHaveBeenCalledTimes(1);
+    expect(result.query).toBe('latest Iran war ceasefire current status');
+    expect(result.results[0]).toMatchObject({
+      title: 'Iran war ceasefire talks continue',
+    });
+  });
+
+  it('does not repair literal standalone queries without freshness intent', async () => {
+    const braveSearch = vi.fn(async () =>
+      makeProviderResult('brave', {
+        results: [
+          makeCandidate({
+            title: 'What About Now lyrics',
+            url: 'https://genius.com/example/what-about-now-lyrics',
+            domain: 'genius.com',
+            snippet: 'Lyrics for the song What About Now.',
+            sourceType: 'news',
+          }),
+        ],
+      })
+    );
+
+    const result = await runSearchPipeline('What About Now', {
+      braveSearch,
+    });
+
+    expect(braveSearch).toHaveBeenCalledTimes(1);
+    expect(result.query).toBe('What About Now');
+    expect(result.results[0]).toMatchObject({
+      title: 'What About Now lyrics',
+    });
+  });
+
+  it('does not retry low-overlap results without an off-topic entertainment signal', async () => {
+    const braveSearch = vi.fn(async () =>
+      makeProviderResult('brave', {
+        results: [
+          makeCandidate({
+            title: 'Ceasefire talks resume after regional escalation',
+            url: 'https://example.com/regional-ceasefire',
+            domain: 'example.com',
+            snippet: 'Diplomats met Tuesday after the latest military escalation.',
+            sourceType: 'news',
+          }),
+        ],
+      })
+    );
+
+    const result = await runSearchPipeline('latest Iran war current status', {
+      braveSearch,
+    });
+
+    expect(braveSearch).toHaveBeenCalledTimes(1);
+    expect(result.query).toBe('latest Iran war current status');
+    expect(result.results[0]).toMatchObject({
+      title: 'Ceasefire talks resume after regional escalation',
     });
   });
 });

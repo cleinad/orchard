@@ -10,13 +10,21 @@ import { createSupabaseServerClient } from '@/lib/supabase-server';
 import { loadMemoryContextV2 } from '@/lib/memory-reader';
 import { processMemoryV2 } from '@/lib/memory-agent';
 import { isChatModelId } from '@/lib/chat-models';
-import { getChatModel, resolveChatModelSelection } from '@/lib/models';
+import {
+  getChatModel,
+  getSearchDecisionModelConfig,
+  getSearchPlannerModel,
+  resolveChatModelSelection,
+  SEARCH_PLANNER_MODEL_ID,
+} from '@/lib/models';
 import {
   applySearchDisclosure,
   createFailedSearchMetadata,
   createNotAttemptedSearchMetadata,
-  createSearchMetadataFromOutput,
+  createSearchMetadataFromPersisted,
+  SEARCH_MODES,
   type SearchMode,
+  withSearchDebugMetadata,
 } from '@/lib/chat-search';
 import {
   hasUsableSearchSources,
@@ -25,6 +33,7 @@ import {
   stripCitationMarkers,
   stripInvalidCitationMarkers,
 } from '@/lib/search-citations';
+import { runConversationalSearch } from '@/lib/search/orchestrator';
 import { runSearchPipeline } from '@/lib/search/pipeline';
 import { createSearchTelemetry } from '@/lib/search/telemetry';
 import { buildMentorPrompt } from '@/lib/mentors/prompts';
@@ -76,6 +85,7 @@ interface ChatRequest {
   startOffset?: number;
   endOffset?: number;
   searchEnabled?: boolean;
+  searchMode?: SearchMode;
   timezone?: string;
   chatMode?: ChatMode;
   memoryMode?: TemporaryMemoryMode;
@@ -161,6 +171,19 @@ function formatCurrentTime(timestamp: Date, timeZone: string | null) {
   return `${values.get('year')}-${values.get('month')}-${values.get('day')} ${values.get('hour')}:${values.get('minute')} (${effectiveTimeZone})`;
 }
 
+function formatCurrentDate(timestamp: Date, timeZone: string | null) {
+  const effectiveTimeZone = timeZone ?? 'UTC';
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: effectiveTimeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(timestamp);
+  const values = new Map(parts.map((part) => [part.type, part.value]));
+
+  return `${values.get('year')}-${values.get('month')}-${values.get('day')}`;
+}
+
 function formatReplyContext(replyContext: ReplyContext) {
   const lines = [`The current time is ${replyContext.currentTime}.`];
 
@@ -216,6 +239,24 @@ ${memoryContext}
 
 function sanitizeSearchQuery(value: string) {
   return value.replace(/\s+/g, ' ').trim().slice(0, 280);
+}
+
+function resolveSearchMode({
+  searchMode,
+  searchEnabled,
+}: {
+  searchMode?: unknown;
+  searchEnabled?: unknown;
+}): SearchMode {
+  if (typeof searchMode === 'string' && SEARCH_MODES.includes(searchMode as SearchMode)) {
+    return searchMode as SearchMode;
+  }
+
+  if (searchEnabled === true) {
+    return 'required';
+  }
+
+  return 'auto';
 }
 
 function sanitizeAssistantContentForReuse(
@@ -359,6 +400,7 @@ export async function POST(request: NextRequest) {
       startOffset,
       endOffset,
       searchEnabled = false,
+      searchMode: searchModeFromBody,
       timezone,
       chatMode = 'persistent',
       memoryMode: memoryModeFromBody,
@@ -750,12 +792,16 @@ export async function POST(request: NextRequest) {
         })
       : '';
     const normalizedTimeZone = normalizeTimeZone(timezone);
+    const requestTimestamp = new Date();
     const replyContext: ReplyContext = {
-      currentTime: formatCurrentTime(new Date(), normalizedTimeZone),
+      currentTime: formatCurrentTime(requestTimestamp, normalizedTimeZone),
       userName: normalizeUserName(profile?.full_name),
     };
 
-    const searchMode: SearchMode = searchEnabled ? 'required' : 'off';
+    const searchMode = resolveSearchMode({
+      searchMode: searchModeFromBody,
+      searchEnabled,
+    });
 
     let baseSystemPrompt = isMentorConversation
       ? buildMentorSystemPrompt(
@@ -802,54 +848,6 @@ export async function POST(request: NextRequest) {
       content: messageItem.content,
     }));
 
-    // Resolve the final system prompt and search metadata before streaming begins.
-    // Search planning (which may call the LLM once) must complete before we open the stream.
-    let search = createNotAttemptedSearchMetadata(searchMode);
-    let persistedSearchMetadata: PersistedSearchMetadata | null = null;
-    let finalSystemPrompt = `${baseSystemPrompt}\n\nReply to the user's latest message directly. Do not return an empty response.`;
-
-    if (searchMode === 'required') {
-      const searchTraceId = crypto.randomUUID();
-      const searchTelemetry = createSearchTelemetry({
-        traceId: searchTraceId,
-        conversationId: activeConversationId,
-        query: message,
-      });
-      const searchStartedAt = Date.now();
-
-      searchTelemetry.logRequestStarted({ searchMode });
-
-      try {
-        const searchOutput = await runSearchPipeline(message, {
-          telemetry: searchTelemetry,
-        });
-        search = createSearchMetadataFromOutput(searchOutput, searchMode);
-        persistedSearchMetadata = search.metadata;
-
-        const groundedSystemPrompt = persistedSearchMetadata
-          ? buildGroundedSearchSystemPrompt(baseSystemPrompt, persistedSearchMetadata)
-          : baseSystemPrompt;
-        finalSystemPrompt = `${groundedSystemPrompt}\n\nReply directly in 2 to 4 sentences. Do not return an empty response.`;
-      } catch (error) {
-        searchTelemetry.logPipelineFailed({
-          durationMs: Date.now() - searchStartedAt,
-          error,
-        });
-        console.error('[chat] search pipeline failed', error);
-        search = createFailedSearchMetadata(
-          searchMode,
-          'upstream_error',
-          sanitizeSearchQuery(message) || null
-        );
-        finalSystemPrompt = `${baseSystemPrompt}\n\nLive web search is unavailable in this environment. If the question depends on fresh information, say that briefly and answer with an appropriate caveat. Do not return an empty response.`;
-      }
-    }
-
-    finalSystemPrompt = `${finalSystemPrompt}\n\n${RESPONSE_FORMATTING_PROMPT}`;
-
-    // Capture loop variables for use inside onFinish (which runs asynchronously after the stream closes).
-    const capturedSearch = search;
-    const capturedPersistedSearchMetadata = persistedSearchMetadata;
     const capturedMessages = messages;
     const shouldGenerateTitle =
       !activeThreadId &&
@@ -859,7 +857,92 @@ export async function POST(request: NextRequest) {
     // createUIMessageStream lets us pipe streamText output and send a custom
     // metadata data-part to the client once onFinish has run.
     const uiStream = createUIMessageStream({
-      execute: ({ writer }) => {
+      execute: async ({ writer }) => {
+        let search = createNotAttemptedSearchMetadata(searchMode);
+        let persistedSearchMetadata: PersistedSearchMetadata | null = null;
+        let finalSystemPrompt = `${baseSystemPrompt}\n\nReply to the user's latest message directly. Do not return an empty response.`;
+
+        if (searchMode !== 'off') {
+          const searchTraceId = crypto.randomUUID();
+          const searchStartedAt = Date.now();
+          const localDateLabel = formatCurrentDate(requestTimestamp, normalizedTimeZone);
+          const searchTelemetry = createSearchTelemetry({
+            traceId: searchTraceId,
+            conversationId: activeConversationId,
+            query: sanitizeSearchQuery(message),
+          });
+
+          searchTelemetry.logRequestStarted({ searchMode });
+
+          try {
+            const searchDecisionModelConfig = getSearchDecisionModelConfig();
+            const searchRun = await runConversationalSearch(
+              {
+                latestMessage: message,
+                messages: messages.slice(0, -1),
+                currentTime: replyContext.currentTime,
+                currentDateLabel: localDateLabel,
+                searchMode,
+              },
+              {
+                model: getSearchPlannerModel(),
+                decisionModel: searchDecisionModelConfig.primary?.model ?? null,
+                decisionProvider: searchDecisionModelConfig.primary?.provider,
+                decisionModelId: searchDecisionModelConfig.primary?.modelId,
+                fallbackDecisionModel: searchDecisionModelConfig.fallback?.model ?? null,
+                fallbackDecisionProvider: searchDecisionModelConfig.fallback?.provider,
+                fallbackDecisionModelId: searchDecisionModelConfig.fallback?.modelId,
+                plannerModelId: SEARCH_PLANNER_MODEL_ID,
+                searchPipeline: (query) => {
+                  const queryTelemetry = createSearchTelemetry({
+                    traceId: searchTraceId,
+                    conversationId: activeConversationId,
+                    query,
+                  });
+                  return runSearchPipeline(query, { telemetry: queryTelemetry });
+                },
+                activityWriter: (activity) => {
+                  writer.write({
+                    type: 'data-searchActivity',
+                    data: activity,
+                  });
+                },
+              }
+            );
+
+            search = withSearchDebugMetadata(
+              createSearchMetadataFromPersisted(searchMode, searchRun.metadata),
+              {
+                decision: searchRun.decision,
+                skippedReason: searchRun.skippedReason,
+              }
+            );
+            persistedSearchMetadata = search.metadata;
+
+            const groundedSystemPrompt = persistedSearchMetadata
+              ? buildGroundedSearchSystemPrompt(baseSystemPrompt, persistedSearchMetadata)
+              : baseSystemPrompt;
+            finalSystemPrompt = `${groundedSystemPrompt}\n\nReply directly in 2 to 4 sentences. Do not return an empty response.`;
+          } catch (error) {
+            searchTelemetry.logPipelineFailed({
+              durationMs: Date.now() - searchStartedAt,
+              error,
+            });
+            console.error('[chat] search pipeline failed', error);
+            search = createFailedSearchMetadata(
+              searchMode,
+              'upstream_error',
+              sanitizeSearchQuery(message) || null
+            );
+            persistedSearchMetadata = search.metadata;
+            finalSystemPrompt = `${baseSystemPrompt}\n\nLive web search is unavailable in this environment. If the question depends on fresh information, say that briefly and answer with an appropriate caveat. Do not return an empty response.`;
+          }
+        }
+
+        finalSystemPrompt = `${finalSystemPrompt}\n\n${RESPONSE_FORMATTING_PROMPT}`;
+        const capturedSearch = search;
+        const capturedPersistedSearchMetadata = persistedSearchMetadata;
+
         const result = streamText({
           model: chatModel,
           system: finalSystemPrompt,
@@ -890,7 +973,7 @@ export async function POST(request: NextRequest) {
             // Fall back to a static string if the model returned nothing.
             const assistantText =
               rawText ||
-              (searchMode === 'required'
+              (capturedSearch.attempted
                 ? capturedSearch.status === 'success'
                     || capturedSearch.status === 'partial'
                   ? "I found current sources for that, but I couldn't turn them into a reply. Please try again."
@@ -989,6 +1072,10 @@ export async function POST(request: NextRequest) {
                 resolvedModelId: resolvedSelection.id,
                 resolvedProvider: resolvedSelection.provider,
                 search: capturedSearch,
+                searchActivity:
+                  capturedPersistedSearchMetadata?.version === 2
+                    ? capturedPersistedSearchMetadata.activity ?? null
+                    : null,
               },
             });
           },

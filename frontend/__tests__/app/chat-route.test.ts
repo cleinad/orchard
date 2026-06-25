@@ -116,6 +116,12 @@ vi.mock('@/lib/memory-agent', () => ({
 
 vi.mock('@/lib/models', () => ({
   getChatModel: vi.fn(() => 'mock-chat-model'),
+  getSearchPlannerModel: vi.fn(() => null),
+  getSearchDecisionModelConfig: vi.fn(() => ({
+    primary: null,
+    fallback: null,
+  })),
+  SEARCH_PLANNER_MODEL_ID: 'qwen/qwen-2.5-7b-instruct',
   resolveChatModelSelection: vi.fn(() => ({
     id: 'gpt-5-mini',
     provider: 'openai',

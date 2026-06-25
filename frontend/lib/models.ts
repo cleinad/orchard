@@ -1,6 +1,6 @@
 import { anthropic } from '@ai-sdk/anthropic';
 import { google } from '@ai-sdk/google';
-import { openai } from '@ai-sdk/openai';
+import { createOpenAI, openai } from '@ai-sdk/openai';
 import {
   CHAT_MODEL_OPTIONS,
   DEFAULT_CHAT_MODEL_ID,
@@ -12,6 +12,82 @@ import {
 } from '@/lib/chat-models';
 
 export const MEMORY_MODEL = anthropic('claude-haiku-4-5-20251001');
+export const SEARCH_PLANNER_MODEL_ID =
+  process.env.SEARCH_PLANNER_MODEL || 'Qwen/Qwen2.5-3B-Instruct';
+export const QWEN_DECISION_MODEL_ID =
+  process.env.QWEN_DECISION_MODEL || 'qwen2.5-3b-instruct';
+export const QWEN_DECISION_BASE_URL =
+  process.env.QWEN_BASE_URL
+  || process.env.DASHSCOPE_BASE_URL
+  || 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1';
+
+export type SearchDecisionProvider = 'qwen' | 'openrouter';
+
+export interface SearchDecisionModelConfig {
+  model: ReturnType<ReturnType<typeof createOpenAI>>;
+  provider: SearchDecisionProvider;
+  modelId: string;
+}
+
+export function getSearchPlannerModel() {
+  const baseURL = process.env.SEARCH_PLANNER_BASE_URL;
+  const apiKey = process.env.SEARCH_PLANNER_API_KEY;
+
+  if (!baseURL || !apiKey) {
+    return null;
+  }
+
+  return createOpenAI({ baseURL, apiKey })(SEARCH_PLANNER_MODEL_ID);
+}
+
+function getOpenRouterSearchDecisionModel(): SearchDecisionModelConfig | null {
+  const model = getSearchPlannerModel();
+  return model
+    ? {
+        model,
+        provider: 'openrouter',
+        modelId: SEARCH_PLANNER_MODEL_ID,
+      }
+    : null;
+}
+
+function getQwenSearchDecisionModel(): SearchDecisionModelConfig | null {
+  const apiKey = process.env.QWEN_API_KEY || process.env.DASHSCOPE_API_KEY;
+
+  if (!apiKey) {
+    return null;
+  }
+
+  return {
+    model: createOpenAI({
+      baseURL: QWEN_DECISION_BASE_URL,
+      apiKey,
+    })(QWEN_DECISION_MODEL_ID),
+    provider: 'qwen',
+    modelId: QWEN_DECISION_MODEL_ID,
+  };
+}
+
+export function getSearchDecisionModelConfig(): {
+  primary: SearchDecisionModelConfig | null;
+  fallback: SearchDecisionModelConfig | null;
+} {
+  const openRouter = getOpenRouterSearchDecisionModel();
+
+  if (process.env.SEARCH_DECISION_PROVIDER === 'openrouter') {
+    return {
+      primary: openRouter,
+      fallback: null,
+    };
+  }
+
+  const qwen = getQwenSearchDecisionModel();
+
+  return {
+    primary: qwen ?? openRouter,
+    fallback: qwen ? openRouter : null,
+  };
+}
 
 function isModelConfigured(option: ChatModelOption) {
   return Boolean(process.env[option.envVar]);
