@@ -325,18 +325,37 @@ test('the same chat stays editable while its response is in flight', async ({ pa
     },
     chatModels: [
       {
-        id: 'gpt-5.4',
-        label: 'GPT 5.4',
+        id: 'gpt-5.5',
+        label: 'GPT-5.5',
         provider: 'openai',
+        providerLabel: 'OpenAI',
+        iconKey: 'openai',
+        description: 'Best OpenAI model for complex reasoning and coding.',
+        badge: 'Max',
         available: true,
         isDefault: true,
+        effort: {
+          levels: ['low', 'medium', 'high', 'max'],
+          defaultLevel: 'medium',
+          supportsThinkingToggle: true,
+          defaultThinkingEnabled: true,
+        },
       },
       {
         id: 'claude-sonnet-4-6',
-        label: 'Sonnet 4.6',
+        label: 'Claude Sonnet 4.6',
         provider: 'anthropic',
+        providerLabel: 'Anthropic',
+        iconKey: 'anthropic',
+        description: 'Efficient Claude model for everyday research and coding.',
         available: true,
         isDefault: false,
+        effort: {
+          levels: ['low', 'medium', 'high', 'max'],
+          defaultLevel: 'medium',
+          supportsThinkingToggle: true,
+          defaultThinkingEnabled: true,
+        },
       },
     ],
   });
@@ -378,10 +397,10 @@ test('the same chat stays editable while its response is in flight', async ({ pa
   await composer.fill(nextTurnDraft);
   await expect(composer).toHaveValue(nextTurnDraft);
 
-  const modelPicker = page.getByRole('button', { name: /Chat model: GPT 5\.4/ });
+  const modelPicker = page.getByRole('button', { name: /Chat model: GPT-5\.5/ });
   await modelPicker.click();
-  await page.getByRole('menuitemradio', { name: /Sonnet 4\.6/ }).click();
-  await expect(page.getByRole('button', { name: /Chat model: Sonnet 4\.6/ })).toBeVisible();
+  await page.getByRole('menuitemradio', { name: /Claude Sonnet 4\.6/ }).click();
+  await expect(page.getByRole('button', { name: /Chat model: Claude Sonnet 4\.6/ })).toBeVisible();
 
   response.resolve({
     message: answer,
@@ -391,6 +410,268 @@ test('the same chat stays editable while its response is in flight', async ({ pa
 
   await expect(page.getByText(answer)).toBeVisible({ timeout: 10000 });
   await expect(composer).toHaveValue(nextTurnDraft);
+});
+
+test('model effort and thinking controls are included in chat requests', async ({ page }) => {
+  const message = 'Use a higher effort setting for this.';
+  const conversationId = 'conversation-effort-controls';
+  const answer = 'Higher effort acknowledged.';
+  let requestBody = null;
+
+  await mockHomeDataRoutes(page, {
+    conversations: [],
+    messagesByConversationId: {},
+  });
+
+  await mockChatRoute(page, async (body) => {
+    requestBody = body;
+
+    return {
+      conversationId,
+      conversationTitle: 'Effort Controls',
+      userMessageId: 'message-effort-user-1',
+      assistantMessageId: 'message-effort-assistant-1',
+      message: answer,
+    };
+  });
+
+  await page.goto('/home?e2e=home-routing-effort-controls');
+
+  const modelPicker = page.getByRole('button', { name: /Chat model: GPT-5\.5/ });
+  await modelPicker.evaluate((element) => {
+    element.style.position = 'fixed';
+    element.style.right = '12px';
+    element.style.bottom = '32px';
+    element.style.zIndex = '20';
+  });
+  await modelPicker.click();
+  const triggerBox = await modelPicker.boundingBox();
+  const mainPanel = page.locator('.chat-model-picker-popover > .chat-model-picker-panels > div').first();
+  const popover = page.locator('.chat-model-picker-popover');
+  const gptModelOption = page.getByRole('menuitemradio', { name: /GPT-5\.5/ });
+  const initialPanelBox = await mainPanel.boundingBox();
+
+  expect(triggerBox).not.toBeNull();
+  expect(initialPanelBox).not.toBeNull();
+  expect(initialPanelBox.y + initialPanelBox.height).toBeLessThanOrEqual(triggerBox.y + 1);
+  expect(
+    Math.abs(
+      initialPanelBox.x + initialPanelBox.width - (triggerBox.x + triggerBox.width)
+    )
+  ).toBeLessThanOrEqual(2);
+
+  await gptModelOption.hover();
+  const panelBoxWithEffort = await mainPanel.boundingBox();
+  const effortPanel = page.locator('.chat-model-effort-panel');
+  const effortPanelBox = await effortPanel.boundingBox();
+
+  expect(panelBoxWithEffort).not.toBeNull();
+  expect(effortPanelBox).not.toBeNull();
+  await expect(popover).toHaveAttribute('data-effort-placement', 'left');
+  expect(Math.abs(panelBoxWithEffort.x - initialPanelBox.x)).toBeLessThanOrEqual(4);
+  expect(
+    Math.abs(
+      panelBoxWithEffort.x
+        + panelBoxWithEffort.width
+        - (initialPanelBox.x + initialPanelBox.width)
+    )
+  ).toBeLessThanOrEqual(4);
+  expect(effortPanelBox.x).toBeGreaterThanOrEqual(0);
+  expect(effortPanelBox.x + effortPanelBox.width).toBeLessThanOrEqual(
+    panelBoxWithEffort.x + 1
+  );
+
+  await page.keyboard.press('Escape');
+  await modelPicker.evaluate((element) => {
+    element.removeAttribute('style');
+  });
+  await modelPicker.click();
+  await page.getByRole('menuitemradio', { name: /GPT-5\.5/ }).hover();
+  await page.getByRole('menuitemradio', { name: /^High$/ }).click();
+  await page.getByRole('switch', { name: /Thinking/ }).click();
+
+  const composer = page.getByPlaceholder('Message Keen...');
+  await composer.fill(message);
+  await composer.press('Enter');
+
+  await expect(page.getByText(answer)).toBeVisible({ timeout: 10000 });
+  expect(requestBody).toEqual(
+    expect.objectContaining({
+      message,
+      modelId: 'gpt-5.5',
+      modelEffort: 'high',
+      thinkingEnabled: false,
+    })
+  );
+});
+
+test('untouched model defaults are omitted from chat requests', async ({ page }) => {
+  const message = 'Use the selected model default effort.';
+  let requestBody = null;
+
+  await mockHomeDataRoutes(page, {
+    conversations: [],
+    messagesByConversationId: {},
+    chatModels: [
+      {
+        id: 'auto',
+        label: 'Auto',
+        provider: 'auto',
+        providerLabel: 'Auto',
+        iconKey: 'auto',
+        description: 'Routes automatically.',
+        available: true,
+        isDefault: true,
+      },
+      {
+        id: 'claude-opus-4-8',
+        label: 'Claude Opus 4.8',
+        provider: 'anthropic',
+        providerLabel: 'Anthropic',
+        iconKey: 'anthropic',
+        description: 'Premium Claude model for high-stakes work.',
+        badge: 'Max',
+        available: true,
+        isDefault: false,
+        effort: {
+          levels: ['low', 'medium', 'high', 'max'],
+          defaultLevel: 'high',
+          supportsThinkingToggle: true,
+          defaultThinkingEnabled: true,
+        },
+      },
+    ],
+  });
+
+  await mockChatRoute(page, async (body) => {
+    requestBody = body;
+
+    return {
+      conversationId: 'conversation-default-effort',
+      conversationTitle: 'Default Effort',
+      userMessageId: 'message-default-effort-user-1',
+      assistantMessageId: 'message-default-effort-assistant-1',
+      message: 'Default effort preserved.',
+    };
+  });
+
+  await page.goto('/home?e2e=home-routing-default-effort');
+  await page.getByRole('button', { name: /Chat model: Auto/ }).click();
+  await page.getByRole('menuitemradio', { name: /Claude Opus 4\.8/ }).click();
+  await page.keyboard.press('Escape');
+
+  const composer = page.getByPlaceholder('Message Keen...');
+  await composer.fill(message);
+  await composer.press('Enter');
+
+  await expect(page.getByText('Default effort preserved.')).toBeVisible({
+    timeout: 10000,
+  });
+  expect(requestBody).toEqual(
+    expect.objectContaining({
+      message,
+      modelId: 'claude-opus-4-8',
+    })
+  );
+  expect(requestBody).not.toHaveProperty('modelEffort');
+  expect(requestBody).not.toHaveProperty('thinkingEnabled');
+});
+
+test('auto mode omits untouched effort and thinking overrides', async ({ page }) => {
+  const message = 'Route this automatically.';
+  let requestBody = null;
+
+  await mockHomeDataRoutes(page, {
+    conversations: [],
+    messagesByConversationId: {},
+    chatModels: [
+      {
+        id: 'auto',
+        label: 'Auto',
+        provider: 'auto',
+        providerLabel: 'Auto',
+        iconKey: 'auto',
+        description: 'Routes automatically.',
+        available: true,
+        isDefault: true,
+      },
+      {
+        id: 'deepseek-v4-pro',
+        label: 'DeepSeek V4 Pro',
+        provider: 'deepseek',
+        providerLabel: 'DeepSeek',
+        iconKey: 'deepseek',
+        description: 'Stronger DeepSeek model.',
+        badge: 'Max',
+        available: true,
+        isDefault: false,
+        effort: {
+          levels: ['low', 'medium', 'high', 'max'],
+          defaultLevel: 'high',
+          supportsThinkingToggle: true,
+          defaultThinkingEnabled: true,
+        },
+      },
+    ],
+  });
+
+  await mockChatRoute(page, async (body) => {
+    requestBody = body;
+
+    return {
+      conversationId: 'conversation-auto-default-effort',
+      conversationTitle: 'Auto Default Effort',
+      userMessageId: 'message-auto-default-effort-user-1',
+      assistantMessageId: 'message-auto-default-effort-assistant-1',
+      message: 'Auto effort preserved.',
+    };
+  });
+
+  await page.goto('/home?e2e=home-routing-auto-default-effort');
+
+  const composer = page.getByPlaceholder('Message Keen...');
+  await composer.fill(message);
+  await composer.press('Enter');
+
+  await expect(page.getByText('Auto effort preserved.')).toBeVisible({
+    timeout: 10000,
+  });
+  expect(requestBody).toEqual(
+    expect.objectContaining({
+      message,
+      modelId: 'auto',
+    })
+  );
+  expect(requestBody).not.toHaveProperty('modelEffort');
+  expect(requestBody).not.toHaveProperty('thinkingEnabled');
+});
+
+test('model effort controls use a drill-in panel on narrow viewports', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 740 });
+  await mockHomeDataRoutes(page, {
+    conversations: [],
+    messagesByConversationId: {},
+  });
+
+  await page.goto('/home?e2e=home-routing-effort-drilldown');
+
+  await page.getByRole('button', { name: /Chat model: GPT-5\.5/ }).click();
+  await page.getByRole('menuitemradio', { name: /GPT-5\.5/ }).click();
+
+  const popover = page.locator('.chat-model-picker-popover');
+  const panels = page.locator('.chat-model-picker-panels');
+  const panelsBox = await panels.boundingBox();
+
+  await expect(popover).toHaveAttribute('data-effort-mode', 'drilldown');
+  await expect(page.getByRole('button', { name: /^Models$/ })).toBeVisible();
+  await expect(page.getByText('GPT-5.5 effort')).toBeVisible();
+  await expect(page.getByRole('menu', { name: 'Model effort' })).toBeVisible();
+  await expect(page.locator('.chat-model-effort-panel')).toHaveCount(0);
+
+  expect(panelsBox).not.toBeNull();
+  expect(panelsBox.width).toBeGreaterThan(220);
+  expect(panelsBox.x).toBeGreaterThanOrEqual(0);
+  expect(panelsBox.x + panelsBox.width).toBeLessThanOrEqual(390);
 });
 
 test('a second chat can send while another chat is still in flight', async ({ page }) => {

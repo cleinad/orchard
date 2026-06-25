@@ -17,8 +17,11 @@ import type { TranscriptStatus } from '@/app/home/components/useTranscription';
 import { MAX_CHAT_IMAGE_ATTACHMENTS } from '@/lib/chat-attachments';
 import type { TemporaryMemoryMode } from '@/lib/chat-session';
 import {
+  type ChatModelEffortOverrides,
+  type ChatModelEffortLevel,
   type ChatModelId,
   type ChatModelListItem,
+  type ChatModelThinkingOverrides,
 } from '@/lib/chat-models';
 import type { ResponseStyle } from '@/lib/response-style';
 
@@ -33,6 +36,8 @@ interface ChatComposerProps {
   pendingImageAttachments: PendingChatImageAttachment[];
   responseStyle: ResponseStyle;
   selectedModelId: ChatModelId;
+  modelEffortOverrides: ChatModelEffortOverrides;
+  thinkingEnabledOverrides: ChatModelThinkingOverrides;
   ttsEnabled: boolean;
   searchEnabled: boolean;
   temporaryChatEnabled: boolean;
@@ -55,6 +60,8 @@ interface ChatComposerProps {
   onAttachImages: (files: File[]) => void;
   onRemoveImageAttachment: (id: string) => void;
   onModelChange: (modelId: ChatModelId) => void;
+  onModelEffortChange: (modelId: ChatModelId, effort: ChatModelEffortLevel) => void;
+  onThinkingEnabledChange: (modelId: ChatModelId, enabled: boolean) => void;
   onResponseStyleChange: (value: ResponseStyle) => void;
   // Voice controls are hidden for now, but the wiring stays in place for later cleanup or restoration.
   onToggleMic: () => void;
@@ -87,6 +94,8 @@ export default function ChatComposer({
   pendingImageAttachments,
   responseStyle,
   selectedModelId,
+  modelEffortOverrides,
+  thinkingEnabledOverrides,
   searchEnabled,
   temporaryChatEnabled,
   showTemporaryIntro,
@@ -108,6 +117,8 @@ export default function ChatComposer({
   onAttachImages,
   onRemoveImageAttachment,
   onModelChange,
+  onModelEffortChange,
+  onThinkingEnabledChange,
   onResponseStyleChange,
   onToggleSearch,
   onTemporaryMemoryModeChange,
@@ -452,8 +463,12 @@ export default function ChatComposer({
               <ChatModelPicker
                 chatModels={chatModels}
                 selectedModelId={selectedModelId}
+                modelEffortOverrides={modelEffortOverrides}
+                thinkingEnabledOverrides={thinkingEnabledOverrides}
                 disabled={!hasAvailableChatModels}
                 onChange={onModelChange}
+                onEffortChange={onModelEffortChange}
+                onThinkingEnabledChange={onThinkingEnabledChange}
               />
             </div>
           </div>

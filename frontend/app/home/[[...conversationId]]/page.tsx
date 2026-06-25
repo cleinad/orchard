@@ -39,6 +39,7 @@ import { useHomeVoice } from '@/app/home/components/useHomeVoice';
 import { useActiveConversationModel } from '@/app/home/components/useActiveConversationModel';
 import { usePendingChatRequests } from '@/app/home/components/usePendingChatRequests';
 import { usePerChatComposerState } from '@/app/home/components/usePerChatComposerState';
+import { usePersistedJson } from '@/app/home/components/usePersistedJson';
 import { usePersistedString } from '@/app/home/components/usePersistedString';
 import { useRouteConversationHydration } from '@/app/home/components/useRouteConversationHydration';
 import { useTranscriptNavigation } from '@/app/home/components/useTranscriptNavigation';
@@ -50,7 +51,11 @@ import type {
 import {
   DEFAULT_CHAT_MODEL_ID,
   isChatModelId,
+  isChatModelEffortLevel,
+  type ChatModelEffortOverrides,
+  type ChatModelEffortLevel,
   type ChatModelId,
+  type ChatModelThinkingOverrides,
 } from '@/lib/chat-models';
 import { LearningModeProvider, useLearningMode } from '@/app/home/components/LearningModeContext';
 import TextSelectionPopover from '@/app/home/components/TextSelectionPopover';
@@ -68,10 +73,40 @@ import { supabase } from '@/lib/supabase';
 
 const TTS_STORAGE_KEY = 'keen-tts-enabled';
 const CHAT_MODEL_STORAGE_KEY = 'keen-chat-model';
+const CHAT_MODEL_EFFORT_OVERRIDES_STORAGE_KEY = 'keen-chat-model-effort-overrides-v1';
+const CHAT_MODEL_THINKING_OVERRIDES_STORAGE_KEY = 'keen-chat-thinking-overrides-v1';
 const COMPOSER_DRAFT_INPUTS_STORAGE_KEY = 'keen-home-composer-draft-inputs-v1';
 const RESPONSE_STYLE_STORAGE_KEY = 'keen-home-response-styles-v1';
 const PERSISTENT_THREAD_RUNTIME_STORAGE_KEY = 'keen-persistent-thread-runtime-v1';
 const TEMP_CHAT_TITLE = 'Temporary chat';
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isChatModelEffortOverrides(value: unknown): value is ChatModelEffortOverrides {
+  if (!isPlainRecord(value)) {
+    return false;
+  }
+
+  return Object.entries(value).every(
+    ([modelId, effort]) =>
+      isChatModelId(modelId)
+      && typeof effort === 'string'
+      && isChatModelEffortLevel(effort)
+  );
+}
+
+function isChatModelThinkingOverrides(value: unknown): value is ChatModelThinkingOverrides {
+  if (!isPlainRecord(value)) {
+    return false;
+  }
+
+  return Object.entries(value).every(
+    ([modelId, enabled]) =>
+      isChatModelId(modelId) && typeof enabled === 'boolean'
+  );
+}
 
 function findLatestConversationForMentor(
   mentorId: string | null,
@@ -100,8 +135,51 @@ function HomePageInner() {
     DEFAULT_CHAT_MODEL_ID,
     isChatModelId
   );
+  const [modelEffortOverrides, setModelEffortOverrides] =
+    usePersistedJson<ChatModelEffortOverrides>(
+      CHAT_MODEL_EFFORT_OVERRIDES_STORAGE_KEY,
+      {},
+      isChatModelEffortOverrides
+    );
+  const [thinkingEnabledOverrides, setThinkingEnabledOverrides] =
+    usePersistedJson<ChatModelThinkingOverrides>(
+      CHAT_MODEL_THINKING_OVERRIDES_STORAGE_KEY,
+      {},
+      isChatModelThinkingOverrides
+  );
   const chatModels = useChatModelCatalog(selectedModelId, setSelectedModelId);
   const selectedChatModel = chatModels.find((model) => model.id === selectedModelId) ?? null;
+  const selectedModelEffortCandidate = modelEffortOverrides[selectedModelId] ?? null;
+  const selectedModelEffortOverride = selectedChatModel?.effort
+    && selectedModelEffortCandidate
+    && selectedChatModel.effort.levels.includes(selectedModelEffortCandidate)
+      ? selectedModelEffortCandidate
+      : null;
+  const hasThinkingEnabledOverride = Object.prototype.hasOwnProperty.call(
+    thinkingEnabledOverrides,
+    selectedModelId
+  );
+  const thinkingEnabledOverride = hasThinkingEnabledOverride
+    ? thinkingEnabledOverrides[selectedModelId] ?? null
+    : null;
+  const updateSelectedModelEffort = useCallback(
+    (modelId: ChatModelId, effort: ChatModelEffortLevel) => {
+      setModelEffortOverrides((current) => ({
+        ...current,
+        [modelId]: effort,
+      }));
+    },
+    [setModelEffortOverrides]
+  );
+  const updateThinkingEnabled = useCallback(
+    (modelId: ChatModelId, enabled: boolean) => {
+      setThinkingEnabledOverrides((current) => ({
+        ...current,
+        [modelId]: enabled,
+      }));
+    },
+    [setThinkingEnabledOverrides]
+  );
   const selectedModelSupportsImages = selectedChatModel?.supportsImages ?? true;
   const selectedModelRejectsGifImages = selectedChatModel?.provider === 'google';
   const [persistentMessages, setPersistentMessages] = useState<Message[]>([]);
@@ -590,6 +668,8 @@ function HomePageInner() {
     selectedChat,
     selectedChatRef,
     selectedModelId,
+    selectedModelEffort: selectedModelEffortOverride,
+    thinkingEnabled: thinkingEnabledOverride,
     responseStyle: activeResponseStyle,
     selectedTemporaryChat,
     setPersistentThreadRuntimes,
@@ -669,6 +749,8 @@ function HomePageInner() {
     selectedChatRef,
     selectedDraftChat,
     selectedModelId,
+    selectedModelEffort: selectedModelEffortOverride,
+    thinkingEnabled: thinkingEnabledOverride,
     selectedTemporaryChat,
     setDraftChats,
     setListError,
@@ -913,6 +995,8 @@ function HomePageInner() {
           pendingImageAttachments={pendingImageAttachments}
           responseStyle={activeResponseStyle}
           selectedModelId={selectedModelId}
+          modelEffortOverrides={modelEffortOverrides}
+          thinkingEnabledOverrides={thinkingEnabledOverrides}
           ttsEnabled={voiceOutputEnabled}
           searchEnabled={searchEnabled}
           temporaryChatEnabled={isTemporaryChat}
@@ -935,6 +1019,8 @@ function HomePageInner() {
           onAttachImages={handleAttachImages}
           onRemoveImageAttachment={handleRemoveImageAttachment}
           onModelChange={setSelectedModelId}
+          onModelEffortChange={updateSelectedModelEffort}
+          onThinkingEnabledChange={updateThinkingEnabled}
           onResponseStyleChange={(value) =>
             setResponseStyleForSelection(composerStateSelection, value)
           }

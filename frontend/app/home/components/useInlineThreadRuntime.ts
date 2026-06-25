@@ -42,6 +42,7 @@ import {
   type TemporaryMemoryMode,
 } from '@/lib/chat-session';
 import { getBrowserTimeZone } from '@/lib/browser-timezone';
+import type { ChatModelEffortLevel } from '@/lib/chat-models';
 import type { ResponseStyle } from '@/lib/response-style';
 
 interface UseInlineThreadRuntimeParams {
@@ -59,6 +60,8 @@ interface UseInlineThreadRuntimeParams {
   selectedChat: SelectedChat | null;
   selectedChatRef: MutableRefObject<SelectedChat | null>;
   selectedModelId: string;
+  selectedModelEffort: ChatModelEffortLevel | null;
+  thinkingEnabled: boolean | null;
   responseStyle: ResponseStyle;
   selectedTemporaryChat: TemporaryChatSession | null;
   setPersistentThreadRuntimes: Dispatch<SetStateAction<PersistentThreadRuntimeRecord>>;
@@ -87,6 +90,8 @@ export function useInlineThreadRuntime({
   selectedChat,
   selectedChatRef,
   selectedModelId,
+  selectedModelEffort,
+  thinkingEnabled,
   responseStyle,
   selectedTemporaryChat,
   setPersistentThreadRuntimes,
@@ -394,6 +399,8 @@ export function useInlineThreadRuntime({
                 ? undefined
                 : params.selection.mentorId ?? undefined,
             modelId: selectedModelId,
+            ...(selectedModelEffort ? { modelEffort: selectedModelEffort } : {}),
+            ...(thinkingEnabled !== null ? { thinkingEnabled } : {}),
             responseStyle,
             sourceMessageId: params.source.sourceMessageId,
             highlightedText: params.source.highlightedText,
@@ -475,8 +482,10 @@ export function useInlineThreadRuntime({
       activeMessages,
       activeTemporaryMemoryMode,
       persistThreadResult,
+      selectedModelEffort,
       responseStyle,
       selectedModelId,
+      thinkingEnabled,
       threadSessionsRef,
       updateThreadSession,
     ]

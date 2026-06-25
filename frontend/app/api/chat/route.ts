@@ -10,8 +10,13 @@ import {
 import { createSupabaseServerClient } from '@/lib/supabase-server';
 import { loadMemoryContextV2 } from '@/lib/memory-reader';
 import { processMemoryV2 } from '@/lib/memory-agent';
-import { isChatModelId } from '@/lib/chat-models';
-import { getChatModel, resolveChatModelSelection } from '@/lib/models';
+import { isChatModelEffortLevel, isChatModelId } from '@/lib/chat-models';
+import {
+  getChatModel,
+  getChatModelProviderOptions,
+  getNoChatModelConfiguredMessage,
+  resolveChatModelSelection,
+} from '@/lib/models';
 import {
   CHAT_IMAGE_BUCKET,
   CHAT_IMAGE_PROVIDER_LIMITS,
@@ -90,6 +95,8 @@ interface ChatRequest {
   conversationId?: string;
   mentorId?: string;
   modelId?: string;
+  modelEffort?: string;
+  thinkingEnabled?: boolean;
   threadId?: string;
   previousMessageId?: string;
   branchSourceMessageId?: string;
@@ -357,6 +364,10 @@ function validateAttachmentsForModel(
   }
 
   const limits = CHAT_IMAGE_PROVIDER_LIMITS[resolvedSelection.provider];
+  if (!limits) {
+    return `${resolvedSelection.label} cannot read images. Choose a vision-capable model.`;
+  }
+
   if (attachments.length > limits.maxAttachments) {
     return `${resolvedSelection.label} supports up to ${limits.maxAttachments} images per message.`;
   }
@@ -655,6 +666,8 @@ export async function POST(request: NextRequest) {
       conversationId,
       mentorId,
       modelId,
+      modelEffort,
+      thinkingEnabled,
       threadId,
       previousMessageId,
       branchSourceMessageId,
@@ -703,6 +716,25 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    if (modelEffort != null && !isChatModelEffortLevel(modelEffort)) {
+      await removeUnreferencedCleanupAttachmentStorage(supabase, attachments);
+      return NextResponse.json(
+        { error: 'Invalid model effort' },
+        { status: 400 }
+      );
+    }
+
+    if (thinkingEnabled != null && typeof thinkingEnabled !== 'boolean') {
+      await removeUnreferencedCleanupAttachmentStorage(supabase, attachments);
+      return NextResponse.json(
+        { error: 'Invalid thinking setting' },
+        { status: 400 }
+      );
+    }
+    const requestedModelEffort = isChatModelEffortLevel(modelEffort)
+      ? modelEffort
+      : undefined;
 
     const normalizedThreadId = normalizeOptionalId(threadId);
     const normalizedSourceMessageId = normalizeOptionalId(sourceMessageId);
@@ -772,17 +804,17 @@ export async function POST(request: NextRequest) {
       await removeUnreferencedCleanupAttachmentStorage(supabase, attachments);
       return NextResponse.json(
         {
-          error:
-            'No chat model is configured. Set at least one of OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_GENERATIVE_AI_API_KEY.',
+          error: getNoChatModelConfiguredMessage(),
         },
         { status: 503 }
       );
     }
 
     const priorImageContextLimit = attachments.length > 0 ? 0 : 1;
+    const imageProviderLimits = CHAT_IMAGE_PROVIDER_LIMITS[resolvedSelection.provider];
     const priorImageContextSlots =
-      priorImageContextLimit > 0
-        ? Math.max(0, CHAT_IMAGE_PROVIDER_LIMITS[resolvedSelection.provider].maxAttachments - attachments.length)
+      priorImageContextLimit > 0 && imageProviderLimits
+        ? Math.max(0, imageProviderLimits.maxAttachments - attachments.length)
         : 0;
     const modelAttachmentError = validateAttachmentsForModel(attachments, resolvedSelection);
     if (modelAttachmentError) {
@@ -1208,11 +1240,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           error:
-            error instanceof Error ? error.message : 'No chat model is configured.',
+            error instanceof Error ? error.message : getNoChatModelConfiguredMessage(),
         },
         { status: 503 }
       );
     }
+    const chatModelProviderOptions = getChatModelProviderOptions(resolvedSelection.id, {
+      effort: requestedModelEffort,
+      thinkingEnabled,
+    });
 
     const threadHighlightedText = highlightedText || existingThreadHighlightedText;
     if (activeThreadId && threadHighlightedText) {
@@ -1432,6 +1468,9 @@ export async function POST(request: NextRequest) {
           model: chatModel,
           system: finalSystemPrompt,
           messages: modelMessages,
+          ...(chatModelProviderOptions
+            ? { providerOptions: chatModelProviderOptions }
+            : {}),
           onFinish: async ({ text }) => {
             let rawText = text.trim();
 
@@ -1447,6 +1486,9 @@ export async function POST(request: NextRequest) {
                   model: chatModel,
                   system: finalSystemPrompt,
                   messages: modelMessages,
+                  ...(chatModelProviderOptions
+                    ? { providerOptions: chatModelProviderOptions }
+                    : {}),
                 });
 
                 rawText = fallbackGeneration.text.trim();
