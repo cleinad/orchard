@@ -14,14 +14,13 @@ import {
 export const MEMORY_MODEL = anthropic('claude-haiku-4-5-20251001');
 export const SEARCH_PLANNER_MODEL_ID =
   process.env.SEARCH_PLANNER_MODEL || 'Qwen/Qwen2.5-3B-Instruct';
-export const QWEN_DECISION_MODEL_ID =
-  process.env.QWEN_DECISION_MODEL || 'qwen2.5-3b-instruct';
-export const QWEN_DECISION_BASE_URL =
-  process.env.QWEN_BASE_URL
-  || process.env.DASHSCOPE_BASE_URL
+export const ALIBABA_DECISION_MODEL_ID =
+  process.env.ALIBABA_DECISION_MODEL || 'qwen2.5-3b-instruct';
+export const ALIBABA_DECISION_BASE_URL =
+  process.env.ALIBABA_BASE_URL
   || 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1';
 
-export type SearchDecisionProvider = 'qwen' | 'openrouter';
+export type SearchDecisionProvider = 'alibaba' | 'openrouter';
 
 export interface SearchDecisionModelConfig {
   model: ReturnType<ReturnType<typeof createOpenAI>>;
@@ -51,8 +50,8 @@ function getOpenRouterSearchDecisionModel(): SearchDecisionModelConfig | null {
     : null;
 }
 
-function getQwenSearchDecisionModel(): SearchDecisionModelConfig | null {
-  const apiKey = process.env.QWEN_API_KEY || process.env.DASHSCOPE_API_KEY;
+function getAlibabaSearchDecisionModel(): SearchDecisionModelConfig | null {
+  const apiKey = process.env.ALIBABA_API_KEY;
 
   if (!apiKey) {
     return null;
@@ -60,11 +59,11 @@ function getQwenSearchDecisionModel(): SearchDecisionModelConfig | null {
 
   return {
     model: createOpenAI({
-      baseURL: QWEN_DECISION_BASE_URL,
+      baseURL: ALIBABA_DECISION_BASE_URL,
       apiKey,
-    })(QWEN_DECISION_MODEL_ID),
-    provider: 'qwen',
-    modelId: QWEN_DECISION_MODEL_ID,
+    })(ALIBABA_DECISION_MODEL_ID),
+    provider: 'alibaba',
+    modelId: ALIBABA_DECISION_MODEL_ID,
   };
 }
 
@@ -81,11 +80,11 @@ export function getSearchDecisionModelConfig(): {
     };
   }
 
-  const qwen = getQwenSearchDecisionModel();
+  const alibaba = getAlibabaSearchDecisionModel();
 
   return {
-    primary: qwen ?? openRouter,
-    fallback: qwen ? openRouter : null,
+    primary: alibaba ?? openRouter,
+    fallback: alibaba ? openRouter : null,
   };
 }
 

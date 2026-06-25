@@ -405,14 +405,14 @@ describe('search query planner', () => {
       {
         model: 'mock-model' as never,
         plannerModelId: 'qwen2.5-3b-instruct',
-        provider: 'qwen',
+        provider: 'alibaba',
       }
     );
 
     const prompt = mockGenerateObject.mock.calls[0]?.[0]?.prompt as string;
 
     expect(decision.shouldSearch).toBe(true);
-    expect(decision.provider).toBe('qwen');
+    expect(decision.provider).toBe('alibaba');
     expect(decision.providerModelId).toBe('qwen2.5-3b-instruct');
     expect(prompt).toContain('Would online sources materially improve the answer');
     expect(prompt).toContain('Latest message: tell me the smartest military moves');
@@ -422,14 +422,14 @@ describe('search query planner', () => {
     expect(prompt).toContain('formatting or rewriting content already present');
   });
 
-  it('falls back from qwen to openrouter for auto search decisions', async () => {
+  it('falls back from alibaba to openrouter for auto search decisions', async () => {
     const logger = {
       info: vi.fn(),
       warn: vi.fn(),
     };
 
     mockGenerateObject
-      .mockRejectedValueOnce(new Error('qwen unavailable'))
+      .mockRejectedValueOnce(new Error('alibaba unavailable'))
       .mockResolvedValueOnce({
         object: {
           shouldSearch: true,
@@ -442,9 +442,9 @@ describe('search query planner', () => {
     const decision = await decideSearchNecessity(
       searchPlannerInput({ latestMessage: 'give me the top semiconductor equipment companies' }),
       {
-        model: 'qwen-model' as never,
+        model: 'alibaba-model' as never,
         plannerModelId: 'qwen2.5-3b-instruct',
-        provider: 'qwen',
+        provider: 'alibaba',
         fallbackModel: 'openrouter-model' as never,
         fallbackPlannerModelId: 'Qwen/Qwen2.5-3B-Instruct',
         fallbackProvider: 'openrouter',
@@ -462,9 +462,9 @@ describe('search query planner', () => {
       '[search]',
       expect.objectContaining({
         event: 'search.decision_model_fallback_started',
-        provider: 'qwen',
+        provider: 'alibaba',
         fallbackProvider: 'openrouter',
-        reason: 'qwen unavailable',
+        reason: 'alibaba unavailable',
       })
     );
     expect(logger.info).toHaveBeenCalledWith(
@@ -472,7 +472,7 @@ describe('search query planner', () => {
       expect.objectContaining({
         event: 'search.decision_model_completed',
         provider: 'openrouter',
-        fallbackFromProvider: 'qwen',
+        fallbackFromProvider: 'alibaba',
         shouldSearch: true,
       })
     );
