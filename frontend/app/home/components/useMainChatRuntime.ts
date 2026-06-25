@@ -38,6 +38,7 @@ import {
 } from '@/lib/chat-session';
 import { getBrowserTimeZone } from '@/lib/browser-timezone';
 import { stripCitationMarkers } from '@/lib/search-citations';
+import type { ResponseStyle } from '@/lib/response-style';
 
 export interface ChatResponse {
   message?: string;
@@ -300,6 +301,10 @@ interface MainChatRuntimeParams {
     fromSelection: SelectedChat,
     toSelection: SelectedChat
   ) => void;
+  moveResponseStyleBetweenSelections: (
+    fromSelection: SelectedChat | null,
+    toSelection: SelectedChat
+  ) => void;
   pendingBranch: PendingBranchTarget | null;
   pendingChatRequestsRef: MutableRefObject<Record<string, PendingChatRequest>>;
   persistentBranches: ConversationBranch[];
@@ -307,6 +312,7 @@ interface MainChatRuntimeParams {
   persistentSelectedBranchIds: BranchSelectionMap;
   persistentSelectedBranchIdsRef: MutableRefObject<BranchSelectionMap>;
   refreshSidebarData: () => Promise<void>;
+  responseStyle: ResponseStyle;
   searchEnabled: boolean;
   selectedChat: SelectedChat | null;
   selectedChatRef: MutableRefObject<SelectedChat | null>;
@@ -377,12 +383,14 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
     const branchSourceMessageId = effectivePendingBranch?.sourceMessageId ?? null;
 
     if (!effectiveSelection) {
+      const blankSelection = params.selectedChat;
       effectiveDraft = params.getOrCreateDraft(null);
       effectiveSelection = {
         kind: 'draft',
         draftId: effectiveDraft.id,
         mentorId: null,
       };
+      params.moveResponseStyleBetweenSelections(blankSelection, effectiveSelection);
       params.selectedChatRef.current = effectiveSelection;
       params.setSelectedChat(effectiveSelection);
     }
@@ -730,6 +738,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
           modelId: params.selectedModelId,
           previousMessageId,
           branchSourceMessageId: branchSourceMessageId ?? undefined,
+          responseStyle: params.responseStyle,
           searchEnabled: params.searchEnabled,
           timezone: getBrowserTimeZone(),
           chatMode:
@@ -825,6 +834,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
         );
 
         params.movePendingChatRequestBetweenSelections(draftSelection, promotedSelection);
+        params.moveResponseStyleBetweenSelections(draftSelection, promotedSelection);
         params.clearSearchStateForSelection(draftSelection);
 
         if (shouldFocusPromotedDraft) {
