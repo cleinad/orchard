@@ -63,6 +63,7 @@ export interface ChatModelOption {
   envVar?: ChatModelEnvVar;
   autoTargetIds?: readonly ConcreteChatModelId[];
   effort?: ChatModelEffortConfig;
+  supportsImages?: boolean;
 }
 
 export interface ChatModelListItem {
@@ -77,6 +78,7 @@ export interface ChatModelListItem {
   isDefault: boolean;
   resolvedModelId?: ConcreteChatModelId;
   effort?: ChatModelEffortConfig;
+  supportsImages: boolean;
 }
 
 export interface ResolvedChatModelSelection {
@@ -87,6 +89,7 @@ export interface ResolvedChatModelSelection {
   providerLabel: string;
   apiModelId: string;
   effort?: ChatModelEffortConfig;
+  supportsImages: boolean;
 }
 
 export interface ChatModelRuntimeOptions {
@@ -126,6 +129,7 @@ export const CHAT_MODEL_OPTIONS: readonly ChatModelOption[] = [
     badge: 'Max',
     apiModelId: 'gpt-5.5',
     envVar: 'OPENAI_API_KEY',
+    supportsImages: true,
     effort: {
       levels: STANDARD_REASONING_LEVELS,
       defaultLevel: 'medium',
@@ -142,6 +146,7 @@ export const CHAT_MODEL_OPTIONS: readonly ChatModelOption[] = [
     description: 'Balanced OpenAI option for everyday paid usage.',
     apiModelId: 'gpt-5.4',
     envVar: 'OPENAI_API_KEY',
+    supportsImages: true,
     effort: {
       levels: ['low', 'medium', 'high'],
       defaultLevel: 'medium',
@@ -158,6 +163,7 @@ export const CHAT_MODEL_OPTIONS: readonly ChatModelOption[] = [
     description: 'Strong Gemini reasoning model for complex multimodal work.',
     apiModelId: 'gemini-3.1-pro-preview',
     envVar: 'GOOGLE_GENERATIVE_AI_API_KEY',
+    supportsImages: true,
     effort: {
       levels: GOOGLE_PRO_REASONING_LEVELS,
       defaultLevel: 'medium',
@@ -174,6 +180,7 @@ export const CHAT_MODEL_OPTIONS: readonly ChatModelOption[] = [
     description: 'Efficient Claude model for everyday research and coding.',
     apiModelId: 'claude-sonnet-4-6',
     envVar: 'ANTHROPIC_API_KEY',
+    supportsImages: true,
     effort: {
       levels: STANDARD_REASONING_LEVELS,
       defaultLevel: 'medium',
@@ -191,6 +198,7 @@ export const CHAT_MODEL_OPTIONS: readonly ChatModelOption[] = [
     badge: 'Max',
     apiModelId: 'claude-opus-4-8',
     envVar: 'ANTHROPIC_API_KEY',
+    supportsImages: true,
     effort: {
       levels: STANDARD_REASONING_LEVELS,
       defaultLevel: 'high',
@@ -207,6 +215,7 @@ export const CHAT_MODEL_OPTIONS: readonly ChatModelOption[] = [
     description: 'Fast Gemini 3 model with broad thinking-level support.',
     apiModelId: 'gemini-3-flash-preview',
     envVar: 'GOOGLE_GENERATIVE_AI_API_KEY',
+    supportsImages: true,
     effort: {
       levels: GOOGLE_FLASH_REASONING_LEVELS,
       defaultLevel: 'medium',
@@ -223,6 +232,7 @@ export const CHAT_MODEL_OPTIONS: readonly ChatModelOption[] = [
     description: 'Fast Chinese reasoning model and the first Auto target.',
     apiModelId: 'deepseek-v4-flash',
     envVar: 'DEEPSEEK_API_KEY',
+    supportsImages: false,
     effort: {
       levels: STANDARD_REASONING_LEVELS,
       defaultLevel: 'high',
@@ -240,6 +250,7 @@ export const CHAT_MODEL_OPTIONS: readonly ChatModelOption[] = [
     badge: 'Max',
     apiModelId: 'deepseek-v4-pro',
     envVar: 'DEEPSEEK_API_KEY',
+    supportsImages: false,
     effort: {
       levels: STANDARD_REASONING_LEVELS,
       defaultLevel: 'high',
@@ -256,6 +267,7 @@ export const CHAT_MODEL_OPTIONS: readonly ChatModelOption[] = [
     description: 'General-purpose Qwen option with optional thinking budget.',
     apiModelId: 'qwen3.7-plus',
     envVar: 'ALIBABA_API_KEY',
+    supportsImages: false,
     effort: {
       levels: STANDARD_REASONING_LEVELS,
       defaultLevel: 'medium',
@@ -273,6 +285,7 @@ export const CHAT_MODEL_OPTIONS: readonly ChatModelOption[] = [
     badge: 'Max',
     apiModelId: 'kimi-k2.7-code',
     envVar: 'MOONSHOT_API_KEY',
+    supportsImages: false,
   },
 ] as const;
 
@@ -307,6 +320,7 @@ export function isConcreteChatModelOption(
   provider: ConcreteChatModelProvider;
   apiModelId: string;
   envVar: ChatModelEnvVar;
+  supportsImages: boolean;
 } {
   return option.provider !== 'auto' && Boolean(option.apiModelId && option.envVar);
 }

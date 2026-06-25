@@ -261,6 +261,7 @@ export function getChatModelListItems(): ChatModelListItem[] {
       isDefault: option.id === defaultModelId,
       ...(autoTarget ? { resolvedModelId: autoTarget.id } : {}),
       ...(option.effort ? { effort: option.effort } : {}),
+      supportsImages: isConcreteChatModelOption(option) ? option.supportsImages : false,
     };
   });
 }
@@ -287,6 +288,7 @@ export function resolveChatModelSelection(
     providerLabel: option.providerLabel,
     apiModelId: option.apiModelId,
     ...(option.effort ? { effort: option.effort } : {}),
+    supportsImages: option.supportsImages,
   };
 }
 

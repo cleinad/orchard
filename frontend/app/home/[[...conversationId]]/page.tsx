@@ -12,6 +12,11 @@ import {
 import HomeBackground from '@/app/home/components/HomeBackground';
 import HomeHeader from '@/app/home/components/HomeHeader';
 import ChatComposer from '@/app/home/components/ChatComposer';
+import {
+  createPendingChatImageAttachments,
+  uploadChatImageAttachments,
+  type PendingChatImageAttachment,
+} from '@/app/home/components/chatImageUploads';
 import ConversationMap from '@/app/home/components/ConversationMap';
 import ConversationView from '@/app/home/components/ConversationView';
 import type { PendingBranchTarget } from '@/app/home/components/conversationTree';
@@ -26,6 +31,7 @@ import { useHomeThreads } from '@/app/home/components/useHomeThreads';
 import { useHomeFixtureRuntime } from '@/app/home/components/useHomeFixtureRuntime';
 import { useHomeChatSwitchLifecycle } from '@/app/home/components/useHomeChatSwitchLifecycle';
 import { useInlineThreadRuntime } from '@/app/home/components/useInlineThreadRuntime';
+import { getTemporaryChatAttachmentStoragePaths } from '@/app/home/components/temporaryChatAttachmentCleanup';
 import { useConversationMapState } from '@/app/home/components/useConversationMapState';
 import { useConversationMapRuntime } from '@/app/home/components/useConversationMapRuntime';
 import { useChatModelCatalog } from '@/app/home/components/useChatModelCatalog';
@@ -61,13 +67,16 @@ import type {
   Message,
 } from '@/app/home/types';
 import { getHomeE2eFixture } from '@/app/home/e2eFixtures';
+import { CHAT_IMAGE_BUCKET, type ChatImageAttachment } from '@/lib/chat-attachments';
 import type { TemporaryMemoryMode } from '@/lib/chat-session';
+import { supabase } from '@/lib/supabase';
 
 const TTS_STORAGE_KEY = 'keen-tts-enabled';
 const CHAT_MODEL_STORAGE_KEY = 'keen-chat-model';
 const CHAT_MODEL_EFFORT_OVERRIDES_STORAGE_KEY = 'keen-chat-model-effort-overrides-v1';
 const CHAT_MODEL_THINKING_OVERRIDES_STORAGE_KEY = 'keen-chat-thinking-overrides-v1';
 const COMPOSER_DRAFT_INPUTS_STORAGE_KEY = 'keen-home-composer-draft-inputs-v1';
+const RESPONSE_STYLE_STORAGE_KEY = 'keen-home-response-styles-v1';
 const PERSISTENT_THREAD_RUNTIME_STORAGE_KEY = 'keen-persistent-thread-runtime-v1';
 const TEMP_CHAT_TITLE = 'Temporary chat';
 
@@ -171,6 +180,8 @@ function HomePageInner() {
     },
     [setThinkingEnabledOverrides]
   );
+  const selectedModelSupportsImages = selectedChatModel?.supportsImages ?? true;
+  const selectedModelRejectsGifImages = selectedChatModel?.provider === 'google';
   const [persistentMessages, setPersistentMessages] = useState<Message[]>([]);
   const [persistentBranches, setPersistentBranches] = useState<ConversationBranch[]>([]);
   const [persistentSelectedBranchIds, setPersistentSelectedBranchIds] =
@@ -181,10 +192,15 @@ function HomePageInner() {
   const [persistentThreadRuntimes, setPersistentThreadRuntimes] =
     useState<PersistentThreadRuntimeRecord>({});
   const [pendingBranch, setPendingBranch] = useState<PendingBranchTarget | null>(null);
+  const [pendingImageAttachments, setPendingImageAttachments] = useState<
+    PendingChatImageAttachment[]
+  >([]);
+  const [isUploadingImages, setIsUploadingImages] = useState(false);
+  const [imageWarning, setImageWarning] = useState<string | null>(null);
   const [currentMapMessageId, setCurrentMapMessageId] = useState<string | null>(null);
   const [isDesktopViewport, setIsDesktopViewport] = useState(false);
 
-  const { learningMode, toggleLearningMode } = useLearningMode();
+  const { learningMode } = useLearningMode();
   const { isOpen: sidePanelOpen } = useSidePanel();
 
   useEffect(() => {
@@ -249,6 +265,9 @@ function HomePageInner() {
     stopMic: stopVoiceCapture,
     toggleTtsEnabled,
   } = useHomeVoice(TTS_STORAGE_KEY);
+  // Voice controls are hidden for now; keep the underlying wiring dormant until the feature is revisited.
+  const voiceControlsEnabled = false;
+  const voiceOutputEnabled = voiceControlsEnabled && ttsEnabled;
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -288,15 +307,20 @@ function HomePageInner() {
       : null
   );
   const {
+    activeResponseStyle,
     activeSearchState,
     composerDraftInputsRef,
     input,
     clearInputForSelection: clearComposerInputForSelection,
+    clearResponseStyleForSelection,
     clearSearchStateForSelection,
+    moveResponseStyleBetweenSelections,
     resetAllComposerState,
     setInputForSelection: setComposerInputForSelection,
+    setResponseStyleForSelection,
     setSearchStateForSelection,
   } = usePerChatComposerState({
+    responseStyleStorageKey: RESPONSE_STYLE_STORAGE_KEY,
     storageKey: COMPOSER_DRAFT_INPUTS_STORAGE_KEY,
     selection: composerStateSelection,
   });
@@ -367,6 +391,7 @@ function HomePageInner() {
   const persistentSelectedBranchIdsRef = useRef<BranchSelectionMap>({});
   const persistentThreadRuntimesRef = useRef<PersistentThreadRuntimeRecord>({});
   const temporaryChatsRef = useRef<TemporaryChatSession[]>([]);
+  const pendingImageAttachmentsRef = useRef<PendingChatImageAttachment[]>([]);
   const threadSessionsRef = useRef<Record<string, ThreadSession>>({});
 
   useEffect(() => {
@@ -374,8 +399,10 @@ function HomePageInner() {
     persistentSelectedBranchIdsRef.current = persistentSelectedBranchIds;
     persistentThreadRuntimesRef.current = persistentThreadRuntimes;
     temporaryChatsRef.current = temporaryChats;
+    pendingImageAttachmentsRef.current = pendingImageAttachments;
     threadSessionsRef.current = threadSessionsById;
   }, [
+    pendingImageAttachments,
     persistentSelectedBranchIds,
     persistentThreadRuntimes,
     temporaryChats,
@@ -482,6 +509,98 @@ function HomePageInner() {
     }
   }, [micActive, startMic, stopMic]);
 
+  const clearPendingImageAttachments = useCallback(() => {
+    setPendingImageAttachments((current) => {
+      for (const attachment of current) {
+        URL.revokeObjectURL(attachment.url);
+      }
+
+      return [];
+    });
+    setImageWarning(null);
+  }, []);
+
+  const cleanupTemporaryChatAttachments = useCallback((tempChatId: string) => {
+    const storagePaths = getTemporaryChatAttachmentStoragePaths(
+      temporaryChatsRef.current,
+      tempChatId
+    );
+
+    if (storagePaths.length > 0) {
+      void supabase.storage.from(CHAT_IMAGE_BUCKET).remove(storagePaths);
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      for (const attachment of pendingImageAttachmentsRef.current) {
+        URL.revokeObjectURL(attachment.url);
+      }
+    };
+  }, []);
+
+  const previousSelectedChatKeyRef = useRef<string | null>(selectedChatKey);
+  useEffect(() => {
+    if (previousSelectedChatKeyRef.current === selectedChatKey) {
+      return;
+    }
+
+    previousSelectedChatKeyRef.current = selectedChatKey;
+    clearPendingImageAttachments();
+  }, [clearPendingImageAttachments, selectedChatKey]);
+
+  const handleAttachImages = useCallback(async (files: File[]) => {
+    if (files.length === 0) {
+      return;
+    }
+
+    if (!selectedModelSupportsImages) {
+      setImageWarning('The selected model cannot read images. Choose a vision-capable model.');
+      return;
+    }
+
+    if (
+      selectedModelRejectsGifImages
+      && files.some((file) => file.type === 'image/gif' || file.name.toLowerCase().endsWith('.gif'))
+    ) {
+      setImageWarning('Google models do not support GIF images here. Use PNG, JPEG, or WebP.');
+      return;
+    }
+
+    if (isUploadingImages) {
+      setImageWarning('Wait for the current image upload to finish.');
+      return;
+    }
+
+    const result = await createPendingChatImageAttachments(
+      files,
+      pendingImageAttachments.length
+    );
+
+    if (result.attachments.length > 0) {
+      setPendingImageAttachments((current) => [...current, ...result.attachments]);
+    }
+
+    setImageWarning(result.error);
+  }, [
+    isUploadingImages,
+    pendingImageAttachments.length,
+    selectedModelRejectsGifImages,
+    selectedModelSupportsImages,
+  ]);
+
+  const handleRemoveImageAttachment = useCallback((id: string) => {
+    setPendingImageAttachments((current) => {
+      const attachment = current.find((item) => item.id === id);
+      if (attachment) {
+        URL.revokeObjectURL(attachment.url);
+      }
+
+      return current.filter((item) => item.id !== id);
+    });
+    setImageWarning(null);
+  }, []);
+
   useHomeFixtureRuntime({
     composerDraftInputsStorageKey: COMPOSER_DRAFT_INPUTS_STORAGE_KEY,
     endProgrammaticTranscriptNavigation,
@@ -507,7 +626,9 @@ function HomePageInner() {
   useHomeChatSwitchLifecycle({
     clearComposerInputForSelection,
     clearPendingChatRequestForSelection,
+    clearResponseStyleForSelection,
     clearSearchStateForSelection,
+    cleanupTemporaryChatAttachments,
     composerDraftInputsRef,
     endProgrammaticTranscriptNavigation,
     registerCloseTempChatCleanup,
@@ -549,6 +670,7 @@ function HomePageInner() {
     selectedModelId,
     selectedModelEffort: selectedModelEffortOverride,
     thinkingEnabled: thinkingEnabledOverride,
+    responseStyle: activeResponseStyle,
     selectedTemporaryChat,
     setPersistentThreadRuntimes,
     setPersistentThreadsMap,
@@ -613,6 +735,7 @@ function HomePageInner() {
     isHomeE2eFixture,
     loadConversationMessages,
     movePendingChatRequestBetweenSelections,
+    moveResponseStyleBetweenSelections,
     pendingBranch,
     pendingChatRequestsRef,
     persistentBranches,
@@ -620,6 +743,7 @@ function HomePageInner() {
     persistentSelectedBranchIds,
     persistentSelectedBranchIdsRef,
     refreshSidebarData,
+    responseStyle: activeResponseStyle,
     searchEnabled,
     selectedChat,
     selectedChatRef,
@@ -645,7 +769,7 @@ function HomePageInner() {
     tempChatTitle: TEMP_CHAT_TITLE,
     transcription,
     tts,
-    ttsEnabled,
+    ttsEnabled: voiceOutputEnabled,
     updateDraftChat,
     updateTemporaryChat,
   });
@@ -659,18 +783,102 @@ function HomePageInner() {
     sendMessage,
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const textToSend = input.trim();
-    if (textToSend) {
-      sendMessage(textToSend);
+    const imagesToSend = pendingImageAttachments;
+    let shouldRevokeLocalImageUrls = imagesToSend.length > 0;
+
+    if (!textToSend && imagesToSend.length === 0) {
+      return;
+    }
+
+    if (imagesToSend.length > 0 && !selectedModelSupportsImages) {
+      setImageWarning('The selected model cannot read images. Choose a vision-capable model.');
+      return;
+    }
+
+    if (
+      selectedModelRejectsGifImages
+      && imagesToSend.some((attachment) => attachment.mimeType === 'image/gif')
+    ) {
+      setImageWarning('Google models do not support GIF images here. Use PNG, JPEG, or WebP.');
+      return;
+    }
+
+    try {
+      if (imagesToSend.length > 0) {
+        setIsUploadingImages(true);
+      }
+      setImageWarning(null);
+
+      const displayAttachments: ChatImageAttachment[] = imagesToSend.map((attachment) => ({
+        id: attachment.id,
+        storagePath: '',
+        fileName: attachment.fileName,
+        mimeType: attachment.mimeType,
+        sizeBytes: attachment.sizeBytes,
+        width: attachment.width,
+        height: attachment.height,
+        url: attachment.url,
+      }));
+
+      setPendingImageAttachments([]);
+      const result = await sendMessage(textToSend, {
+        displayAttachments,
+        prepareUploadedAttachments: () => uploadChatImageAttachments(imagesToSend),
+      });
+
+      if (!result.accepted && result.error) {
+        setImageWarning(result.error);
+      }
+
+      if (!result.accepted && textToSend) {
+        setComposerInputForSelection(
+          result.restoreComposerSelection ?? composerStateSelection,
+          textToSend
+        );
+      }
+
+      if (!result.accepted && imagesToSend.length > 0) {
+        setPendingImageAttachments(imagesToSend);
+        shouldRevokeLocalImageUrls = false;
+      }
+
+      if (
+        !result.accepted
+        && result.cleanupUploadedAttachments
+        && result.cleanupUploadedAttachments.length > 0
+      ) {
+        await supabase.storage
+          .from(CHAT_IMAGE_BUCKET)
+          .remove(result.cleanupUploadedAttachments.map((attachment) => attachment.storagePath));
+      }
+    } catch (error) {
+      setImageWarning(error instanceof Error ? error.message : 'Failed to upload image.');
+      if (textToSend) {
+        setComposerInputForSelection(composerStateSelection, textToSend);
+      }
+      if (imagesToSend.length > 0) {
+        setPendingImageAttachments(imagesToSend);
+        shouldRevokeLocalImageUrls = false;
+      }
+    } finally {
+      if (shouldRevokeLocalImageUrls) {
+        for (const attachment of imagesToSend) {
+          URL.revokeObjectURL(attachment.url);
+        }
+      }
+      if (imagesToSend.length > 0) {
+        setIsUploadingImages(false);
+      }
     }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSubmit(e);
+      void handleSubmit(e);
     }
   };
 
@@ -781,13 +989,16 @@ function HomePageInner() {
           chatModels={chatModels}
           input={input}
           isLoading={isLoading}
+          imageInputDisabled={!selectedModelSupportsImages}
+          isUploadingImages={isUploadingImages}
           micActive={micActive}
+          pendingImageAttachments={pendingImageAttachments}
+          responseStyle={activeResponseStyle}
           selectedModelId={selectedModelId}
           modelEffortOverrides={modelEffortOverrides}
           thinkingEnabledOverrides={thinkingEnabledOverrides}
-          ttsEnabled={ttsEnabled}
+          ttsEnabled={voiceOutputEnabled}
           searchEnabled={searchEnabled}
-          learningMode={learningMode}
           temporaryChatEnabled={isTemporaryChat}
           showTemporaryIntro={isTemporaryChat && activeMessages.length === 0}
           temporaryMemoryMode={activeTemporaryMemoryMode}
@@ -797,6 +1008,7 @@ function HomePageInner() {
           microphoneStatus={microphone.status}
           microphoneErrorMessage={microphone.errorMessage}
           searchWarning={activeSearchState?.warning ?? null}
+          imageWarning={imageWarning}
           isTtsLoading={tts.isLoading}
           isTtsPlaying={tts.isPlaying}
           textareaRef={textareaRef}
@@ -804,13 +1016,17 @@ function HomePageInner() {
           waveformGlowRef={visualization.glowRef}
           waveformContainerRef={visualization.visualRef}
           onInputChange={(value) => setComposerInputForSelection(composerStateSelection, value)}
+          onAttachImages={handleAttachImages}
+          onRemoveImageAttachment={handleRemoveImageAttachment}
           onModelChange={setSelectedModelId}
           onModelEffortChange={updateSelectedModelEffort}
           onThinkingEnabledChange={updateThinkingEnabled}
+          onResponseStyleChange={(value) =>
+            setResponseStyleForSelection(composerStateSelection, value)
+          }
           onToggleMic={toggleMic}
           onToggleTts={toggleTtsEnabled}
           onToggleSearch={() => setSearchEnabled((prev) => !prev)}
-          onToggleLearningMode={toggleLearningMode}
           onTemporaryMemoryModeChange={updateSelectedTemporaryMemoryMode}
           onSubmit={handleSubmit}
           onKeyDown={handleKeyDown}

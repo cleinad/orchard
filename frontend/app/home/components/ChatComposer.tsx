@@ -1,8 +1,20 @@
-import type { FormEventHandler, KeyboardEventHandler, RefObject } from 'react';
+import {
+  useRef,
+  useState,
+  type ChangeEventHandler,
+  type ClipboardEventHandler,
+  type DragEventHandler,
+  type FormEventHandler,
+  type KeyboardEventHandler,
+  type RefObject,
+} from 'react';
 import Tooltip from '@/app/components/Tooltip';
 import ChatModelPicker from '@/app/home/components/ChatModelPicker';
+import ResponseStylePicker from '@/app/home/components/ResponseStylePicker';
+import type { PendingChatImageAttachment } from '@/app/home/components/chatImageUploads';
 import type { MicStatus } from '@/app/home/components/useMicrophone';
 import type { TranscriptStatus } from '@/app/home/components/useTranscription';
+import { MAX_CHAT_IMAGE_ATTACHMENTS } from '@/lib/chat-attachments';
 import type { TemporaryMemoryMode } from '@/lib/chat-session';
 import {
   type ChatModelEffortOverrides,
@@ -11,19 +23,23 @@ import {
   type ChatModelListItem,
   type ChatModelThinkingOverrides,
 } from '@/lib/chat-models';
+import type { ResponseStyle } from '@/lib/response-style';
 
 interface ChatComposerProps {
   activeName: string;
   chatModels: ChatModelListItem[];
   input: string;
   isLoading: boolean;
+  imageInputDisabled: boolean;
+  isUploadingImages: boolean;
   micActive: boolean;
+  pendingImageAttachments: PendingChatImageAttachment[];
+  responseStyle: ResponseStyle;
   selectedModelId: ChatModelId;
   modelEffortOverrides: ChatModelEffortOverrides;
   thinkingEnabledOverrides: ChatModelThinkingOverrides;
   ttsEnabled: boolean;
   searchEnabled: boolean;
-  learningMode: boolean;
   temporaryChatEnabled: boolean;
   showTemporaryIntro: boolean;
   temporaryMemoryMode: TemporaryMemoryMode;
@@ -33,6 +49,7 @@ interface ChatComposerProps {
   microphoneStatus: MicStatus;
   microphoneErrorMessage: string | null;
   searchWarning: string | null;
+  imageWarning: string | null;
   isTtsLoading: boolean;
   isTtsPlaying: boolean;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
@@ -40,13 +57,16 @@ interface ChatComposerProps {
   waveformGlowRef: RefObject<SVGPolylineElement | null>;
   waveformContainerRef: RefObject<HTMLDivElement | null>;
   onInputChange: (value: string) => void;
+  onAttachImages: (files: File[]) => void;
+  onRemoveImageAttachment: (id: string) => void;
   onModelChange: (modelId: ChatModelId) => void;
   onModelEffortChange: (modelId: ChatModelId, effort: ChatModelEffortLevel) => void;
   onThinkingEnabledChange: (modelId: ChatModelId, enabled: boolean) => void;
+  onResponseStyleChange: (value: ResponseStyle) => void;
+  // Voice controls are hidden for now, but the wiring stays in place for later cleanup or restoration.
   onToggleMic: () => void;
   onToggleTts: () => void;
   onToggleSearch: () => void;
-  onToggleLearningMode: () => void;
   onTemporaryMemoryModeChange: (mode: TemporaryMemoryMode) => void;
   onSubmit: FormEventHandler<HTMLFormElement>;
   onKeyDown: KeyboardEventHandler<HTMLTextAreaElement>;
@@ -68,13 +88,15 @@ export default function ChatComposer({
   chatModels,
   input,
   isLoading,
+  imageInputDisabled,
+  isUploadingImages,
   micActive,
+  pendingImageAttachments,
+  responseStyle,
   selectedModelId,
   modelEffortOverrides,
   thinkingEnabledOverrides,
-  ttsEnabled,
   searchEnabled,
-  learningMode,
   temporaryChatEnabled,
   showTemporaryIntro,
   temporaryMemoryMode,
@@ -84,6 +106,7 @@ export default function ChatComposer({
   microphoneStatus,
   microphoneErrorMessage,
   searchWarning,
+  imageWarning,
   isTtsLoading,
   isTtsPlaying,
   textareaRef,
@@ -91,19 +114,80 @@ export default function ChatComposer({
   waveformGlowRef,
   waveformContainerRef,
   onInputChange,
+  onAttachImages,
+  onRemoveImageAttachment,
   onModelChange,
   onModelEffortChange,
   onThinkingEnabledChange,
-  onToggleMic,
-  onToggleTts,
+  onResponseStyleChange,
   onToggleSearch,
-  onToggleLearningMode,
   onTemporaryMemoryModeChange,
   onSubmit,
   onKeyDown,
 }: ChatComposerProps) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isDraggingImage, setIsDraggingImage] = useState(false);
   const hasTranscript = finalTranscript.length > 0 || interimTranscript.length > 0;
   const hasAvailableChatModels = chatModels.some((model) => model.available);
+  const canSubmit = Boolean(input.trim() || pendingImageAttachments.length > 0);
+  const isBusy = isLoading || isUploadingImages;
+  const attachDisabled =
+    isBusy || imageInputDisabled || pendingImageAttachments.length >= MAX_CHAT_IMAGE_ATTACHMENTS;
+
+  const handleFileInputChange: ChangeEventHandler<HTMLInputElement> = (event) => {
+    const files = Array.from(event.currentTarget.files || []);
+    event.currentTarget.value = '';
+    if (attachDisabled) {
+      return;
+    }
+
+    onAttachImages(files);
+  };
+
+  const handlePaste: ClipboardEventHandler<HTMLFormElement> = (event) => {
+    const files = Array.from(event.clipboardData.files).filter((file) =>
+      file.type.startsWith('image/')
+    );
+
+    if (files.length > 0) {
+      event.preventDefault();
+      if (!attachDisabled) {
+        onAttachImages(files);
+      }
+    }
+  };
+
+  const handleDragOver: DragEventHandler<HTMLFormElement> = (event) => {
+    if (
+      Array.from(event.dataTransfer.items).some((item) => item.type.startsWith('image/'))
+    ) {
+      event.preventDefault();
+      if (!attachDisabled) {
+        setIsDraggingImage(true);
+      }
+    }
+  };
+
+  const handleDragLeave: DragEventHandler<HTMLFormElement> = (event) => {
+    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+      setIsDraggingImage(false);
+    }
+  };
+
+  const handleDrop: DragEventHandler<HTMLFormElement> = (event) => {
+    const files = Array.from(event.dataTransfer.files).filter((file) =>
+      file.type.startsWith('image/')
+    );
+
+    if (files.length > 0) {
+      event.preventDefault();
+      if (!attachDisabled) {
+        onAttachImages(files);
+      }
+    }
+
+    setIsDraggingImage(false);
+  };
 
   return (
     <div className="mx-auto w-full max-w-2xl px-4">
@@ -217,8 +301,52 @@ export default function ChatComposer({
           </svg>
         </div>
 
-        <form onSubmit={onSubmit} className="relative">
-          <div className="relative rounded-lg bg-surface shadow-sm ring-1 ring-border-subtle">
+        <form
+          onSubmit={onSubmit}
+          onPaste={handlePaste}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          className="relative"
+        >
+          <div
+            className={`relative rounded-lg bg-surface shadow-sm ring-1 transition ${
+              isDraggingImage ? 'ring-foreground/30' : 'ring-border-subtle'
+            }`}
+          >
+            {pendingImageAttachments.length > 0 && (
+              <div className="flex gap-2 overflow-x-auto px-3 pb-1 pt-3">
+                {pendingImageAttachments.map((attachment) => (
+                  <div
+                    key={attachment.id}
+                    className="group relative h-16 w-16 flex-none overflow-hidden rounded-md bg-foreground/[0.04] ring-1 ring-border-subtle"
+                  >
+                    <img
+                      src={attachment.url}
+                      alt={attachment.fileName}
+                      className="h-full w-full object-cover"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => onRemoveImageAttachment(attachment.id)}
+                      disabled={isBusy}
+                      aria-label={`Remove ${attachment.fileName}`}
+                      className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-background/90 text-muted shadow-sm transition hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <svg
+                        className="h-3 w-3"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.4"
+                        viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 6l12 12M18 6L6 18" />
+                      </svg>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
             <textarea
               ref={textareaRef}
               value={input}
@@ -226,41 +354,50 @@ export default function ChatComposer({
               onKeyDown={onKeyDown}
               placeholder={micActive ? 'Listening...' : `Message ${activeName}...`}
               rows={1}
+              disabled={isUploadingImages}
               className="composer-scrollbar w-full min-h-10 min-w-0 resize-none bg-transparent pl-3 pr-[5.5rem] py-2.5 font-sans text-sm leading-relaxed text-foreground placeholder-muted/50 outline-none disabled:cursor-not-allowed disabled:opacity-50 overflow-y-auto"
               style={{ maxHeight: '200px' }}
             />
 
-            {/* Buttons pinned to bottom-right, so scrollbar sits to their left at the far right of the card */}
             <div className="absolute bottom-1.5 right-2 flex flex-none items-center gap-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/gif"
+                multiple
+                className="hidden"
+                onChange={handleFileInputChange}
+              />
               <button
                 type="button"
-                onClick={onToggleMic}
-                disabled={isLoading}
-                aria-label={micActive ? 'Stop microphone' : 'Start microphone'}
-                className={`flex h-9 w-9 items-center justify-center rounded-md border p-0 transition-colors ${
-                  micActive
-                    ? 'border-foreground/[0.10] bg-foreground/[0.05] text-foreground'
-                    : 'border-transparent text-muted hover:border-foreground/[0.08] hover:bg-foreground/[0.04] hover:text-foreground/70'
-                } disabled:cursor-not-allowed disabled:opacity-50`}
+                onClick={() => fileInputRef.current?.click()}
+                disabled={attachDisabled}
+                aria-label="Attach image"
+                className="flex h-9 w-9 items-center justify-center rounded-md border border-transparent p-0 text-muted transition-colors hover:border-foreground/[0.08] hover:bg-foreground/[0.04] hover:text-foreground/70 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <svg
-                  className="h-4 w-4"
+                  className="h-5 w-5"
                   fill="none"
                   stroke="currentColor"
-                  strokeWidth="2"
+                  strokeWidth="1.8"
                   viewBox="0 0 24 24"
                 >
                   <path
                     strokeLinecap="round"
                     strokeLinejoin="round"
-                    d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z"
+                    d="M6.5 4.5h11A2.5 2.5 0 0120 7v11a2.5 2.5 0 01-2.5 2.5h-11A2.5 2.5 0 014 18V7a2.5 2.5 0 012.5-2.5z"
                   />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M4.5 17.5l4.25-4.25a1.4 1.4 0 012 0l2.75 2.75 1.75-1.75a1.4 1.4 0 012 0l2.25 2.25"
+                  />
+                  <circle cx="15.75" cy="8.75" r="1.25" fill="currentColor" stroke="none" />
                 </svg>
               </button>
-
               <button
                 type="submit"
-                disabled={!input.trim() || isLoading}
+                disabled={!canSubmit || isBusy}
                 className="flex h-7 w-7 items-center justify-center rounded-md bg-foreground p-0 text-background transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-20"
               >
                 <svg
@@ -280,58 +417,8 @@ export default function ChatComposer({
             </div>
           </div>
 
-          <div className="mt-1.5 flex items-center justify-between gap-3 px-1">
+          <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2 px-1">
             <div className="flex items-center gap-1.5">
-              <Tooltip
-                content={
-                  ttsEnabled
-                    ? 'Voice — Text-to-speech for responses'
-                    : 'Voice — Currently off'
-                }
-                side="bottom"
-              >
-                <button
-                  type="button"
-                  aria-pressed={ttsEnabled}
-                  aria-label={ttsEnabled ? 'Voice on' : 'Voice off'}
-                  onClick={onToggleTts}
-                  className={`flex h-7 w-7 items-center justify-center rounded-md border transition-colors ${
-                    ttsEnabled
-                      ? 'border-foreground/[0.10] bg-foreground/[0.05] text-foreground'
-                      : 'border-border-subtle text-muted hover:bg-foreground/[0.04] hover:text-foreground/70'
-                  }`}
-                >
-                  <svg
-                    className="h-3.5 w-3.5"
-                    fill={ttsEnabled ? 'currentColor' : 'none'}
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    viewBox="0 0 24 24"
-                  >
-                    {ttsEnabled ? (
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M11.25 5.25L6.75 9H4.5v6h2.25l4.5 3.75V5.25zm4.5 4.5a4.5 4.5 0 010 4.5m2.25-6.75a7.5 7.5 0 010 9"
-                      />
-                    ) : (
-                      <>
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M11.25 5.25L6.75 9H4.5v6h2.25l4.5 3.75V5.25z"
-                        />
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M15.75 9.75l4.5 4.5m0-4.5l-4.5 4.5"
-                        />
-                      </>
-                    )}
-                  </svg>
-                </button>
-              </Tooltip>
-
               <Tooltip
                 content={
                   searchEnabled
@@ -366,58 +453,34 @@ export default function ChatComposer({
                   </svg>
                 </button>
               </Tooltip>
-
-              <Tooltip
-                content={
-                  learningMode
-                    ? 'Learning mode on'
-                    : 'Learning mode off'
-                }
-                side="bottom"
-              >
-                <button
-                  type="button"
-                  aria-pressed={learningMode}
-                  aria-label={learningMode ? 'Learning mode on' : 'Learning mode off'}
-                  onClick={onToggleLearningMode}
-                  className={`flex h-7 w-7 items-center justify-center rounded-md border transition-colors ${
-                    learningMode
-                      ? 'border-foreground/[0.10] bg-foreground/[0.05] text-foreground'
-                      : 'border-border-subtle text-muted hover:bg-foreground/[0.04] hover:text-foreground/70'
-                  }`}
-                >
-                  <svg
-                    className="h-3.5 w-3.5"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"
-                    />
-                  </svg>
-                </button>
-              </Tooltip>
             </div>
 
-            <ChatModelPicker
-              chatModels={chatModels}
-              selectedModelId={selectedModelId}
-              modelEffortOverrides={modelEffortOverrides}
-              thinkingEnabledOverrides={thinkingEnabledOverrides}
-              disabled={!hasAvailableChatModels}
-              onChange={onModelChange}
-              onEffortChange={onModelEffortChange}
-              onThinkingEnabledChange={onThinkingEnabledChange}
-            />
+            <div className="ml-auto flex min-w-0 items-center gap-1.5">
+              <ResponseStylePicker
+                value={responseStyle}
+                onChange={onResponseStyleChange}
+              />
+              <ChatModelPicker
+                chatModels={chatModels}
+                selectedModelId={selectedModelId}
+                modelEffortOverrides={modelEffortOverrides}
+                thinkingEnabledOverrides={thinkingEnabledOverrides}
+                disabled={!hasAvailableChatModels}
+                onChange={onModelChange}
+                onEffortChange={onModelEffortChange}
+                onThinkingEnabledChange={onThinkingEnabledChange}
+              />
+            </div>
           </div>
 
           {searchWarning && (
             <div className="mt-2 rounded-lg border border-amber-300/70 bg-amber-50 px-3 py-2 font-sans text-xs text-amber-900 shadow-sm dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100">
               {searchWarning}
+            </div>
+          )}
+          {imageWarning && (
+            <div className="mt-2 rounded-lg border border-amber-300/70 bg-amber-50 px-3 py-2 font-sans text-xs text-amber-900 shadow-sm dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100">
+              {imageWarning}
             </div>
           )}
         </form>

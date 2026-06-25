@@ -29,6 +29,7 @@ export function useChatModelCatalog(
       available: true,
       isDefault: option.id === DEFAULT_CHAT_MODEL_ID,
       ...(option.effort ? { effort: option.effort } : {}),
+      supportsImages: option.supportsImages ?? false,
     }))
   );
 

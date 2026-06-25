@@ -65,12 +65,25 @@ describe('chat model resolver', () => {
         badge: 'Max',
         available: true,
         isDefault: true,
+        supportsImages: true,
       })
     );
     expect(items.find((item) => item.id === 'claude-sonnet-4-6')).toEqual(
       expect.objectContaining({
+        label: 'Claude Sonnet 4.6',
+        provider: 'anthropic',
         available: false,
         isDefault: false,
+        supportsImages: true,
+      })
+    );
+    expect(items.find((item) => item.id === 'gemini-3-flash-preview')).toEqual(
+      expect.objectContaining({
+        label: 'Gemini 3 Flash',
+        provider: 'google',
+        available: false,
+        isDefault: false,
+        supportsImages: true,
       })
     );
   });
@@ -119,6 +132,7 @@ describe('chat model resolver', () => {
         label: 'Claude Sonnet 4.6',
         provider: 'anthropic',
         apiModelId: 'claude-sonnet-4-6',
+        supportsImages: true,
       })
     );
   });
@@ -131,8 +145,10 @@ describe('chat model resolver', () => {
     expect(resolveChatModelSelection('gpt-5.5')).toEqual(
       expect.objectContaining({
         id: 'gemini-3.1-pro-preview',
+        label: 'Gemini 3.1 Pro',
         provider: 'google',
         apiModelId: 'gemini-3.1-pro-preview',
+        supportsImages: true,
       })
     );
   });
