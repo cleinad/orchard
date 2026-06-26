@@ -54,6 +54,7 @@ interface ConversationMessage {
 interface ProcessMemoryV2Context {
   conversationId?: string | null;
   mentorId?: string | null;
+  workspaceId?: string | null;
   sourceMessageId?: string | null;
   sourceRole?: 'user' | 'assistant';
 }
@@ -78,8 +79,12 @@ export async function processMemoryV2(
   latestResponse: string,
   context: ProcessMemoryV2Context = {}
 ): Promise<void> {
-  const ownerType: MemoryOwnerType = context.mentorId ? 'mentor' : 'global';
-  const ownerId = context.mentorId ?? null;
+  const ownerType: MemoryOwnerType = context.workspaceId
+    ? 'workspace'
+    : context.mentorId
+      ? 'mentor'
+      : 'global';
+  const ownerId = context.workspaceId ?? context.mentorId ?? null;
 
   const fullExchange = [
     ...conversationMessages.slice(-8),
@@ -125,10 +130,10 @@ export async function processMemoryV2(
     .order('updated_at', { ascending: false })
     .limit(300);
 
-  if (ownerType === 'mentor') {
-    scopeQuery = scopeQuery.eq('owner_id', ownerId);
-  } else {
+  if (ownerType === 'global') {
     scopeQuery = scopeQuery.is('owner_id', null);
+  } else {
+    scopeQuery = scopeQuery.eq('owner_id', ownerId);
   }
 
   const { data: existingRows, error: existingError } = await scopeQuery;

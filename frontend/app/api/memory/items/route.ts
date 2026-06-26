@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
-import { parseMemoryScope, parseMentorScope, type MemoryStatus } from '@/lib/memory-items';
+import {
+  parseMemoryScope,
+  parseMentorScope,
+  parseWorkspaceScope,
+  type MemoryStatus,
+} from '@/lib/memory-items';
 
 const ALLOWED_STATUS: MemoryStatus[] = ['active', 'superseded', 'deleted'];
 
@@ -49,6 +54,24 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: 'Invalid mentor scope' }, { status: 400 });
       }
       query = query.eq('owner_type', 'mentor').eq('owner_id', mentorId);
+    } else if (scope.startsWith('workspace:')) {
+      const workspaceId = parseWorkspaceScope(scope);
+      if (!workspaceId) {
+        return NextResponse.json({ error: 'Invalid workspace scope' }, { status: 400 });
+      }
+
+      const { data: workspace, error: workspaceError } = await supabase
+        .from('workspaces')
+        .select('id')
+        .eq('id', workspaceId)
+        .eq('user_id', user.id)
+        .single();
+
+      if (workspaceError || !workspace) {
+        return NextResponse.json({ error: 'Workspace not found' }, { status: 404 });
+      }
+
+      query = query.eq('owner_type', 'workspace').eq('owner_id', workspaceId);
     }
 
     const { data, error } = await query;

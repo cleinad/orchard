@@ -9,6 +9,10 @@ function isPublicPage(pathname: string) {
   return pathname === '/' || pathname === '/login' || pathname === '/signup';
 }
 
+function isE2eBypassRoute(pathname: string) {
+  return pathname.startsWith('/home') || pathname.startsWith('/workspaces');
+}
+
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({
     request: {
@@ -19,7 +23,7 @@ export async function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
   const bypassHomeAuth =
     process.env.KEEN_E2E_BYPASS_AUTH === '1'
-    && pathname.startsWith('/home')
+    && isE2eBypassRoute(pathname)
     && request.nextUrl.searchParams.has('e2e');
 
   if (bypassHomeAuth) {

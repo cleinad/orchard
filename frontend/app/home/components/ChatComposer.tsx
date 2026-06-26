@@ -1,5 +1,6 @@
 import {
   useRef,
+  useEffect,
   useState,
   type ChangeEventHandler,
   type ClipboardEventHandler,
@@ -133,6 +134,18 @@ export default function ChatComposer({
   const isBusy = isLoading || isUploadingImages;
   const attachDisabled =
     isBusy || imageInputDisabled || pendingImageAttachments.length >= MAX_CHAT_IMAGE_ATTACHMENTS;
+
+  useEffect(() => {
+    if (!textareaRef.current) {
+      return;
+    }
+
+    textareaRef.current.style.height = 'auto';
+    textareaRef.current.style.height = `${Math.min(
+      textareaRef.current.scrollHeight,
+      200
+    )}px`;
+  }, [input, textareaRef]);
 
   const handleFileInputChange: ChangeEventHandler<HTMLInputElement> = (event) => {
     const files = Array.from(event.currentTarget.files || []);

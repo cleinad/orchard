@@ -8,6 +8,7 @@ import {
   lexicalOverlapScore,
   parseMemoryScope,
   parseMentorScope,
+  parseWorkspaceScope,
 } from '@/lib/memory-items';
 
 // ── normalizeMemoryText ──────────────────────────────────────
@@ -178,8 +179,16 @@ describe('parseMemoryScope', () => {
     expect(parseMemoryScope('mentor:abc-123')).toBe('mentor:abc-123');
   });
 
+  it('returns valid workspace scope', () => {
+    expect(parseMemoryScope('workspace:abc-123')).toBe('workspace:abc-123');
+  });
+
   it('returns "all" for bare "mentor:" prefix', () => {
     expect(parseMemoryScope('mentor:')).toBe('all');
+  });
+
+  it('returns "all" for bare "workspace:" prefix', () => {
+    expect(parseMemoryScope('workspace:')).toBe('all');
   });
 });
 
@@ -194,5 +203,19 @@ describe('parseMentorScope', () => {
 
   it('returns null for "all" scope', () => {
     expect(parseMentorScope('all')).toBeNull();
+  });
+});
+
+describe('parseWorkspaceScope', () => {
+  it('extracts workspace ID from workspace scope', () => {
+    expect(parseWorkspaceScope('workspace:abc')).toBe('abc');
+  });
+
+  it('returns null for global scope', () => {
+    expect(parseWorkspaceScope('global')).toBeNull();
+  });
+
+  it('returns null for mentor scope', () => {
+    expect(parseWorkspaceScope('mentor:abc')).toBeNull();
   });
 });

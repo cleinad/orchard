@@ -39,7 +39,7 @@ import {
 } from '@/lib/chat-session';
 import { getBrowserTimeZone } from '@/lib/browser-timezone';
 import { stripCitationMarkers } from '@/lib/search-citations';
-import type { ChatModelEffortLevel } from '@/lib/chat-models';
+import type { ChatModelEffortLevel, ChatModelId } from '@/lib/chat-models';
 import type { ResponseStyle } from '@/lib/response-style';
 
 export interface ChatResponse {
@@ -47,6 +47,7 @@ export interface ChatResponse {
   conversationId?: string;
   conversationTitle?: string | null;
   mentorId?: string | null;
+  workspaceId?: string | null;
   threadId?: string | null;
   userMessageId?: string | null;
   assistantMessageId?: string | null;
@@ -61,6 +62,7 @@ interface CreateConversationResponse {
     id?: string;
     title?: string | null;
     mentorId?: string | null;
+    workspaceId?: string | null;
   };
   error?: string;
 }
@@ -79,6 +81,11 @@ interface SendMessageOptions {
   displayAttachments?: Message['attachments'];
   uploadedAttachments?: UploadedChatImageAttachment[];
   prepareUploadedAttachments?: () => Promise<UploadedChatImageAttachment[]>;
+  modelId?: ChatModelId;
+  modelEffort?: ChatModelEffortLevel | null;
+  thinkingEnabled?: boolean | null;
+  responseStyle?: ResponseStyle;
+  searchEnabled?: boolean;
 }
 
 interface SendMessageResult {
@@ -319,7 +326,7 @@ interface MainChatRuntimeParams {
   clearComposerInputForSelection: (selection: SelectedChat | null) => void;
   clearPendingChatRequestForSelection: (selection: SelectedChat) => void;
   clearSearchStateForSelection: (selection: SelectedChat | null) => void;
-  getOrCreateDraft: (mentorId: string | null) => PersistentDraftChat;
+  getOrCreateDraft: (mentorId: string | null, workspaceId?: string | null) => PersistentDraftChat;
   hydratedRouteConversationIdRef: MutableRefObject<string | null>;
   isHomeE2eFixture: boolean;
   loadConversationMessages: (id: string) => Promise<LoadedConversationMessages>;
@@ -409,6 +416,13 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
     let uploadedAttachments = options.uploadedAttachments ?? [];
     const displayAttachments =
       options.displayAttachments ?? mapUploadedAttachments(uploadedAttachments);
+    const requestModelId = options.modelId ?? params.selectedModelId;
+    const requestModelEffort =
+      options.modelEffort === undefined ? params.selectedModelEffort : options.modelEffort;
+    const requestThinkingEnabled =
+      options.thinkingEnabled === undefined ? params.thinkingEnabled : options.thinkingEnabled;
+    const requestResponseStyle = options.responseStyle ?? params.responseStyle;
+    const requestSearchEnabled = options.searchEnabled ?? params.searchEnabled;
 
     if (!messageText && displayAttachments.length === 0 && uploadedAttachments.length === 0) {
       return { accepted: false, completed: false };
@@ -439,6 +453,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
         kind: 'draft',
         draftId: effectiveDraft.id,
         mentorId: null,
+        workspaceId: null,
       };
       params.moveResponseStyleBetweenSelections(blankSelection, effectiveSelection);
       params.selectedChatRef.current = effectiveSelection;
@@ -599,7 +614,10 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
       params.setPersistentBranches(nextTree.branches);
       params.setPersistentSelectedBranchIds(nextTree.selectedBranchIds);
     } else {
-      const draft = effectiveDraft || params.getOrCreateDraft(effectiveSelection.mentorId);
+      const draft = effectiveDraft || params.getOrCreateDraft(
+        effectiveSelection.mentorId,
+        effectiveSelection.workspaceId
+      );
       effectiveDraft = draft;
       const nextTree = draftNextTree;
       if (!nextTree) {
@@ -654,6 +672,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
           body: JSON.stringify({
             initialMessage: messageText || 'Image question',
             mentorId: draftSelection.mentorId ?? null,
+            workspaceId: draftSelection.workspaceId ?? null,
           }),
         });
         const createData = (await createResponse.json()) as CreateConversationResponse;
@@ -667,6 +686,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
           kind: 'persistent',
           conversationId,
           mentorId: createData.conversation?.mentorId ?? draftSelection.mentorId,
+          workspaceId: createData.conversation?.workspaceId ?? draftSelection.workspaceId,
         };
         const shouldFocusPromotedDraft = isSameSelectedChat(
           params.selectedChatRef.current,
@@ -945,16 +965,20 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
             effectiveSelection.kind === 'temporary'
               ? undefined
               : effectiveSelection.mentorId ?? undefined,
-          modelId: params.selectedModelId,
-          ...(params.selectedModelEffort
-            ? { modelEffort: params.selectedModelEffort }
+          workspaceId:
+            effectiveSelection.kind === 'temporary'
+              ? undefined
+              : effectiveSelection.workspaceId ?? undefined,
+          modelId: requestModelId,
+          ...(requestModelEffort
+            ? { modelEffort: requestModelEffort }
             : {}),
-          ...(params.thinkingEnabled !== null
-            ? { thinkingEnabled: params.thinkingEnabled }
+          ...(requestThinkingEnabled !== null
+            ? { thinkingEnabled: requestThinkingEnabled }
             : {}),
           previousMessageId,
           branchSourceMessageId: branchSourceMessageId ?? undefined,
-          responseStyle: params.responseStyle,
+          responseStyle: requestResponseStyle,
           attachments: uploadedAttachments.map((attachment) => ({
             storagePath: attachment.storagePath,
             fileName: attachment.fileName,
@@ -964,7 +988,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
             height: attachment.height,
             cleanupOnFailure: true,
           })),
-          searchEnabled: params.searchEnabled,
+          searchEnabled: requestSearchEnabled,
           timezone: getBrowserTimeZone(),
           chatMode:
             effectiveSelection.kind === 'temporary' ? 'temporary' : 'persistent',
@@ -1068,6 +1092,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
           kind: 'persistent',
           conversationId: data.conversationId,
           mentorId: data.mentorId ?? draftSelection.mentorId,
+          workspaceId: data.workspaceId ?? draftSelection.workspaceId,
         };
         const optimisticMessages = [
           ...(draftNextTree?.messages ?? effectiveDraft.messages),

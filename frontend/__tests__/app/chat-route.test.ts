@@ -559,6 +559,76 @@ describe('chat route memory contract', () => {
     );
   });
 
+  it('passes workspace actor, context, and workspaceId into memory paths', async () => {
+    const { response, supabase } = await runChatRequest(
+      {
+        message: 'Help with homework notation',
+        workspaceId: '11111111-1111-4111-8111-111111111111',
+      },
+      {
+        workspaces: {
+          rows: [
+            {
+              id: '11111111-1111-4111-8111-111111111111',
+              context: 'Use Math 337 notation.',
+            },
+          ],
+        },
+        conversations: {
+          rows: [],
+          returnOnMutate: [{ id: 'conv-workspace-1' }],
+        },
+        messages: {
+          rows: [{ role: 'user', content: 'Help with homework notation' }],
+          returnOnMutate: [
+            { id: 'msg-user-workspace-1' },
+            { id: 'msg-assistant-workspace-1' },
+          ],
+        },
+      }
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockLoadMemoryContextV2).toHaveBeenCalledWith(
+      supabase,
+      'user-1',
+      expect.objectContaining({
+        actor: 'workspace',
+        workspaceId: '11111111-1111-4111-8111-111111111111',
+        query: 'Help with homework notation',
+      })
+    );
+    expect(mockStreamText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        system: expect.stringContaining('Use Math 337 notation.'),
+      })
+    );
+    expect(mockProcessMemoryV2).toHaveBeenCalledWith(
+      supabase,
+      'user-1',
+      [{ role: 'user', content: 'Help with homework notation' }],
+      'Assistant reply',
+      expect.objectContaining({
+        conversationId: 'conv-workspace-1',
+        workspaceId: '11111111-1111-4111-8111-111111111111',
+        sourceMessageId: 'msg-user-workspace-1',
+      })
+    );
+  });
+
+  it('rejects chat requests that provide both mentorId and workspaceId', async () => {
+    const { response, body, tracker } = await runChatRequest({
+      message: 'Ambiguous context',
+      mentorId: 'mentor-1',
+      workspaceId: '11111111-1111-4111-8111-111111111111',
+    });
+
+    expect(response.status).toBe(400);
+    expect(body.error).toBe('A chat cannot use both a mentor and a workspace');
+    expect(tracker.inserts('messages')).toHaveLength(0);
+    expect(mockStreamText).not.toHaveBeenCalled();
+  });
+
   it('injects current UTC time and profile name into normal answer generation', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-01-02T03:04:05.000Z'));

@@ -436,6 +436,83 @@ describe('processMemoryV2 — write path', () => {
       owner_id: 'mentor-abc',
     });
   });
+
+  it('writes workspace-scoped entries when workspaceId is provided', async () => {
+    const candidate = makeCandidate({
+      text: 'Workspace uses Strang notation',
+      type: 'preference',
+    });
+
+    mockGenerateObject.mockResolvedValueOnce({
+      object: { candidates: [candidate] },
+    });
+
+    const insertedRow = {
+      id: 'workspace-new-1',
+      ...candidate,
+      user_id: 'user-1',
+      status: 'active',
+      owner_type: 'workspace',
+      owner_id: 'workspace-abc',
+    };
+    const client = setup([], [insertedRow]);
+
+    const { processMemoryV2 } = await import('@/lib/memory-agent');
+    await processMemoryV2(client, 'user-1', dummyMessages, dummyResponse, {
+      workspaceId: 'workspace-abc',
+    });
+
+    const inserts = tracker.inserts('memory_items');
+    expect(inserts).toHaveLength(1);
+    expect(inserts[0].args).toMatchObject({
+      owner_type: 'workspace',
+      owner_id: 'workspace-abc',
+    });
+  });
+
+  it('loads existing workspace-scoped entries before merging', async () => {
+    const candidate = makeCandidate({
+      text: 'Workspace uses Strang notation',
+      type: 'preference',
+    });
+
+    mockGenerateObject.mockResolvedValueOnce({
+      object: { candidates: [candidate] },
+    });
+
+    const existing = makeMemoryItem({
+      id: 'workspace-existing-1',
+      owner_type: 'workspace',
+      owner_id: 'workspace-abc',
+      type: 'preference',
+      text: 'Workspace uses Strang notation',
+      normalized_text: 'workspace uses strang notation',
+      salience: 35,
+      confidence: 0.7,
+    });
+    const updatedRow = {
+      ...existing,
+      salience: 80,
+      confidence: 0.9,
+    };
+    const client = setup([existing], [updatedRow]);
+
+    const { processMemoryV2 } = await import('@/lib/memory-agent');
+    await processMemoryV2(client, 'user-1', dummyMessages, dummyResponse, {
+      workspaceId: 'workspace-abc',
+    });
+
+    expect(tracker.selects('memory_items')[0].filters).toMatchObject({
+      'eq:owner_type': 'workspace',
+      'eq:owner_id': 'workspace-abc',
+    });
+    expect(tracker.selects('memory_items')[0].filters).not.toHaveProperty('is:owner_id');
+    expect(tracker.inserts('memory_items')).toHaveLength(0);
+    expect(tracker.updates('memory_items')).toHaveLength(1);
+    expect(tracker.updates('memory_items')[0].filters).toMatchObject({
+      'eq:id': 'workspace-existing-1',
+    });
+  });
 });
 
 // ── Read Path Tests ──────────────────────────────────────────
@@ -586,6 +663,54 @@ describe('loadMemoryContextV2 — read path', () => {
     expect(result).toContain('## Global Profile');
     expect(result).not.toContain('## Core Profile');
     expect(result).not.toContain('Other mentor pref');
+  });
+
+  it('includes global and current workspace memories for workspace actor only', async () => {
+    const items: MemoryItem[] = [
+      makeMemoryItem({
+        id: 'global-profile',
+        type: 'profile',
+        text: 'Global profile fact',
+        owner_type: 'global',
+        stability: 'stable',
+        salience: 95,
+      }),
+      makeMemoryItem({
+        id: 'workspace-current',
+        type: 'goal',
+        text: 'Current workspace prefers concise derivations',
+        owner_type: 'workspace',
+        owner_id: 'workspace-1',
+        stability: 'stable',
+        salience: 90,
+      }),
+      makeMemoryItem({
+        id: 'workspace-other',
+        type: 'preference',
+        text: 'Other workspace private context',
+        owner_type: 'workspace',
+        owner_id: 'workspace-2',
+        stability: 'stable',
+        salience: 100,
+      }),
+    ];
+
+    const { client } = createMockSupabase({
+      tables: {
+        memory_items: { rows: items },
+        memory_item_embeddings: { rows: [] },
+      },
+    });
+
+    const { loadMemoryContextV2 } = await import('@/lib/memory-items-server');
+    const result = await loadMemoryContextV2(client as any, 'user-1', {
+      actor: 'workspace',
+      workspaceId: 'workspace-1',
+    });
+
+    expect(result).toContain('Global profile fact');
+    expect(result).toContain('Current workspace prefers concise derivations');
+    expect(result).not.toContain('Other workspace private context');
   });
 
   it('uses RPC semantic matches when available for relevant recall ranking', async () => {

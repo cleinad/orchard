@@ -8,17 +8,20 @@ import {
   RailIconAllChats,
   RailIconNewChat,
   RailIconTemporary,
+  RailIconWorkspace,
 } from '@/app/home/components/home-rail-icons';
 import { useViewerIdentity } from '@/app/components/useViewerIdentity';
 import { initialsFor } from '@/lib/mentors/ui-helpers';
 import type {
   ConversationListItem,
   SidebarMentorGroup,
+  SidebarWorkspaceGroup,
 } from '@/app/home/types';
 
 interface DraftChatListItem {
   id: string;
   mentor_id: string | null;
+  workspace_id: string | null;
   title: string;
   updated_at: string;
 }
@@ -34,8 +37,10 @@ interface Props {
   onClose: () => void;
   onToggleSidePanel: () => void;
   onNewChatKeen: () => void;
+  onOpenWorkspacesSection: () => void;
   onOpenTemporarySection: () => void;
   onOpenAllChats: () => void;
+  workspaceGroups: SidebarWorkspaceGroup[];
   mentorGroups: SidebarMentorGroup[];
   draftChats: DraftChatListItem[];
   temporaryChats: TemporaryChatListItem[];
@@ -43,15 +48,23 @@ interface Props {
   selectedDraftId: string | null;
   selectedTempChatId: string | null;
   selectedMentorId: string | null;
+  selectedWorkspaceId: string | null;
   onSelectConversation: (conversation: ConversationListItem) => void;
   onSelectDraft: (draftId: string) => void;
   onSelectTemporaryChat: (tempChatId: string) => void;
   onCreateDraft: (mentorId: string | null) => void;
+  onCreateWorkspaceDraft: (workspaceId: string) => void;
+  onCreateWorkspace: () => void;
+  onOpenWorkspace: (workspaceId: string) => void;
   onCloseTemporaryChat: (tempChatId: string) => void;
 }
 
 function getMentorKey(mentorId: string | null) {
   return mentorId ?? '__keen__';
+}
+
+function getWorkspaceKey(workspaceId: string) {
+  return `workspace:${workspaceId}`;
 }
 
 function formatDate(input: string): string {
@@ -72,8 +85,10 @@ export default function SidePanel({
   onClose,
   onToggleSidePanel,
   onNewChatKeen,
+  onOpenWorkspacesSection,
   onOpenTemporarySection,
   onOpenAllChats,
+  workspaceGroups,
   mentorGroups,
   draftChats,
   temporaryChats,
@@ -81,14 +96,19 @@ export default function SidePanel({
   selectedDraftId,
   selectedTempChatId,
   selectedMentorId,
+  selectedWorkspaceId,
   onSelectConversation,
   onSelectDraft,
   onSelectTemporaryChat,
   onCreateDraft,
+  onCreateWorkspaceDraft,
+  onCreateWorkspace,
+  onOpenWorkspace,
   onCloseTemporaryChat,
 }: Props) {
   const router = useRouter();
   const [expandedMentors, setExpandedMentors] = useState<Record<string, boolean>>({});
+  const [expandedWorkspaces, setExpandedWorkspaces] = useState<Record<string, boolean>>({});
   const [visibleCounts, setVisibleCounts] = useState<Record<string, number>>({});
   const { viewer } = useViewerIdentity();
   const profileName = viewer?.fullName || viewer?.email || 'Your profile';
@@ -109,13 +129,54 @@ export default function SidePanel({
   }, [isOpen, handleEscape]);
 
   useEffect(() => {
-    if (!selectedMentorId && !selectedDraftId && !selectedConversationId) {
+    if (!selectedMentorId && !selectedWorkspaceId && !selectedDraftId && !selectedConversationId) {
+      return;
+    }
+
+    if (selectedWorkspaceId) {
+      const workspaceKey = getWorkspaceKey(selectedWorkspaceId);
+      const draftByWorkspaceKey = new Map(
+        draftChats
+          .filter((draft) => draft.workspace_id)
+          .map((draft) => [getWorkspaceKey(draft.workspace_id!), draft])
+      );
+      const group = workspaceGroups.find((entry) => entry.workspace_id === selectedWorkspaceId);
+      if (!group) return;
+
+      setExpandedWorkspaces((prev) => ({ ...prev, [workspaceKey]: true }));
+
+      const items = [
+        ...(draftByWorkspaceKey.get(workspaceKey)
+          ? [{ kind: 'draft' as const, id: draftByWorkspaceKey.get(workspaceKey)!.id }]
+          : []),
+        ...group.conversations.map((conversation) => ({
+          kind: 'conversation' as const,
+          id: conversation.id,
+        })),
+      ];
+
+      const selectedIndex = items.findIndex((item) =>
+        item.kind === 'draft'
+          ? item.id === selectedDraftId
+          : item.id === selectedConversationId
+      );
+
+      if (selectedIndex >= 0) {
+        const minimumVisible = selectedIndex < 3 ? 3 : Math.max(10, selectedIndex + 1);
+        setVisibleCounts((prev) => ({
+          ...prev,
+          [workspaceKey]: Math.max(prev[workspaceKey] ?? 3, minimumVisible),
+        }));
+      }
+
       return;
     }
 
     const mentorKey = getMentorKey(selectedMentorId);
     const draftByMentorKey = new Map(
-      draftChats.map((draft) => [getMentorKey(draft.mentor_id), draft])
+      draftChats
+        .filter((draft) => !draft.workspace_id)
+        .map((draft) => [getMentorKey(draft.mentor_id), draft])
     );
     const group = mentorGroups.find((entry) => entry.mentor_id === selectedMentorId);
     if (!group) {
@@ -153,10 +214,188 @@ export default function SidePanel({
     selectedConversationId,
     selectedDraftId,
     selectedMentorId,
+    selectedWorkspaceId,
+    workspaceGroups,
   ]);
 
   const draftByMentorKey = new Map(
-    draftChats.map((draft) => [getMentorKey(draft.mentor_id), draft])
+    draftChats
+      .filter((draft) => !draft.workspace_id)
+      .map((draft) => [getMentorKey(draft.mentor_id), draft])
+  );
+  const draftByWorkspaceKey = new Map(
+    draftChats
+      .filter((draft) => draft.workspace_id)
+      .map((draft) => [getWorkspaceKey(draft.workspace_id!), draft])
+  );
+
+  const renderWorkspaceIcon = (group: SidebarWorkspaceGroup) => (
+    <span
+      className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md text-xs"
+      style={{
+        backgroundColor: group.workspace_accent_color
+          ? `${group.workspace_accent_color}22`
+          : 'var(--surface-muted)',
+        color: group.workspace_accent_color || 'var(--muted)',
+      }}
+    >
+      {group.workspace_icon || <RailIconWorkspace className="h-3.5 w-3.5" />}
+    </span>
+  );
+
+  const workspaceList = (
+    <div className="pb-3">
+      {workspaceGroups.length === 0 ? (
+        <div className="px-3 py-2 text-xs text-muted">No workspaces yet.</div>
+      ) : (
+        workspaceGroups.map((group) => {
+          const workspaceKey = getWorkspaceKey(group.workspace_id);
+          const draft = draftByWorkspaceKey.get(workspaceKey) || null;
+          const isExpanded = expandedWorkspaces[workspaceKey] || false;
+          const visibleCount = visibleCounts[workspaceKey] ?? 3;
+          const visibleConversations = isExpanded
+            ? group.conversations.slice(0, visibleCount)
+            : [];
+          const hasMore = group.conversations.length > visibleConversations.length;
+          const isSelectedWorkspace =
+            selectedWorkspaceId === group.workspace_id && selectedMentorId === null;
+
+          return (
+            <div key={workspaceKey} className="py-1">
+              <div
+                className={`flex items-center gap-2 rounded-xl px-3 py-1.5 transition-colors ${
+                  isSelectedWorkspace ? 'bg-foreground/[0.05]' : 'hover:bg-foreground/[0.03]'
+                }`}
+              >
+                <button
+                  type="button"
+                  onClick={() => onOpenWorkspace(group.workspace_id)}
+                  className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                >
+                  {renderWorkspaceIcon(group)}
+                  <span className="min-w-0 flex-1 truncate font-sans text-[15px] text-foreground">
+                    {group.workspace_name}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setExpandedWorkspaces((prev) => ({
+                      ...prev,
+                      [workspaceKey]: !isExpanded,
+                    }))
+                  }
+                  className="inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-muted transition-colors hover:bg-foreground/[0.05] hover:text-foreground"
+                  aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${group.workspace_name}`}
+                >
+                  <svg
+                    className={`h-4 w-4 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    viewBox="0 0 24 24"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5.25L15 12l-6 6.75" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onCreateWorkspaceDraft(group.workspace_id)}
+                  className="inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-muted transition-colors hover:bg-foreground/[0.05] hover:text-foreground"
+                  aria-label={`New chat in ${group.workspace_name}`}
+                >
+                  <svg
+                    className="h-4 w-4"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    viewBox="0 0 24 24"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                  </svg>
+                </button>
+              </div>
+
+              {isExpanded && (
+                <div className="ml-6 mt-1 space-y-0.5 border-l border-border-subtle/80 pl-4">
+                  {draft && (
+                    <button
+                      type="button"
+                      onClick={() => onSelectDraft(draft.id)}
+                      className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-1.5 text-left transition-colors ${
+                        selectedDraftId === draft.id
+                          ? 'bg-foreground/[0.06]'
+                          : 'hover:bg-foreground/[0.04]'
+                      }`}
+                    >
+                      <span className="truncate font-sans text-sm text-foreground">{draft.title}</span>
+                      <span className="flex-shrink-0 font-sans text-[11px] text-muted">
+                        {formatDate(draft.updated_at)}
+                      </span>
+                    </button>
+                  )}
+
+                  {visibleConversations.map((conversation) => (
+                    <button
+                      key={conversation.id}
+                      type="button"
+                      onClick={() => onSelectConversation(conversation)}
+                      className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-1.5 text-left transition-colors ${
+                        selectedConversationId === conversation.id
+                          ? 'bg-foreground/[0.06]'
+                          : 'hover:bg-foreground/[0.04]'
+                      }`}
+                    >
+                      <span className="truncate font-sans text-sm text-foreground/88">
+                        {conversation.title}
+                      </span>
+                      <span className="flex-shrink-0 font-sans text-[11px] text-muted">
+                        {formatDate(conversation.updated_at)}
+                      </span>
+                    </button>
+                  ))}
+
+                  {group.conversations.length > 3 && (
+                    <div className="flex items-center gap-3 px-3 pt-1">
+                      {hasMore ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setVisibleCounts((prev) => ({
+                              ...prev,
+                              [workspaceKey]:
+                                (prev[workspaceKey] ?? 3) <= 3
+                                  ? 10
+                                  : (prev[workspaceKey] ?? 3) + 10,
+                            }))
+                          }
+                          className="text-[11px] font-sans font-medium tracking-wide text-muted transition-colors hover:text-foreground"
+                        >
+                          Show more
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setVisibleCounts((prev) => ({
+                              ...prev,
+                              [workspaceKey]: 3,
+                            }))
+                          }
+                          className="text-[11px] font-medium tracking-wide text-muted transition-colors hover:text-foreground"
+                        >
+                          Show less
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })
+      )}
+    </div>
   );
 
   // Mentor list sits under the Chats heading; same expand/draft logic as before.
@@ -344,6 +583,16 @@ export default function SidePanel({
           <RailIconNewChat className="h-5 w-5 text-foreground" />
         </button>
       </Tooltip>
+      <Tooltip content="Workspaces" side="right">
+        <button
+          type="button"
+          onClick={onOpenWorkspacesSection}
+          className={railIconButtonClass}
+          aria-label="Workspaces"
+        >
+          <RailIconWorkspace className="h-5 w-5 text-foreground" />
+        </button>
+      </Tooltip>
       <Tooltip content="Temporary" side="right">
         <button
           type="button"
@@ -442,6 +691,34 @@ export default function SidePanel({
                   </button>
                 </div>
 
+                <div id="side-panel-section-workspaces" className="scroll-mt-2">
+                  <div className="flex h-10 w-full items-center">
+                    <div className="flex w-14 flex-shrink-0 items-center justify-center">
+                      <RailIconWorkspace className="h-5 w-5 text-foreground" />
+                    </div>
+                    <span className="font-sans text-sm font-medium text-foreground">Workspaces</span>
+                    <button
+                      type="button"
+                      onClick={onCreateWorkspace}
+                      className="ml-auto mr-3 inline-flex h-7 w-7 items-center justify-center rounded-full text-muted transition-colors hover:bg-foreground/[0.05] hover:text-foreground"
+                      aria-label="New workspace"
+                    >
+                      <svg
+                        className="h-4 w-4"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                      </svg>
+                    </button>
+                  </div>
+                  <div className="pl-14 pr-2">
+                    {workspaceList}
+                  </div>
+                </div>
+
                 <div
                   id="side-panel-section-temporary"
                   className="scroll-mt-2"
@@ -514,7 +791,9 @@ export default function SidePanel({
                     </div>
                     <span className="font-sans text-sm font-medium text-foreground">All chats</span>
                   </div>
-                  <div className="pl-14 pb-6 pr-2">{mentorList}</div>
+                  <div className="pl-14 pb-6 pr-2">
+                    {mentorList}
+                  </div>
                 </div>
                 </div>{/* end header rows */}
               </div>

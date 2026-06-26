@@ -12,14 +12,17 @@ import type {
   ConversationListItem,
   Message,
   SidebarMentorGroup,
+  SidebarWorkspaceGroup,
 } from '@/app/home/types';
 import type { ThreadMeta } from '@/app/home/components/threadTypes';
 import { buildInitialBranchSelections } from '@/app/home/components/conversationTree';
+import type { WorkspaceListItem } from '@/lib/workspaces';
 
 interface ConversationRow {
   id: string;
   title: string | null;
   mentor_id: string | null;
+  workspace_id: string | null;
   updated_at: string;
   created_at: string;
 }
@@ -77,7 +80,7 @@ function buildSidebarGroups(
     groups.map((group) => [group.mentor_id ?? '__keen__', group])
   );
 
-  for (const conversation of conversationSource) {
+  for (const conversation of conversationSource.filter((entry) => !entry.workspace_id)) {
     const key = conversation.mentor_id ?? '__keen__';
     const group = groupByMentorId.get(key);
 
@@ -118,28 +121,86 @@ function buildSidebarGroups(
   return [...activeGroups, ...inactiveGroups];
 }
 
+function buildWorkspaceGroups(
+  workspaceSource: WorkspaceListItem[],
+  conversationSource: ConversationListItem[]
+): SidebarWorkspaceGroup[] {
+  const groups = workspaceSource.map((workspace) => ({
+    workspace_id: workspace.id,
+    workspace_name: workspace.name,
+    workspace_icon: workspace.icon,
+    workspace_accent_color: workspace.accent_color,
+    workspace_description: workspace.description,
+    last_activity_at: null as string | null,
+    conversations: [] as ConversationListItem[],
+  }));
+
+  const groupByWorkspaceId = new Map(
+    groups.map((group) => [group.workspace_id, group])
+  );
+
+  for (const conversation of conversationSource) {
+    if (!conversation.workspace_id) continue;
+    const group = groupByWorkspaceId.get(conversation.workspace_id);
+    if (!group) continue;
+
+    group.conversations.push(conversation);
+    if (
+      !group.last_activity_at ||
+      new Date(conversation.updated_at).getTime() >
+        new Date(group.last_activity_at).getTime()
+    ) {
+      group.last_activity_at = conversation.updated_at;
+    }
+  }
+
+  for (const group of groups) {
+    group.conversations.sort(
+      (a, b) =>
+        new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+    );
+  }
+
+  return groups.sort((a, b) => {
+    const aTime = a.last_activity_at ? new Date(a.last_activity_at).getTime() : 0;
+    const bTime = b.last_activity_at ? new Date(b.last_activity_at).getTime() : 0;
+    if (aTime !== bTime) return bTime - aTime;
+    return a.workspace_name.localeCompare(b.workspace_name);
+  });
+}
+
 function mapConversationRowToListItem(
   row: ConversationRow,
-  mentorSource: MentorListItem[]
+  mentorSource: MentorListItem[],
+  workspaceSource: WorkspaceListItem[]
 ): ConversationListItem {
   const mentor = row.mentor_id
     ? mentorSource.find((entry) => entry.id === row.mentor_id) || null
+    : null;
+  const workspace = row.workspace_id
+    ? workspaceSource.find((entry) => entry.id === row.workspace_id) || null
     : null;
 
   return {
     id: row.id,
     title: row.title?.trim() || 'New chat',
-    mentor_id: row.mentor_id,
+    mentor_id: row.mentor_id ?? null,
+    workspace_id: row.workspace_id ?? null,
     updated_at: row.updated_at,
     created_at: row.created_at,
     mentor_name: mentor?.name || 'Keen',
     mentor_accent_color: mentor?.accent_color || null,
+    workspace_name: workspace?.name || null,
+    workspace_icon: workspace?.icon || null,
+    workspace_accent_color: workspace?.accent_color || null,
   };
 }
 
 export function useHomeData() {
   const [mentors, setMentors] = useState<MentorListItem[]>([]);
+  const [workspaces, setWorkspaces] = useState<WorkspaceListItem[]>([]);
   const [conversations, setConversations] = useState<ConversationListItem[]>([]);
+  const [workspaceGroups, setWorkspaceGroups] = useState<SidebarWorkspaceGroup[]>([]);
   const [mentorGroups, setMentorGroups] = useState<SidebarMentorGroup[]>([]);
   const [loadingLists, setLoadingLists] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
@@ -155,10 +216,24 @@ export function useHomeData() {
     return data as MentorListItem[];
   }, []);
 
-  const loadConversations = useCallback(async (mentorSource: MentorListItem[]) => {
+  const loadWorkspaces = useCallback(async (): Promise<WorkspaceListItem[]> => {
+    const response = await fetch('/api/workspaces', { cache: 'no-store' });
+    const data = await response.json();
+
+    if (!response.ok || data.error) {
+      throw new Error(data.error || 'Failed to load workspaces');
+    }
+
+    return Array.isArray(data.workspaces) ? data.workspaces : [];
+  }, []);
+
+  const loadConversations = useCallback(async (
+    mentorSource: MentorListItem[],
+    workspaceSource: WorkspaceListItem[]
+  ) => {
     const { data: conversationRows, error: conversationError } = await supabase
       .from('conversations')
-      .select('id, title, mentor_id, updated_at, created_at')
+      .select('id, title, mentor_id, workspace_id, updated_at, created_at')
       .order('updated_at', { ascending: false })
       .limit(200);
 
@@ -168,10 +243,11 @@ export function useHomeData() {
 
     const rows = (conversationRows || []) as ConversationRow[];
     const nextConversations: ConversationListItem[] = rows.map((row) =>
-      mapConversationRowToListItem(row, mentorSource)
+      mapConversationRowToListItem(row, mentorSource, workspaceSource)
     );
 
     setConversations(nextConversations);
+    setWorkspaceGroups(buildWorkspaceGroups(workspaceSource, nextConversations));
     setMentorGroups(buildSidebarGroups(mentorSource, nextConversations));
   }, []);
 
@@ -180,9 +256,13 @@ export function useHomeData() {
     setListError(null);
 
     try {
-      const nextMentors = await loadMentors();
+      const [nextMentors, nextWorkspaces] = await Promise.all([
+        loadMentors(),
+        loadWorkspaces(),
+      ]);
       setMentors(nextMentors);
-      await loadConversations(nextMentors);
+      setWorkspaces(nextWorkspaces);
+      await loadConversations(nextMentors, nextWorkspaces);
     } catch (error) {
       setListError(
         error instanceof Error
@@ -192,7 +272,7 @@ export function useHomeData() {
     } finally {
       setLoadingLists(false);
     }
-  }, [loadConversations, loadMentors]);
+  }, [loadConversations, loadMentors, loadWorkspaces]);
 
   const loadConversationMessages = useCallback(async (nextConversationId: string) => {
     const { data, error } = await supabase
@@ -327,7 +407,7 @@ export function useHomeData() {
   const loadConversationById = useCallback(async (nextConversationId: string) => {
     const { data, error } = await supabase
       .from('conversations')
-      .select('id, title, mentor_id, updated_at, created_at')
+      .select('id, title, mentor_id, workspace_id, updated_at, created_at')
       .eq('id', nextConversationId)
       .single();
 
@@ -335,12 +415,14 @@ export function useHomeData() {
       throw new Error(error?.message || 'Conversation not found');
     }
 
-    return mapConversationRowToListItem(data as ConversationRow, mentors);
-  }, [mentors]);
+    return mapConversationRowToListItem(data as ConversationRow, mentors, workspaces);
+  }, [mentors, workspaces]);
 
   return {
     mentors,
+    workspaces,
     conversations,
+    workspaceGroups,
     mentorGroups,
     loadingLists,
     listError,

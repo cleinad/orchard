@@ -1,6 +1,13 @@
 'use client';
 
-import { Suspense, useEffect, type ReactNode } from 'react';
+import {
+  Suspense,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { SidePanelProvider, useSidePanel } from '@/app/home/components/SidePanelContext';
 import { HomeDataProvider, useHomeDataContext } from '@/app/home/components/HomeDataContext';
@@ -41,6 +48,112 @@ function SidePanelShortcut() {
 // (Mentor detail / create mentor live on /mentors only.)
 // ---------------------------------------------------------------------------
 
+interface CreateWorkspaceModalProps {
+  open: boolean;
+  value: string;
+  error: string | null;
+  isSubmitting: boolean;
+  onValueChange: (value: string) => void;
+  onClose: () => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}
+
+function CreateWorkspaceModal({
+  open,
+  value,
+  error,
+  isSubmitting,
+  onValueChange,
+  onClose,
+  onSubmit,
+}: CreateWorkspaceModalProps) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    requestAnimationFrame(() => inputRef.current?.focus());
+  }, [open]);
+
+  if (!open) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-[80] flex items-center justify-center bg-foreground/[0.18] px-4 backdrop-blur-sm"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !isSubmitting) {
+          onClose();
+        }
+      }}
+      onKeyDown={(event) => {
+        event.stopPropagation();
+        if (event.key === 'Escape' && !isSubmitting) {
+          onClose();
+        }
+      }}
+    >
+      <form
+        onSubmit={onSubmit}
+        className="w-full max-w-sm rounded-lg border border-border-subtle bg-background p-4 shadow-2xl"
+        aria-label="Create workspace"
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="font-sans text-base font-semibold text-foreground">New workspace</h2>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={isSubmitting}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted transition-colors hover:bg-foreground/[0.05] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+            aria-label="Close"
+          >
+            <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.7" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <label htmlFor="workspace-name" className="mt-4 block font-sans text-sm font-medium text-foreground">
+          Workspace name
+        </label>
+        <input
+          ref={inputRef}
+          id="workspace-name"
+          value={value}
+          onChange={(event) => onValueChange(event.target.value)}
+          disabled={isSubmitting}
+          className="mt-2 h-11 w-full rounded-lg border border-border-subtle bg-surface px-3 font-sans text-sm text-foreground outline-none transition focus:border-foreground/[0.28] disabled:cursor-not-allowed disabled:opacity-60"
+        />
+
+        {error && (
+          <p className="mt-2 rounded-md border border-amber-300/70 bg-amber-50 px-3 py-2 font-sans text-xs text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100">
+            {error}
+          </p>
+        )}
+
+        <div className="mt-4 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={isSubmitting}
+            className="rounded-lg border border-border-subtle bg-surface px-3 py-2 font-sans text-sm font-semibold text-foreground transition hover:bg-foreground/[0.04] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={isSubmitting || value.trim().length === 0}
+            className="rounded-lg bg-foreground px-3 py-2 font-sans text-sm font-semibold text-background transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {isSubmitting ? 'Creating...' : 'Create'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 function HomeShell({ children }: { children: ReactNode }) {
   const {
     isOpen: sidePanelOpen,
@@ -52,6 +165,7 @@ function HomeShell({ children }: { children: ReactNode }) {
   } = useSidePanel();
 
   const {
+    workspaceGroups,
     mentorGroups,
     draftChats,
     temporaryChats,
@@ -61,7 +175,13 @@ function HomeShell({ children }: { children: ReactNode }) {
     handleSelectTemporaryChat,
     handleCreateDraftSelection,
     handleCloseTemporaryChat,
+    refreshSidebarData,
+    openWorkspace,
   } = useHomeDataContext();
+  const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false);
+  const [workspaceNameDraft, setWorkspaceNameDraft] = useState('');
+  const [createWorkspaceError, setCreateWorkspaceError] = useState<string | null>(null);
+  const [creatingWorkspace, setCreatingWorkspace] = useState(false);
 
   // Scroll the sidebar to the requested section after it opens
   useEffect(() => {
@@ -76,7 +196,9 @@ function HomeShell({ children }: { children: ReactNode }) {
           ? 'side-panel-section-temporary'
           : sidePanelScrollRequest === 'new'
             ? 'side-panel-section-new'
-            : 'side-panel-section-all-chats';
+            : sidePanelScrollRequest === 'workspaces'
+              ? 'side-panel-section-workspaces'
+              : 'side-panel-section-all-chats';
 
       document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       clearSidePanelScrollRequest();
@@ -90,21 +212,78 @@ function HomeShell({ children }: { children: ReactNode }) {
     openWithScroll('new');
   };
 
+  const openCreateWorkspaceModal = () => {
+    setWorkspaceNameDraft('');
+    setCreateWorkspaceError(null);
+    setCreateWorkspaceOpen(true);
+  };
+
+  const closeCreateWorkspaceModal = () => {
+    if (creatingWorkspace) return;
+    setCreateWorkspaceOpen(false);
+    setWorkspaceNameDraft('');
+    setCreateWorkspaceError(null);
+  };
+
+  const handleCreateWorkspaceSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const normalizedName = workspaceNameDraft.replace(/\s+/g, ' ').trim();
+    if (!normalizedName || creatingWorkspace) return;
+
+    setCreatingWorkspace(true);
+    setCreateWorkspaceError(null);
+
+    try {
+      const response = await fetch('/api/workspaces', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: normalizedName }),
+      });
+      const payload = await response.json();
+      if (!response.ok || payload.error || !payload.workspace?.id) {
+        throw new Error(payload.error || 'Failed to create workspace');
+      }
+
+      await refreshSidebarData();
+      setCreateWorkspaceOpen(false);
+      setWorkspaceNameDraft('');
+      openWorkspace(payload.workspace.id);
+      if (window.innerWidth < 1024) handleCloseSidePanel();
+    } catch (err) {
+      setCreateWorkspaceError(err instanceof Error ? err.message : 'Failed to create workspace');
+    } finally {
+      setCreatingWorkspace(false);
+    }
+  };
+
   return (
     <div className="relative flex h-dvh min-h-0 flex-col overflow-hidden bg-background text-foreground">
       {children}
+
+      <CreateWorkspaceModal
+        open={createWorkspaceOpen}
+        value={workspaceNameDraft}
+        error={createWorkspaceError}
+        isSubmitting={creatingWorkspace}
+        onValueChange={setWorkspaceNameDraft}
+        onClose={closeCreateWorkspaceModal}
+        onSubmit={handleCreateWorkspaceSubmit}
+      />
 
       <SidePanel
         isOpen={sidePanelOpen}
         onClose={handleCloseSidePanel}
         onToggleSidePanel={handleToggleSidePanel}
         onNewChatKeen={handleRailNewChatKeen}
+        onOpenWorkspacesSection={() => openWithScroll('workspaces')}
         onOpenTemporarySection={() => openWithScroll('temporary')}
         onOpenAllChats={() => openWithScroll('all')}
+        workspaceGroups={workspaceGroups}
         mentorGroups={mentorGroups}
         draftChats={draftChats.map((d) => ({
           id: d.id,
           mentor_id: d.mentorId,
+          workspace_id: d.workspaceId,
           title: d.title,
           updated_at: d.updatedAt,
         }))}
@@ -123,6 +302,9 @@ function HomeShell({ children }: { children: ReactNode }) {
         selectedMentorId={
           selectedChat?.kind === 'temporary' ? null : selectedChat?.mentorId ?? null
         }
+        selectedWorkspaceId={
+          selectedChat?.kind === 'temporary' ? null : selectedChat?.workspaceId ?? null
+        }
         onSelectConversation={(conversation) => {
           handleSelectConversation(conversation);
           if (window.innerWidth < 1024) handleCloseSidePanel();
@@ -137,6 +319,15 @@ function HomeShell({ children }: { children: ReactNode }) {
         }}
         onCreateDraft={(mentorId) => {
           handleCreateDraftSelection(mentorId);
+          if (window.innerWidth < 1024) handleCloseSidePanel();
+        }}
+        onCreateWorkspaceDraft={(workspaceId) => {
+          handleCreateDraftSelection(null, workspaceId);
+          if (window.innerWidth < 1024) handleCloseSidePanel();
+        }}
+        onCreateWorkspace={openCreateWorkspaceModal}
+        onOpenWorkspace={(workspaceId) => {
+          openWorkspace(workspaceId);
           if (window.innerWidth < 1024) handleCloseSidePanel();
         }}
         onCloseTemporaryChat={handleCloseTemporaryChat}

@@ -29,6 +29,16 @@ export function RailIconNewChat({ className = 'h-5 w-5 text-muted' }: IconProps 
   );
 }
 
+/** Workspaces: folder tab + body */
+export function RailIconWorkspace({ className = 'h-5 w-5 text-muted' }: IconProps = {}) {
+  return (
+    <svg {...baseStroke} className={className}>
+      <path d="M4.75 8.25a2 2 0 012-2h3.1l1.75 1.75h5.65a2 2 0 012 2v6.75a2 2 0 01-2 2H6.75a2 2 0 01-2-2v-8.5z" />
+      <path d="M4.75 10h14.5" />
+    </svg>
+  );
+}
+
 /** Temporary: simple clock face + one hand */
 export function RailIconTemporary({ className = 'h-5 w-5 text-muted' }: IconProps = {}) {
   return (

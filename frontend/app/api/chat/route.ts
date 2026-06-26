@@ -94,6 +94,7 @@ interface ChatRequest {
   message: string;
   conversationId?: string;
   mentorId?: string;
+  workspaceId?: string;
   modelId?: string;
   modelEffort?: string;
   thinkingEnabled?: boolean;
@@ -243,6 +244,19 @@ ${memoryContext}
 </user_memory>`,
     replyContext
   );
+}
+
+function appendWorkspaceContext(basePrompt: string, workspaceContext: string | null): string {
+  const normalized = workspaceContext?.trim();
+  if (!normalized) return basePrompt;
+
+  return `${basePrompt}
+
+Workspace context applies to every chat in this workspace. Treat it as user-provided background and instructions for this workspace only.
+
+<workspace_context>
+${normalized}
+</workspace_context>`;
 }
 
 function sanitizeSearchQuery(value: string) {
@@ -665,6 +679,7 @@ export async function POST(request: NextRequest) {
       message,
       conversationId,
       mentorId,
+      workspaceId,
       modelId,
       modelEffort,
       thinkingEnabled,
@@ -701,6 +716,14 @@ export async function POST(request: NextRequest) {
     const sanitizedHistory = sanitizeHistoryMessages(history, 50, user.id);
     const sanitizedThreadHistory = sanitizeHistoryMessages(threadHistory, 30, user.id);
     const responseStyle = sanitizeResponseStyle(responseStyleFromBody);
+
+    const normalizedWorkspaceId = normalizeOptionalId(workspaceId);
+    if (mentorId && normalizedWorkspaceId) {
+      return NextResponse.json(
+        { error: 'A chat cannot use both a mentor and a workspace' },
+        { status: 400 }
+      );
+    }
 
     if (!messageText && attachments.length === 0) {
       return NextResponse.json(
@@ -743,6 +766,11 @@ export async function POST(request: NextRequest) {
     activeThreadId = normalizedThreadId;
 
     if (!isTemporaryChat) {
+      if (normalizedWorkspaceId && !isUuid(normalizedWorkspaceId)) {
+        await removeUnreferencedCleanupAttachmentStorage(supabase, attachments);
+        return NextResponse.json({ error: 'Invalid workspace id' }, { status: 400 });
+      }
+
       if (normalizedThreadId && !isUuid(normalizedThreadId)) {
         await removeUnreferencedCleanupAttachmentStorage(supabase, attachments);
         return NextResponse.json({ error: 'Invalid thread id' }, { status: 400 });
@@ -780,6 +808,10 @@ export async function POST(request: NextRequest) {
       user_instructions: string;
       model_id: string | null;
     } | null = null;
+    let workspace: {
+      id: string;
+      context: string | null;
+    } | null = null;
 
     if (mentorId) {
       const { data: mentorRow, error: mentorError } = await supabase
@@ -795,6 +827,22 @@ export async function POST(request: NextRequest) {
       }
 
       mentor = mentorRow;
+    }
+
+    if (normalizedWorkspaceId) {
+      const { data: workspaceRow, error: workspaceError } = await supabase
+        .from('workspaces')
+        .select('id, context')
+        .eq('id', normalizedWorkspaceId)
+        .eq('user_id', user.id)
+        .single();
+
+      if (workspaceError || !workspaceRow) {
+        await removeUnreferencedCleanupAttachmentStorage(supabase, attachments);
+        return NextResponse.json({ error: 'Workspace not found' }, { status: 404 });
+      }
+
+      workspace = workspaceRow;
     }
 
     const resolvedSelection = resolveChatModelSelection(
@@ -835,7 +883,7 @@ export async function POST(request: NextRequest) {
       if (activeConversationId) {
         const { data: existingConversation, error: conversationError } = await supabase
           .from('conversations')
-          .select('id, mentor_id')
+          .select('id, mentor_id, workspace_id')
           .eq('id', activeConversationId)
           .eq('user_id', user.id)
           .single();
@@ -856,6 +904,30 @@ export async function POST(request: NextRequest) {
           );
         }
 
+        if (workspace && existingConversation.workspace_id !== workspace.id) {
+          await removeUnreferencedCleanupAttachmentStorage(supabase, loadedAttachments);
+          return NextResponse.json(
+            { error: 'Conversation does not match the selected workspace' },
+            { status: 400 }
+          );
+        }
+
+        if (mentor && existingConversation.workspace_id) {
+          await removeUnreferencedCleanupAttachmentStorage(supabase, loadedAttachments);
+          return NextResponse.json(
+            { error: 'Conversation belongs to a workspace' },
+            { status: 400 }
+          );
+        }
+
+        if (workspace && existingConversation.mentor_id) {
+          await removeUnreferencedCleanupAttachmentStorage(supabase, loadedAttachments);
+          return NextResponse.json(
+            { error: 'Conversation belongs to a mentor' },
+            { status: 400 }
+          );
+        }
+
         if (!mentor && existingConversation.mentor_id) {
           const { data: mentorFromConversation } = await supabase
             .from('mentors')
@@ -868,6 +940,19 @@ export async function POST(request: NextRequest) {
             mentor = mentorFromConversation;
           }
         }
+
+        if (!workspace && existingConversation.workspace_id) {
+          const { data: workspaceFromConversation } = await supabase
+            .from('workspaces')
+            .select('id, context')
+            .eq('id', existingConversation.workspace_id)
+            .eq('user_id', user.id)
+            .maybeSingle();
+
+          if (workspaceFromConversation) {
+            workspace = workspaceFromConversation;
+          }
+        }
       }
 
       if (!activeConversationId) {
@@ -877,6 +962,7 @@ export async function POST(request: NextRequest) {
             user_id: user.id,
             title: fallbackConversationTitle,
             mentor_id: mentor?.id ?? null,
+            workspace_id: workspace?.id ?? null,
           })
           .select('id')
           .single();
@@ -1207,11 +1293,17 @@ export async function POST(request: NextRequest) {
     }
 
     const isMentorConversation = !!mentor;
+    const isWorkspaceConversation = !!workspace;
     const shouldLoadMemory = !isTemporaryChat || memoryMode === 'use_existing';
     const memoryContext = shouldLoadMemory
       ? await loadMemoryContextV2(supabase, user.id, {
-          actor: isMentorConversation ? 'mentor' : 'default',
+          actor: isMentorConversation
+            ? 'mentor'
+            : isWorkspaceConversation
+              ? 'workspace'
+              : 'default',
           mentorId: mentor?.id ?? null,
+          workspaceId: workspace?.id ?? null,
           query: messageForPrompt,
           tokenBudget: isMentorConversation ? 900 : 1100,
           maxItems: isMentorConversation ? 24 : 30,
@@ -1232,6 +1324,8 @@ export async function POST(request: NextRequest) {
           replyContext
         )
       : buildSystemPrompt(memoryContext, replyContext);
+
+    baseSystemPrompt = appendWorkspaceContext(baseSystemPrompt, workspace?.context ?? null);
 
     let chatModel;
     try {
@@ -1548,6 +1642,7 @@ export async function POST(request: NextRequest) {
                   await processMemoryV2(supabase, user.id, memoryMessages, cleanAssistantResponse, {
                     conversationId: activeConversationId,
                     mentorId: mentor?.id ?? null,
+                    workspaceId: workspace?.id ?? null,
                     sourceMessageId: latestUserMessageId,
                     sourceRole: 'user',
                   });
@@ -1593,6 +1688,7 @@ export async function POST(request: NextRequest) {
                 conversationId: activeConversationId,
                 conversationTitle: conversationTitle ?? null,
                 mentorId: mentor?.id ?? null,
+                workspaceId: workspace?.id ?? null,
                 threadId: activeThreadId,
                 userMessageId: latestUserMessageId,
                 assistantMessageId,

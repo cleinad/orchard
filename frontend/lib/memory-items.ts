@@ -1,4 +1,4 @@
-export const MEMORY_OWNER_TYPES = ['global', 'mentor'] as const;
+export const MEMORY_OWNER_TYPES = ['global', 'mentor', 'workspace'] as const;
 export type MemoryOwnerType = (typeof MEMORY_OWNER_TYPES)[number];
 
 export const MEMORY_STABILITIES = ['stable', 'episodic'] as const;
@@ -10,7 +10,7 @@ export type MemorySensitivity = (typeof MEMORY_SENSITIVITIES)[number];
 export const MEMORY_STATUSES = ['active', 'superseded', 'deleted'] as const;
 export type MemoryStatus = (typeof MEMORY_STATUSES)[number];
 
-export type MemoryActor = 'default' | 'mentor';
+export type MemoryActor = 'default' | 'mentor' | 'workspace';
 
 export interface MemoryItem {
   id: string;
@@ -35,6 +35,7 @@ export interface MemoryItem {
 export interface LoadMemoryContextV2Options {
   actor: MemoryActor;
   mentorId?: string | null;
+  workspaceId?: string | null;
   query?: string;
   tokenBudget?: number;
   maxItems?: number;
@@ -50,7 +51,7 @@ export interface MemoryItemUpdateInput {
   confidence?: number;
 }
 
-export type MemoryScope = 'all' | 'global' | `mentor:${string}`;
+export type MemoryScope = 'all' | 'global' | `mentor:${string}` | `workspace:${string}`;
 
 export function normalizeMemoryText(text: string): string {
   return text
@@ -113,12 +114,20 @@ export function parseMemoryScope(scope: string | null | undefined): MemoryScope 
   if (scope.startsWith('mentor:') && scope.length > 'mentor:'.length) {
     return scope as MemoryScope;
   }
+  if (scope.startsWith('workspace:') && scope.length > 'workspace:'.length) {
+    return scope as MemoryScope;
+  }
   return 'all';
 }
 
 export function parseMentorScope(scope: MemoryScope): string | null {
   if (!scope.startsWith('mentor:')) return null;
   return scope.replace(/^mentor:/, '') || null;
+}
+
+export function parseWorkspaceScope(scope: MemoryScope): string | null {
+  if (!scope.startsWith('workspace:')) return null;
+  return scope.replace(/^workspace:/, '') || null;
 }
 
 function tokenizeForSimilarity(value: string): Set<string> {

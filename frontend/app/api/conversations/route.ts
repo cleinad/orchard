@@ -56,6 +56,27 @@ export async function POST(request: NextRequest) {
         ? rawMentorId.trim()
         : null;
 
+    const rawWorkspaceId = body.workspaceId;
+    if (
+      rawWorkspaceId !== undefined
+      && rawWorkspaceId !== null
+      && typeof rawWorkspaceId !== 'string'
+    ) {
+      return NextResponse.json({ error: 'workspaceId must be a string' }, { status: 400 });
+    }
+
+    const workspaceId =
+      typeof rawWorkspaceId === 'string' && rawWorkspaceId.trim().length > 0
+        ? rawWorkspaceId.trim()
+        : null;
+
+    if (mentorId && workspaceId) {
+      return NextResponse.json(
+        { error: 'A conversation cannot have both a mentor and a workspace' },
+        { status: 400 }
+      );
+    }
+
     if (mentorId) {
       const { data: mentor, error: mentorError } = await supabase
         .from('mentors')
@@ -69,6 +90,19 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    if (workspaceId) {
+      const { data: workspace, error: workspaceError } = await supabase
+        .from('workspaces')
+        .select('id')
+        .eq('id', workspaceId)
+        .eq('user_id', user.id)
+        .single();
+
+      if (workspaceError || !workspace) {
+        return NextResponse.json({ error: 'Workspace not found' }, { status: 404 });
+      }
+    }
+
     const title = fallbackChatTitleFromMessage(initialMessage);
     const { data: conversation, error: conversationError } = await supabase
       .from('conversations')
@@ -76,8 +110,9 @@ export async function POST(request: NextRequest) {
         user_id: user.id,
         title,
         mentor_id: mentorId,
+        workspace_id: workspaceId,
       })
-      .select('id, title, mentor_id, created_at, updated_at')
+      .select('id, title, mentor_id, workspace_id, created_at, updated_at')
       .single();
 
     if (conversationError || !conversation) {
@@ -94,6 +129,7 @@ export async function POST(request: NextRequest) {
           id: conversation.id,
           title: conversation.title,
           mentorId: conversation.mentor_id,
+          workspaceId: conversation.workspace_id,
           createdAt: conversation.created_at,
           updatedAt: conversation.updated_at,
         },

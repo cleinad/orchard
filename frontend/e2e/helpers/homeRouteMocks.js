@@ -61,6 +61,8 @@ async function mockHomeDataRoutes(page, state) {
   const resolvedState = {
     viewer: DEFAULT_VIEWER,
     mentors: [],
+    workspaces: [],
+    memoryItems: [],
     conversations: [],
     messagesByConversationId: {},
     attachmentsByMessageId: {},
@@ -79,6 +81,71 @@ async function mockHomeDataRoutes(page, state) {
     await fulfillJson(route, resolvedState.mentors);
   });
 
+  await page.route('**/api/workspaces', async (route) => {
+    const method = route.request().method();
+
+    if (method === 'POST') {
+      const body = route.request().postDataJSON();
+      const now = new Date().toISOString();
+      const workspace = {
+        id: `workspace-e2e-created-${resolvedState.workspaces.length + 1}`,
+        name: body?.name || 'Workspace',
+        description: body?.description ?? null,
+        context: body?.context ?? null,
+        icon: body?.icon ?? null,
+        accent_color: body?.accent_color ?? null,
+        created_at: now,
+        updated_at: now,
+      };
+      resolvedState.workspaces.unshift(workspace);
+      await fulfillJson(route, { workspace }, 201);
+      return;
+    }
+
+    await fulfillJson(route, { workspaces: resolvedState.workspaces });
+  });
+
+  await page.route('**/api/workspaces/*', async (route) => {
+    const url = new URL(route.request().url());
+    const workspaceId = decodeURIComponent(url.pathname.split('/').pop() || '');
+    const method = route.request().method();
+    const workspace = resolvedState.workspaces.find((entry) => entry.id === workspaceId);
+
+    if (!workspace) {
+      await fulfillJson(route, { error: 'Workspace not found' }, 404);
+      return;
+    }
+
+    if (method === 'PATCH') {
+      const body = route.request().postDataJSON();
+      Object.assign(workspace, {
+        ...(Object.prototype.hasOwnProperty.call(body, 'name') ? { name: body.name } : {}),
+        ...(Object.prototype.hasOwnProperty.call(body, 'description') ? { description: body.description } : {}),
+        ...(Object.prototype.hasOwnProperty.call(body, 'context') ? { context: body.context } : {}),
+        updated_at: new Date().toISOString(),
+      });
+      await fulfillJson(route, { workspace });
+      return;
+    }
+
+    await fulfillJson(route, { workspace });
+  });
+
+  await page.route('**/api/memory/items*', async (route) => {
+    const url = new URL(route.request().url());
+    const scope = url.searchParams.get('scope') || 'all';
+    const items =
+      scope.startsWith('workspace:')
+        ? resolvedState.memoryItems.filter(
+            (item) =>
+              item.owner_type === 'workspace' &&
+              item.owner_id === scope.replace(/^workspace:/, '')
+          )
+        : resolvedState.memoryItems;
+
+    await fulfillJson(route, { items });
+  });
+
   await page.route('**/api/conversations', async (route) => {
     const method = route.request().method();
 
@@ -90,6 +157,7 @@ async function mockHomeDataRoutes(page, state) {
         id: `conversation-e2e-created-${resolvedState.conversations.length + 1}`,
         title: fallbackTitleFromMessage(body?.initialMessage),
         mentor_id: body?.mentorId ?? null,
+        workspace_id: body?.workspaceId ?? null,
         created_at: now,
         updated_at: now,
       };
@@ -100,6 +168,7 @@ async function mockHomeDataRoutes(page, state) {
           id: conversation.id,
           title: conversation.title,
           mentorId: conversation.mentor_id ?? conversation.mentorId ?? null,
+          workspaceId: conversation.workspace_id ?? conversation.workspaceId ?? null,
           createdAt: conversation.created_at ?? conversation.createdAt ?? now,
           updatedAt: conversation.updated_at ?? conversation.updatedAt ?? now,
         },

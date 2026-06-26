@@ -88,6 +88,7 @@ describe('conversations route', () => {
               id: 'conv-1',
               title: 'Help me think through product pricing',
               mentor_id: null,
+              workspace_id: null,
               created_at: '2026-06-04T12:00:00.000Z',
               updated_at: '2026-06-04T12:00:00.000Z',
             },
@@ -101,6 +102,7 @@ describe('conversations route', () => {
       id: 'conv-1',
       title: 'Help me think through product pricing',
       mentorId: null,
+      workspaceId: null,
       createdAt: '2026-06-04T12:00:00.000Z',
       updatedAt: '2026-06-04T12:00:00.000Z',
     });
@@ -108,7 +110,54 @@ describe('conversations route', () => {
       user_id: 'user-1',
       title: 'Help me think through product pricing',
       mentor_id: null,
+      workspace_id: null,
     });
+  });
+
+  it('creates a workspace conversation when workspaceId is provided', async () => {
+    const { response, body, tracker } = await runCreateConversationRequest(
+      {
+        initialMessage: 'Plan the next training block',
+        workspaceId: 'workspace-1',
+      },
+      {
+        workspaces: {
+          rows: [{ id: 'workspace-1' }],
+        },
+        conversations: {
+          rows: [],
+          returnOnMutate: [
+            {
+              id: 'conv-workspace-1',
+              title: 'Plan the next training block',
+              mentor_id: null,
+              workspace_id: 'workspace-1',
+              created_at: '2026-06-04T12:00:00.000Z',
+              updated_at: '2026-06-04T12:00:00.000Z',
+            },
+          ],
+        },
+      }
+    );
+
+    expect(response.status).toBe(201);
+    expect(body.conversation.workspaceId).toBe('workspace-1');
+    expect(tracker.inserts('conversations')[0].args).toMatchObject({
+      mentor_id: null,
+      workspace_id: 'workspace-1',
+    });
+  });
+
+  it('rejects conversations with both mentorId and workspaceId', async () => {
+    const { response, body, tracker } = await runCreateConversationRequest({
+      initialMessage: 'Ambiguous context',
+      mentorId: 'mentor-1',
+      workspaceId: 'workspace-1',
+    });
+
+    expect(response.status).toBe(400);
+    expect(body.error).toBe('A conversation cannot have both a mentor and a workspace');
+    expect(tracker.inserts('conversations')).toHaveLength(0);
   });
 
   it('requires mentor ownership when mentorId is provided', async () => {
