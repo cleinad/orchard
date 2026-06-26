@@ -12,6 +12,7 @@ This doc describes the Playwright coverage for the routed home-chat flows on `/h
 - draft promotion from `/home` into `/home/[conversationId]`
 - temporary-chat transitions back to `/home`
 - non-persistent selection handoff when leaving `/home/[conversationId]`
+- new workspace draft handoff from `/workspaces/:workspaceId` to `/home` and first send routing to `/home/:conversationId`
 
 ## How To Run
 
@@ -64,6 +65,7 @@ The suite now guards against:
 - first draft sends creating a persistent conversation without replacing the route
 - temporary chats dropping the active selection when moving off `/home/[conversationId]`
 - temporary chat creation or selection from `/home/[conversationId]` requiring a second click because the old routed conversation rehydrates during `/home` normalization
+- workspace-driven new-chat flow not preserving workspace selection across the `/workspaces/:workspaceId` -> `/home` handoff
 
 ## Intentional Gaps
 

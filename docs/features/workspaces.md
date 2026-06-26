@@ -8,7 +8,7 @@ A workspace contains:
 
 - sessions, which are conversations scoped to the workspace
 - workspace memory, learned only from chats in that workspace
-- workspace context, written by the user and applied to every chat in the workspace
+- workspace context and notes, written by the user and applied to every chat in the workspace
 
 Files and links are intentionally deferred.
 
@@ -32,6 +32,8 @@ Workspace chats read global memory plus memory owned by the active workspace. Ex
 - `owner_id = workspace id`
 
 Workspace memory does not appear in default chats, mentor chats, or other workspaces. Automatic promotion from workspace memory to global memory is not part of v1.
+
+Use workspace context as a place for global instructions you want every chat in that space to share (tone, constraints, recurring preferences, and project notes).
 
 ## Data Model
 
