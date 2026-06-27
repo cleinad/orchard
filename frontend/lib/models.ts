@@ -13,17 +13,16 @@ import {
 
 export const MEMORY_MODEL = anthropic('claude-haiku-4-5-20251001');
 export const SEARCH_PLANNER_MODEL_ID =
-  process.env.SEARCH_PLANNER_MODEL || 'Qwen/Qwen2.5-3B-Instruct';
-export const ALIBABA_DECISION_MODEL_ID =
-  process.env.ALIBABA_DECISION_MODEL || 'qwen2.5-3b-instruct';
-export const ALIBABA_DECISION_BASE_URL =
-  process.env.ALIBABA_BASE_URL
-  || 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1';
+  process.env.SEARCH_PLANNER_MODEL || 'qwen/qwen-2.5-7b-instruct';
+export const SEARCH_PLANNER_PROVIDER = 'openrouter';
 
-export type SearchDecisionProvider = 'alibaba' | 'openrouter';
+type OpenAIProvider = ReturnType<typeof createOpenAI>;
+type OpenAIChatModel = ReturnType<OpenAIProvider['chat']>;
+
+export type SearchDecisionProvider = typeof SEARCH_PLANNER_PROVIDER;
 
 export interface SearchDecisionModelConfig {
-  model: ReturnType<ReturnType<typeof createOpenAI>>;
+  model: OpenAIChatModel;
   provider: SearchDecisionProvider;
   modelId: string;
 }
@@ -36,7 +35,7 @@ export function getSearchPlannerModel() {
     return null;
   }
 
-  return createOpenAI({ baseURL, apiKey })(SEARCH_PLANNER_MODEL_ID);
+  return createOpenAI({ baseURL, apiKey }).chat(SEARCH_PLANNER_MODEL_ID);
 }
 
 function getOpenRouterSearchDecisionModel(): SearchDecisionModelConfig | null {
@@ -44,27 +43,10 @@ function getOpenRouterSearchDecisionModel(): SearchDecisionModelConfig | null {
   return model
     ? {
         model,
-        provider: 'openrouter',
+        provider: SEARCH_PLANNER_PROVIDER,
         modelId: SEARCH_PLANNER_MODEL_ID,
       }
     : null;
-}
-
-function getAlibabaSearchDecisionModel(): SearchDecisionModelConfig | null {
-  const apiKey = process.env.ALIBABA_API_KEY;
-
-  if (!apiKey) {
-    return null;
-  }
-
-  return {
-    model: createOpenAI({
-      baseURL: ALIBABA_DECISION_BASE_URL,
-      apiKey,
-    })(ALIBABA_DECISION_MODEL_ID),
-    provider: 'alibaba',
-    modelId: ALIBABA_DECISION_MODEL_ID,
-  };
 }
 
 export function getSearchDecisionModelConfig(): {
@@ -73,18 +55,9 @@ export function getSearchDecisionModelConfig(): {
 } {
   const openRouter = getOpenRouterSearchDecisionModel();
 
-  if (process.env.SEARCH_DECISION_PROVIDER === 'openrouter') {
-    return {
-      primary: openRouter,
-      fallback: null,
-    };
-  }
-
-  const alibaba = getAlibabaSearchDecisionModel();
-
   return {
-    primary: alibaba ?? openRouter,
-    fallback: alibaba ? openRouter : null,
+    primary: openRouter,
+    fallback: null,
   };
 }
 

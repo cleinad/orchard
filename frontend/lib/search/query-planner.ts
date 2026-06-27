@@ -45,7 +45,7 @@ type SearchDecisionProviderLabel = string;
 
 const MAX_QUERY_LENGTH = 280;
 const DEFAULT_SEARCH_PLANNER_MODEL_ID =
-  process.env.SEARCH_PLANNER_MODEL || 'Qwen/Qwen2.5-3B-Instruct';
+  process.env.SEARCH_PLANNER_MODEL || 'qwen/qwen-2.5-7b-instruct';
 const TOPIC_STOPWORDS = new Set([
   'about',
   'again',
@@ -802,6 +802,7 @@ export async function planSearchAction(
     model?: PlannerModel | null;
     modelPlanner?: ModelPlanner;
     plannerModelId?: string;
+    plannerProvider?: string;
     logger?: PlannerLogger;
   } = {}
 ): Promise<SearchActionPlan> {
@@ -811,6 +812,8 @@ export async function planSearchAction(
   const plannerModelId =
     dependencies.plannerModelId
     ?? (dependencies.modelPlanner ? 'custom-model-planner' : DEFAULT_SEARCH_PLANNER_MODEL_ID);
+  const plannerProvider = dependencies.plannerProvider
+    ?? (dependencies.modelPlanner ? 'custom' : 'openrouter');
 
   if (input.searchMode === 'off') {
     return {
@@ -844,6 +847,7 @@ export async function planSearchAction(
   try {
     logPlannerEvent(logger, 'info', 'search.planner_model_started', {
       plannerModelId,
+      provider: plannerProvider,
       latestPreview: preview(latestMessage),
       topicEntities: entities,
     });
@@ -863,6 +867,7 @@ export async function planSearchAction(
       if (normalizedPlan && modelPlanLooksUsable(normalizedPlan, latestMessage, topic)) {
         logPlannerEvent(logger, 'info', 'search.planner_model_completed', {
           plannerModelId,
+          provider: plannerProvider,
           resolvedIntent: normalizedPlan.resolvedIntent,
           queries: normalizedPlan.queries,
           topicEntities: normalizedPlan.topicEntities,
@@ -875,6 +880,7 @@ export async function planSearchAction(
 
       logPlannerEvent(logger, 'warn', 'search.planner_model_fallback', {
         plannerModelId,
+        provider: plannerProvider,
         reason: normalizedPlan ? 'planner_model_unusable_output' : 'planner_model_invalid_output',
         fallbackQuery,
       });
@@ -883,12 +889,14 @@ export async function planSearchAction(
 
     logPlannerEvent(logger, 'warn', 'search.planner_model_fallback', {
       plannerModelId,
+      provider: plannerProvider,
       reason: dependencies.modelPlanner ? 'model_planner_returned_null' : 'planner_model_not_configured',
       fallbackQuery,
     });
   } catch (error) {
     logPlannerEvent(logger, 'warn', 'search.planner_model_fallback', {
       plannerModelId,
+      provider: plannerProvider,
       reason: error instanceof Error ? error.message : 'planner_model_failed',
       fallbackQuery,
     });
