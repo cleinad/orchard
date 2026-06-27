@@ -120,12 +120,19 @@ test('workspace view shows sessions, sidebar workspace grouping, memory, and edi
   await page.getByRole('button', { name: 'Memory' }).click();
   await expect(page.getByText('User is rebuilding aerobic base.')).toBeVisible();
 
-  const contextBox = page.getByPlaceholder(/Add instructions/);
+  await page.getByRole('button', {
+    name: 'Edit workspace instructions',
+  }).click();
+
+  const dialog = page.getByRole('dialog', { name: 'Edit instructions' });
+  await expect(dialog).toBeVisible();
+  const contextBox = dialog.getByPlaceholder(/Add background/);
   await expect(contextBox).toHaveValue('Use running and cycling training context.');
   await contextBox.fill('Prefer practical training advice and concise caveats.');
-  await page.getByRole('button', { name: 'Save instructions' }).click();
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
 
-  await expect(contextBox).toHaveValue('Prefer practical training advice and concise caveats.');
+  await expect(dialog).not.toBeVisible();
+  await expect(page.getByText('Prefer practical training advice and concise caveats.')).toBeVisible();
   expect(state.workspaces[0].context).toBe('Prefer practical training advice and concise caveats.');
 });
 

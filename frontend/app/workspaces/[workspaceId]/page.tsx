@@ -105,6 +105,7 @@ export default function WorkspacePage() {
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>('sessions');
   const [contextDraft, setContextDraft] = useState('');
+  const [editingContext, setEditingContext] = useState(false);
   const [savingContext, setSavingContext] = useState(false);
   const [renamingWorkspace, setRenamingWorkspace] = useState(false);
   const [workspaceNameDraft, setWorkspaceNameDraft] = useState('');
@@ -123,6 +124,7 @@ export default function WorkspacePage() {
   const [composerWarning, setComposerWarning] = useState<string | null>(null);
 
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const contextTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const nameInputRef = useRef<HTMLInputElement | null>(null);
   const savingWorkspaceNameRef = useRef(false);
   const waveformRef = useRef<SVGPolylineElement | null>(null);
@@ -212,6 +214,11 @@ export default function WorkspacePage() {
       nameInputRef.current?.select();
     });
   }, [renamingWorkspace]);
+
+  useEffect(() => {
+    if (!editingContext) return;
+    requestAnimationFrame(() => contextTextareaRef.current?.focus());
+  }, [editingContext]);
 
   const workspaceConversations = useMemo(
     () =>
@@ -303,7 +310,24 @@ export default function WorkspacePage() {
     }
   };
 
+  const openContextEditor = () => {
+    setContextDraft(workspace?.context ?? '');
+    setError(null);
+    setEditingContext(true);
+  };
+
+  const closeContextEditor = () => {
+    if (savingContext) return;
+    setContextDraft(workspace?.context ?? '');
+    setEditingContext(false);
+  };
+
   const handleSaveContext = async () => {
+    if (contextDraft === (workspace?.context ?? '')) {
+      setEditingContext(false);
+      return;
+    }
+
     setSavingContext(true);
     setError(null);
     try {
@@ -318,6 +342,7 @@ export default function WorkspacePage() {
       }
       setWorkspace(payload.workspace);
       setContextDraft(payload.workspace?.context ?? '');
+      setEditingContext(false);
       await refreshSidebarData();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save instructions');
@@ -469,7 +494,7 @@ export default function WorkspacePage() {
                 )}
               </div>
               <p className="mt-1 max-w-2xl text-sm leading-6 text-muted">
-                {workspace?.description || 'Project notes, sessions, and memory for this workspace.'}
+                {workspace?.description || 'All chats and files share memory in this workspace'}
               </p>
             </div>
           </div>
@@ -611,37 +636,134 @@ export default function WorkspacePage() {
 
           <aside className="min-h-0 border-t border-border-subtle py-5 lg:overflow-y-auto lg:border-l lg:border-t-0 lg:pl-6">
             <section aria-labelledby="workspace-instructions-heading">
-              <div className="mb-3">
-                <h2
-                  id="workspace-instructions-heading"
-                  className="font-sans text-sm font-semibold text-foreground"
-                >
-                  Instructions
-                </h2>
-                <p className="mt-1 text-sm leading-5 text-muted">
-                  Context Keen should apply only inside {workspaceName}.
-                </p>
+              <div className="mb-3 flex items-start justify-between gap-3">
+                <div>
+                  <h2
+                    id="workspace-instructions-heading"
+                    className="font-sans text-sm font-semibold text-foreground"
+                  >
+                    Instructions
+                  </h2>
+                  <p className="mt-1 text-sm leading-5 text-muted">
+                    Keen applies these only inside {workspaceName}.
+                  </p>
+                </div>
+                <Tooltip content="Edit instructions">
+                  <button
+                    type="button"
+                    onClick={openContextEditor}
+                    className="inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-muted transition-colors hover:bg-foreground/[0.05] hover:text-foreground"
+                    aria-label="Edit instructions"
+                  >
+                    <PencilIcon />
+                  </button>
+                </Tooltip>
               </div>
-              <textarea
-                value={contextDraft}
-                onChange={(event) => setContextDraft(event.target.value)}
-                className="min-h-[15rem] w-full resize-y rounded-lg border border-border-subtle bg-surface px-3 py-3 font-sans text-sm leading-6 text-foreground outline-none transition focus:border-foreground/[0.24]"
-                placeholder={`Add instructions, background, and constraints for ${workspaceName}.`}
-              />
-              <div className="mt-3 flex items-center justify-end">
-                <button
-                  type="button"
-                  onClick={handleSaveContext}
-                  disabled={savingContext}
-                  className="rounded-lg border border-border-subtle bg-surface px-3 py-2 text-sm font-semibold text-foreground transition hover:bg-foreground/[0.04] disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {savingContext ? 'Saving...' : 'Save instructions'}
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={openContextEditor}
+                className="flex min-h-[12rem] w-full items-start justify-start rounded-lg border border-border-subtle bg-surface px-3 py-3 text-left font-sans text-sm leading-6 text-foreground transition hover:border-foreground/[0.18] hover:bg-foreground/[0.02] focus:outline-none focus:ring-2 focus:ring-foreground/[0.12]"
+                aria-label="Edit workspace instructions"
+              >
+                {workspace?.context ? (
+                  <p className="whitespace-pre-wrap">{workspace.context}</p>
+                ) : (
+                  <p className="text-muted">No workspace instructions yet.</p>
+                )}
+              </button>
             </section>
           </aside>
         </div>
       </div>
+
+      {editingContext && (
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-foreground/[0.18] px-4 backdrop-blur-sm"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !savingContext) {
+              closeContextEditor();
+            }
+          }}
+          onKeyDown={(event) => {
+            event.stopPropagation();
+            if (event.key === 'Escape' && !savingContext) {
+              closeContextEditor();
+            }
+          }}
+        >
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              void handleSaveContext();
+            }}
+            className="w-full max-w-xl rounded-lg border border-border-subtle bg-background p-4 shadow-2xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="edit-workspace-instructions-heading"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2
+                  id="edit-workspace-instructions-heading"
+                  className="font-sans text-base font-semibold text-foreground"
+                >
+                  Edit instructions
+                </h2>
+                <p className="mt-1 text-sm leading-5 text-muted">
+                  These instructions apply when Keen is working in {workspaceName}.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeContextEditor}
+                disabled={savingContext}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted transition-colors hover:bg-foreground/[0.05] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                aria-label="Close"
+              >
+                <svg
+                  className="h-4 w-4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="1.65"
+                  viewBox="0 0 24 24"
+                  aria-hidden
+                >
+                  <path d="M6 6l12 12" />
+                  <path d="M18 6L6 18" />
+                </svg>
+              </button>
+            </div>
+            <textarea
+              ref={contextTextareaRef}
+              value={contextDraft}
+              onChange={(event) => setContextDraft(event.target.value)}
+              disabled={savingContext}
+              className="mt-4 min-h-[16rem] w-full resize-y rounded-lg border border-border-subtle bg-surface px-3 py-3 font-sans text-sm leading-6 text-foreground outline-none transition focus:border-foreground/[0.24] disabled:opacity-70"
+              placeholder={`Add background, preferences, constraints, or anything Keen should keep in mind for ${workspaceName}.`}
+            />
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeContextEditor}
+                disabled={savingContext}
+                className="rounded-lg border border-border-subtle bg-surface px-3 py-2 text-sm font-semibold text-foreground transition hover:bg-foreground/[0.04] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={savingContext}
+                className="rounded-lg bg-foreground px-3 py-2 text-sm font-semibold text-background transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {savingContext ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </main>
   );
 }
