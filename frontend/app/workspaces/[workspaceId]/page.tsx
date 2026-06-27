@@ -10,6 +10,7 @@ import {
   type KeyboardEvent,
 } from 'react';
 import { useParams } from 'next/navigation';
+import Tooltip from '@/app/components/Tooltip';
 import ChatComposer from '@/app/home/components/ChatComposer';
 import { persistInitialSendHandoff } from '@/app/home/components/initialSendHandoff';
 import { useChatModelCatalog } from '@/app/home/components/useChatModelCatalog';
@@ -60,6 +61,24 @@ function WorkspaceFolderIcon({ className = 'h-6 w-6' }: { className?: string }) 
   );
 }
 
+function PencilIcon({ className = 'h-4 w-4' }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="1.65"
+      viewBox="0 0 24 24"
+      aria-hidden
+    >
+      <path d="M4.75 19.25l4.1-.9L18.6 8.6a2.12 2.12 0 00-3-3L5.85 15.35l-1.1 3.9z" />
+      <path d="M13.95 7.25l2.8 2.8" />
+    </svg>
+  );
+}
+
 export default function WorkspacePage() {
   const params = useParams<{ workspaceId: string }>();
   const { isOpen: sidePanelOpen } = useSidePanel();
@@ -87,6 +106,9 @@ export default function WorkspacePage() {
   const [activeTab, setActiveTab] = useState<TabKey>('sessions');
   const [contextDraft, setContextDraft] = useState('');
   const [savingContext, setSavingContext] = useState(false);
+  const [renamingWorkspace, setRenamingWorkspace] = useState(false);
+  const [workspaceNameDraft, setWorkspaceNameDraft] = useState('');
+  const [savingWorkspaceName, setSavingWorkspaceName] = useState(false);
   const [composerInput, setComposerInput] = useState('');
   const [composerLoading, setComposerLoading] = useState(false);
   const [searchEnabled, setSearchEnabled] = useState(false);
@@ -101,6 +123,8 @@ export default function WorkspacePage() {
   const [composerWarning, setComposerWarning] = useState<string | null>(null);
 
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const nameInputRef = useRef<HTMLInputElement | null>(null);
+  const savingWorkspaceNameRef = useRef(false);
   const waveformRef = useRef<SVGPolylineElement | null>(null);
   const waveformGlowRef = useRef<SVGPolylineElement | null>(null);
   const waveformContainerRef = useRef<HTMLDivElement | null>(null);
@@ -156,6 +180,7 @@ export default function WorkspacePage() {
 
         if (!cancelled) {
           setWorkspace(payload.workspace);
+          setWorkspaceNameDraft(payload.workspace?.name ?? '');
           setContextDraft(payload.workspace?.context ?? '');
         }
       } catch (err) {
@@ -180,6 +205,14 @@ export default function WorkspacePage() {
     }
   }, [activeTab, loadMemory, workspaceId]);
 
+  useEffect(() => {
+    if (!renamingWorkspace) return;
+    requestAnimationFrame(() => {
+      nameInputRef.current?.focus();
+      nameInputRef.current?.select();
+    });
+  }, [renamingWorkspace]);
+
   const workspaceConversations = useMemo(
     () =>
       conversations
@@ -193,6 +226,81 @@ export default function WorkspacePage() {
 
   const handleStartDraft = () => {
     handleCreateDraftSelection(null, workspaceId);
+  };
+
+  const startRenamingWorkspace = () => {
+    setWorkspaceNameDraft(workspace?.name ?? '');
+    setError(null);
+    setRenamingWorkspace(true);
+  };
+
+  const cancelRenamingWorkspace = () => {
+    setWorkspaceNameDraft(workspace?.name ?? '');
+    setError(null);
+    setRenamingWorkspace(false);
+    setSavingWorkspaceName(false);
+    savingWorkspaceNameRef.current = false;
+  };
+
+  const saveWorkspaceName = async (source: 'submit' | 'blur') => {
+    if (savingWorkspaceNameRef.current) return;
+
+    const normalizedName = workspaceNameDraft.replace(/\s+/g, ' ').trim();
+    const currentName = workspace?.name ?? '';
+
+    if (!normalizedName) {
+      if (source === 'submit') {
+        setError('Workspace name is required');
+        nameInputRef.current?.focus();
+        return;
+      }
+      cancelRenamingWorkspace();
+      return;
+    }
+
+    if (normalizedName === currentName) {
+      cancelRenamingWorkspace();
+      return;
+    }
+
+    savingWorkspaceNameRef.current = true;
+    setSavingWorkspaceName(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: normalizedName }),
+      });
+      const payload = await response.json();
+      if (!response.ok || payload.error) {
+        throw new Error(payload.error || 'Failed to rename workspace');
+      }
+      setWorkspace(payload.workspace);
+      setWorkspaceNameDraft(payload.workspace?.name ?? normalizedName);
+      setRenamingWorkspace(false);
+      await refreshSidebarData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to rename workspace');
+      setRenamingWorkspace(true);
+      requestAnimationFrame(() => nameInputRef.current?.focus());
+    } finally {
+      savingWorkspaceNameRef.current = false;
+      setSavingWorkspaceName(false);
+    }
+  };
+
+  const handleWorkspaceNameKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      void saveWorkspaceName('submit');
+      return;
+    }
+
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      cancelRenamingWorkspace();
+    }
   };
 
   const handleSaveContext = async () => {
@@ -327,9 +435,39 @@ export default function WorkspacePage() {
             </div>
             <div className="min-w-0 pt-1">
               <p className="font-sans text-sm font-medium text-muted">Workspaces</p>
-              <h1 className="truncate font-sans text-2xl font-semibold text-foreground">
-                {workspaceName}
-              </h1>
+              <div className="mt-0.5 flex min-w-0 w-full items-center gap-2">
+                {renamingWorkspace ? (
+                  <input
+                    ref={nameInputRef}
+                    value={workspaceNameDraft}
+                    onChange={(event) => setWorkspaceNameDraft(event.target.value)}
+                    onBlur={() => {
+                      if (!savingWorkspaceNameRef.current) void saveWorkspaceName('blur');
+                    }}
+                    onKeyDown={handleWorkspaceNameKeyDown}
+                    disabled={savingWorkspaceName}
+                    maxLength={80}
+                    className="h-9 min-w-0 w-full max-w-xl rounded-md border border-border-subtle bg-surface px-2 font-sans text-2xl font-semibold text-foreground outline-none transition focus:border-foreground/[0.28] disabled:opacity-70"
+                    aria-label="Workspace name"
+                  />
+                ) : (
+                  <>
+                    <h1 className="min-w-0 truncate font-sans text-2xl font-semibold text-foreground">
+                      {workspaceName}
+                    </h1>
+                    <Tooltip content="Rename workspace">
+                      <button
+                        type="button"
+                        onClick={startRenamingWorkspace}
+                        className="inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-muted transition-colors hover:bg-foreground/[0.05] hover:text-foreground"
+                        aria-label="Rename workspace"
+                      >
+                        <PencilIcon />
+                      </button>
+                    </Tooltip>
+                  </>
+                )}
+              </div>
               <p className="mt-1 max-w-2xl text-sm leading-6 text-muted">
                 {workspace?.description || 'Project notes, sessions, and memory for this workspace.'}
               </p>
