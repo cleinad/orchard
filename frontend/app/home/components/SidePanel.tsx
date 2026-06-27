@@ -261,9 +261,9 @@ export default function SidePanel({
             selectedWorkspaceId === group.workspace_id && selectedMentorId === null;
 
           return (
-            <div key={workspaceKey} className="py-1">
+            <div key={workspaceKey} className="py-px">
               <div
-                className={`flex items-center gap-2 rounded-xl px-3 py-1.5 transition-colors ${
+                className={`flex items-center gap-2 rounded-xl px-3 py-1 transition-colors ${
                   isSelectedWorkspace ? 'bg-foreground/[0.05]' : 'hover:bg-foreground/[0.03]'
                 }`}
               >
@@ -285,7 +285,7 @@ export default function SidePanel({
                       [workspaceKey]: !isExpanded,
                     }))
                   }
-                  className="inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-muted transition-colors hover:bg-foreground/[0.05] hover:text-foreground"
+                  className="inline-flex h-[1.625rem] w-[1.625rem] flex-shrink-0 items-center justify-center rounded-full text-muted transition-colors hover:bg-foreground/[0.05] hover:text-foreground"
                   aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${group.workspace_name}`}
                 >
                   <svg
@@ -301,7 +301,7 @@ export default function SidePanel({
                 <button
                   type="button"
                   onClick={() => onCreateWorkspaceDraft(group.workspace_id)}
-                  className="inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-muted transition-colors hover:bg-foreground/[0.05] hover:text-foreground"
+                  className="inline-flex h-[1.625rem] w-[1.625rem] flex-shrink-0 items-center justify-center rounded-full text-muted transition-colors hover:bg-foreground/[0.05] hover:text-foreground"
                   aria-label={`New chat in ${group.workspace_name}`}
                 >
                   <svg
@@ -317,7 +317,7 @@ export default function SidePanel({
               </div>
 
               {isExpanded && (
-                <div className="ml-6 mt-1 space-y-0.5 border-l border-border-subtle/80 pl-4">
+                <div className="ml-6 mt-px space-y-px border-l border-border-subtle/80 pl-4">
                   {draft && (
                     <button
                       type="button"
