@@ -209,10 +209,10 @@ function HomePageInner() {
   );
   const {
     activeSearchMode,
-    activeSearchState,
     composerDraftInputsRef,
     input,
     clearInputForSelection: clearComposerInputForSelection,
+    clearSearchModeForSelection,
     clearSearchStateForSelection,
     resetAllComposerState,
     setInputForSelection: setComposerInputForSelection,
@@ -429,6 +429,7 @@ function HomePageInner() {
   useHomeChatSwitchLifecycle({
     clearComposerInputForSelection,
     clearPendingChatRequestForSelection,
+    clearSearchModeForSelection,
     clearSearchStateForSelection,
     composerDraftInputsRef,
     endProgrammaticTranscriptNavigation,
@@ -712,7 +713,6 @@ function HomePageInner() {
           transcriptionStatus={transcription.status}
           microphoneStatus={microphone.status}
           microphoneErrorMessage={microphone.errorMessage}
-          searchWarning={activeSearchState?.warning ?? null}
           isTtsLoading={tts.isLoading}
           isTtsPlaying={tts.isPlaying}
           textareaRef={textareaRef}

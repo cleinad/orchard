@@ -35,7 +35,6 @@ interface ChatComposerProps {
   transcriptionStatus: TranscriptStatus;
   microphoneStatus: MicStatus;
   microphoneErrorMessage: string | null;
-  searchWarning: string | null;
   isTtsLoading: boolean;
   isTtsPlaying: boolean;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
@@ -82,7 +81,6 @@ export default function ChatComposer({
   transcriptionStatus,
   microphoneStatus,
   microphoneErrorMessage,
-  searchWarning,
   isTtsLoading,
   isTtsPlaying,
   textareaRef,
@@ -474,11 +472,6 @@ export default function ChatComposer({
             />
           </div>
 
-          {searchWarning && (
-            <div className="mt-2 rounded-lg border border-amber-300/70 bg-amber-50 px-3 py-2 font-sans text-xs text-amber-900 shadow-sm dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100">
-              {searchWarning}
-            </div>
-          )}
         </form>
 
         <div className="mt-2 flex items-center justify-between px-4 font-sans text-xs text-muted/60">

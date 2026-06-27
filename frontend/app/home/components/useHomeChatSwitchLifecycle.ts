@@ -17,6 +17,7 @@ import type { PendingBranchTarget } from '@/app/home/components/conversationTree
 interface UseHomeChatSwitchLifecycleParams {
   clearComposerInputForSelection: (selection: SelectedChat | null) => void;
   clearPendingChatRequestForSelection: (selection: SelectedChat) => void;
+  clearSearchModeForSelection: (selection: SelectedChat | null) => void;
   clearSearchStateForSelection: (selection: SelectedChat | null) => void;
   composerDraftInputsRef: MutableRefObject<Record<string, string>>;
   endProgrammaticTranscriptNavigation: () => void;
@@ -42,6 +43,7 @@ interface UseHomeChatSwitchLifecycleParams {
 export function useHomeChatSwitchLifecycle({
   clearComposerInputForSelection,
   clearPendingChatRequestForSelection,
+  clearSearchModeForSelection,
   clearSearchStateForSelection,
   composerDraftInputsRef,
   endProgrammaticTranscriptNavigation,
@@ -108,6 +110,7 @@ export function useHomeChatSwitchLifecycle({
           prev.filter((draft) => draft.id !== currentDraft.id)
         );
         clearComposerInputForSelection(currentSelection);
+        clearSearchModeForSelection(currentSelection);
         clearSearchStateForSelection(currentSelection);
         clearPendingChatRequestForSelection(currentSelection);
       }
@@ -115,6 +118,7 @@ export function useHomeChatSwitchLifecycle({
     [
       clearComposerInputForSelection,
       clearPendingChatRequestForSelection,
+      clearSearchModeForSelection,
       clearSearchStateForSelection,
       composerDraftInputsRef,
       endProgrammaticTranscriptNavigation,
@@ -143,12 +147,14 @@ export function useHomeChatSwitchLifecycle({
     registerCloseTempChatCleanup((tempChatId: string) => {
       const closedSelection: SelectedChat = { kind: 'temporary', tempChatId };
       clearComposerInputForSelection(closedSelection);
+      clearSearchModeForSelection(closedSelection);
       clearSearchStateForSelection(closedSelection);
       clearPendingChatRequestForSelection(closedSelection);
     });
   }, [
     clearComposerInputForSelection,
     clearPendingChatRequestForSelection,
+    clearSearchModeForSelection,
     clearSearchStateForSelection,
     registerCloseTempChatCleanup,
   ]);

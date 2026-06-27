@@ -15,6 +15,44 @@ interface UsePerChatComposerStateParams {
 
 const searchModesSessionStore: Record<string, SearchMode> = {};
 
+export function getSearchModeFromMap(
+  modesByChatKey: Record<string, SearchMode>,
+  composerStateKey: string
+) {
+  return modesByChatKey[composerStateKey] ?? 'auto';
+}
+
+export function setSearchModeForKey(
+  modesByChatKey: Record<string, SearchMode>,
+  key: string,
+  mode: SearchMode,
+  sessionStore: Record<string, SearchMode> = searchModesSessionStore
+) {
+  if (mode === 'auto') {
+    delete sessionStore[key];
+    return deleteRecordKey(modesByChatKey, key);
+  }
+
+  if (modesByChatKey[key] === mode) {
+    return modesByChatKey;
+  }
+
+  sessionStore[key] = mode;
+  return {
+    ...modesByChatKey,
+    [key]: mode,
+  };
+}
+
+export function clearSearchModeForKey(
+  modesByChatKey: Record<string, SearchMode>,
+  key: string,
+  sessionStore: Record<string, SearchMode> = searchModesSessionStore
+) {
+  delete sessionStore[key];
+  return deleteRecordKey(modesByChatKey, key);
+}
+
 export function usePerChatComposerState({
   storageKey,
   selection,
@@ -37,7 +75,7 @@ export function usePerChatComposerState({
   const activeComposerStateKey = getComposerStateKey(selection);
   const input = composerDraftInputsByChatKey[activeComposerStateKey] ?? '';
   const activeSearchState = searchStatesByChatKey[activeComposerStateKey] ?? null;
-  const activeSearchMode = searchModesByChatKey[activeComposerStateKey] ?? 'auto';
+  const activeSearchMode = getSearchModeFromMap(searchModesByChatKey, activeComposerStateKey);
 
   const setInputForSelection = useCallback(
     (nextSelection: SelectedChat | null, value: string) => {
@@ -89,28 +127,18 @@ export function usePerChatComposerState({
     setSearchStatesByChatKey((prev) => deleteRecordKey(prev, key));
   }, []);
 
+  const clearSearchModeForSelection = useCallback((nextSelection: SelectedChat | null) => {
+    const key = getComposerStateKey(nextSelection);
+    setSearchModesByChatKey((prev) => clearSearchModeForKey(prev, key));
+  }, []);
+
   const setSearchModeForSelection = useCallback(
     (nextSelection: SelectedChat | null, mode: SearchMode) => {
       const key = nextSelection
         ? getComposerStateKey(nextSelection)
         : activeComposerStateKey;
 
-      setSearchModesByChatKey((prev) => {
-        if (mode === 'auto') {
-          delete searchModesSessionStore[key];
-          return deleteRecordKey(prev, key);
-        }
-
-        if (prev[key] === mode) {
-          return prev;
-        }
-
-        searchModesSessionStore[key] = mode;
-        return {
-          ...prev,
-          [key]: mode,
-        };
-      });
+      setSearchModesByChatKey((prev) => setSearchModeForKey(prev, key, mode));
     },
     [activeComposerStateKey]
   );
@@ -119,8 +147,9 @@ export function usePerChatComposerState({
     (nextSelection: SelectedChat | null) => {
       clearInputForSelection(nextSelection);
       clearSearchStateForSelection(nextSelection);
+      clearSearchModeForSelection(nextSelection);
     },
-    [clearInputForSelection, clearSearchStateForSelection]
+    [clearInputForSelection, clearSearchModeForSelection, clearSearchStateForSelection]
   );
 
   const resetAllComposerState = useCallback(() => {
@@ -170,6 +199,7 @@ export function usePerChatComposerState({
     composerDraftInputsRef,
     input,
     clearInputForSelection,
+    clearSearchModeForSelection,
     clearSearchStateForSelection,
     clearSelectionState,
     resetAllComposerState,
