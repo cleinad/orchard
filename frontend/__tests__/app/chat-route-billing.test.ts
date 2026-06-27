@@ -88,10 +88,11 @@ describe('chat route billing enforcement', () => {
     vi.clearAllMocks();
     vi.stubEnv('STRIPE_PRICE_MONTHLY_ID', 'price_monthly');
     mockResolveChatModelSelection.mockReturnValue({
-      id: 'gemini-3-flash-preview',
-      provider: 'google',
-      label: 'Gemini 3',
-      apiModelId: 'gemini-3-flash-preview',
+      id: 'deepseek-v4-flash',
+      requestedId: 'auto',
+      provider: 'deepseek',
+      label: 'Auto',
+      apiModelId: 'deepseek-v4-flash',
     });
     mockGetChatModel.mockReturnValue('mock-model');
     mockStreamText.mockReturnValue({ toUIMessageStream: () => undefined });
@@ -104,6 +105,7 @@ describe('chat route billing enforcement', () => {
   it('blocks paid model access for free users before model invocation', async () => {
     mockResolveChatModelSelection.mockReturnValue({
       id: 'gpt-5.4',
+      requestedId: 'gpt-5.4',
       provider: 'openai',
       label: 'GPT 5.4',
       apiModelId: 'gpt-5.4',
@@ -125,6 +127,7 @@ describe('chat route billing enforcement', () => {
   it('does not create a persistent conversation when paid-model billing blocks the first message', async () => {
     mockResolveChatModelSelection.mockReturnValue({
       id: 'gpt-5.4',
+      requestedId: 'gpt-5.4',
       provider: 'openai',
       label: 'GPT 5.4',
       apiModelId: 'gpt-5.4',
@@ -147,8 +150,19 @@ describe('chat route billing enforcement', () => {
       {
         tables: { profiles: { rows: [{ full_name: 'Test User' }] } },
         rpcResults: {
-          consume_model_usage: {
-            data: [{ allowed: false, used_count: 20, monthly_limit: 20 }],
+          consume_chat_usage_limits: {
+            data: [{
+              allowed: false,
+              monthly_used_count: 3,
+              monthly_limit: 250,
+              window_used_count: 20,
+              window_limit: 20,
+              monthly_premium_used_count: 0,
+              monthly_premium_limit: 0,
+              window_premium_used_count: 0,
+              window_premium_limit: 0,
+              blocked_limit: 'window_total',
+            }],
             error: null,
           },
         },
@@ -167,8 +181,19 @@ describe('chat route billing enforcement', () => {
       {
         tables: { profiles: { rows: [{ full_name: 'Test User' }] } },
         rpcResults: {
-          consume_model_usage: {
-            data: [{ allowed: false, used_count: 20, monthly_limit: 20 }],
+          consume_chat_usage_limits: {
+            data: [{
+              allowed: false,
+              monthly_used_count: 250,
+              monthly_limit: 250,
+              window_used_count: 12,
+              window_limit: 20,
+              monthly_premium_used_count: 0,
+              monthly_premium_limit: 0,
+              window_premium_used_count: 0,
+              window_premium_limit: 0,
+              blocked_limit: 'monthly_total',
+            }],
             error: null,
           },
         },
@@ -178,7 +203,11 @@ describe('chat route billing enforcement', () => {
     expect(response.status).toBe(429);
     expect(await response.json()).toMatchObject({
       code: 'billing_usage_limit_reached',
-      usage: { used: 20, limit: 20 },
+      usage: {
+        monthly: { used: 250, limit: 250 },
+        rolling: { used: 12, limit: 20 },
+      },
+      blockedLimit: 'monthly_total',
     });
     expect(mockGetChatModel).not.toHaveBeenCalled();
     expect(mockStreamText).not.toHaveBeenCalled();

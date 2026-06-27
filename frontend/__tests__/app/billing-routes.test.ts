@@ -247,9 +247,9 @@ describe('billing route auth', () => {
       billing_entitlements: {
         rows: [
           {
-            plan_key: 'keen_monthly',
+            plan_key: 'keen_plus',
             can_use_cloud_models: true,
-            monthly_limit: 1000,
+            monthly_limit: 2500,
             status: 'active',
             subscription_id: 'sub_123',
             current_period_start: '2099-06-01T00:00:00.000Z',

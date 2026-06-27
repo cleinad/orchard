@@ -22,7 +22,8 @@ export async function POST() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const priceId = process.env.STRIPE_PRICE_MONTHLY_ID;
+    const priceId =
+      process.env.STRIPE_PRICE_PLUS_MONTHLY_ID ?? process.env.STRIPE_PRICE_MONTHLY_ID;
     if (!priceId) {
       return NextResponse.json(
         { error: 'Stripe monthly price is not configured' },

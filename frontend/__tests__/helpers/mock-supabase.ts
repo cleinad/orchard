@@ -164,9 +164,20 @@ export function createMockSupabase(options: MockSupabaseOptions = {}) {
     rpc: (fn: string, args: unknown) => {
       rpcs.push({ fn, args });
       const result = rpcResults[fn];
-      if (!result && fn === 'consume_model_usage') {
+      if (!result && fn === 'consume_chat_usage_limits') {
         return Promise.resolve({
-          data: [{ allowed: true, used_count: 1, monthly_limit: 20 }],
+          data: [{
+            allowed: true,
+            monthly_used_count: 1,
+            monthly_limit: 250,
+            window_used_count: 1,
+            window_limit: 20,
+            monthly_premium_used_count: 0,
+            monthly_premium_limit: 0,
+            window_premium_used_count: 0,
+            window_premium_limit: 0,
+            blocked_limit: null,
+          }],
           error: null,
         });
       }

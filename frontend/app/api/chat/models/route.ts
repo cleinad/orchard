@@ -22,6 +22,9 @@ export async function GET() {
       planKey: entitlement.planKey,
       canUseCloudModels: entitlement.canUseCloudModels,
       monthlyLimit: entitlement.monthlyLimit,
+      rollingLimit: entitlement.rollingLimit,
+      monthlyPremiumUnitLimit: entitlement.monthlyPremiumUnitLimit,
+      rollingPremiumUnitLimit: entitlement.rollingPremiumUnitLimit,
     },
   });
 }

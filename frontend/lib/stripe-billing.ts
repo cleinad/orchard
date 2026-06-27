@@ -6,7 +6,6 @@ import {
   type BillingEntitlement,
   type BillingSubscriptionProjection,
 } from '@/lib/billing';
-import { PAID_MONTHLY_PLAN_KEY } from '@/lib/billing-config';
 
 type StripeLike = Pick<Stripe, 'subscriptions'>;
 type StripeCheckoutLike = Pick<Stripe, 'checkout' | 'subscriptions'>;
@@ -230,7 +229,7 @@ function computeEntitlementForSubscriptions(
   const activeSubscription =
     sortedSubscriptions.find(
       (subscription) =>
-        computeEntitlementFromSubscription(subscription).planKey === PAID_MONTHLY_PLAN_KEY
+        computeEntitlementFromSubscription(subscription).canUseCloudModels
     )
     ?? sortedSubscriptions[0]
     ?? null;

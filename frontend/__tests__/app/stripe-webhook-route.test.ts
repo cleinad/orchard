@@ -126,7 +126,7 @@ describe('stripe webhook route', () => {
       status: 'active',
     });
     expect(supabase.state.billing_entitlements[0]).toMatchObject({
-      plan_key: 'keen_monthly',
+      plan_key: 'keen_plus',
       can_use_cloud_models: true,
     });
   });

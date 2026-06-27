@@ -38,6 +38,7 @@ describe('chat model route billing projection', () => {
     vi.stubEnv('OPENAI_API_KEY', 'test-openai-key');
     vi.stubEnv('ANTHROPIC_API_KEY', 'test-anthropic-key');
     vi.stubEnv('GOOGLE_GENERATIVE_AI_API_KEY', 'test-google-key');
+    vi.stubEnv('DEEPSEEK_API_KEY', 'test-deepseek-key');
   });
 
   afterEach(() => {
@@ -67,7 +68,7 @@ describe('chat model route billing projection', () => {
     expect(body.entitlement).toMatchObject({
       planKey: 'free',
       canUseCloudModels: false,
-      monthlyLimit: 20,
+      monthlyLimit: 250,
     });
     expect(body.models.find((model: { id: string }) => model.id === 'gpt-5.4')).toMatchObject({
       available: false,
@@ -75,10 +76,16 @@ describe('chat model route billing projection', () => {
       unavailableReason: 'Upgrade to use',
     });
     expect(
-      body.models.find((model: { id: string }) => model.id === 'gemini-3-flash-preview')
+      body.models.find((model: { id: string }) => model.id === 'auto')
     ).toMatchObject({
       available: true,
       requiresPaidPlan: false,
+    });
+    expect(
+      body.models.find((model: { id: string }) => model.id === 'gemini-3-flash-preview')
+    ).toMatchObject({
+      available: false,
+      requiresPaidPlan: true,
     });
   });
 
@@ -87,9 +94,9 @@ describe('chat model route billing projection', () => {
       createRouteSupabase({
         entitlementRows: [
           {
-            plan_key: 'keen_monthly',
+            plan_key: 'keen_plus',
             can_use_cloud_models: true,
-            monthly_limit: 1000,
+            monthly_limit: 2500,
             status: 'active',
             subscription_id: 'sub_123',
             current_period_start: '2099-06-01T00:00:00.000Z',
@@ -107,9 +114,9 @@ describe('chat model route billing projection', () => {
 
     expect(response.status).toBe(200);
     expect(body.entitlement).toMatchObject({
-      planKey: 'keen_monthly',
+      planKey: 'keen_plus',
       canUseCloudModels: true,
-      monthlyLimit: 1000,
+      monthlyLimit: 2500,
     });
     expect(body.models.find((model: { id: string }) => model.id === 'gpt-5.4')).toMatchObject({
       available: true,

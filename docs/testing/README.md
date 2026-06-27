@@ -62,7 +62,7 @@ Notes:
 - `frontend/__tests__/app/billing-routes.test.ts`: Stripe Checkout and Customer Portal route contracts without opening Stripe UI
 - `frontend/__tests__/app/stripe-webhook-route.test.ts`: signed Stripe webhook POST handling, signature failures, event persistence, and duplicate delivery behavior
 - `frontend/__tests__/app/chat-models-route-billing.test.ts`: billing entitlement projection in the chat model list route
-- `frontend/__tests__/app/chat-route-billing.test.ts`: server-side paid-model and monthly usage-limit enforcement before model calls
+- `frontend/__tests__/app/chat-route-billing.test.ts`: server-side paid-model and usage-limit enforcement before model calls
 - `frontend/__tests__/app/settings-billing-page.test.ts`: `/settings/billing` plan, subscription state, usage, checkout-return rendering, live Stripe reconciliation, and db fallback behavior
 - `frontend/__tests__/app/settings-billing-link.test.ts`: settings navigation to `/settings/billing`
 - `frontend/__tests__/app/conversations-route.test.ts`: conversation creation, mentor ownership validation, request validation, and empty-conversation cleanup

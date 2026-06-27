@@ -8,8 +8,11 @@ import {
   type ModelMessage,
 } from 'ai';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
-import { consumeChatUsage, getBillingEntitlement } from '@/lib/billing';
-import { isPaidChatModel } from '@/lib/billing-config';
+import {
+  canUseRequestedChatModel,
+  consumeChatUsage,
+  getBillingEntitlement,
+} from '@/lib/billing';
 import { loadMemoryContextV2 } from '@/lib/memory-reader';
 import { processMemoryV2 } from '@/lib/memory-agent';
 import { isChatModelEffortLevel, isChatModelId } from '@/lib/chat-models';
@@ -875,28 +878,34 @@ export async function POST(request: NextRequest) {
     }
 
     const entitlement = await getBillingEntitlement(supabase, user.id);
-    if (isPaidChatModel(resolvedSelection.id) && !entitlement.canUseCloudModels) {
+    if (!canUseRequestedChatModel(entitlement, resolvedSelection.requestedId)) {
       await removeUnreferencedCleanupAttachmentStorage(supabase, loadedAttachments);
       return NextResponse.json(
         {
           error: 'Upgrade required',
           code: 'billing_upgrade_required',
-          message: 'Upgrade to the monthly plan to use this model.',
-          requiredPlan: 'keen_monthly',
+          message: 'Upgrade to Plus or Pro to choose specific models.',
+          requiredPlan: 'keen_plus',
         },
         { status: 402 }
       );
     }
 
-    const usageResult = await consumeChatUsage(supabase, user.id, entitlement);
+    const usageResult = await consumeChatUsage(
+      supabase,
+      user.id,
+      entitlement,
+      resolvedSelection.id
+    );
     if (!usageResult.allowed) {
       await removeUnreferencedCleanupAttachmentStorage(supabase, loadedAttachments);
       return NextResponse.json(
         {
-          error: 'Monthly usage limit reached',
+          error: 'Usage limit reached',
           code: 'billing_usage_limit_reached',
-          message: 'Upgrade to continue using Keen this month.',
+          message: 'Upgrade or wait for your usage window to reset.',
           usage: usageResult.usage,
+          blockedLimit: usageResult.blockedLimit,
         },
         { status: 429 }
       );

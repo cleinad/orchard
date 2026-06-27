@@ -66,7 +66,7 @@ function createBillingPageSupabase({
 function entitlementRow({
   planKey = 'free',
   canUseCloudModels = false,
-  monthlyLimit = 20,
+  monthlyLimit = 250,
   status = 'none',
   displayState = 'no_subscription',
   subscriptionId = null,
@@ -98,7 +98,7 @@ function entitlementRow({
 function billingEntitlement({
   planKey = 'free',
   canUseCloudModels = false,
-  monthlyLimit = 20,
+  monthlyLimit = 250,
   status = 'none',
   displayState = 'no_subscription',
   subscriptionId = null,
@@ -167,7 +167,7 @@ describe('settings billing page', () => {
     expect(html).toContain('Current plan');
     expect(html).toContain('Free');
     expect(html).toContain('Monthly usage');
-    expect(html).toContain('7 / 20');
+    expect(html).toContain('7 / 250');
     expect(html).toContain('Upgrade');
     expect(html).not.toContain('Manage billing');
     expect(mockSyncBillingCustomerFromStripe).not.toHaveBeenCalled();
@@ -178,9 +178,9 @@ describe('settings billing page', () => {
       createBillingPageSupabase({
         entitlementRows: [
           entitlementRow({
-            planKey: 'keen_monthly',
+            planKey: 'keen_plus',
             canUseCloudModels: true,
-            monthlyLimit: 1000,
+            monthlyLimit: 2500,
             status: 'active',
             subscriptionId: 'sub_123',
             currentPeriodStart: '2099-06-01T00:00:00.000Z',
@@ -197,9 +197,9 @@ describe('settings billing page', () => {
     const element = await BillingPage({ searchParams: Promise.resolve({}) });
     const html = renderToStaticMarkup(element);
 
-    expect(html).toContain('Monthly plan');
+    expect(html).toContain('Plus plan');
     expect(html).toContain('Active');
-    expect(html).toContain('42 / 1000');
+    expect(html).toContain('42 / 2500');
     expect(html).toContain('Manage billing');
     expect(html).not.toContain('Upgrade');
     expect(mockSyncBillingCustomerFromStripe).toHaveBeenCalledWith(
@@ -212,9 +212,9 @@ describe('settings billing page', () => {
 
   it('runs checkout sync before live customer sync on successful checkout returns', async () => {
     const paidEntitlement = billingEntitlement({
-      planKey: 'keen_monthly',
+      planKey: 'keen_plus',
       canUseCloudModels: true,
-      monthlyLimit: 1000,
+      monthlyLimit: 2500,
       status: 'active',
       displayState: 'active',
       subscriptionId: 'sub_123',
@@ -255,7 +255,7 @@ describe('settings billing page', () => {
       mockSyncBillingCustomerFromStripe.mock.invocationCallOrder[0]
     );
     expect(html).toContain('Checkout succeeded. Your subscription is active.');
-    expect(html).toContain('Monthly plan');
+    expect(html).toContain('Plus plan');
     expect(html).toContain('Active');
     expect(html).toContain('0 / 1000');
   });
@@ -266,7 +266,7 @@ describe('settings billing page', () => {
         entitlement: billingEntitlement({
           planKey: 'free',
           canUseCloudModels: false,
-          monthlyLimit: 20,
+          monthlyLimit: 250,
           status: 'canceled',
           displayState: 'canceled',
           subscriptionId: 'sub_123',
@@ -279,9 +279,9 @@ describe('settings billing page', () => {
       createBillingPageSupabase({
         entitlementRows: [
           entitlementRow({
-            planKey: 'keen_monthly',
+            planKey: 'keen_plus',
             canUseCloudModels: true,
-            monthlyLimit: 1000,
+            monthlyLimit: 2500,
             status: 'active',
             subscriptionId: 'sub_123',
             currentPeriodStart: '2099-06-01T00:00:00.000Z',
@@ -300,7 +300,7 @@ describe('settings billing page', () => {
 
     expect(html).toContain('Free');
     expect(html).toContain('Canceled');
-    expect(html).toContain('0 / 20');
+    expect(html).toContain('0 / 250');
     expect(html).toContain('Upgrade');
     expect(html).toContain('Manage billing');
   });
@@ -312,9 +312,9 @@ describe('settings billing page', () => {
       createBillingPageSupabase({
         entitlementRows: [
           entitlementRow({
-            planKey: 'keen_monthly',
+            planKey: 'keen_plus',
             canUseCloudModels: true,
-            monthlyLimit: 1000,
+            monthlyLimit: 2500,
             status: 'active',
             subscriptionId: 'sub_123',
             currentPeriodStart: '2099-06-01T00:00:00.000Z',
@@ -331,7 +331,7 @@ describe('settings billing page', () => {
     const element = await BillingPage({ searchParams: Promise.resolve({}) });
     const html = renderToStaticMarkup(element);
 
-    expect(html).toContain('Monthly plan');
+    expect(html).toContain('Plus plan');
     expect(html).toContain('Active');
     expect(html).toContain('9 / 1000');
     expect(html).toContain('Manage billing');
@@ -347,9 +347,9 @@ describe('settings billing page', () => {
       createBillingPageSupabase({
         entitlementRows: [
           entitlementRow({
-            planKey: 'keen_monthly',
+            planKey: 'keen_plus',
             canUseCloudModels: true,
-            monthlyLimit: 1000,
+            monthlyLimit: 2500,
             status: 'active',
             subscriptionId: 'sub_123',
             currentPeriodStart: '2099-06-01T00:00:00.000Z',
@@ -366,7 +366,7 @@ describe('settings billing page', () => {
     const element = await BillingPage({ searchParams: Promise.resolve({}) });
     const html = renderToStaticMarkup(element);
 
-    expect(html).toContain('Monthly plan');
+    expect(html).toContain('Plus plan');
     expect(html).toContain('Canceling at period end');
     expect(html).toContain('12 / 1000');
     expect(html).toContain('Manage billing');
@@ -382,7 +382,7 @@ describe('settings billing page', () => {
           entitlementRow({
             planKey: 'free',
             canUseCloudModels: false,
-            monthlyLimit: 20,
+            monthlyLimit: 250,
             status,
             subscriptionId: 'sub_123',
             currentPeriodStart: '2099-06-01T00:00:00.000Z',
@@ -401,7 +401,7 @@ describe('settings billing page', () => {
 
     expect(html).toContain('Free');
     expect(html).toContain(stateLabel);
-    expect(html).toContain('20 / 20');
+    expect(html).toContain('20 / 250');
     expect(html).toContain('Upgrade');
     expect(html).toContain('Manage billing');
   });

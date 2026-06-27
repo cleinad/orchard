@@ -31,9 +31,9 @@ describe('billing entitlement computation', () => {
         new Date('2026-06-12T00:00:00.000Z')
       );
 
-      expect(entitlement.planKey).toBe('keen_monthly');
+      expect(entitlement.planKey).toBe('keen_plus');
       expect(entitlement.canUseCloudModels).toBe(true);
-      expect(entitlement.monthlyLimit).toBe(1000);
+      expect(entitlement.monthlyLimit).toBe(2500);
     }
   );
 
@@ -92,7 +92,7 @@ describe('billing entitlement computation', () => {
 
       expect(entitlement.planKey).toBe('free');
       expect(entitlement.canUseCloudModels).toBe(false);
-      expect(entitlement.monthlyLimit).toBe(20);
+      expect(entitlement.monthlyLimit).toBe(250);
     }
   );
 
@@ -143,15 +143,15 @@ describe('billing entitlement computation', () => {
 
   it('computes UTC monthly usage windows', () => {
     expect(getCurrentUsagePeriod(new Date('2026-06-12T19:00:00.000Z'))).toEqual({
-      periodStart: '2026-06-01',
-      periodEnd: '2026-07-01',
+      periodStart: '2026-06-01T00:00:00.000Z',
+      periodEnd: '2026-07-01T00:00:00.000Z',
     });
   });
 
   it('uses trusted entitlement projections for fast gating', () => {
     const entitlement = computeEntitlementFromProjection(
       {
-        plan_key: 'keen_monthly',
+        plan_key: 'keen_plus',
         can_use_cloud_models: true,
         monthly_limit: 999999,
         status: 'active',
@@ -165,9 +165,9 @@ describe('billing entitlement computation', () => {
     );
 
     expect(entitlement).toMatchObject({
-      planKey: 'keen_monthly',
+      planKey: 'keen_plus',
       canUseCloudModels: true,
-      monthlyLimit: 1000,
+      monthlyLimit: 2500,
       subscriptionId: 'sub_123',
       displayState: 'active',
     });
@@ -178,9 +178,9 @@ describe('billing entitlement computation', () => {
     expect(
       computeEntitlementFromProjection(
         {
-          plan_key: 'keen_monthly',
+          plan_key: 'keen_plus',
           can_use_cloud_models: true,
-          monthly_limit: 1000,
+          monthly_limit: 2500,
           status: 'active',
           subscription_id: 'sub_123',
           current_period_start: '2026-05-01T00:00:00.000Z',
@@ -196,7 +196,7 @@ describe('billing entitlement computation', () => {
         {
           plan_key: 'free',
           can_use_cloud_models: true,
-          monthly_limit: 1000,
+          monthly_limit: 2500,
           status: 'active',
           subscription_id: 'sub_123',
           current_period_start: '2026-06-01T00:00:00.000Z',
@@ -216,9 +216,9 @@ describe('billing entitlement computation', () => {
           eq: () => ({
             maybeSingle: () => Promise.resolve({
               data: {
-                plan_key: 'keen_monthly',
+                plan_key: 'keen_plus',
                 can_use_cloud_models: true,
-                monthly_limit: 1000,
+                monthly_limit: 2500,
                 status: 'trialing',
                 subscription_id: 'sub_123',
                 current_period_start: '2026-06-01T00:00:00.000Z',
@@ -234,7 +234,7 @@ describe('billing entitlement computation', () => {
     };
 
     await expect(getBillingEntitlement(supabase as never, 'user-1')).resolves.toMatchObject({
-      planKey: 'keen_monthly',
+      planKey: 'keen_plus',
       canUseCloudModels: true,
       status: 'trialing',
     });

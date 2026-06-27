@@ -1,11 +1,18 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
-  BILLING_LIMITS,
+  BILLING_PLAN_LIMITS,
   FREE_PLAN_KEY,
+  LEGACY_PAID_MONTHLY_PLAN_KEY,
   PAID_MONTHLY_PLAN_KEY,
+  PLUS_PLAN_KEY,
+  PRO_PLAN_KEY,
   type BillingPlanKey,
-  isMonthlyStripePrice,
+  getBillingPlanForStripePrice,
+  getBillingPlanLimits,
+  getPremiumUsageUnits,
+  requiresPaidPlanForModel,
 } from '@/lib/billing-config';
+import type { ChatModelId, ConcreteChatModelId } from '@/lib/chat-models';
 
 export type BillingSubscriptionStatus =
   | 'active'
@@ -59,6 +66,10 @@ export interface BillingEntitlement {
   planKey: BillingPlanKey;
   canUseCloudModels: boolean;
   monthlyLimit: number;
+  rollingWindowHours: number;
+  rollingLimit: number;
+  monthlyPremiumUnitLimit: number;
+  rollingPremiumUnitLimit: number;
   status: BillingSubscriptionStatus;
   subscriptionId: string | null;
   currentPeriodStart: string | null;
@@ -74,6 +85,14 @@ export interface UsageSummary {
   limit: number;
 }
 
+export interface ChatUsageSummary {
+  monthly: UsageSummary;
+  rolling: UsageSummary;
+  monthlyPremium: UsageSummary;
+  rollingPremium: UsageSummary;
+  premiumUnits: number;
+}
+
 const ACTIVE_ACCESS_STATUSES = new Set(['active', 'trialing']);
 
 export function getCurrentUsagePeriod(now = new Date()) {
@@ -81,16 +100,38 @@ export function getCurrentUsagePeriod(now = new Date()) {
   const periodEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
 
   return {
-    periodStart: periodStart.toISOString().slice(0, 10),
-    periodEnd: periodEnd.toISOString().slice(0, 10),
+    periodStart: periodStart.toISOString(),
+    periodEnd: periodEnd.toISOString(),
+  };
+}
+
+export function getCurrentRollingUsagePeriod(now = new Date()) {
+  const windowHours = BILLING_PLAN_LIMITS[FREE_PLAN_KEY].rollingWindowHours;
+  const periodStart = new Date(now);
+  periodStart.setUTCMinutes(0, 0, 0);
+  periodStart.setUTCHours(
+    Math.floor(periodStart.getUTCHours() / windowHours) * windowHours
+  );
+  const periodEnd = new Date(periodStart);
+  periodEnd.setUTCHours(periodStart.getUTCHours() + windowHours);
+
+  return {
+    periodStart: periodStart.toISOString(),
+    periodEnd: periodEnd.toISOString(),
   };
 }
 
 export function getFreeBillingEntitlement(): BillingEntitlement {
+  const limits = getBillingPlanLimits(FREE_PLAN_KEY);
+
   return {
     planKey: FREE_PLAN_KEY,
     canUseCloudModels: false,
-    monthlyLimit: BILLING_LIMITS[FREE_PLAN_KEY],
+    monthlyLimit: limits.monthlyTotalLimit,
+    rollingWindowHours: limits.rollingWindowHours,
+    rollingLimit: limits.rollingTotalLimit,
+    monthlyPremiumUnitLimit: limits.monthlyPremiumUnitLimit,
+    rollingPremiumUnitLimit: limits.rollingPremiumUnitLimit,
     status: 'none',
     subscriptionId: null,
     currentPeriodStart: null,
@@ -153,7 +194,8 @@ export function computeEntitlementFromSubscription(
     return freeEntitlement;
   }
 
-  const hasPaidPrice = isMonthlyStripePrice(subscription.price_id);
+  const planKey = getBillingPlanForStripePrice(subscription.price_id);
+  const hasPaidPrice = Boolean(planKey);
   const hasAccessStatus = ACTIVE_ACCESS_STATUSES.has(subscription.status);
   const withinCurrentPeriod = isFutureDate(subscription.current_period_end, now);
   const isPaid = hasPaidPrice && hasAccessStatus && withinCurrentPeriod;
@@ -170,10 +212,17 @@ export function computeEntitlementFromSubscription(
     };
   }
 
+  const paidPlanKey = planKey ?? PAID_MONTHLY_PLAN_KEY;
+  const limits = getBillingPlanLimits(paidPlanKey);
+
   return {
-    planKey: PAID_MONTHLY_PLAN_KEY,
+    planKey: paidPlanKey,
     canUseCloudModels: true,
-    monthlyLimit: BILLING_LIMITS[PAID_MONTHLY_PLAN_KEY],
+    monthlyLimit: limits.monthlyTotalLimit,
+    rollingWindowHours: limits.rollingWindowHours,
+    rollingLimit: limits.rollingTotalLimit,
+    monthlyPremiumUnitLimit: limits.monthlyPremiumUnitLimit,
+    rollingPremiumUnitLimit: limits.rollingPremiumUnitLimit,
     status: subscription.status as BillingSubscriptionStatus,
     subscriptionId: subscription.subscription_id,
     currentPeriodStart: subscription.current_period_start,
@@ -214,8 +263,16 @@ export function computeEntitlementFromProjection(
 
   const displayState = normalizeDisplayState(projection.display_state);
   const status = projection.status as BillingSubscriptionStatus;
+  const projectedPlanKey =
+    projection.plan_key === PLUS_PLAN_KEY
+      || projection.plan_key === PAID_MONTHLY_PLAN_KEY
+      || projection.plan_key === LEGACY_PAID_MONTHLY_PLAN_KEY
+      ? PLUS_PLAN_KEY
+      : projection.plan_key === PRO_PLAN_KEY
+        ? PRO_PLAN_KEY
+        : null;
   const hasPaidAccess =
-    projection.plan_key === PAID_MONTHLY_PLAN_KEY
+    projectedPlanKey !== null
     && projection.can_use_cloud_models === true
     && ACTIVE_ACCESS_STATUSES.has(projection.status ?? '')
     && isFutureDate(projection.current_period_end, now);
@@ -232,10 +289,16 @@ export function computeEntitlementFromProjection(
     };
   }
 
+  const limits = getBillingPlanLimits(projectedPlanKey);
+
   return {
-    planKey: PAID_MONTHLY_PLAN_KEY,
+    planKey: projectedPlanKey,
     canUseCloudModels: true,
-    monthlyLimit: BILLING_LIMITS[PAID_MONTHLY_PLAN_KEY],
+    monthlyLimit: limits.monthlyTotalLimit,
+    rollingWindowHours: limits.rollingWindowHours,
+    rollingLimit: limits.rollingTotalLimit,
+    monthlyPremiumUnitLimit: limits.monthlyPremiumUnitLimit,
+    rollingPremiumUnitLimit: limits.rollingPremiumUnitLimit,
     status,
     subscriptionId: projection.subscription_id,
     currentPeriodStart: projection.current_period_start,
@@ -275,7 +338,7 @@ export async function getUsageSummary(
     .from('usage_counters')
     .select('count')
     .eq('user_id', userId)
-    .eq('feature_key', 'chat_message')
+    .eq('feature_key', 'chat_total_monthly')
     .eq('period_start', periodStart)
     .maybeSingle();
 
@@ -294,16 +357,24 @@ export async function getUsageSummary(
 export async function consumeChatUsage(
   supabase: SupabaseClient,
   userId: string,
-  entitlement: BillingEntitlement
-): Promise<{ allowed: boolean; usage: UsageSummary }> {
-  const { periodStart, periodEnd } = getCurrentUsagePeriod();
-  const { data, error } = await supabase.rpc('consume_model_usage', {
+  entitlement: BillingEntitlement,
+  modelId: ConcreteChatModelId | ChatModelId | string
+): Promise<{ allowed: boolean; usage: ChatUsageSummary; blockedLimit: string | null }> {
+  const monthly = getCurrentUsagePeriod();
+  const rolling = getCurrentRollingUsagePeriod();
+  const premiumUnits = getPremiumUsageUnits(modelId);
+  const { data, error } = await supabase.rpc('consume_chat_usage_limits', {
     p_user_id: userId,
-    p_feature_key: 'chat_message',
-    p_period_start: periodStart,
-    p_period_end: periodEnd,
-    p_increment: 1,
-    p_limit: entitlement.monthlyLimit,
+    p_month_start: monthly.periodStart,
+    p_month_end: monthly.periodEnd,
+    p_window_start: rolling.periodStart,
+    p_window_end: rolling.periodEnd,
+    p_total_increment: 1,
+    p_premium_increment: premiumUnits,
+    p_monthly_total_limit: entitlement.monthlyLimit,
+    p_window_total_limit: entitlement.rollingLimit,
+    p_monthly_premium_limit: entitlement.monthlyPremiumUnitLimit,
+    p_window_premium_limit: entitlement.rollingPremiumUnitLimit,
   });
 
   if (error) {
@@ -311,24 +382,87 @@ export async function consumeChatUsage(
     return {
       allowed: false,
       usage: {
-        periodStart,
-        periodEnd,
-        used: entitlement.monthlyLimit,
-        limit: entitlement.monthlyLimit,
+        monthly: {
+          periodStart: monthly.periodStart,
+          periodEnd: monthly.periodEnd,
+          used: entitlement.monthlyLimit,
+          limit: entitlement.monthlyLimit,
+        },
+        rolling: {
+          periodStart: rolling.periodStart,
+          periodEnd: rolling.periodEnd,
+          used: entitlement.rollingLimit,
+          limit: entitlement.rollingLimit,
+        },
+        monthlyPremium: {
+          periodStart: monthly.periodStart,
+          periodEnd: monthly.periodEnd,
+          used: entitlement.monthlyPremiumUnitLimit,
+          limit: entitlement.monthlyPremiumUnitLimit,
+        },
+        rollingPremium: {
+          periodStart: rolling.periodStart,
+          periodEnd: rolling.periodEnd,
+          used: entitlement.rollingPremiumUnitLimit,
+          limit: entitlement.rollingPremiumUnitLimit,
+        },
+        premiumUnits,
       },
+      blockedLimit: 'system',
     };
   }
 
   const result = Array.isArray(data) ? data[0] : data;
-  const used = typeof result?.used_count === 'number' ? result.used_count : 0;
+  const monthlyUsed =
+    typeof result?.monthly_used_count === 'number' ? result.monthly_used_count : 0;
+  const rollingUsed =
+    typeof result?.window_used_count === 'number' ? result.window_used_count : 0;
+  const monthlyPremiumUsed =
+    typeof result?.monthly_premium_used_count === 'number'
+      ? result.monthly_premium_used_count
+      : 0;
+  const rollingPremiumUsed =
+    typeof result?.window_premium_used_count === 'number'
+      ? result.window_premium_used_count
+      : 0;
 
   return {
     allowed: Boolean(result?.allowed),
     usage: {
-      periodStart,
-      periodEnd,
-      used,
-      limit: entitlement.monthlyLimit,
+      monthly: {
+        periodStart: monthly.periodStart,
+        periodEnd: monthly.periodEnd,
+        used: monthlyUsed,
+        limit: entitlement.monthlyLimit,
+      },
+      rolling: {
+        periodStart: rolling.periodStart,
+        periodEnd: rolling.periodEnd,
+        used: rollingUsed,
+        limit: entitlement.rollingLimit,
+      },
+      monthlyPremium: {
+        periodStart: monthly.periodStart,
+        periodEnd: monthly.periodEnd,
+        used: monthlyPremiumUsed,
+        limit: entitlement.monthlyPremiumUnitLimit,
+      },
+      rollingPremium: {
+        periodStart: rolling.periodStart,
+        periodEnd: rolling.periodEnd,
+        used: rollingPremiumUsed,
+        limit: entitlement.rollingPremiumUnitLimit,
+      },
+      premiumUnits,
     },
+    blockedLimit:
+      typeof result?.blocked_limit === 'string' ? result.blocked_limit : null,
   };
+}
+
+export function canUseRequestedChatModel(
+  entitlement: BillingEntitlement,
+  requestedModelId: ChatModelId | string | null | undefined
+) {
+  return !requiresPaidPlanForModel(requestedModelId) || entitlement.canUseCloudModels;
 }

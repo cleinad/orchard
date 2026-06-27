@@ -17,10 +17,11 @@ const mockResolveChatModelSelection = vi.fn((modelId?: string | null) => {
   void modelId;
 
   return {
-    id: 'gpt-5-mini',
-    label: 'GPT 5 Mini',
-    provider: 'openai',
-    apiModelId: 'gpt-5-mini',
+    id: 'deepseek-v4-flash',
+    requestedId: 'auto',
+    label: 'Auto',
+    provider: 'deepseek',
+    apiModelId: 'deepseek-v4-flash',
     supportsImages: true,
   };
 });

@@ -114,9 +114,9 @@ describe('stripe subscription projection transitions', () => {
     });
     expect(supabase.state.billing_entitlements[0]).toMatchObject({
       user_id: 'user-1',
-      plan_key: 'keen_monthly',
+      plan_key: 'keen_plus',
       can_use_cloud_models: true,
-      monthly_limit: 1000,
+      monthly_limit: 2500,
       display_state: 'active',
     });
   });
@@ -138,7 +138,7 @@ describe('stripe subscription projection transitions', () => {
       status: 'active',
     });
     expect(supabase.state.billing_entitlements[0]).toMatchObject({
-      plan_key: 'keen_monthly',
+      plan_key: 'keen_plus',
       can_use_cloud_models: true,
       display_state: 'active',
     });
@@ -200,7 +200,7 @@ describe('stripe subscription projection transitions', () => {
       cancel_at_period_end: true,
     });
     expect(supabase.state.billing_entitlements[0]).toMatchObject({
-      plan_key: 'keen_monthly',
+      plan_key: 'keen_plus',
       can_use_cloud_models: true,
       display_state: 'canceling_at_period_end',
     });
@@ -236,7 +236,7 @@ describe('stripe subscription projection transitions', () => {
       last_stripe_event_id: 'evt_z',
     });
     expect(supabase.state.billing_entitlements[0]).toMatchObject({
-      plan_key: 'keen_monthly',
+      plan_key: 'keen_plus',
       can_use_cloud_models: true,
       display_state: 'canceling_at_period_end',
     });
@@ -262,7 +262,7 @@ describe('stripe subscription projection transitions', () => {
       cancel_at: '2026-07-01T00:00:00.000Z',
     });
     expect(supabase.state.billing_entitlements[0]).toMatchObject({
-      plan_key: 'keen_monthly',
+      plan_key: 'keen_plus',
       can_use_cloud_models: true,
       display_state: 'canceling_at_period_end',
     });
@@ -291,7 +291,7 @@ describe('stripe subscription projection transitions', () => {
       status: 'active',
     });
     expect(supabase.state.billing_entitlements[0]).toMatchObject({
-      plan_key: 'keen_monthly',
+      plan_key: 'keen_plus',
       can_use_cloud_models: true,
       display_state: 'active',
     });
@@ -329,7 +329,7 @@ describe('stripe subscription projection transitions', () => {
       userId: 'user-1',
       stripeCustomerId: 'cus_123',
       entitlement: {
-        planKey: 'keen_monthly',
+        planKey: 'keen_plus',
         canUseCloudModels: true,
         displayState: 'active',
       },
@@ -344,7 +344,7 @@ describe('stripe subscription projection transitions', () => {
       last_stripe_event_id: 'checkout.session.sync:cs_123',
     });
     expect(supabase.state.billing_entitlements[0]).toMatchObject({
-      plan_key: 'keen_monthly',
+      plan_key: 'keen_plus',
       can_use_cloud_models: true,
       display_state: 'active',
     });
@@ -456,7 +456,7 @@ describe('stripe subscription projection transitions', () => {
       userId: 'user-1',
       stripeCustomerId: 'cus_123',
       entitlement: {
-        planKey: 'keen_monthly',
+        planKey: 'keen_plus',
         canUseCloudModels: true,
         displayState: 'active',
       },
@@ -467,7 +467,7 @@ describe('stripe subscription projection transitions', () => {
       last_stripe_event_id: 'billing.customer.sync:sub_123:1781827200',
     });
     expect(supabase.state.billing_entitlements[0]).toMatchObject({
-      plan_key: 'keen_monthly',
+      plan_key: 'keen_plus',
       can_use_cloud_models: true,
       display_state: 'active',
     });
@@ -508,7 +508,7 @@ describe('stripe subscription projection transitions', () => {
     });
     expect(result).toMatchObject({
       entitlement: {
-        planKey: 'keen_monthly',
+        planKey: 'keen_plus',
         canUseCloudModels: true,
         displayState: 'active',
       },
@@ -557,7 +557,7 @@ describe('stripe subscription projection transitions', () => {
     });
     expect(result).toMatchObject({
       entitlement: {
-        planKey: 'keen_monthly',
+        planKey: 'keen_plus',
         canUseCloudModels: true,
         displayState: 'active',
       },
@@ -623,7 +623,7 @@ describe('stripe subscription projection transitions', () => {
 
     expect(result).toMatchObject({
       entitlement: {
-        planKey: 'keen_monthly',
+        planKey: 'keen_plus',
         canUseCloudModels: true,
         displayState: 'canceling_at_period_end',
       },
@@ -633,7 +633,7 @@ describe('stripe subscription projection transitions', () => {
       cancel_at_period_end: true,
     });
     expect(supabase.state.billing_entitlements[0]).toMatchObject({
-      plan_key: 'keen_monthly',
+      plan_key: 'keen_plus',
       can_use_cloud_models: true,
       display_state: 'canceling_at_period_end',
     });
@@ -947,7 +947,7 @@ describe('stripe subscription projection transitions', () => {
       latest_invoice_status: 'payment_succeeded',
     });
     expect(supabase.state.billing_entitlements[0]).toMatchObject({
-      plan_key: 'keen_monthly',
+      plan_key: 'keen_plus',
       can_use_cloud_models: true,
       display_state: 'active',
     });

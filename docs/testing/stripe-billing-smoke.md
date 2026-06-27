@@ -78,7 +78,7 @@ Checklist:
    expiry, any CVC, and any billing ZIP/postal code.
 8. Confirm Checkout returns to `/settings/billing?checkout=success...`.
 9. Without manually refreshing, confirm the page shows:
-   - `Current plan: Monthly plan`
+   - `Current plan: Plus plan`
    - `Subscription state: Active`
    - a Manage billing button
 10. Confirm the Stripe listener printed the relevant webhook events.
@@ -87,7 +87,7 @@ Checklist:
 13. Confirm the app redirects to the Stripe Customer Portal.
 14. Cancel the subscription in the portal.
 15. Return to `/settings/billing` and, without manually refreshing, confirm:
-   - `Current plan: Monthly plan`
+   - `Current plan: Plus plan`
    - `Subscription state: Canceling at period end`
 16. Optionally use Stripe Dashboard or CLI to cancel immediately, force a
    failed-payment, or delete the subscription. Reopen `/settings/billing` and,

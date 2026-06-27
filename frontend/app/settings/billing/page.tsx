@@ -251,7 +251,11 @@ export default async function BillingPage({ searchParams }: BillingPageProps) {
         <div className="mt-3 divide-y divide-border-subtle overflow-hidden rounded-xl border border-border-subtle bg-surface/60">
           <BillingRow
             label="Current plan"
-            value={entitlement.canUseCloudModels ? 'Monthly plan' : 'Free'}
+            value={entitlement.canUseCloudModels
+              ? entitlement.planKey === 'keen_pro'
+                ? 'Pro plan'
+                : 'Plus plan'
+              : 'Free'}
           />
           <BillingRow
             label="Subscription state"
@@ -264,9 +268,9 @@ export default async function BillingPage({ searchParams }: BillingPageProps) {
             )}`}
           />
           <BillingRow
-            label="Monthly usage"
+            label="Monthly usage backstop"
             value={`${usage.used} / ${usage.limit}`}
-            hint="Counts chat messages before model calls are made."
+            hint="Counts accepted chat messages before model calls are made."
           />
           <div className="px-4 py-3.5">
             <BillingActions
