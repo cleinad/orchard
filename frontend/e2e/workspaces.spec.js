@@ -136,6 +136,125 @@ test('workspace view shows sessions, sidebar workspace grouping, memory, and edi
   expect(state.workspaces[0].context).toBe('Prefer practical training advice and concise caveats.');
 });
 
+test('workspace delete requires confirmation and removes scoped chats and memories', async ({ page }) => {
+  const workspaceId = 'workspace-health';
+  const state = await mockHomeDataRoutes(page, {
+    workspaces: [
+      createWorkspace({
+        id: workspaceId,
+        name: 'Health',
+        description: 'Training, recovery, and bloodwork',
+        context: 'Use running and cycling training context.',
+        icon: 'H',
+      }),
+      createWorkspace({
+        id: 'workspace-math',
+        name: 'Math',
+        icon: 'M',
+      }),
+    ],
+    conversations: [
+      createConversation({
+        id: 'conversation-health-1',
+        title: 'Health plan',
+        workspaceId,
+      }),
+      createConversation({
+        id: 'conversation-math-1',
+        title: 'Eigenvalues',
+        workspaceId: 'workspace-math',
+      }),
+      createConversation({
+        id: 'conversation-keen-1',
+        title: 'Default Keen chat',
+      }),
+    ],
+    memoryItems: [
+      {
+        id: 'memory-health-1',
+        user_id: 'e2e-user-1',
+        owner_type: 'workspace',
+        owner_id: workspaceId,
+        type: 'goal',
+        text: 'User is rebuilding aerobic base.',
+        normalized_text: 'user rebuilding aerobic base',
+        confidence: 0.9,
+        salience: 80,
+        stability: 'stable',
+        sensitivity: 'normal',
+        status: 'active',
+        source_conversation_id: null,
+        source_message_id: null,
+        source_role: null,
+        created_at: '2026-06-25T12:00:00.000Z',
+        updated_at: '2026-06-25T12:00:00.000Z',
+      },
+      {
+        id: 'memory-global-1',
+        user_id: 'e2e-user-1',
+        owner_type: 'global',
+        owner_id: null,
+        type: 'profile',
+        text: 'User likes concise answers.',
+        normalized_text: 'user likes concise answers',
+        confidence: 0.9,
+        salience: 80,
+        stability: 'stable',
+        sensitivity: 'normal',
+        status: 'active',
+        source_conversation_id: null,
+        source_message_id: null,
+        source_role: null,
+        created_at: '2026-06-25T12:00:00.000Z',
+        updated_at: '2026-06-25T12:00:00.000Z',
+      },
+    ],
+  });
+
+  await page.goto(`/workspaces/${workspaceId}?e2e=workspace-delete`);
+  await expect(page.getByRole('heading', { name: 'Health' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Workspace actions' }).click();
+  await page.getByRole('menuitem', { name: 'Delete workspace' }).click();
+
+  const dialog = page.getByRole('dialog', { name: 'Delete this workspace?' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText('all chats in it');
+  await expect(dialog).toContainText('Global memory will not be changed.');
+
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(dialog).not.toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Health' })).toBeVisible();
+  expect(state.workspaces.some((workspace) => workspace.id === workspaceId)).toBe(true);
+  expect(
+    state.conversations.some((conversation) => conversation.workspace_id === workspaceId)
+  ).toBe(true);
+
+  await page.getByRole('button', { name: 'Workspace actions' }).click();
+  await page.getByRole('menuitem', { name: 'Delete workspace' }).click();
+  await page
+    .getByRole('button', { name: 'Delete workspace and chats' })
+    .click();
+
+  await expect(page).toHaveURL(/\/home\?e2e=workspace-delete$/);
+  expect(state.workspaces.some((workspace) => workspace.id === workspaceId)).toBe(false);
+  expect(
+    state.conversations.some((conversation) => conversation.workspace_id === workspaceId)
+  ).toBe(false);
+  expect(
+    state.memoryItems.some(
+      (item) => item.owner_type === 'workspace' && item.owner_id === workspaceId
+    )
+  ).toBe(false);
+  expect(state.conversations.some((conversation) => conversation.id === 'conversation-keen-1')).toBe(true);
+  expect(state.memoryItems.some((item) => item.id === 'memory-global-1')).toBe(true);
+
+  const sidePanel = await ensureConversationsOpen(page);
+  await expect(sidePanel.getByRole('button', { name: 'Math' })).toBeVisible();
+  await expect(sidePanel.getByRole('button', { name: 'Health' })).toHaveCount(0);
+  await expect(sidePanel.getByRole('button', { name: /Health plan/ })).toHaveCount(0);
+});
+
 test('workspace new chat preserves workspace selection after navigating home', async ({ page }) => {
   const workspaceId = 'workspace-health';
   const chatStarted = deferred();

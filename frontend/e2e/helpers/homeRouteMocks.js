@@ -128,6 +128,43 @@ async function mockHomeDataRoutes(page, state) {
       return;
     }
 
+    if (method === 'DELETE') {
+      const conversationIds = resolvedState.conversations
+        .filter((conversation) => conversation.workspace_id === workspaceId)
+        .map((conversation) => conversation.id);
+      const memoryIds = resolvedState.memoryItems
+        .filter(
+          (item) => item.owner_type === 'workspace' && item.owner_id === workspaceId
+        )
+        .map((item) => item.id);
+
+      resolvedState.workspaces = resolvedState.workspaces.filter(
+        (entry) => entry.id !== workspaceId
+      );
+      resolvedState.conversations = resolvedState.conversations.filter(
+        (conversation) => conversation.workspace_id !== workspaceId
+      );
+      resolvedState.memoryItems = resolvedState.memoryItems.filter(
+        (item) => !(item.owner_type === 'workspace' && item.owner_id === workspaceId)
+      );
+
+      for (const conversationId of conversationIds) {
+        delete resolvedState.messagesByConversationId[conversationId];
+        delete resolvedState.branchesByConversationId[conversationId];
+        delete resolvedState.threadsByConversationId[conversationId];
+      }
+
+      await fulfillJson(route, {
+        success: true,
+        deleted: {
+          workspace: 1,
+          conversations: conversationIds.length,
+          memoryItems: memoryIds.length,
+        },
+      });
+      return;
+    }
+
     await fulfillJson(route, { workspace });
   });
 

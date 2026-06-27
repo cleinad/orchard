@@ -9,7 +9,7 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Tooltip from '@/app/components/Tooltip';
 import ChatComposer from '@/app/home/components/ChatComposer';
 import { persistInitialSendHandoff } from '@/app/home/components/initialSendHandoff';
@@ -79,8 +79,20 @@ function PencilIcon({ className = 'h-4 w-4' }: { className?: string }) {
   );
 }
 
+function EllipsisIcon({ className = 'h-4 w-4' }: { className?: string }) {
+  return (
+    <svg className={className} fill="currentColor" viewBox="0 0 24 24" aria-hidden>
+      <circle cx="5" cy="12" r="1.5" />
+      <circle cx="12" cy="12" r="1.5" />
+      <circle cx="19" cy="12" r="1.5" />
+    </svg>
+  );
+}
+
 export default function WorkspacePage() {
   const params = useParams<{ workspaceId: string }>();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { isOpen: sidePanelOpen } = useSidePanel();
   const workspaceId = params.workspaceId;
   const {
@@ -90,6 +102,8 @@ export default function WorkspacePage() {
     openPersistentConversation,
     refreshSidebarData,
     selectedChat,
+    setSelectedChat,
+    setDraftChats,
   } = useHomeDataContext();
   const memory = useMemory();
   const {
@@ -110,6 +124,9 @@ export default function WorkspacePage() {
   const [renamingWorkspace, setRenamingWorkspace] = useState(false);
   const [workspaceNameDraft, setWorkspaceNameDraft] = useState('');
   const [savingWorkspaceName, setSavingWorkspaceName] = useState(false);
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deletingWorkspace, setDeletingWorkspace] = useState(false);
   const [composerInput, setComposerInput] = useState('');
   const [composerLoading, setComposerLoading] = useState(false);
   const [searchEnabled, setSearchEnabled] = useState(false);
@@ -233,6 +250,58 @@ export default function WorkspacePage() {
 
   const handleStartDraft = () => {
     handleCreateDraftSelection(null, workspaceId);
+  };
+
+  const closeActions = () => {
+    setActionsOpen(false);
+  };
+
+  const openDeleteConfirmation = () => {
+    closeActions();
+    setError(null);
+    setConfirmingDelete(true);
+  };
+
+  const closeDeleteConfirmation = () => {
+    if (deletingWorkspace) return;
+    setConfirmingDelete(false);
+  };
+
+  const handleDeleteWorkspace = async () => {
+    if (deletingWorkspace) return;
+
+    setDeletingWorkspace(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}`, {
+        method: 'DELETE',
+      });
+      const payload = await response.json();
+      if (!response.ok || payload.error) {
+        throw new Error(payload.error || 'Failed to delete workspace');
+      }
+
+      setDraftChats((drafts) =>
+        drafts.filter((draft) => draft.workspaceId !== workspaceId)
+      );
+
+      if (
+        selectedChat
+        && selectedChat.kind !== 'temporary'
+        && selectedChat.workspaceId === workspaceId
+      ) {
+        setSelectedChat(null);
+      }
+
+      await refreshSidebarData();
+      const e2e = searchParams.get('e2e');
+      router.push(e2e ? `/home?e2e=${encodeURIComponent(e2e)}` : '/home');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete workspace');
+      setConfirmingDelete(false);
+    } finally {
+      setDeletingWorkspace(false);
+    }
   };
 
   const startRenamingWorkspace = () => {
@@ -498,13 +567,44 @@ export default function WorkspacePage() {
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={handleStartDraft}
-            className="rounded-lg bg-foreground px-3 py-2 text-sm font-semibold text-background transition hover:opacity-90"
-          >
-            New chat
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleStartDraft}
+              className="rounded-lg bg-foreground px-3 py-2 text-sm font-semibold text-background transition hover:opacity-90"
+            >
+              New chat
+            </button>
+            <div className="relative">
+              <Tooltip content="Workspace actions">
+                <button
+                  type="button"
+                  onClick={() => setActionsOpen((open) => !open)}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-border-subtle bg-surface text-muted transition hover:bg-foreground/[0.04] hover:text-foreground"
+                  aria-label="Workspace actions"
+                  aria-expanded={actionsOpen}
+                >
+                  <EllipsisIcon />
+                </button>
+              </Tooltip>
+              {actionsOpen && (
+                <div
+                  className="absolute right-0 top-11 z-30 min-w-44 rounded-lg border border-border-subtle bg-background p-1 shadow-xl"
+                  role="menu"
+                  aria-label="Workspace actions"
+                >
+                  <button
+                    type="button"
+                    onClick={openDeleteConfirmation}
+                    className="flex w-full items-center rounded-md px-3 py-2 text-left font-sans text-sm text-red-600 transition hover:bg-red-500/[0.08] dark:text-red-300"
+                    role="menuitem"
+                  >
+                    Delete workspace
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
         </header>
 
         {error && (
@@ -762,6 +862,60 @@ export default function WorkspacePage() {
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {confirmingDelete && (
+        <div
+          className="fixed inset-0 z-[90] flex items-center justify-center bg-foreground/[0.18] px-4 backdrop-blur-sm"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              closeDeleteConfirmation();
+            }
+          }}
+          onKeyDown={(event) => {
+            event.stopPropagation();
+            if (event.key === 'Escape') {
+              closeDeleteConfirmation();
+            }
+          }}
+        >
+          <div
+            className="w-full max-w-md rounded-lg border border-border-subtle bg-background p-4 shadow-2xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-workspace-heading"
+          >
+            <h2
+              id="delete-workspace-heading"
+              className="font-sans text-base font-semibold text-foreground"
+            >
+              Delete this workspace?
+            </h2>
+            <p className="mt-2 font-sans text-sm leading-6 text-muted">
+              This will permanently delete the workspace, all chats in it, and
+              all memories saved to it. Global memory will not be changed.
+            </p>
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeDeleteConfirmation}
+                disabled={deletingWorkspace}
+                className="rounded-lg border border-border-subtle bg-surface px-3 py-2 text-sm font-semibold text-foreground transition hover:bg-foreground/[0.04] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteWorkspace}
+                disabled={deletingWorkspace}
+                className="rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {deletingWorkspace ? 'Deleting...' : 'Delete workspace and chats'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </main>

@@ -35,6 +35,40 @@ async function getAuthenticatedUser(
   return user;
 }
 
+interface DeleteWorkspaceResult {
+  workspace_deleted: boolean;
+  conversation_count: number;
+  memory_item_count: number;
+  storage_paths: string[];
+}
+
+function parseDeleteWorkspaceResult(value: unknown): DeleteWorkspaceResult | null {
+  if (!isJsonObject(value)) return null;
+
+  const {
+    workspace_deleted: workspaceDeleted,
+    conversation_count: conversationCount,
+    memory_item_count: memoryItemCount,
+    storage_paths: storagePaths,
+  } = value;
+
+  if (
+    typeof workspaceDeleted !== 'boolean'
+    || typeof conversationCount !== 'number'
+    || typeof memoryItemCount !== 'number'
+    || !Array.isArray(storagePaths)
+  ) {
+    return null;
+  }
+
+  return {
+    workspace_deleted: workspaceDeleted,
+    conversation_count: conversationCount,
+    memory_item_count: memoryItemCount,
+    storage_paths: storagePaths.filter((path): path is string => typeof path === 'string'),
+  };
+}
+
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ workspaceId: string }> }
@@ -147,18 +181,47 @@ export async function DELETE(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { error } = await supabase
-      .from('workspaces')
-      .delete()
-      .eq('id', workspaceId)
-      .eq('user_id', user.id);
+    const { data, error } = await supabase.rpc('delete_workspace_cascade', {
+      p_workspace_id: workspaceId,
+    });
 
     if (error) {
-      console.error('Workspace DELETE error:', error);
+      console.error('Workspace DELETE RPC error:', error);
       return NextResponse.json({ error: 'Failed to delete workspace' }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true });
+    const result = parseDeleteWorkspaceResult(data);
+    if (!result) {
+      console.error('Workspace DELETE RPC returned an unexpected payload:', data);
+      return NextResponse.json({ error: 'Failed to delete workspace' }, { status: 500 });
+    }
+
+    if (!result.workspace_deleted) {
+      return NextResponse.json({ error: 'Workspace not found' }, { status: 404 });
+    }
+
+    if (result.storage_paths.length > 0) {
+      try {
+        const { error: storageError } = await supabase.storage
+          .from('chat-images')
+          .remove(result.storage_paths);
+
+        if (storageError) {
+          console.error('Workspace storage cleanup after DELETE error:', storageError);
+        }
+      } catch (storageError) {
+        console.error('Workspace storage cleanup after DELETE error:', storageError);
+      }
+    }
+
+    return NextResponse.json({
+      success: true,
+      deleted: {
+        workspace: 1,
+        conversations: result.conversation_count,
+        memoryItems: result.memory_item_count,
+      },
+    });
   } catch (error) {
     console.error('Workspace DELETE route error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
