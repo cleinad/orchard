@@ -1,4 +1,4 @@
-import type { ChatModelProvider } from '@/lib/chat-models';
+import type { ConcreteChatModelProvider } from '@/lib/chat-models';
 
 export const CHAT_IMAGE_BUCKET = 'chat-images';
 export const MAX_CHAT_IMAGE_ATTACHMENTS = 5;
@@ -20,7 +20,7 @@ interface ChatImageProviderLimits {
   mimeTypes: readonly ChatImageMimeType[];
 }
 
-export const CHAT_IMAGE_PROVIDER_LIMITS: Record<ChatModelProvider, ChatImageProviderLimits> = {
+export const CHAT_IMAGE_PROVIDER_LIMITS: Partial<Record<ConcreteChatModelProvider, ChatImageProviderLimits>> = {
   openai: {
     maxAttachments: MAX_CHAT_IMAGE_ATTACHMENTS,
     maxBytes: MAX_CHAT_IMAGE_BYTES,

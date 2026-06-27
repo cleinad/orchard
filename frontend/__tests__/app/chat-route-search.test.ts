@@ -116,9 +116,14 @@ vi.mock('@/lib/memory-agent', () => ({
 
 vi.mock('@/lib/models', () => ({
   getChatModel: vi.fn(() => 'mock-chat-model'),
+  getChatModelProviderOptions: vi.fn(() => undefined),
+  getNoChatModelConfiguredMessage: vi.fn(() => 'No chat model is configured.'),
   resolveChatModelSelection: vi.fn(() => ({
-    id: 'gemini-3-flash-preview',
-    provider: 'google',
+    id: 'deepseek-v4-flash',
+    requestedId: 'auto',
+    provider: 'deepseek',
+    apiModelId: 'deepseek-v4-flash',
+    supportsImages: false,
   })),
 }));
 

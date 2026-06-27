@@ -39,6 +39,8 @@ import {
 } from '@/lib/chat-session';
 import { getBrowserTimeZone } from '@/lib/browser-timezone';
 import { stripCitationMarkers } from '@/lib/search-citations';
+import type { ChatModelEffortLevel } from '@/lib/chat-models';
+import type { ResponseStyle } from '@/lib/response-style';
 
 export interface ChatResponse {
   message?: string;
@@ -51,6 +53,15 @@ export interface ChatResponse {
   resolvedModelId?: string;
   resolvedProvider?: string;
   search?: SearchMetadata;
+  error?: string;
+}
+
+interface CreateConversationResponse {
+  conversation?: {
+    id?: string;
+    title?: string | null;
+    mentorId?: string | null;
+  };
   error?: string;
 }
 
@@ -316,6 +327,10 @@ interface MainChatRuntimeParams {
     fromSelection: SelectedChat,
     toSelection: SelectedChat
   ) => void;
+  moveResponseStyleBetweenSelections: (
+    fromSelection: SelectedChat | null,
+    toSelection: SelectedChat
+  ) => void;
   pendingBranch: PendingBranchTarget | null;
   pendingChatRequestsRef: MutableRefObject<Record<string, PendingChatRequest>>;
   persistentBranches: ConversationBranch[];
@@ -323,11 +338,14 @@ interface MainChatRuntimeParams {
   persistentSelectedBranchIds: BranchSelectionMap;
   persistentSelectedBranchIdsRef: MutableRefObject<BranchSelectionMap>;
   refreshSidebarData: () => Promise<void>;
+  responseStyle: ResponseStyle;
   searchEnabled: boolean;
   selectedChat: SelectedChat | null;
   selectedChatRef: MutableRefObject<SelectedChat | null>;
   selectedDraftChat: PersistentDraftChat | null;
   selectedModelId: string;
+  selectedModelEffort: ChatModelEffortLevel | null;
+  thinkingEnabled: boolean | null;
   selectedTemporaryChat: TemporaryChatSession | null;
   setDraftChats: Dispatch<SetStateAction<PersistentDraftChat[]>>;
   setListError: (error: string | null) => void;
@@ -414,15 +432,15 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
     const previousMessageId = effectivePendingBranch?.sourceMessageId ?? activePathTailMessageId;
     const branchSourceMessageId = effectivePendingBranch?.sourceMessageId ?? null;
 
-    if (params.selectedChat) {
-      effectiveSelection = params.selectedChat;
-    } else {
+    if (!effectiveSelection) {
+      const blankSelection = params.selectedChat;
       effectiveDraft = params.getOrCreateDraft(null);
       effectiveSelection = {
         kind: 'draft',
         draftId: effectiveDraft.id,
         mentorId: null,
       };
+      params.moveResponseStyleBetweenSelections(blankSelection, effectiveSelection);
       params.selectedChatRef.current = effectiveSelection;
       params.setSelectedChat(effectiveSelection);
     }
@@ -619,6 +637,76 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
           error: error instanceof Error ? error.message : 'Failed to upload image.',
           restoreComposerSelection,
           uploadedAttachments,
+        };
+      }
+    }
+
+    let rejectedSendRestoreSelection: SelectedChat | null = null;
+
+    if (effectiveSelection.kind === 'draft' && effectiveDraft) {
+      const draftSelection = effectiveSelection;
+      const promotedDraftId = effectiveDraft.id;
+
+      try {
+        const createResponse = await fetch('/api/conversations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            initialMessage: messageText || 'Image question',
+            mentorId: draftSelection.mentorId ?? null,
+          }),
+        });
+        const createData = (await createResponse.json()) as CreateConversationResponse;
+        const conversationId = createData.conversation?.id;
+
+        if (!createResponse.ok || !conversationId) {
+          throw new Error(createData.error || 'Failed to create conversation.');
+        }
+
+        const promotedSelection: SelectedChat = {
+          kind: 'persistent',
+          conversationId,
+          mentorId: createData.conversation?.mentorId ?? draftSelection.mentorId,
+        };
+        const shouldFocusPromotedDraft = isSameSelectedChat(
+          params.selectedChatRef.current,
+          draftSelection
+        );
+
+        params.movePendingChatRequestBetweenSelections(draftSelection, promotedSelection);
+        params.moveResponseStyleBetweenSelections(draftSelection, promotedSelection);
+        params.clearSearchStateForSelection(draftSelection);
+
+        if (shouldFocusPromotedDraft) {
+          params.setPersistentMessages(draftNextTree?.messages ?? effectiveDraft.messages);
+          params.setPersistentBranches(draftNextTree?.branches ?? effectiveDraft.branches);
+          params.setPersistentSelectedBranchIds(
+            draftNextTree?.selectedBranchIds ?? effectiveDraft.selectedBranchIds
+          );
+          params.setPersistentThreadsMap(new Map());
+          params.hydratedRouteConversationIdRef.current = promotedSelection.conversationId;
+          params.selectedChatRef.current = promotedSelection;
+          params.setSelectedChat(promotedSelection);
+          params.replacePersistentConversationUrl(promotedSelection.conversationId);
+        }
+
+        params.setDraftChats((prev) =>
+          prev.filter((draft) => draft.id !== promotedDraftId)
+        );
+
+        effectiveSelection = promotedSelection;
+        effectiveDraft = null;
+        rejectedSendRestoreSelection = promotedSelection;
+      } catch (error) {
+        const restoreComposerSelection = restoreBeforeOptimisticUserMessage();
+        params.clearPendingChatRequestForSelection(draftSelection);
+        return {
+          accepted: false,
+          completed: false,
+          error: error instanceof Error ? error.message : 'Failed to create conversation.',
+          restoreComposerSelection,
+          uploadedAttachments,
+          cleanupUploadedAttachments: uploadedAttachments,
         };
       }
     }
@@ -858,8 +946,15 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
               ? undefined
               : effectiveSelection.mentorId ?? undefined,
           modelId: params.selectedModelId,
+          ...(params.selectedModelEffort
+            ? { modelEffort: params.selectedModelEffort }
+            : {}),
+          ...(params.thinkingEnabled !== null
+            ? { thinkingEnabled: params.thinkingEnabled }
+            : {}),
           previousMessageId,
           branchSourceMessageId: branchSourceMessageId ?? undefined,
+          responseStyle: params.responseStyle,
           attachments: uploadedAttachments.map((attachment) => ({
             storagePath: attachment.storagePath,
             fileName: attachment.fileName,
@@ -887,7 +982,8 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
         const data = (await response.json()) as ChatResponse;
         if (uploadedAttachments.length > 0 || displayAttachments.length > 0) {
           removeStreamingMessage();
-          const restoreComposerSelection = restoreBeforeOptimisticUserMessage();
+          const restoreComposerSelection =
+            rejectedSendRestoreSelection ?? restoreBeforeOptimisticUserMessage();
           return {
             accepted: false,
             completed: false,
@@ -898,7 +994,12 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
         }
 
         showErrorMessage(data.error || '');
-        return { accepted: false, completed: false, uploadedAttachments };
+        return {
+          accepted: false,
+          completed: false,
+          restoreComposerSelection: rejectedSendRestoreSelection,
+          uploadedAttachments,
+        };
       }
 
       requestAccepted = true;
@@ -978,6 +1079,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
         );
 
         params.movePendingChatRequestBetweenSelections(draftSelection, promotedSelection);
+        params.moveResponseStyleBetweenSelections(draftSelection, promotedSelection);
         params.clearSearchStateForSelection(draftSelection);
 
         if (shouldFocusPromotedDraft) {
@@ -1086,7 +1188,8 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
     } catch {
       if (!requestAccepted && (uploadedAttachments.length > 0 || displayAttachments.length > 0)) {
         removeStreamingMessage();
-        const restoreComposerSelection = restoreBeforeOptimisticUserMessage();
+        const restoreComposerSelection =
+          rejectedSendRestoreSelection ?? restoreBeforeOptimisticUserMessage();
         return {
           accepted: false,
           completed: false,

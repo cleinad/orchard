@@ -12,8 +12,13 @@ import { consumeChatUsage, getBillingEntitlement } from '@/lib/billing';
 import { isPaidChatModel } from '@/lib/billing-config';
 import { loadMemoryContextV2 } from '@/lib/memory-reader';
 import { processMemoryV2 } from '@/lib/memory-agent';
-import { isChatModelId } from '@/lib/chat-models';
-import { getChatModel, resolveChatModelSelection } from '@/lib/models';
+import { isChatModelEffortLevel, isChatModelId } from '@/lib/chat-models';
+import {
+  getChatModel,
+  getChatModelProviderOptions,
+  getNoChatModelConfiguredMessage,
+  resolveChatModelSelection,
+} from '@/lib/models';
 import {
   CHAT_IMAGE_BUCKET,
   CHAT_IMAGE_PROVIDER_LIMITS,
@@ -37,6 +42,10 @@ import {
   stripCitationMarkers,
   stripInvalidCitationMarkers,
 } from '@/lib/search-citations';
+import {
+  buildResponseStylePrompt,
+  sanitizeResponseStyle,
+} from '@/lib/response-style';
 import { runSearchPipeline } from '@/lib/search/pipeline';
 import { createSearchTelemetry } from '@/lib/search/telemetry';
 import { buildMentorPrompt } from '@/lib/mentors/prompts';
@@ -52,13 +61,13 @@ import {
   sanitizeGeneratedChatTitle,
 } from '@/lib/chat-session';
 
-const BASE_SYSTEM_PROMPT = `You are Keen, a thinking partner. You explain things to the user with precision, accuracy and understandability.
+const BASE_SYSTEM_PROMPT = `You are Keen, a thinking partner. You explain things to the user with precision, accuracy, and understandability.
 
 Core traits:
-- You remember context from the conversation and reference it if the user brings up the same/similar topic, you don't force a connection.
-- You're concise but substantive. No fluff, no generic advice. Go deep.
-
-Be thorough with responses, when the user is diving deeper into topics give more detailed, precise answers, beyond scratching the surface.`;
+- You remember context from the conversation and reference it only if the user brings up the same or a closely related topic.
+- You do not force connections to prior conversation context or memory.
+- You avoid fluff, generic advice, and unnecessary preamble.
+- You match the requested response style and the user's assumed familiarity for the current chat.`;
 
 const MEMORY_USE_POLICY = `Use memory only when it directly improves the answer: continuing an existing thread or project, applying a known preference or constraint, resolving ambiguity, or avoiding asking for context the user already gave.
 Do not use memory to personalize examples, make analogies, or connect the current topic to unrelated interests unless the user asks for that kind of connection.
@@ -88,6 +97,8 @@ interface ChatRequest {
   conversationId?: string;
   mentorId?: string;
   modelId?: string;
+  modelEffort?: string;
+  thinkingEnabled?: boolean;
   threadId?: string;
   previousMessageId?: string;
   branchSourceMessageId?: string;
@@ -96,6 +107,7 @@ interface ChatRequest {
   startOffset?: number;
   endOffset?: number;
   searchEnabled?: boolean;
+  responseStyle?: unknown;
   timezone?: string;
   chatMode?: ChatMode;
   memoryMode?: TemporaryMemoryMode;
@@ -354,6 +366,10 @@ function validateAttachmentsForModel(
   }
 
   const limits = CHAT_IMAGE_PROVIDER_LIMITS[resolvedSelection.provider];
+  if (!limits) {
+    return `${resolvedSelection.label} cannot read images. Choose a vision-capable model.`;
+  }
+
   if (attachments.length > limits.maxAttachments) {
     return `${resolvedSelection.label} supports up to ${limits.maxAttachments} images per message.`;
   }
@@ -652,6 +668,8 @@ export async function POST(request: NextRequest) {
       conversationId,
       mentorId,
       modelId,
+      modelEffort,
+      thinkingEnabled,
       threadId,
       previousMessageId,
       branchSourceMessageId,
@@ -660,6 +678,7 @@ export async function POST(request: NextRequest) {
       startOffset,
       endOffset,
       searchEnabled = false,
+      responseStyle: responseStyleFromBody,
       timezone,
       chatMode = 'persistent',
       memoryMode: memoryModeFromBody,
@@ -683,6 +702,7 @@ export async function POST(request: NextRequest) {
       (isTemporaryChat ? DEFAULT_TEMPORARY_MEMORY_MODE : 'use_existing');
     const sanitizedHistory = sanitizeHistoryMessages(history, 50, user.id);
     const sanitizedThreadHistory = sanitizeHistoryMessages(threadHistory, 30, user.id);
+    const responseStyle = sanitizeResponseStyle(responseStyleFromBody);
 
     if (!messageText && attachments.length === 0) {
       return NextResponse.json(
@@ -698,6 +718,25 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    if (modelEffort != null && !isChatModelEffortLevel(modelEffort)) {
+      await removeUnreferencedCleanupAttachmentStorage(supabase, attachments);
+      return NextResponse.json(
+        { error: 'Invalid model effort' },
+        { status: 400 }
+      );
+    }
+
+    if (thinkingEnabled != null && typeof thinkingEnabled !== 'boolean') {
+      await removeUnreferencedCleanupAttachmentStorage(supabase, attachments);
+      return NextResponse.json(
+        { error: 'Invalid thinking setting' },
+        { status: 400 }
+      );
+    }
+    const requestedModelEffort = isChatModelEffortLevel(modelEffort)
+      ? modelEffort
+      : undefined;
 
     const normalizedThreadId = normalizeOptionalId(threadId);
     const normalizedSourceMessageId = normalizeOptionalId(sourceMessageId);
@@ -767,17 +806,17 @@ export async function POST(request: NextRequest) {
       await removeUnreferencedCleanupAttachmentStorage(supabase, attachments);
       return NextResponse.json(
         {
-          error:
-            'No chat model is configured. Set at least one of OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_GENERATIVE_AI_API_KEY.',
+          error: getNoChatModelConfiguredMessage(),
         },
         { status: 503 }
       );
     }
 
     const priorImageContextLimit = attachments.length > 0 ? 0 : 1;
+    const imageProviderLimits = CHAT_IMAGE_PROVIDER_LIMITS[resolvedSelection.provider];
     const priorImageContextSlots =
-      priorImageContextLimit > 0
-        ? Math.max(0, CHAT_IMAGE_PROVIDER_LIMITS[resolvedSelection.provider].maxAttachments - attachments.length)
+      priorImageContextLimit > 0 && imageProviderLimits
+        ? Math.max(0, imageProviderLimits.maxAttachments - attachments.length)
         : 0;
     const modelAttachmentError = validateAttachmentsForModel(attachments, resolvedSelection);
     if (modelAttachmentError) {
@@ -1232,11 +1271,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           error:
-            error instanceof Error ? error.message : 'No chat model is configured.',
+            error instanceof Error ? error.message : getNoChatModelConfiguredMessage(),
         },
         { status: 503 }
       );
     }
+    const chatModelProviderOptions = getChatModelProviderOptions(resolvedSelection.id, {
+      effort: requestedModelEffort,
+      thinkingEnabled,
+    });
 
     const threadHighlightedText = highlightedText || existingThreadHighlightedText;
     if (activeThreadId && threadHighlightedText) {
@@ -1421,7 +1464,7 @@ export async function POST(request: NextRequest) {
         const groundedSystemPrompt = persistedSearchMetadata
           ? buildGroundedSearchSystemPrompt(baseSystemPrompt, persistedSearchMetadata)
           : baseSystemPrompt;
-        finalSystemPrompt = `${groundedSystemPrompt}\n\nReply directly in 2 to 4 sentences. Do not return an empty response.`;
+        finalSystemPrompt = `${groundedSystemPrompt}\n\nReply directly. Do not return an empty response.`;
       } catch (error) {
         searchTelemetry.logPipelineFailed({
           durationMs: Date.now() - searchStartedAt,
@@ -1437,7 +1480,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    finalSystemPrompt = `${finalSystemPrompt}\n\n${RESPONSE_FORMATTING_PROMPT}`;
+    finalSystemPrompt = `${finalSystemPrompt}\n\n${buildResponseStylePrompt(responseStyle)}\n\n${RESPONSE_FORMATTING_PROMPT}`;
 
     // Capture loop variables for use inside onFinish (which runs asynchronously after the stream closes).
     const capturedSearch = search;
@@ -1456,6 +1499,9 @@ export async function POST(request: NextRequest) {
           model: chatModel,
           system: finalSystemPrompt,
           messages: modelMessages,
+          ...(chatModelProviderOptions
+            ? { providerOptions: chatModelProviderOptions }
+            : {}),
           onFinish: async ({ text }) => {
             let rawText = text.trim();
 
@@ -1471,6 +1517,9 @@ export async function POST(request: NextRequest) {
                   model: chatModel,
                   system: finalSystemPrompt,
                   messages: modelMessages,
+                  ...(chatModelProviderOptions
+                    ? { providerOptions: chatModelProviderOptions }
+                    : {}),
                 });
 
                 rawText = fallbackGeneration.text.trim();

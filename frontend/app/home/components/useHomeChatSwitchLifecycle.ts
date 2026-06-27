@@ -17,6 +17,7 @@ import type { PendingBranchTarget } from '@/app/home/components/conversationTree
 interface UseHomeChatSwitchLifecycleParams {
   clearComposerInputForSelection: (selection: SelectedChat | null) => void;
   clearPendingChatRequestForSelection: (selection: SelectedChat) => void;
+  clearResponseStyleForSelection: (selection: SelectedChat | null) => void;
   clearSearchStateForSelection: (selection: SelectedChat | null) => void;
   cleanupTemporaryChatAttachments: (tempChatId: string) => void;
   composerDraftInputsRef: MutableRefObject<Record<string, string>>;
@@ -43,6 +44,7 @@ interface UseHomeChatSwitchLifecycleParams {
 export function useHomeChatSwitchLifecycle({
   clearComposerInputForSelection,
   clearPendingChatRequestForSelection,
+  clearResponseStyleForSelection,
   clearSearchStateForSelection,
   cleanupTemporaryChatAttachments,
   composerDraftInputsRef,
@@ -110,6 +112,7 @@ export function useHomeChatSwitchLifecycle({
           prev.filter((draft) => draft.id !== currentDraft.id)
         );
         clearComposerInputForSelection(currentSelection);
+        clearResponseStyleForSelection(currentSelection);
         clearSearchStateForSelection(currentSelection);
         clearPendingChatRequestForSelection(currentSelection);
       }
@@ -117,6 +120,7 @@ export function useHomeChatSwitchLifecycle({
     [
       clearComposerInputForSelection,
       clearPendingChatRequestForSelection,
+      clearResponseStyleForSelection,
       clearSearchStateForSelection,
       composerDraftInputsRef,
       endProgrammaticTranscriptNavigation,
@@ -146,12 +150,14 @@ export function useHomeChatSwitchLifecycle({
       cleanupTemporaryChatAttachments(tempChatId);
       const closedSelection: SelectedChat = { kind: 'temporary', tempChatId };
       clearComposerInputForSelection(closedSelection);
+      clearResponseStyleForSelection(closedSelection);
       clearSearchStateForSelection(closedSelection);
       clearPendingChatRequestForSelection(closedSelection);
     });
   }, [
     clearComposerInputForSelection,
     clearPendingChatRequestForSelection,
+    clearResponseStyleForSelection,
     clearSearchStateForSelection,
     cleanupTemporaryChatAttachments,
     registerCloseTempChatCleanup,

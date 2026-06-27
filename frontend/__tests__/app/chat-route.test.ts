@@ -13,13 +13,17 @@ const mockBuildMentorPrompt = vi.fn();
 const mockRunSearchPipeline = vi.fn();
 const mockStorageDownload = vi.fn();
 const mockStorageRemove = vi.fn();
-const mockResolveChatModelSelection = vi.fn((_modelId?: string | null) => ({
-  id: 'gpt-5-mini',
-  label: 'GPT 5 Mini',
-  provider: 'openai',
-  apiModelId: 'gpt-5-mini',
-  supportsImages: true,
-}));
+const mockResolveChatModelSelection = vi.fn((modelId?: string | null) => {
+  void modelId;
+
+  return {
+    id: 'gpt-5-mini',
+    label: 'GPT 5 Mini',
+    provider: 'openai',
+    apiModelId: 'gpt-5-mini',
+    supportsImages: true,
+  };
+});
 const testPngBytes = new Uint8Array([
   0x89,
   0x50,
@@ -143,6 +147,12 @@ vi.mock('@/lib/memory-agent', () => ({
 
 vi.mock('@/lib/models', () => ({
   getChatModel: vi.fn(() => 'mock-chat-model'),
+  getChatModelProviderOptions: vi.fn(() => ({
+    openai: {
+      reasoningEffort: 'high',
+    },
+  })),
+  getNoChatModelConfiguredMessage: vi.fn(() => 'No chat model is configured.'),
   resolveChatModelSelection: (modelId?: string | null) =>
     mockResolveChatModelSelection(modelId),
 }));
@@ -392,6 +402,38 @@ describe('chat route memory contract', () => {
     expect(mockProcessMemoryV2).not.toHaveBeenCalled();
   });
 
+  it('rejects invalid model effort values', async () => {
+    const { response, body } = await runChatRequest({
+      message: 'Hello',
+      chatMode: 'temporary',
+      modelEffort: 'extreme',
+    });
+
+    expect(response.status).toBe(400);
+    expect(body.error).toBe('Invalid model effort');
+  });
+
+  it('passes model effort provider options into answer generation', async () => {
+    const { response } = await runChatRequest({
+      message: 'Think carefully',
+      chatMode: 'temporary',
+      modelId: 'gpt-5.5',
+      modelEffort: 'high',
+      thinkingEnabled: true,
+    });
+
+    expect(response.status).toBe(200);
+    expect(mockStreamText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerOptions: {
+          openai: {
+            reasoningEffort: 'high',
+          },
+        },
+      })
+    );
+  });
+
   it('rejects invalid persistent thread source ids before creating a thread', async () => {
     const { response, body, tracker } = await runChatRequest(
       {
@@ -555,6 +597,71 @@ describe('chat route memory contract', () => {
         system: expect.stringContaining('Use KaTeX Markdown for math'),
       })
     );
+  });
+
+  it('adds response style guidance to answer generation', async () => {
+    const { response } = await runChatRequest({
+      message: 'Explain eigenvectors',
+      chatMode: 'temporary',
+      responseStyle: {
+        length: 'deep',
+        level: 'new',
+        sessionNote: 'Give examples in every response.',
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(mockStreamText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        system: expect.stringContaining('Length: Deep'),
+      })
+    );
+    expect(mockStreamText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        system: expect.stringContaining('Level: New'),
+      })
+    );
+    expect(mockStreamText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        system: expect.stringContaining('Give examples in every response.'),
+      })
+    );
+  });
+
+  it('passes concrete concise length guidance through to the model prompt', async () => {
+    const { response } = await runChatRequest({
+      message: 'Define entropy',
+      chatMode: 'temporary',
+      responseStyle: {
+        length: 'concise',
+        level: 'fluent',
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(mockStreamText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        system: expect.stringContaining('Answer in 1 to 2 sentences.'),
+      })
+    );
+    expect(mockStreamText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        system: expect.stringContaining('comfortable operating in the domain'),
+      })
+    );
+  });
+
+  it('does not keep the old hardcoded deep-answer bias in the base prompt', async () => {
+    const { response } = await runChatRequest({
+      message: 'Hello',
+      chatMode: 'temporary',
+    });
+
+    expect(response.status).toBe(200);
+    const systemPrompt = mockStreamText.mock.calls.at(-1)?.[0]?.system as string;
+    expect(systemPrompt).not.toContain('Go deep');
+    expect(systemPrompt).not.toContain('Be thorough with responses');
+    expect(systemPrompt).toContain('You do not force connections');
   });
 
   it('retries with generateText when the streamed response is empty', async () => {
