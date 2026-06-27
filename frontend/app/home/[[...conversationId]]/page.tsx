@@ -971,7 +971,6 @@ function HomePageInner() {
             isTemporaryChat={isTemporaryChat}
             temporaryMemoryMode={activeTemporaryMemoryMode}
             loadingLists={loadingLists}
-            onBrowseMentors={() => router.push('/mentors')}
             onCreateTemporaryChat={handleCreateTemporaryChat}
             conversationMapBranchPointCount={conversationMapModel.branchPointIds.size}
             conversationMapOpen={conversationMapOpen}

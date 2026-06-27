@@ -181,7 +181,6 @@ test('clicking a saved chat updates the URL and loads the persistent conversatio
   await page.goto('/home?e2e=home-routing-click');
 
   const sidePanel = await ensureConversationsOpen(page);
-  await sidePanel.getByRole('button', { name: /^Keen$/ }).click();
   await sidePanel.getByRole('button', { name: new RegExp(title) }).click();
 
   await expect(page).toHaveURL(

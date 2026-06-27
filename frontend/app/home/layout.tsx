@@ -166,7 +166,7 @@ function HomeShell({ children }: { children: ReactNode }) {
 
   const {
     workspaceGroups,
-    mentorGroups,
+    conversations,
     draftChats,
     temporaryChats,
     selectedChat,
@@ -279,7 +279,7 @@ function HomeShell({ children }: { children: ReactNode }) {
         onOpenTemporarySection={() => openWithScroll('temporary')}
         onOpenAllChats={() => openWithScroll('all')}
         workspaceGroups={workspaceGroups}
-        mentorGroups={mentorGroups}
+        conversations={conversations}
         draftChats={draftChats.map((d) => ({
           id: d.id,
           mentor_id: d.mentorId,
@@ -315,10 +315,6 @@ function HomeShell({ children }: { children: ReactNode }) {
         }}
         onSelectTemporaryChat={(tempChatId) => {
           handleSelectTemporaryChat(tempChatId);
-          if (window.innerWidth < 1024) handleCloseSidePanel();
-        }}
-        onCreateDraft={(mentorId) => {
-          handleCreateDraftSelection(mentorId);
           if (window.innerWidth < 1024) handleCloseSidePanel();
         }}
         onCreateWorkspaceDraft={(workspaceId) => {
