@@ -16,6 +16,7 @@ import {
   getSearchPlannerModel,
   resolveChatModelSelection,
   SEARCH_PLANNER_MODEL_ID,
+  SEARCH_PLANNER_PROVIDER,
 } from '@/lib/models';
 import {
   applySearchDisclosure,
@@ -36,6 +37,7 @@ import {
 import { runConversationalSearch } from '@/lib/search/orchestrator';
 import { runSearchPipeline } from '@/lib/search/pipeline';
 import { createSearchTelemetry } from '@/lib/search/telemetry';
+import type { SearchActivitySummary } from '@/lib/search/types';
 import { buildMentorPrompt } from '@/lib/mentors/prompts';
 import type {
   ChatHistoryMessage,
@@ -70,6 +72,24 @@ interface ContextMessage extends ChatHistoryMessage {
 interface ReplyContext {
   currentTime: string;
   userName: string | null;
+}
+
+function createRequiredSearchFailureActivity(query: string | null): SearchActivitySummary {
+  return {
+    collapsedLabel: 'Search was unavailable for this reply',
+    events: [
+      {
+        type: 'search_started',
+        query: query || 'Search request',
+        attempt: 1,
+      },
+      {
+        type: 'search_completed',
+        sourceCount: 0,
+        collapsedLabel: 'Search was unavailable for this reply',
+      },
+    ],
+  };
 }
 
 interface ChatRequest {
@@ -893,6 +913,7 @@ export async function POST(request: NextRequest) {
                 fallbackDecisionProvider: searchDecisionModelConfig.fallback?.provider,
                 fallbackDecisionModelId: searchDecisionModelConfig.fallback?.modelId,
                 plannerModelId: SEARCH_PLANNER_MODEL_ID,
+                plannerProvider: SEARCH_PLANNER_PROVIDER,
                 searchPipeline: (query) => {
                   const queryTelemetry = createSearchTelemetry({
                     traceId: searchTraceId,
@@ -929,13 +950,23 @@ export async function POST(request: NextRequest) {
               error,
             });
             console.error('[chat] search pipeline failed', error);
+            const failedQuery = sanitizeSearchQuery(message) || null;
+            const failureActivity =
+              searchMode === 'required' ? createRequiredSearchFailureActivity(failedQuery) : null;
             search = createFailedSearchMetadata(
               searchMode,
               'upstream_error',
-              sanitizeSearchQuery(message) || null
+              failedQuery,
+              failureActivity ?? undefined
             );
             persistedSearchMetadata = search.metadata;
-            finalSystemPrompt = `${baseSystemPrompt}\n\nLive web search is unavailable in this environment. If the question depends on fresh information, say that briefly and answer with an appropriate caveat. Do not return an empty response.`;
+            if (failureActivity) {
+              writer.write({
+                type: 'data-searchActivity',
+                data: failureActivity,
+              });
+            }
+            finalSystemPrompt = `${baseSystemPrompt}\n\nReply to the user's latest message directly. Do not return an empty response.`;
           }
         }
 
@@ -972,13 +1003,7 @@ export async function POST(request: NextRequest) {
 
             // Fall back to a static string if the model returned nothing.
             const assistantText =
-              rawText ||
-              (capturedSearch.attempted
-                ? capturedSearch.status === 'success'
-                    || capturedSearch.status === 'partial'
-                  ? "I found current sources for that, but I couldn't turn them into a reply. Please try again."
-                  : "I couldn't complete a grounded reply for that. Search mode was unavailable or didn't return useful results."
-                : "I couldn't generate a reply for that. Please try again.");
+              rawText || "I couldn't generate a reply for that. Please try again.";
 
             const normalizedText =
               hasUsableSearchSources(capturedPersistedSearchMetadata)

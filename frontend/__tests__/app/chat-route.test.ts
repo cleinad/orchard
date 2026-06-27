@@ -122,6 +122,7 @@ vi.mock('@/lib/models', () => ({
     fallback: null,
   })),
   SEARCH_PLANNER_MODEL_ID: 'qwen/qwen-2.5-7b-instruct',
+  SEARCH_PLANNER_PROVIDER: 'openrouter',
   resolveChatModelSelection: vi.fn(() => ({
     id: 'gpt-5-mini',
     provider: 'openai',

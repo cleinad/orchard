@@ -85,6 +85,25 @@ function createActivitySummary(events: SearchActivityEvent[]): SearchActivitySum
   };
 }
 
+function createVisibleActivitySummary(
+  events: SearchActivityEvent[],
+  mode: SearchMode
+): SearchActivitySummary {
+  if (mode !== 'auto') {
+    return createActivitySummary(events);
+  }
+
+  return createActivitySummary(
+    events.filter(
+      (event) =>
+        !(event.type === 'planning_started' && event.label === 'Understanding the follow-up...')
+        && event.type !== 'search_decision_started'
+        && event.type !== 'search_decision_completed'
+        && event.type !== 'search_skipped'
+    )
+  );
+}
+
 function defaultNoSearchPlan(latestMessage: string): SearchActionPlan {
   return {
     resolvedIntent: latestMessage || 'Search is disabled.',
@@ -215,6 +234,7 @@ export async function runConversationalSearch(
     fallbackDecisionModel?: PlannerModel | null;
     fallbackDecisionModelId?: string;
     fallbackDecisionProvider?: string;
+    plannerProvider?: string;
     planner?: typeof planSearchAction;
     decider?: typeof decideSearchNecessity;
     modelDecision?: DecisionDependencies['modelDecision'];
@@ -233,8 +253,13 @@ export async function runConversationalSearch(
   const decider = dependencies.decider ?? decideSearchNecessity;
   const pipeline = dependencies.searchPipeline ?? runSearchPipeline;
   const maxQueries = Math.min(Math.max(input.maxQueries ?? 3, 1), 3);
+  let exposeActivity = input.searchMode === 'required';
   const publishActivity = () => {
-    dependencies.activityWriter?.(createActivitySummary(events));
+    if (!exposeActivity) {
+      return;
+    }
+
+    dependencies.activityWriter?.(createVisibleActivitySummary(events, input.searchMode));
   };
 
   publishActivity();
@@ -345,6 +370,13 @@ export async function runConversationalSearch(
         skippedReason: 'auto_decision',
       };
     }
+
+    exposeActivity = true;
+    events.push({
+      type: 'planning_started',
+      label: 'Planning search...',
+    });
+    publishActivity();
   }
 
   const plan = await planner(
@@ -360,6 +392,7 @@ export async function runConversationalSearch(
     {
       model: dependencies.model,
       ...(dependencies.plannerModelId ? { plannerModelId: dependencies.plannerModelId } : {}),
+      ...(dependencies.plannerProvider ? { plannerProvider: dependencies.plannerProvider } : {}),
     }
   );
 
@@ -467,7 +500,6 @@ export async function runConversationalSearch(
 
   const acceptedOutput = {
     ...combinedOutput,
-    activity: createActivitySummary(events),
     results: assessment.scoredResults.map((item) => item.source).slice(0, 10),
   };
   const sources = sourcesFromSearchOutput(acceptedOutput);
@@ -483,7 +515,12 @@ export async function runConversationalSearch(
   publishActivity();
 
   const activity = createActivitySummary(events);
-  const metadata = attachActivity(createPersistedSearchMetadataV2(acceptedOutput), activity, plan);
+  const visibleActivity = createVisibleActivitySummary(events, input.searchMode);
+  const shouldExposeActivity = exposeActivity;
+
+  const metadata = shouldExposeActivity
+    ? attachActivity(createPersistedSearchMetadataV2(acceptedOutput), visibleActivity, plan)
+    : createPersistedSearchMetadataV2(acceptedOutput);
 
   return {
     action: sources.length > 0 ? 'searched' : 'failed',

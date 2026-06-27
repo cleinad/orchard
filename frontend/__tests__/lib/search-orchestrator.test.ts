@@ -17,6 +17,7 @@ describe('conversational search orchestrator', () => {
     const planner = vi.fn();
     const decider = vi.fn();
     const searchPipeline = vi.fn();
+    const activityWriter = vi.fn();
     const run = await runConversationalSearch(
       {
         latestMessage: 'help me think this through',
@@ -25,7 +26,7 @@ describe('conversational search orchestrator', () => {
         currentDateLabel: '2026-06-17',
         searchMode: 'off',
       },
-      { planner, decider, searchPipeline }
+      { planner, decider, searchPipeline, activityWriter }
     );
 
     expect(run).toMatchObject({
@@ -37,6 +38,7 @@ describe('conversational search orchestrator', () => {
     expect(planner).not.toHaveBeenCalled();
     expect(decider).not.toHaveBeenCalled();
     expect(searchPipeline).not.toHaveBeenCalled();
+    expect(activityWriter).not.toHaveBeenCalled();
   });
 
   it('passes planner model id to the planner for required runs and skips auto decision', async () => {
@@ -78,6 +80,7 @@ describe('conversational search orchestrator', () => {
         decider,
         planner,
         plannerModelId: 'qwen/qwen-2.5-7b-instruct',
+        plannerProvider: 'openrouter',
         searchPipeline,
       }
     );
@@ -86,6 +89,7 @@ describe('conversational search orchestrator', () => {
       expect.anything(),
       expect.objectContaining({
         plannerModelId: 'qwen/qwen-2.5-7b-instruct',
+        plannerProvider: 'openrouter',
       })
     );
     expect(decider).not.toHaveBeenCalled();
@@ -127,20 +131,11 @@ describe('conversational search orchestrator', () => {
     });
     expect(planner).not.toHaveBeenCalled();
     expect(searchPipeline).not.toHaveBeenCalled();
-    expect(activityWriter).toHaveBeenCalledWith(
-      expect.objectContaining({
-        events: expect.arrayContaining([
-          expect.objectContaining({
-            type: 'search_decision_completed',
-            shouldSearch: false,
-            reason: decision.reason,
-          }),
-        ]),
-      })
-    );
+    expect(activityWriter).not.toHaveBeenCalled();
   });
 
   it('records an auto decision and runs planned search when search is needed', async () => {
+    const activityWriter = vi.fn();
     const decision = {
       shouldSearch: true,
       reason: 'The user asks for latest information.',
@@ -183,6 +178,7 @@ describe('conversational search orchestrator', () => {
         modelDecision: vi.fn(async () => decision),
         planner,
         searchPipeline,
+        activityWriter,
       }
     );
 
@@ -192,6 +188,141 @@ describe('conversational search orchestrator', () => {
       action: 'searched',
       decision,
       skippedReason: null,
+    });
+    expect(activityWriter).toHaveBeenCalledWith(
+      expect.objectContaining({
+        collapsedLabel: 'Planning search...',
+        events: expect.not.arrayContaining([
+          expect.objectContaining({ type: 'search_decision_started' }),
+          expect.objectContaining({ type: 'search_decision_completed' }),
+        ]),
+      })
+    );
+    expect(activityWriter).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        collapsedLabel: expect.stringContaining('Searched Find latest OpenAI updates. across 1 sources'),
+        events: expect.not.arrayContaining([
+          expect.objectContaining({ type: 'search_decision_started' }),
+          expect.objectContaining({ type: 'search_decision_completed' }),
+        ]),
+      })
+    );
+    expect(run.metadata).toMatchObject({
+      activity: expect.objectContaining({
+        events: expect.not.arrayContaining([
+          expect.objectContaining({ type: 'search_decision_started' }),
+          expect.objectContaining({ type: 'search_decision_completed' }),
+        ]),
+      }),
+    });
+  });
+
+  it('keeps auto decision hidden but exposes search activity when results fail', async () => {
+    const activityWriter = vi.fn();
+    const decision = {
+      shouldSearch: true,
+      reason: 'The user asks for factual coverage.',
+      confidence: 0.82,
+      freshnessRisk: 'low' as const,
+    };
+    const planner = vi.fn(async () => ({
+      resolvedIntent: 'Find sources on an obscure topic.',
+      queries: ['obscure topic sources'],
+      topicEntities: ['obscure topic'],
+      sourceStrategy: 'mixed' as const,
+      freshnessNeeded: false,
+      reusePriorSources: false,
+      plannerSource: 'model' as const,
+    }));
+    const searchPipeline = vi.fn(async (query: string) => searchOutput(query, []));
+
+    const run = await runConversationalSearch(
+      {
+        latestMessage: 'give me sourced examples for an obscure topic',
+        messages: [],
+        currentTime: '2026-06-17 10:00 (America/Vancouver)',
+        currentDateLabel: '2026-06-17',
+        searchMode: 'auto',
+      },
+      {
+        modelDecision: vi.fn(async () => decision),
+        planner,
+        searchPipeline,
+        activityWriter,
+      }
+    );
+
+    expect(run).toMatchObject({
+      action: 'failed',
+      decision,
+      skippedReason: null,
+    });
+    expect(activityWriter).toHaveBeenCalledWith(
+      expect.objectContaining({
+        collapsedLabel: 'Planning search...',
+        events: expect.not.arrayContaining([
+          expect.objectContaining({ type: 'search_decision_started' }),
+          expect.objectContaining({ type: 'search_decision_completed' }),
+        ]),
+      })
+    );
+    expect(activityWriter).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        collapsedLabel: 'Searched Find sources on an obscure topic. but found no useful sources',
+        events: expect.not.arrayContaining([
+          expect.objectContaining({ type: 'search_decision_started' }),
+          expect.objectContaining({ type: 'search_decision_completed' }),
+        ]),
+      })
+    );
+    expect(run.metadata).toMatchObject({
+      status: 'no_results',
+      sources: [],
+      activity: expect.objectContaining({
+        collapsedLabel: 'Searched Find sources on an obscure topic. but found no useful sources',
+      }),
+    });
+  });
+
+  it('keeps required search failures visible in activity metadata', async () => {
+    const activityWriter = vi.fn();
+    const planner = vi.fn(async () => ({
+      resolvedIntent: 'Find OpenAI updates.',
+      queries: ['OpenAI updates'],
+      topicEntities: ['OpenAI'],
+      sourceStrategy: 'news' as const,
+      freshnessNeeded: true,
+      reusePriorSources: false,
+      plannerSource: 'model' as const,
+    }));
+    const searchPipeline = vi.fn(async (query: string) => searchOutput(query, []));
+
+    const run = await runConversationalSearch(
+      {
+        latestMessage: 'search OpenAI updates',
+        messages: [],
+        currentTime: '2026-06-17 10:00 (America/Vancouver)',
+        currentDateLabel: '2026-06-17',
+        searchMode: 'required',
+      },
+      {
+        planner,
+        searchPipeline,
+        activityWriter,
+      }
+    );
+
+    expect(run.action).toBe('failed');
+    expect(activityWriter).toHaveBeenCalledWith(
+      expect.objectContaining({
+        collapsedLabel: 'Searched Find OpenAI updates. but found no useful sources',
+      })
+    );
+    expect(run.metadata).toMatchObject({
+      status: 'no_results',
+      activity: expect.objectContaining({
+        collapsedLabel: 'Searched Find OpenAI updates. but found no useful sources',
+      }),
     });
   });
 

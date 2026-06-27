@@ -3,7 +3,7 @@ import {
   type PersistedSearchMetadata,
   type SearchAttemptStatus,
 } from '@/lib/search-citations';
-import type { SearchPipelineOutput } from '@/lib/search/types';
+import type { SearchActivitySummary, SearchPipelineOutput } from '@/lib/search/types';
 
 export type { PersistedSearchMetadata } from '@/lib/search-citations';
 
@@ -68,10 +68,6 @@ function getSearchDisclosure(metadata: SearchMetadata) {
   }
 
   switch (metadata.status) {
-    case 'no_results':
-      return "Search mode didn't find useful sources for that, so I'm answering based on what I already know.";
-    case 'partial':
-      return null;
     case 'missing_config':
     case 'timeout':
     case 'upstream_error':
@@ -129,7 +125,8 @@ export function createSearchMetadataFromOutput(
 export function createFailedSearchMetadata(
   searchMode: SearchMode,
   status: Exclude<SearchAttemptStatus, 'success' | 'partial'>,
-  query: string | null
+  query: string | null,
+  activity?: SearchActivitySummary
 ): SearchMetadata {
   if (searchMode !== 'required') {
     return createSearchMetadataFromPersisted(searchMode, null);
@@ -141,6 +138,7 @@ export function createFailedSearchMetadata(
     profile: 'fresh_web',
     status,
     query,
+    ...(activity ? { activity } : {}),
     providers: [],
     sources: [],
   });

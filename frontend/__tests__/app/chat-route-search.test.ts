@@ -62,11 +62,12 @@ function createMockUIMessageStream({
   });
 }
 
-async function readMockChatResponse(response: Response) {
+async function readMockChatResponseDetails(response: Response) {
   const contentType = response.headers.get('content-type') ?? '';
   if (contentType.includes('text/event-stream')) {
     const body = await response.text();
     let metadata: Record<string, unknown> = {};
+    const parts: Record<string, unknown>[] = [];
 
     for (const line of body.split('\n')) {
       if (!line.startsWith('data: ')) continue;
@@ -74,15 +75,19 @@ async function readMockChatResponse(response: Response) {
       if (!payload || payload === '[DONE]') continue;
 
       const event = JSON.parse(payload) as Record<string, unknown>;
+      parts.push(event);
       if (event.type === 'data-chatMeta' && event.data) {
         metadata = event.data as Record<string, unknown>;
       }
     }
 
-    return metadata;
+    return { metadata, parts };
   }
 
-  return response.json() as Promise<Record<string, unknown>>;
+  return {
+    metadata: await response.json() as Record<string, unknown>,
+    parts: [],
+  };
 }
 
 vi.mock('ai', () => ({
@@ -122,6 +127,7 @@ vi.mock('@/lib/models', () => ({
     fallback: null,
   })),
   SEARCH_PLANNER_MODEL_ID: 'qwen/qwen-2.5-7b-instruct',
+  SEARCH_PLANNER_PROVIDER: 'openrouter',
   resolveChatModelSelection: vi.fn(() => ({
     id: 'gpt-5.4',
     provider: 'openai',
@@ -179,9 +185,9 @@ async function runChatRequest(
   });
 
   const response = await POST(request);
-  const json = await readMockChatResponse(response);
+  const { metadata, parts } = await readMockChatResponseDetails(response);
 
-  return { response, body: json, tracker };
+  return { response, body: metadata, parts, tracker };
 }
 
 describe('chat route search citations', () => {
@@ -273,7 +279,7 @@ describe('chat route search citations', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-01-02T03:04:05.000Z'));
 
-    const { response, body } = await runChatRequest(
+    const { response, body, parts } = await runChatRequest(
       { message: 'Help me brainstorm names', timezone: 'America/Vancouver' },
       {
         conversations: {
@@ -299,6 +305,150 @@ describe('chat route search citations', () => {
       skippedReason: 'auto_decision',
     });
     expect(mockRunSearchPipeline).not.toHaveBeenCalled();
+    expect(parts.some((part) => part.type === 'data-searchActivity')).toBe(false);
+  });
+
+  it('keeps required no-result search visible but does not prepend failure disclosure', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-02T03:04:05.000Z'));
+    mockRunSearchPipeline.mockResolvedValue({
+      status: 'no_results',
+      profile: 'fresh_web',
+      query: 'obscure topic sources',
+      providers: ['brave'],
+      results: [],
+    });
+    mockStreamText.mockImplementation(({ onFinish }: { onFinish?: (result: { text: string }) => Promise<void> }) => {
+      return {
+        toUIMessageStream: () => ({
+          __pending: onFinish?.({ text: 'Here is the best answer I can give.' }) ?? Promise.resolve(),
+        }),
+      };
+    });
+
+    const { response, body, parts } = await runChatRequest(
+      {
+        message: 'Search for obscure topic sources',
+        searchMode: 'required',
+        timezone: 'America/Vancouver',
+      },
+      {
+        conversations: {
+          rows: [],
+          returnOnMutate: [{ id: 'conv-1' }],
+        },
+        messages: {
+          rows: [{ role: 'user', content: 'Search for obscure topic sources', search_metadata: null }],
+          returnOnMutate: [{ id: 'msg-user-1' }, { id: 'msg-assistant-1' }],
+        },
+      }
+    );
+
+    expect(response.status).toBe(200);
+    expect(parts.some((part) => part.type === 'data-searchActivity')).toBe(true);
+    expect(body.message).toBe('Here is the best answer I can give.');
+    expect(body.message).not.toContain("Search mode didn't find useful sources");
+    expect(body.search).toMatchObject({
+      mode: 'required',
+      attempted: true,
+      status: 'no_results',
+      metadata: {
+        activity: expect.objectContaining({
+          collapsedLabel: expect.stringContaining('but found no useful sources'),
+        }),
+      },
+    });
+    expect(body.searchActivity).toMatchObject({
+      collapsedLabel: expect.stringContaining('but found no useful sources'),
+    });
+  });
+
+  it('prepends unavailable disclosure for required thrown search failures', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-02T03:04:05.000Z'));
+    mockRunSearchPipeline.mockRejectedValue(new Error('provider down'));
+    mockStreamText.mockImplementation(({ onFinish }: { onFinish?: (result: { text: string }) => Promise<void> }) => {
+      return {
+        toUIMessageStream: () => ({
+          __pending: onFinish?.({ text: 'General answer without source narration.' }) ?? Promise.resolve(),
+        }),
+      };
+    });
+
+    const { response, body, parts } = await runChatRequest(
+      {
+        message: 'Search the web for provider status',
+        searchMode: 'required',
+        chatMode: 'temporary',
+        timezone: 'America/Vancouver',
+      }
+    );
+
+    expect(response.status).toBe(200);
+    expect(parts.some((part) => part.type === 'data-searchActivity')).toBe(true);
+    expect(body.message).toBe(
+      "Search mode is unavailable right now, so I'm answering without fresh web results.\n\nGeneral answer without source narration."
+    );
+    expect(body.search).toMatchObject({
+      mode: 'required',
+      attempted: true,
+      status: 'upstream_error',
+      metadata: {
+        activity: expect.objectContaining({
+          collapsedLabel: 'Search was unavailable for this reply',
+        }),
+      },
+    });
+    expect(mockStreamText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        system: expect.not.stringContaining('Live web search is unavailable'),
+      })
+    );
+  });
+
+  it('prepends unavailable disclosure for non-throwing provider failures', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-02T03:04:05.000Z'));
+    mockRunSearchPipeline.mockResolvedValue({
+      status: 'upstream_error',
+      profile: 'fresh_web',
+      query: 'provider status',
+      providers: ['brave'],
+      results: [],
+      error: 'provider returned upstream_error',
+    });
+    mockStreamText.mockImplementation(({ onFinish }: { onFinish?: (result: { text: string }) => Promise<void> }) => {
+      return {
+        toUIMessageStream: () => ({
+          __pending: onFinish?.({ text: 'General answer after provider failure.' }) ?? Promise.resolve(),
+        }),
+      };
+    });
+
+    const { response, body, parts } = await runChatRequest(
+      {
+        message: 'Search the web for provider status',
+        searchMode: 'required',
+        chatMode: 'temporary',
+        timezone: 'America/Vancouver',
+      }
+    );
+
+    expect(response.status).toBe(200);
+    expect(parts.some((part) => part.type === 'data-searchActivity')).toBe(true);
+    expect(body.message).toBe(
+      "Search mode is unavailable right now, so I'm answering without fresh web results.\n\nGeneral answer after provider failure."
+    );
+    expect(body.search).toMatchObject({
+      mode: 'required',
+      attempted: true,
+      status: 'upstream_error',
+      metadata: {
+        activity: expect.objectContaining({
+          collapsedLabel: 'Searched Search the web for provider status but found no useful sources',
+        }),
+      },
+    });
   });
 
   it('persists normalized search metadata and strips invalid citations for required mode', async () => {
