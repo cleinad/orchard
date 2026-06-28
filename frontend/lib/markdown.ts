@@ -1,6 +1,7 @@
 import rehypeHighlight from "rehype-highlight";
 import rehypeKatex from "rehype-katex";
 import type { Options } from "react-markdown";
+import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 
 const PROTECTED_MARKDOWN_PATTERN = /(```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]*`)/g;
@@ -110,7 +111,10 @@ export function normalizeMathMarkdown(content: string) {
   return parts.join("");
 }
 
-export const markdownRemarkPlugins = [remarkMath] satisfies NonNullable<Options["remarkPlugins"]>;
+export const markdownRemarkPlugins = [
+  remarkGfm,
+  remarkMath,
+] satisfies NonNullable<Options["remarkPlugins"]>;
 
 export const markdownRehypePlugins = [
   rehypeKatex,
