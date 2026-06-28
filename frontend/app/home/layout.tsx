@@ -170,6 +170,7 @@ function HomeShell({ children }: { children: ReactNode }) {
     draftChats,
     temporaryChats,
     selectedChat,
+    setSelectedChat,
     handleSelectConversation,
     handleSelectDraft,
     handleSelectTemporaryChat,
@@ -256,6 +257,45 @@ function HomeShell({ children }: { children: ReactNode }) {
     }
   };
 
+  const handleMoveConversation = async (
+    conversation: Parameters<typeof handleSelectConversation>[0],
+    targetWorkspaceId: string | null
+  ) => {
+    const response = await fetch(
+      `/api/conversations/${encodeURIComponent(conversation.id)}/context`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          workspaceId: targetWorkspaceId,
+          memoryPolicy: 'conservative',
+        }),
+      }
+    );
+    const payload = await response.json().catch(() => ({}));
+
+    if (!response.ok || payload.error) {
+      throw new Error(payload.error || 'Could not move chat.');
+    }
+
+    const nextWorkspaceId =
+      typeof payload.conversation?.workspaceId === 'string'
+        ? payload.conversation.workspaceId
+        : null;
+
+    setSelectedChat((current) =>
+      current?.kind === 'persistent' && current.conversationId === conversation.id
+        ? {
+            ...current,
+            mentorId: null,
+            workspaceId: nextWorkspaceId,
+          }
+        : current
+    );
+
+    await refreshSidebarData();
+  };
+
   return (
     <div className="relative flex h-dvh min-h-0 flex-col overflow-hidden bg-background text-foreground">
       {children}
@@ -327,6 +367,7 @@ function HomeShell({ children }: { children: ReactNode }) {
           if (window.innerWidth < 1024) handleCloseSidePanel();
         }}
         onCloseTemporaryChat={handleCloseTemporaryChat}
+        onMoveConversation={handleMoveConversation}
       />
     </div>
   );

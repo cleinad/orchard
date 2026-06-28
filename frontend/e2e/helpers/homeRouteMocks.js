@@ -63,6 +63,7 @@ async function mockHomeDataRoutes(page, state) {
     mentors: [],
     workspaces: [],
     memoryItems: [],
+    memoryItemSources: [],
     conversations: [],
     messagesByConversationId: {},
     attachmentsByMessageId: {},
@@ -225,6 +226,108 @@ async function mockHomeDataRoutes(page, state) {
     }
 
     await route.fallback();
+  });
+
+  await page.route('**/api/conversations/*/context', async (route) => {
+    const method = route.request().method();
+    if (method !== 'PATCH') {
+      await route.fallback();
+      return;
+    }
+
+    const url = new URL(route.request().url());
+    const parts = url.pathname.split('/');
+    const conversationId = decodeURIComponent(parts[parts.length - 2] || '');
+    const body = route.request().postDataJSON();
+    const targetWorkspaceId = body?.workspaceId ?? null;
+    const conversation = resolvedState.conversations.find((entry) => entry.id === conversationId);
+
+    if (!conversation) {
+      await fulfillJson(route, { error: 'Conversation not found' }, 404);
+      return;
+    }
+
+    if (conversation.mentor_id) {
+      await fulfillJson(route, { error: 'Mentor conversations cannot be moved yet' }, 400);
+      return;
+    }
+
+    if (conversation.workspace_id === targetWorkspaceId) {
+      await fulfillJson(route, { error: 'Conversation is already in that context' }, 409);
+      return;
+    }
+
+    if (
+      targetWorkspaceId &&
+      !resolvedState.workspaces.some((workspace) => workspace.id === targetWorkspaceId)
+    ) {
+      await fulfillJson(route, { error: 'Workspace not found' }, 404);
+      return;
+    }
+
+    const sourceWorkspaceId = conversation.workspace_id ?? null;
+    const sourceOwnerType = sourceWorkspaceId ? 'workspace' : 'global';
+    const sourceOwnerId = sourceWorkspaceId;
+    let movedMemoryCount = 0;
+    let leftMemoryCount = 0;
+
+    const sourceConversationIdsForMemory = (memoryItem) => {
+      const sourceRows = resolvedState.memoryItemSources.filter(
+        (source) => source.memory_item_id === memoryItem.id && source.conversation_id
+      );
+      if (sourceRows.length > 0) {
+        return sourceRows.map((source) => source.conversation_id);
+      }
+      return memoryItem.source_conversation_id ? [memoryItem.source_conversation_id] : [];
+    };
+
+    if (targetWorkspaceId) {
+      for (const item of resolvedState.memoryItems) {
+        if (item.status !== 'active') continue;
+        if (item.owner_type !== sourceOwnerType) continue;
+        if (sourceOwnerType === 'global' && item.owner_id !== null) continue;
+        if (sourceOwnerType === 'workspace' && item.owner_id !== sourceOwnerId) continue;
+
+        const sourceConversationIds = sourceConversationIdsForMemory(item);
+        if (!sourceConversationIds.includes(conversationId)) continue;
+
+        const hasOtherSource = sourceConversationIds.some((id) => id !== conversationId);
+        if (hasOtherSource) {
+          leftMemoryCount += 1;
+          continue;
+        }
+
+        item.owner_type = 'workspace';
+        item.owner_id = targetWorkspaceId;
+        movedMemoryCount += 1;
+      }
+    } else {
+      leftMemoryCount = resolvedState.memoryItems.filter((item) => {
+        if (item.status !== 'active') return false;
+        if (item.owner_type !== 'workspace' || item.owner_id !== sourceWorkspaceId) return false;
+        return sourceConversationIdsForMemory(item).includes(conversationId);
+      }).length;
+    }
+
+    conversation.workspace_id = targetWorkspaceId;
+    conversation.mentor_id = null;
+    conversation.updated_at = new Date().toISOString();
+
+    await fulfillJson(route, {
+      conversation: {
+        id: conversation.id,
+        title: conversation.title,
+        mentorId: conversation.mentor_id,
+        workspaceId: conversation.workspace_id,
+        createdAt: conversation.created_at,
+        updatedAt: conversation.updated_at,
+      },
+      memory: {
+        moved: movedMemoryCount,
+        copied: 0,
+        leftInPlace: leftMemoryCount,
+      },
+    });
   });
 
   await page.route('**/auth/v1/user*', async (route) => {

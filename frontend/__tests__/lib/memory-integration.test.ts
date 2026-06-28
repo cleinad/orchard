@@ -91,6 +91,7 @@ describe('processMemoryV2 — write path', () => {
           rows: existingItems,
           returnOnMutate: (returnOnMutate ?? []).map((r) => r as Record<string, unknown>),
         },
+        memory_item_sources: { rows: [] },
         memory_item_embeddings: { rows: [] },
       },
     });
@@ -121,6 +122,39 @@ describe('processMemoryV2 — write path', () => {
       owner_type: 'global',
       salience: 85,
       confidence: 0.9,
+    });
+  });
+
+  it('records provenance when inserting a new memory', async () => {
+    const candidate = makeCandidate();
+    mockGenerateObject.mockResolvedValueOnce({
+      object: { candidates: [candidate] },
+    });
+
+    const insertedRow = {
+      id: 'new-with-source',
+      ...candidate,
+      user_id: 'user-1',
+      text: candidate.text,
+      normalized_text: 'user cs student stanford',
+      status: 'active',
+    };
+    const client = setup([], [insertedRow]);
+
+    const { processMemoryV2 } = await import('@/lib/memory-agent');
+    await processMemoryV2(client, 'user-1', dummyMessages, dummyResponse, {
+      conversationId: 'conversation-a',
+      sourceMessageId: 'message-a',
+      sourceRole: 'user',
+    });
+
+    expect(tracker.upserts('memory_item_sources')[0].args).toMatchObject({
+      memory_item_id: 'new-with-source',
+      conversation_id: 'conversation-a',
+      message_id: 'message-a',
+      user_id: 'user-1',
+      source_role: 'user',
+      contribution_type: 'extracted',
     });
   });
 
@@ -176,6 +210,46 @@ describe('processMemoryV2 — write path', () => {
     expect(updates[0].args).toMatchObject({
       salience: 70,
       confidence: 0.85,
+    });
+  });
+
+  it('records a new source when an existing memory is reinforced from another chat', async () => {
+    const candidate = makeCandidate({
+      text: 'User is a CS student',
+      type: 'profile',
+    });
+    mockGenerateObject.mockResolvedValueOnce({
+      object: { candidates: [candidate] },
+    });
+
+    const existing = makeMemoryItem({
+      id: 'existing-with-first-source',
+      type: 'profile',
+      text: 'User is a CS student',
+      normalized_text: 'user cs student',
+      salience: 60,
+      confidence: 0.85,
+      source_conversation_id: 'conversation-a',
+      source_message_id: 'message-a',
+    });
+
+    const mergedRow = { ...existing, salience: 85, confidence: 0.9 };
+    const client = setup([existing], [mergedRow]);
+
+    const { processMemoryV2 } = await import('@/lib/memory-agent');
+    await processMemoryV2(client, 'user-1', dummyMessages, dummyResponse, {
+      conversationId: 'conversation-b',
+      sourceMessageId: 'message-b',
+      sourceRole: 'user',
+    });
+
+    expect(tracker.inserts('memory_items')).toHaveLength(0);
+    expect(tracker.upserts('memory_item_sources')[0].args).toMatchObject({
+      memory_item_id: 'existing-with-first-source',
+      conversation_id: 'conversation-b',
+      message_id: 'message-b',
+      user_id: 'user-1',
+      contribution_type: 'extracted',
     });
   });
 

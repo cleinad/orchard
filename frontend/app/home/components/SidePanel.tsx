@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useCallback, useState } from 'react';
+import { useEffect, useCallback, useState, type DragEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import SidebarPanelIcon from '@/app/components/SidebarPanelIcon';
 import Tooltip from '@/app/components/Tooltip';
@@ -55,6 +55,10 @@ interface Props {
   onCreateWorkspace: () => void;
   onOpenWorkspace: (workspaceId: string) => void;
   onCloseTemporaryChat: (tempChatId: string) => void;
+  onMoveConversation: (
+    conversation: ConversationListItem,
+    targetWorkspaceId: string | null
+  ) => Promise<void>;
 }
 
 function getWorkspaceKey(workspaceId: string) {
@@ -74,6 +78,7 @@ function formatDate(input: string): string {
 const railIconButtonClass =
   'relative z-10 inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-md text-foreground transition-colors hover:bg-foreground/[0.04]';
 const CHAT_LIST_KEY = '__chats__';
+const GLOBAL_DROP_TARGET_KEY = 'global';
 
 export default function SidePanel({
   isOpen,
@@ -99,10 +104,19 @@ export default function SidePanel({
   onCreateWorkspace,
   onOpenWorkspace,
   onCloseTemporaryChat,
+  onMoveConversation,
 }: Props) {
   const router = useRouter();
   const [expandedWorkspaces, setExpandedWorkspaces] = useState<Record<string, boolean>>({});
   const [visibleCounts, setVisibleCounts] = useState<Record<string, number>>({});
+  const [draggedConversation, setDraggedConversation] = useState<ConversationListItem | null>(null);
+  const [activeDropTarget, setActiveDropTarget] = useState<string | null>(null);
+  const [movingConversationId, setMovingConversationId] = useState<string | null>(null);
+  const [moveError, setMoveError] = useState<string | null>(null);
+  const [pendingMove, setPendingMove] = useState<{
+    conversation: ConversationListItem;
+    targetWorkspaceId: string | null;
+  } | null>(null);
   const { viewer } = useViewerIdentity();
   const profileName = viewer?.fullName || viewer?.email || 'Your profile';
   const profileInitials = initialsFor(profileName);
@@ -220,6 +234,110 @@ export default function SidePanel({
   const visibleGlobalConversations = globalConversations.slice(0, visibleChatCount);
   const hasMoreGlobalConversations = globalConversations.length > visibleGlobalConversations.length;
 
+  const getDropTargetKey = (workspaceId: string | null) =>
+    workspaceId ? getWorkspaceKey(workspaceId) : GLOBAL_DROP_TARGET_KEY;
+
+  const canDropConversation = (
+    conversation: ConversationListItem | null,
+    targetWorkspaceId: string | null
+  ) => {
+    if (!conversation || conversation.mentor_id) return false;
+    return (conversation.workspace_id ?? null) !== targetWorkspaceId;
+  };
+
+  const performConversationMove = useCallback(
+    async (conversation: ConversationListItem, targetWorkspaceId: string | null) => {
+      setMovingConversationId(conversation.id);
+      setMoveError(null);
+
+      try {
+        await onMoveConversation(conversation, targetWorkspaceId);
+        if (targetWorkspaceId) {
+          const workspaceKey = getWorkspaceKey(targetWorkspaceId);
+          setExpandedWorkspaces((prev) => ({ ...prev, [workspaceKey]: true }));
+        }
+        setPendingMove(null);
+      } catch (error) {
+        setMoveError(error instanceof Error ? error.message : 'Could not move chat.');
+      } finally {
+        setMovingConversationId(null);
+        setDraggedConversation(null);
+        setActiveDropTarget(null);
+      }
+    },
+    [onMoveConversation]
+  );
+
+  const handleConversationDrop = (
+    event: DragEvent<HTMLElement>,
+    targetWorkspaceId: string | null
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const conversation = draggedConversation;
+    if (!conversation || !canDropConversation(conversation, targetWorkspaceId)) {
+      setActiveDropTarget(null);
+      return;
+    }
+
+    if (targetWorkspaceId === null && conversation.workspace_id) {
+      setPendingMove({ conversation, targetWorkspaceId });
+      setActiveDropTarget(null);
+      setDraggedConversation(null);
+      return;
+    }
+
+    void performConversationMove(conversation, targetWorkspaceId);
+  };
+
+  const handleDropTargetDragOver = (
+    event: DragEvent<HTMLElement>,
+    targetWorkspaceId: string | null
+  ) => {
+    if (!canDropConversation(draggedConversation, targetWorkspaceId)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    setActiveDropTarget(getDropTargetKey(targetWorkspaceId));
+  };
+
+  const handleDropTargetDragLeave = (
+    event: DragEvent<HTMLElement>,
+    targetWorkspaceId: string | null
+  ) => {
+    if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+    setActiveDropTarget((current) =>
+      current === getDropTargetKey(targetWorkspaceId) ? null : current
+    );
+  };
+
+  const getConversationDragProps = (conversation: ConversationListItem) => ({
+    draggable: !conversation.mentor_id && movingConversationId !== conversation.id,
+    onDragStart: (event: DragEvent<HTMLButtonElement>) => {
+      if (conversation.mentor_id || movingConversationId === conversation.id) {
+        event.preventDefault();
+        return;
+      }
+
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('text/plain', conversation.id);
+      setDraggedConversation(conversation);
+      setMoveError(null);
+    },
+    onDragEnd: () => {
+      setDraggedConversation(null);
+      setActiveDropTarget(null);
+    },
+    'data-testid': `conversation-row-${conversation.id}`,
+  });
+
+  const getDropTargetClass = (workspaceId: string | null) => {
+    const isActive = activeDropTarget === getDropTargetKey(workspaceId);
+    return isActive
+      ? 'outline outline-2 outline-foreground/30 bg-foreground/[0.06]'
+      : '';
+  };
+
   const renderWorkspaceIcon = (group: SidebarWorkspaceGroup) => (
     <span
       className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md text-xs"
@@ -254,9 +372,13 @@ export default function SidePanel({
           return (
             <div key={workspaceKey} className="py-px">
               <div
+                onDragOver={(event) => handleDropTargetDragOver(event, group.workspace_id)}
+                onDragLeave={(event) => handleDropTargetDragLeave(event, group.workspace_id)}
+                onDrop={(event) => handleConversationDrop(event, group.workspace_id)}
+                data-testid={`workspace-drop-target-${group.workspace_id}`}
                 className={`flex items-center gap-2 rounded-xl px-3 py-1 transition-colors ${
                   isSelectedWorkspace ? 'bg-foreground/[0.05]' : 'hover:bg-foreground/[0.03]'
-                }`}
+                } ${getDropTargetClass(group.workspace_id)}`}
               >
                 <button
                   type="button"
@@ -331,11 +453,12 @@ export default function SidePanel({
                       key={conversation.id}
                       type="button"
                       onClick={() => onSelectConversation(conversation)}
+                      {...getConversationDragProps(conversation)}
                       className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-1.5 text-left transition-colors ${
                         selectedConversationId === conversation.id
                           ? 'bg-foreground/[0.06]'
                           : 'hover:bg-foreground/[0.04]'
-                      }`}
+                      } ${movingConversationId === conversation.id ? 'opacity-60' : ''}`}
                     >
                       <span className="truncate font-sans text-sm text-foreground/88">
                         {conversation.title}
@@ -417,11 +540,12 @@ export default function SidePanel({
               key={conversation.id}
               type="button"
               onClick={() => onSelectConversation(conversation)}
+              {...getConversationDragProps(conversation)}
               className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-1.5 text-left transition-colors ${
                 selectedConversationId === conversation.id
                   ? 'bg-foreground/[0.06]'
                   : 'hover:bg-foreground/[0.04]'
-              }`}
+              } ${movingConversationId === conversation.id ? 'opacity-60' : ''}`}
             >
               <span className="truncate font-sans text-sm text-foreground/88">
                 {conversation.title}
@@ -528,6 +652,78 @@ export default function SidePanel({
 
   return (
     <>
+      {pendingMove && (
+        <div
+          className="fixed inset-0 z-[90] flex items-center justify-center bg-foreground/[0.18] px-4 backdrop-blur-sm"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !movingConversationId) {
+              setPendingMove(null);
+            }
+          }}
+          onKeyDown={(event) => {
+            event.stopPropagation();
+            if (event.key === 'Escape' && !movingConversationId) {
+              setPendingMove(null);
+            }
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="move-chat-title"
+            className="w-full max-w-sm rounded-lg border border-border-subtle bg-background p-4 shadow-2xl"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 id="move-chat-title" className="font-sans text-base font-semibold text-foreground">
+                  Move this chat to Chats?
+                </h2>
+                <p className="mt-2 font-sans text-sm leading-5 text-muted">
+                  Existing workspace memories from this chat will stay in the workspace and will not
+                  become global.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPendingMove(null)}
+                disabled={movingConversationId !== null}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted transition-colors hover:bg-foreground/[0.05] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                aria-label="Close"
+              >
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.7" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setPendingMove(null)}
+                disabled={movingConversationId !== null}
+                className="rounded-lg border border-border-subtle bg-surface px-3 py-2 font-sans text-sm font-semibold text-foreground transition hover:bg-foreground/[0.04] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  void performConversationMove(
+                    pendingMove.conversation,
+                    pendingMove.targetWorkspaceId
+                  )
+                }
+                disabled={movingConversationId !== null}
+                className="rounded-lg bg-foreground px-3 py-2 font-sans text-sm font-semibold text-background transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {movingConversationId ? 'Moving...' : 'Move chat'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div
         className={`fixed inset-0 z-40 bg-foreground/[0.06] backdrop-blur-sm transition-opacity duration-300 dark:bg-black/40 lg:hidden ${
           isOpen ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'
@@ -629,6 +825,15 @@ export default function SidePanel({
                   </div>
                 </div>
 
+                {moveError && (
+                  <p
+                    className="ml-14 mr-5 rounded-md border border-amber-300/70 bg-amber-50 px-3 py-2 font-sans text-xs text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100"
+                    role="alert"
+                  >
+                    {moveError}
+                  </p>
+                )}
+
                 <div
                   id="side-panel-section-temporary"
                   className="scroll-mt-2"
@@ -695,7 +900,13 @@ export default function SidePanel({
                 </div>
 
                 <div id="side-panel-section-all-chats" className="scroll-mt-2">
-                  <div className="flex h-10 w-full items-center">
+                  <div
+                    className={`flex h-10 w-full items-center transition-colors ${getDropTargetClass(null)}`}
+                    onDragOver={(event) => handleDropTargetDragOver(event, null)}
+                    onDragLeave={(event) => handleDropTargetDragLeave(event, null)}
+                    onDrop={(event) => handleConversationDrop(event, null)}
+                    data-testid="global-drop-target"
+                  >
                     <div className="flex w-14 flex-shrink-0 items-center justify-center">
                       <RailIconAllChats className="h-5 w-5 text-foreground" />
                     </div>
