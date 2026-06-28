@@ -85,6 +85,7 @@ Notes:
 - `frontend/e2e/inline-threads.spec.js`: inline-thread creation, selection, popover behavior, and keyboard handoff flow
 - `frontend/e2e/persistent-inline-threads.spec.js`: persisted inline-thread reopen behavior and durable offset-based rendering cases
 - `frontend/e2e/search-mode.spec.js`: explicit search toggle requests and scalable reply-attached source tray behavior
+- `frontend/e2e/workspaces.spec.js`: workspace page rendering, workspace context, and workspace draft handoff into `/home`
 
 ## Focused Canaries
 
@@ -140,6 +141,16 @@ cd frontend
 npx playwright test e2e/home-routing.spec.js
 ```
 
+### Workspaces
+
+- Doc: [../features/workspaces.md](../features/workspaces.md)
+- Run:
+
+```bash
+cd frontend
+npx playwright test e2e/workspaces.spec.js
+```
+
 Manual sanity check:
 from `/home/<conversationId>`, create or select a temporary chat and confirm the app lands on `/home` with the temporary chat selected on the first click.
 
@@ -167,11 +178,11 @@ npm run test:e2e -- e2e/search-mode.spec.js
 
 ## Which Tests To Run
 
-- If you change memory loading, memory writing, memory CRUD, or mentor memory scoping, run the memory canary suite.
+- If you change memory loading, memory writing, memory CRUD, mentor memory scoping, or workspace memory scoping, run the memory canary suite.
 - If you change proxy logic, login redirect handling, protected-route behavior, or TTS auth, run the auth canary suite.
 - If you change model catalog data, provider resolution, or chat model selection UI behavior, run the model-selection tests.
 - If you change conversation-map layout, branch-route activation, transcript/map scroll sync, map resize behavior, or mobile map takeover behavior, run the conversation-map Playwright suite.
-- If you change home route hydration, routed loading UI, sidebar-driven chat navigation, draft promotion, or temporary chat route behavior, run the home-routing Playwright suite and manually verify the first-click `/home/<conversationId>` to temporary-chat handoff.
+- If you change home route hydration, routed loading UI, sidebar-driven chat navigation, workspace draft handoff, draft promotion, or temporary chat route behavior, run the home-routing Playwright suite and manually verify the first-click `/home/<conversationId>` to temporary-chat handoff.
 - If you change inline threads, selection handling, markdown rendering, or thread panel behavior, run the inline-thread Playwright suite.
 - If you change Search mode routing, provider normalization, citation persistence, markdown citation chips, or the source tray UI, run the search canary suite.
 - If you make broad frontend changes and are unsure, run `npm test` and then `npm run test:e2e` from `frontend/`.

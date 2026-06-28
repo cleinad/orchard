@@ -51,6 +51,7 @@ If docs conflict, prefer:
 - [features/mentors.md](./features/mentors.md): built-in and custom mentors, data model, prompt construction, and API integration
 - [features/multi-chat-home.md](./features/multi-chat-home.md): multi-conversation home behavior, persistent conversation URLs, route hydration including the routed-history loading placeholder, non-persistent handoff back to `/home`, sidebar model, runtime state, and database impact
 - [features/temporary-chat.md](./features/temporary-chat.md): temporary chat behavior, memory modes, URL-less `/home` behavior, first-click handoff from routed conversations, and chat route behavior
+- [features/workspaces.md](./features/workspaces.md): workspace grouping, dedicated workspace pages, workspace context, and scoped memory behavior
 
 ## Current Search Status
 

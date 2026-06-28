@@ -8,7 +8,7 @@ The memory system is easy to break in ways that are not obvious from normal chat
 
 - memory is no longer loaded into the prompt
 - memory extraction silently stops running in the background
-- mentor and global scopes are mixed incorrectly
+- mentor, workspace, and global scopes are mixed incorrectly
 - semantic retrieval falls back incorrectly or not at all
 - edit/delete routes stop updating embeddings correctly
 
@@ -110,6 +110,7 @@ Unit tests for pure utility functions in `lib/memory-items.ts`. No mocking — a
 - `jaccardSimilarity` — set intersection/union with stop word removal, empty input edge cases
 - `lexicalOverlapScore` — query token coverage in target text
 - `parseMemoryScope` / `parseMentorScope` — scope string parsing and validation
+- `parseWorkspaceScope` — workspace scope extraction
 
 ### `__tests__/lib/memory-integration.test.ts`
 
@@ -133,6 +134,7 @@ Integration tests for the write path (`processMemoryV2`) and read path (`loadMem
 | Mixed batch | 5 candidates (2 novel, 1 duplicate, 1 ignored, 1 too-short) → verifies exact insert/update counts |
 | Embedding failure fallback | Memory row inserts still succeed even if embedding generation fails |
 | Mentor-scoped write | `mentorId` context produces rows with `owner_type: "mentor"` and correct `owner_id` |
+| Workspace-scoped write | `workspaceId` context produces rows with `owner_type: "workspace"` and correct `owner_id` |
 
 #### Read path — `loadMemoryContextV2` (7 tests)
 
@@ -143,6 +145,7 @@ Integration tests for the write path (`processMemoryV2`) and read path (`loadMem
 | Unrelated stable interests | Irrelevant stable interests stay out of core and recall |
 | Token budget trimming | Episodic items dropped first, core items preserved (min 3 for default actor) |
 | Mentor scoping | Mentor actor sees `## Global Profile` header, only mentor-owned items in relevant recall, other mentors excluded |
+| Workspace scoping | Workspace actor sees `## Global Profile` plus active workspace-only memory, excluding other workspace rows |
 | RPC semantic ranking | Relevant recall prefers RPC semantic winners when available |
 | Row embedding fallback (empty RPC) | Falls back to `memory_item_embeddings` rows when RPC returns no matches |
 | Row embedding fallback (RPC error) | Falls back to row embeddings when RPC retrieval errors |

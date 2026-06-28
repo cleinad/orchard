@@ -24,7 +24,12 @@ describe('homeSelection helpers', () => {
   it('creates stable keys for blank, draft, temporary, and persistent chats', () => {
     expect(getSelectedChatKey(null)).toBeNull();
     expect(getComposerStateKey(null)).toBe(BLANK_COMPOSER_KEY);
-    expect(getSelectedChatKey({ kind: 'draft', draftId: 'draft-1', mentorId: null }))
+    expect(getSelectedChatKey({
+      kind: 'draft',
+      draftId: 'draft-1',
+      mentorId: null,
+      workspaceId: null,
+    }))
       .toBe('draft:draft-1');
     expect(getSelectedChatKey({ kind: 'temporary', tempChatId: 'temp-1' }))
       .toBe('temporary:temp-1');
@@ -32,13 +37,29 @@ describe('homeSelection helpers', () => {
       kind: 'persistent',
       conversationId: 'conversation-1',
       mentorId: 'mentor-1',
+      workspaceId: null,
     })).toBe('persistent:conversation-1');
   });
 
   it('compares selections by storage key and preserves records when deleting missing keys', () => {
-    const first = { kind: 'draft' as const, draftId: 'draft-1', mentorId: null };
-    const same = { kind: 'draft' as const, draftId: 'draft-1', mentorId: 'mentor-1' };
-    const different = { kind: 'draft' as const, draftId: 'draft-2', mentorId: null };
+    const first = {
+      kind: 'draft' as const,
+      draftId: 'draft-1',
+      mentorId: null,
+      workspaceId: null,
+    };
+    const same = {
+      kind: 'draft' as const,
+      draftId: 'draft-1',
+      mentorId: 'mentor-1',
+      workspaceId: null,
+    };
+    const different = {
+      kind: 'draft' as const,
+      draftId: 'draft-2',
+      mentorId: null,
+      workspaceId: null,
+    };
     const record = { keep: 'value' };
 
     expect(isSameSelectedChat(first, same)).toBe(true);

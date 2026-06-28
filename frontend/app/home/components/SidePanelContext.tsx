@@ -2,13 +2,15 @@
 
 import { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
 
+type SidePanelSection = 'new' | 'workspaces' | 'temporary' | 'all';
+
 interface SidePanelContextValue {
   isOpen: boolean;
   toggle: () => void;
   close: () => void;
   // Open the panel and queue a scroll to a named section
-  openWithScroll: (section: 'new' | 'temporary' | 'all') => void;
-  scrollRequest: 'new' | 'temporary' | 'all' | null;
+  openWithScroll: (section: SidePanelSection) => void;
+  scrollRequest: SidePanelSection | null;
   clearScrollRequest: () => void;
 }
 
@@ -16,12 +18,12 @@ const SidePanelContext = createContext<SidePanelContextValue | null>(null);
 
 export function SidePanelProvider({ children }: { children: ReactNode }) {
   const [isOpen, setIsOpen] = useState(false);
-  const [scrollRequest, setScrollRequest] = useState<'new' | 'temporary' | 'all' | null>(null);
+  const [scrollRequest, setScrollRequest] = useState<SidePanelSection | null>(null);
 
   const toggle = useCallback(() => setIsOpen((prev) => !prev), []);
   const close = useCallback(() => setIsOpen(false), []);
 
-  const openWithScroll = useCallback((section: 'new' | 'temporary' | 'all') => {
+  const openWithScroll = useCallback((section: SidePanelSection) => {
     setScrollRequest(section);
     setIsOpen(true);
   }, []);

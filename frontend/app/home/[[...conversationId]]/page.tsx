@@ -26,6 +26,10 @@ import {
 import {
   getSelectedChatKey,
 } from '@/app/home/components/homeSelection';
+import {
+  clearInitialSendHandoff,
+  readInitialSendHandoff,
+} from '@/app/home/components/initialSendHandoff';
 import type { PersistentThreadRuntimeRecord } from '@/app/home/components/persistentThreadRuntime';
 import { useHomeThreads } from '@/app/home/components/useHomeThreads';
 import { useHomeFixtureRuntime } from '@/app/home/components/useHomeFixtureRuntime';
@@ -112,7 +116,10 @@ function findLatestConversationForMentor(
   mentorId: string | null,
   conversations: ConversationListItem[]
 ) {
-  return conversations.find((conversation) => conversation.mentor_id === mentorId) || null;
+  return conversations.find(
+    (conversation) =>
+      conversation.mentor_id === mentorId && conversation.workspace_id === null
+  ) || null;
 }
 
 /**
@@ -303,6 +310,7 @@ function HomePageInner() {
           kind: 'persistent',
           conversationId: effectiveRouteConversationId,
           mentorId: null,
+          workspaceId: null,
         }
       : null
   );
@@ -379,10 +387,8 @@ function HomePageInner() {
     activeMessages,
     containerRef,
     currentMapMessageId,
-    input,
     messagesEndRef,
     setCurrentMapMessageId,
-    textareaRef,
   });
 
   const autoSendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -783,6 +789,74 @@ function HomePageInner() {
     sendMessage,
   });
 
+  const consumedInitialSendConversationIdsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (shouldShowRouteConversationLoading || selectedChat?.kind !== 'persistent') {
+      return;
+    }
+
+    const handoff = readInitialSendHandoff(selectedChat.conversationId);
+    if (!handoff) {
+      return;
+    }
+
+    clearInitialSendHandoff();
+
+    if (consumedInitialSendConversationIdsRef.current.has(handoff.conversationId)) {
+      return;
+    }
+    consumedInitialSendConversationIdsRef.current.add(handoff.conversationId);
+
+    setSelectedModelId(handoff.modelId);
+    setModelEffortOverrides((current) => {
+      if (handoff.modelEffort) {
+        return {
+          ...current,
+          [handoff.modelId]: handoff.modelEffort,
+        };
+      }
+
+      const next = { ...current };
+      delete next[handoff.modelId];
+      return next;
+    });
+    setThinkingEnabledOverrides((current) => {
+      if (handoff.thinkingEnabled !== null) {
+        return {
+          ...current,
+          [handoff.modelId]: handoff.thinkingEnabled,
+        };
+      }
+
+      const next = { ...current };
+      delete next[handoff.modelId];
+      return next;
+    });
+    setSearchEnabled(handoff.searchEnabled);
+    setResponseStyleForSelection(selectedChat, handoff.responseStyle);
+
+    void sendMessage(handoff.message, {
+      modelId: handoff.modelId,
+      modelEffort: handoff.modelEffort,
+      thinkingEnabled: handoff.thinkingEnabled,
+      responseStyle: handoff.responseStyle,
+      searchEnabled: handoff.searchEnabled,
+    }).then((result) => {
+      if (!result.accepted && result.error) {
+        setImageWarning(result.error);
+      }
+    });
+  }, [
+    selectedChat,
+    sendMessage,
+    setModelEffortOverrides,
+    setResponseStyleForSelection,
+    setSelectedModelId,
+    setThinkingEnabledOverrides,
+    shouldShowRouteConversationLoading,
+  ]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const textToSend = input.trim();
@@ -897,7 +971,6 @@ function HomePageInner() {
             isTemporaryChat={isTemporaryChat}
             temporaryMemoryMode={activeTemporaryMemoryMode}
             loadingLists={loadingLists}
-            onBrowseMentors={() => router.push('/mentors')}
             onCreateTemporaryChat={handleCreateTemporaryChat}
             conversationMapBranchPointCount={conversationMapModel.branchPointIds.size}
             conversationMapOpen={conversationMapOpen}

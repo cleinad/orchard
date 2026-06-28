@@ -18,6 +18,7 @@ The system never blocks the chat response — memory extraction is fully async.
 
 - **Keen conversations**: read all active memory items (global + all mentor-owned), write global items
 - **Mentor conversations**: read mentor-owned items + compact global profile card, write mentor-owned items
+- **Workspace conversations**: read global + workspace-owned items, write workspace-owned items
 
 ## Roadmap
 
@@ -62,8 +63,8 @@ Each row is a single atomic fact. Key columns:
 
 | Column | Purpose |
 |--------|---------|
-| `owner_type` | `'global'` or `'mentor'` — scoping |
-| `owner_id` | Mentor ID if mentor-owned, null if global |
+| `owner_type` | `'global'`, `'mentor'`, or `'workspace'` — scoping |
+| `owner_id` | Mentor ID if mentor-owned, workspace ID if workspace-owned, null if global |
 | `type` | Category string (e.g. `profile`, `preference`, `project`, `person`) |
 | `text` | The atomic memory statement |
 | `normalized_text` | Lowercased, stripped version for dedup |
@@ -122,13 +123,13 @@ Semantic scoring uses OpenAI `text-embedding-3-small` embeddings. The system fir
    - Otherwise inserts as new item
 6. Generates embeddings for all new/updated items via `upsertMemoryItemEmbeddings()`
 
-Mentor conversations write to `owner_type='mentor'` scoped items. Keen conversations write to `owner_type='global'`.
+Mentor conversations write to `owner_type='mentor'` scoped items. Keen conversations write to `owner_type='global'`. Workspace conversations write to `owner_type='workspace'` with the active workspace id as `owner_id`.
 
 ### API
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
-| `/api/memory/items?scope=all\|global\|mentor:<id>&status=active` | GET | List memory items |
+| `/api/memory/items?scope=all\|global\|mentor:<id>\|workspace:<id>&status=active` | GET | List memory items |
 | `/api/memory/items/:id` | PATCH | Update item fields (text, type, stability, sensitivity, status, salience, confidence) |
 | `/api/memory/items/:id` | DELETE | Soft-delete (sets `status='deleted'`, removes embedding) |
 

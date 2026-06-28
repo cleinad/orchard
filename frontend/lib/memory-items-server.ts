@@ -49,6 +49,7 @@ export async function loadMemoryContextV2(
 
   const actor = options.actor;
   const mentorId = options.mentorId ?? null;
+  const workspaceId = options.workspaceId ?? null;
 
   const globalItems = activeItems.filter((item) => item.owner_type === 'global');
   const mentorItems = mentorId
@@ -56,8 +57,18 @@ export async function loadMemoryContextV2(
         (item) => item.owner_type === 'mentor' && item.owner_id === mentorId
       )
     : [];
+  const workspaceItems = workspaceId
+    ? activeItems.filter(
+        (item) => item.owner_type === 'workspace' && item.owner_id === workspaceId
+      )
+    : [];
 
-  const retrievalPool = actor === 'mentor' ? mentorItems : activeItems;
+  const retrievalPool =
+    actor === 'mentor'
+      ? mentorItems
+      : actor === 'workspace'
+        ? [...globalItems, ...workspaceItems]
+        : globalItems;
   const episodicPool = retrievalPool.filter((item) => item.stability === 'episodic');
 
   const semanticScoreMap = await buildSemanticScoreMap(
@@ -67,7 +78,7 @@ export async function loadMemoryContextV2(
     options.query || ''
   );
 
-  const coreItems = selectCoreProfileItems(actor, activeItems, globalItems);
+  const coreItems = selectCoreProfileItems(actor, retrievalPool, globalItems);
   const selectedIds = new Set(coreItems.map((entry) => entry.item.id));
 
   const relevantItems = selectRelevantItems(
@@ -271,13 +282,13 @@ async function loadSemanticScoresViaRows(
 
 function selectCoreProfileItems(
   actor: MemoryActor,
-  allItems: MemoryItem[],
+  retrievalPool: MemoryItem[],
   globalItems: MemoryItem[]
 ): ScoredItem[] {
   const pool =
     actor === 'mentor'
       ? globalItems.filter((item) => item.stability === 'stable')
-      : allItems.filter((item) => item.stability === 'stable');
+      : retrievalPool.filter((item) => item.stability === 'stable');
 
   const scored = pool
     .filter((item) => CORE_PROFILE_TYPES.has(item.type.trim().toLowerCase()))
@@ -294,7 +305,7 @@ function selectCoreProfileItems(
     })
     .sort((a, b) => b.score - a.score);
 
-  const maxCore = actor === 'mentor' ? 6 : 9;
+  const maxCore = actor === 'mentor' ? 6 : actor === 'workspace' ? 9 : 9;
   return scored.slice(0, maxCore);
 }
 
@@ -445,7 +456,12 @@ function renderMemoryContext(
 }
 
 function formatMemoryLine(item: MemoryItem): string {
-  const scopeLabel = item.owner_type === 'global' ? 'global' : 'mentor';
+  const scopeLabel =
+    item.owner_type === 'global'
+      ? 'global'
+      : item.owner_type === 'workspace'
+        ? 'workspace'
+        : 'mentor';
   const typeLabel = item.type.trim() || 'memory';
   return `- [${scopeLabel}/${typeLabel}] ${item.text}`;
 }
