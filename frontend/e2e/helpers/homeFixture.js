@@ -3,6 +3,7 @@ const REPEATED_TEXT = 'before paint';
 const REPEATED_CONTENT =
   'One update can happen before paint, and another can also happen before paint when microtasks keep draining.';
 const BULLET_LIST_TEXT = 'microtasks can delay visible paint until queued work finishes';
+const TABLE_ROW_SELECTION = 'Microtask\tPromise callback\tRuns before paint';
 const CONVERSATION_MAP_SELECTED_TEXT =
   'microtasks drain before the browser is allowed to paint';
 
@@ -34,6 +35,10 @@ const FIXTURE_CONFIGS = {
   'inline-threads-rich-selection': {
     messageId: 'assistant-inline-threads-rich-fixture',
     selectedText: 'queueMicrotask()',
+  },
+  'inline-threads-table-selection': {
+    messageId: 'assistant-inline-threads-table-fixture',
+    selectedText: TABLE_ROW_SELECTION,
   },
   'conversation-map-temporary': {
     messageId: 'map-main-assistant',
