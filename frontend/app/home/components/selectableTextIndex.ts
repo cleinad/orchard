@@ -1,5 +1,14 @@
 "use client";
 
+import {
+  DEFAULT_SELECTION_STREAM_VERSION,
+  boundaryBetweenTags,
+  getSelectionStreamVersion,
+  isFormattingWhitespaceText,
+  isTableStructureTag,
+  type SelectionStreamVersion,
+} from '@/app/home/components/markdownSelectableStream';
+
 interface TextSegment {
   kind: "text";
   node: Text;
@@ -16,7 +25,15 @@ interface AtomicSegment {
   text: string;
 }
 
-type SelectableTextSegment = TextSegment | AtomicSegment;
+interface BoundarySegment {
+  kind: "boundary";
+  start: number;
+  end: number;
+  text: "\n" | "\t";
+}
+
+type SelectableTextSegment = TextSegment | AtomicSegment | BoundarySegment;
+type VisibleSelectableTextSegment = TextSegment | AtomicSegment;
 
 interface BoundaryPoint {
   node: Node;
@@ -54,6 +71,11 @@ function getCanonicalText(element: Element) {
   return element.getAttribute(CANONICAL_TEXT_ATTRIBUTE);
 }
 
+function shouldIgnoreTextNode(node: Node, parentTagName: string | null) {
+  const value = node.textContent ?? "";
+  return isTableStructureTag(parentTagName) || isFormattingWhitespaceText(value, parentTagName);
+}
+
 function getElementBoundary(element: Element, edge: "before" | "after"): BoundaryPoint | null {
   const parent = element.parentNode;
   if (!parent) return null;
@@ -77,6 +99,12 @@ function createCollapsedRange(point: BoundaryPoint) {
 function createSegmentRange(segment: SelectableTextSegment) {
   const range = document.createRange();
 
+  if (segment.kind === "boundary") {
+    range.setStart(document.body, 0);
+    range.collapse(true);
+    return range;
+  }
+
   if (segment.kind === "text") {
     range.setStart(segment.node, 0);
     range.setEnd(segment.node, segment.text.length);
@@ -89,6 +117,10 @@ function createSegmentRange(segment: SelectableTextSegment) {
 }
 
 function comparePointToSegmentStart(point: BoundaryPoint, segment: SelectableTextSegment) {
+  if (segment.kind === "boundary") {
+    return -1;
+  }
+
   const pointRange = createCollapsedRange(point);
   const segmentRange = createSegmentRange(segment);
   const result = pointRange.compareBoundaryPoints(Range.START_TO_START, segmentRange);
@@ -98,6 +130,10 @@ function comparePointToSegmentStart(point: BoundaryPoint, segment: SelectableTex
 }
 
 function comparePointToSegmentEnd(point: BoundaryPoint, segment: SelectableTextSegment) {
+  if (segment.kind === "boundary") {
+    return 1;
+  }
+
   const pointRange = createCollapsedRange(point);
   const segmentRange = createSegmentRange(segment);
   const result = pointRange.compareBoundaryPoints(Range.START_TO_END, segmentRange);
@@ -133,6 +169,10 @@ function pointToOffset(
   }
 
   for (const segment of index.segments) {
+    if (segment.kind === "boundary") {
+      continue;
+    }
+
     if (segment.kind === "text" && segment.node === point.node) {
       return segment.start + Math.min(Math.max(point.offset, 0), segment.text.length);
     }
@@ -151,6 +191,42 @@ function pointToOffset(
   return index.text.length;
 }
 
+function findVisibleSegmentFromOffset(
+  index: SelectableTextIndex,
+  offset: number,
+  edge: "start" | "end"
+): VisibleSelectableTextSegment | null {
+  if (edge === "start") {
+    return (
+      index.segments.find(
+        (segment): segment is VisibleSelectableTextSegment =>
+          segment.kind !== "boundary" && offset >= segment.start && offset <= segment.end
+      )
+      ?? index.segments.find(
+        (segment): segment is VisibleSelectableTextSegment =>
+          segment.kind !== "boundary" && segment.end > offset
+      )
+      ?? null
+    );
+  }
+
+  for (let indexOffset = index.segments.length - 1; indexOffset >= 0; indexOffset -= 1) {
+    const segment = index.segments[indexOffset];
+    if (segment.kind !== "boundary" && offset >= segment.start && offset <= segment.end) {
+      return segment;
+    }
+  }
+
+  for (let indexOffset = index.segments.length - 1; indexOffset >= 0; indexOffset -= 1) {
+    const segment = index.segments[indexOffset];
+    if (segment.kind !== "boundary" && segment.start < offset) {
+      return segment;
+    }
+  }
+
+  return null;
+}
+
 function boundaryFromOffset(
   index: SelectableTextIndex,
   offset: number,
@@ -159,31 +235,23 @@ function boundaryFromOffset(
   if (index.segments.length === 0) return null;
 
   const clampedOffset = Math.min(Math.max(offset, 0), index.text.length);
+  const segment = findVisibleSegmentFromOffset(index, clampedOffset, edge);
 
-  for (const segment of index.segments) {
-    if (clampedOffset < segment.start || clampedOffset > segment.end) {
-      continue;
-    }
-
-    if (segment.kind === "text") {
-      return {
-        node: segment.node,
-        offset: Math.min(Math.max(clampedOffset - segment.start, 0), segment.text.length),
-      };
-    }
-
-    return getElementBoundary(segment.element, edge === "start" ? "before" : "after");
+  if (!segment) {
+    return null;
   }
 
-  const lastSegment = index.segments[index.segments.length - 1];
-  if (lastSegment.kind === "text") {
+  if (segment.kind === "text") {
     return {
-      node: lastSegment.node,
-      offset: lastSegment.text.length,
+      node: segment.node,
+      offset:
+        edge === "start"
+          ? Math.min(Math.max(clampedOffset - segment.start, 0), segment.text.length)
+          : Math.min(Math.max(clampedOffset - segment.start, 0), segment.text.length),
     };
   }
 
-  return getElementBoundary(lastSegment.element, "after");
+  return getElementBoundary(segment.element, edge === "start" ? "before" : "after");
 }
 
 function trimSelectionOffsets(
@@ -214,7 +282,10 @@ export function buildSelectableTextIndex(root: Element): SelectableTextIndex {
   let text = "";
 
   const appendSegment = (
-    segment: Omit<TextSegment, "start" | "end"> | Omit<AtomicSegment, "start" | "end">
+    segment:
+      | Omit<TextSegment, "start" | "end">
+      | Omit<AtomicSegment, "start" | "end">
+      | Omit<BoundarySegment, "start" | "end">
   ) => {
     if (!segment.text) return;
 
@@ -227,6 +298,33 @@ export function buildSelectableTextIndex(root: Element): SelectableTextIndex {
     } as SelectableTextSegment);
   };
 
+  const getElementTagName = (node: Node) =>
+    node instanceof HTMLElement ? node.tagName.toLowerCase() : null;
+
+  const walkChildren = (parent: Node, parentTagName: string | null = null) => {
+    let previousIncludedTagName: string | null = null;
+
+    parent.childNodes.forEach((child) => {
+      if (child.nodeType === Node.TEXT_NODE && shouldIgnoreTextNode(child, parentTagName)) {
+        return;
+      }
+
+      const nextTagName = getElementTagName(child);
+      const boundary = boundaryBetweenTags(parentTagName, previousIncludedTagName, nextTagName);
+      if (boundary) {
+        appendSegment({
+          kind: "boundary",
+          text: boundary,
+        });
+      }
+
+      const includedTagName = walk(child);
+      if (includedTagName) {
+        previousIncludedTagName = includedTagName;
+      }
+    });
+  };
+
   const walk = (node: Node) => {
     if (node.nodeType === Node.TEXT_NODE) {
       appendSegment({
@@ -234,16 +332,16 @@ export function buildSelectableTextIndex(root: Element): SelectableTextIndex {
         node: node as Text,
         text: node.textContent ?? "",
       });
-      return;
+      return null;
     }
 
     if (!isHTMLElement(node)) {
-      node.childNodes.forEach(walk);
-      return;
+      walkChildren(node);
+      return null;
     }
 
     if (node.matches(EXCLUDE_SELECTOR)) {
-      return;
+      return null;
     }
 
     const canonicalText = getCanonicalText(node);
@@ -253,13 +351,14 @@ export function buildSelectableTextIndex(root: Element): SelectableTextIndex {
         element: node,
         text: canonicalText,
       });
-      return;
+      return node.tagName.toLowerCase();
     }
 
-    node.childNodes.forEach(walk);
+    walkChildren(node, node.tagName.toLowerCase());
+    return node.tagName.toLowerCase();
   };
 
-  root.childNodes.forEach(walk);
+  walkChildren(root);
 
   return {
     root,
@@ -270,8 +369,10 @@ export function buildSelectableTextIndex(root: Element): SelectableTextIndex {
 
 export function getOffsetsFromRange(
   root: Element,
-  range: Range
+  range: Range,
+  version: SelectionStreamVersion = DEFAULT_SELECTION_STREAM_VERSION
 ): SelectionOffsets | null {
+  getSelectionStreamVersion(version);
   const index = buildSelectableTextIndex(root);
   const startOffset = pointToOffset(
     index,
@@ -294,12 +395,14 @@ export function getOffsetsFromRange(
 export function restoreRangeFromOffsets(
   root: Element,
   startOffset: number,
-  endOffset: number
+  endOffset: number,
+  version: SelectionStreamVersion = DEFAULT_SELECTION_STREAM_VERSION
 ) {
   if (endOffset <= startOffset) {
     return null;
   }
 
+  getSelectionStreamVersion(version);
   const index = buildSelectableTextIndex(root);
   const startPoint = boundaryFromOffset(index, startOffset, "start");
   const endPoint = boundaryFromOffset(index, endOffset, "end");

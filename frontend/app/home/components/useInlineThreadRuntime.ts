@@ -295,6 +295,7 @@ export function useInlineThreadRuntime({
       sourceMessageId: source.sourceMessageId,
       startOffset: source.startOffset,
       endOffset: source.endOffset,
+      selectionStreamVersion: source.selectionStreamVersion,
     }),
     []
   );
@@ -406,6 +407,7 @@ export function useInlineThreadRuntime({
             highlightedText: params.source.highlightedText,
             startOffset: params.source.startOffset,
             endOffset: params.source.endOffset,
+            selectionStreamVersion: params.source.selectionStreamVersion,
             ...(params.requestThreadId ? { threadId: params.requestThreadId } : {}),
             timezone: getBrowserTimeZone(),
             chatMode: params.selection.kind === 'temporary' ? 'temporary' : 'persistent',

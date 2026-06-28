@@ -246,6 +246,7 @@ body {
 .markdown-content p,
 .markdown-content ul,
 .markdown-content ol,
+.markdown-content table,
 .markdown-content .code-block,
 .markdown-content blockquote,
 .markdown-content .katex-display {
@@ -270,10 +271,55 @@ body {
   margin-top: 0.25rem;
 }
 
+.markdown-content table {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  border-spacing: 0;
+  font-size: 0.94em;
+  line-height: 1.55;
+}
+
+.markdown-content table th,
+.markdown-content table td {
+  min-width: 7.5rem;
+  border: 1px solid var(--border-subtle);
+  padding: 0.55rem 0.68rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.markdown-content table th {
+  background: color-mix(in srgb, var(--foreground) 5%, transparent);
+  color: var(--foreground);
+  font-weight: 700;
+}
+
+.markdown-content table tr:nth-child(even) td {
+  background: color-mix(in srgb, var(--foreground) 2.5%, transparent);
+}
+
 .markdown-content a {
   color: color-mix(in srgb, var(--accent) 82%, var(--foreground));
   text-decoration: underline;
   text-underline-offset: 0.18em;
+}
+
+.markdown-content[data-range-thread-highlights="true"] [data-testid="inline-thread-link"] {
+  background-color: transparent !important;
+  box-shadow: none !important;
+  color: inherit !important;
+  font-weight: inherit !important;
+  padding: 0 0.05em !important;
+}
+
+.markdown-content[data-range-thread-highlights="true"] [data-testid="inline-thread-link"]:hover,
+.markdown-content[data-range-thread-highlights="true"] [data-testid="inline-thread-link"]:focus-visible {
+  background-color: color-mix(in srgb, #fef3c7 35%, transparent) !important;
+  outline: 1px solid color-mix(in srgb, #d97706 32%, transparent);
+  outline-offset: 1px;
 }
 
 .markdown-content code {
@@ -533,6 +579,17 @@ body {
 
 .dark .markdown-content .katex-html [data-testid="inline-thread-link"][data-thread-status="error"]:hover {
   background-color: #7a2635 !important;
+}
+
+.markdown-content[data-range-thread-highlights="true"] .katex-html [data-testid="inline-thread-link"] {
+  background-color: transparent !important;
+  color: inherit !important;
+  padding: 0 0.02em !important;
+}
+
+.markdown-content[data-range-thread-highlights="true"] .katex-html [data-testid="inline-thread-link"]:hover,
+.markdown-content[data-range-thread-highlights="true"] .katex-html [data-testid="inline-thread-link"]:focus-visible {
+  background-color: color-mix(in srgb, #fef3c7 35%, transparent) !important;
 }
 
 .font-heading {
