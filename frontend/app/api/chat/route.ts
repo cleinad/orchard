@@ -58,6 +58,7 @@ import {
   isUuid,
   sanitizeGeneratedChatTitle,
 } from '@/lib/chat-session';
+import { getSelectionStreamVersion } from '@/app/home/components/markdownSelectableStream';
 
 const BASE_SYSTEM_PROMPT = `You are Keen, a thinking partner. You explain things to the user with precision, accuracy, and understandability.
 
@@ -105,6 +106,7 @@ interface ChatRequest {
   highlightedText?: string;
   startOffset?: number;
   endOffset?: number;
+  selectionStreamVersion?: string;
   searchEnabled?: boolean;
   responseStyle?: unknown;
   timezone?: string;
@@ -690,6 +692,7 @@ export async function POST(request: NextRequest) {
       highlightedText,
       startOffset,
       endOffset,
+      selectionStreamVersion,
       searchEnabled = false,
       responseStyle: responseStyleFromBody,
       timezone,
@@ -1002,6 +1005,7 @@ export async function POST(request: NextRequest) {
       if (!activeThreadId && normalizedSourceMessageId && highlightedText) {
         const normalizedStartOffset = typeof startOffset === 'number' ? startOffset : null;
         const normalizedEndOffset = typeof endOffset === 'number' ? endOffset : null;
+        const normalizedSelectionStreamVersion = getSelectionStreamVersion(selectionStreamVersion);
 
         if (
           normalizedStartOffset === null
@@ -1024,6 +1028,7 @@ export async function POST(request: NextRequest) {
             highlighted_text: highlightedText,
             start_offset: normalizedStartOffset,
             end_offset: normalizedEndOffset,
+            selection_stream_version: normalizedSelectionStreamVersion,
             user_id: user.id,
           })
           .select('id')

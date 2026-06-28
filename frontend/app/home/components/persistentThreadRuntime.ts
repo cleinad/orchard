@@ -12,6 +12,9 @@ import {
   type StoredThreadMessage,
 } from '@/app/home/components/homeStorage';
 import type { Message } from '@/app/home/types';
+import {
+  getSelectionStreamVersion,
+} from '@/app/home/components/markdownSelectableStream';
 
 export type ThreadMetaRecord = Record<string, ThreadMeta[]>;
 export type ThreadMessagesRecord = Record<string, ThreadMessage[]>;
@@ -196,6 +199,7 @@ export function toInlineThreadMarker(
     sourceMessageId: thread.sourceMessageId,
     startOffset: thread.startOffset,
     endOffset: thread.endOffset,
+    selectionStreamVersion: getSelectionStreamVersion(thread.selectionStreamVersion),
   };
 }
 
@@ -209,6 +213,7 @@ export function toSessionThreadMarker(session: ThreadSession): InlineThreadMarke
     sourceMessageId: session.sourceMessageId,
     startOffset: session.startOffset,
     endOffset: session.endOffset,
+    selectionStreamVersion: getSelectionStreamVersion(session.selectionStreamVersion),
   };
 }
 

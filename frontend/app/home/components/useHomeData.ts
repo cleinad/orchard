@@ -17,6 +17,7 @@ import type {
 import type { ThreadMeta } from '@/app/home/components/threadTypes';
 import { buildInitialBranchSelections } from '@/app/home/components/conversationTree';
 import type { WorkspaceListItem } from '@/lib/workspaces';
+import { getSelectionStreamVersion } from '@/app/home/components/markdownSelectableStream';
 
 interface ConversationRow {
   id: string;
@@ -35,6 +36,7 @@ function buildThreadsMap(
     highlighted_text: string;
     start_offset: number;
     end_offset: number;
+    selection_stream_version?: string | null;
   }>
 ) {
   const nextThreadsMap = new Map<string, ThreadMeta[]>();
@@ -48,6 +50,7 @@ function buildThreadsMap(
       sourceMessageId: thread.source_message_id,
       startOffset: thread.start_offset,
       endOffset: thread.end_offset,
+      selectionStreamVersion: getSelectionStreamVersion(thread.selection_stream_version),
     });
     nextThreadsMap.set(key, existing);
   }
@@ -374,7 +377,7 @@ export function useHomeData() {
 
     const { data: threadRows, error: threadsError } = await supabase
       .from('threads')
-      .select('id, source_message_id, highlighted_text, start_offset, end_offset')
+      .select('id, source_message_id, highlighted_text, start_offset, end_offset, selection_stream_version')
       .eq('conversation_id', nextConversationId);
 
     if (threadsError) {
@@ -399,6 +402,7 @@ export function useHomeData() {
           highlighted_text: string;
           start_offset: number;
           end_offset: number;
+          selection_stream_version?: string | null;
         }>
       ),
     };

@@ -1,14 +1,71 @@
 "use client";
 
-import { memo, useCallback, useEffect, useState, type MouseEvent } from 'react';
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+} from 'react';
 import MarkdownWithThreads from '@/app/home/components/MarkdownWithThreads';
 import SearchSourcesTray from '@/app/home/components/SearchSourcesTray';
 import type { BranchChip } from '@/app/home/components/conversationTree';
 import type { InlineThreadMarker } from '@/app/home/components/threadTypes';
 import type { Message } from '@/app/home/types';
+import { getSelectionStreamVersion } from '@/app/home/components/markdownSelectableStream';
+import { restoreRangeFromOffsets } from '@/app/home/components/selectableTextIndex';
 import type { ChatImageAttachment } from '@/lib/chat-attachments';
 import { markdownContentClassName } from '@/lib/markdown';
 import { hasUsableSearchSources } from '@/lib/search-citations';
+
+const PERSISTED_HIGHLIGHT_STYLE_PREFIX = 'keen-persisted-thread-highlight-style';
+
+function getHighlightRegistry() {
+  if (
+    typeof CSS === 'undefined'
+    || typeof Highlight === 'undefined'
+    || !('highlights' in CSS)
+  ) {
+    return null;
+  }
+
+  return (CSS as typeof CSS & {
+    highlights?: {
+      set: (name: string, highlight: Highlight) => void;
+      delete: (name: string) => void;
+    };
+  }).highlights ?? null;
+}
+
+function createHighlightName(messageId: string) {
+  return `keen-persisted-thread-${messageId.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+}
+
+function ensurePersistedHighlightStyles(highlightName: string) {
+  const styleId = `${PERSISTED_HIGHLIGHT_STYLE_PREFIX}-${highlightName}`;
+  if (typeof document === 'undefined' || document.getElementById(styleId)) {
+    return;
+  }
+
+  const style = document.createElement('style');
+  style.id = styleId;
+  style.textContent = `
+::highlight(${highlightName}) {
+  background-color: color-mix(in srgb, #fef3c7 78%, transparent);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, #d97706 42%, transparent);
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: 0.16em;
+}
+.dark::highlight(${highlightName}) {
+  background-color: color-mix(in srgb, #6f5419 78%, transparent);
+  text-decoration-color: color-mix(in srgb, #fbbf24 44%, transparent);
+}`;
+  document.head.appendChild(style);
+}
 
 interface MessageRowProps {
   activeName: string;
@@ -44,6 +101,11 @@ function MessageRow({
   onTraySourceSelect,
 }: MessageRowProps) {
   const [selectedImage, setSelectedImage] = useState<ChatImageAttachment | null>(null);
+  const messageContentRef = useRef<HTMLDivElement | null>(null);
+  const persistedHighlightName = useMemo(
+    () => createHighlightName(message.id),
+    [message.id]
+  );
   const replySearchMetadata =
     message.role === 'assistant' ? message.searchMetadata ?? null : null;
   const hasSources = hasUsableSearchSources(replySearchMetadata);
@@ -78,6 +140,44 @@ function MessageRow({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedImage]);
 
+  useLayoutEffect(() => {
+    const root = messageContentRef.current;
+    const highlightRegistry = getHighlightRegistry();
+
+    if (message.role !== 'assistant' || !root || !highlightRegistry || threads.length === 0) {
+      highlightRegistry?.delete(persistedHighlightName);
+      root?.removeAttribute('data-range-thread-highlights');
+      return;
+    }
+
+    ensurePersistedHighlightStyles(persistedHighlightName);
+
+    const ranges = threads
+      .map((thread) =>
+        restoreRangeFromOffsets(
+          root,
+          thread.startOffset,
+          thread.endOffset,
+          getSelectionStreamVersion(thread.selectionStreamVersion)
+        )
+      )
+      .filter((range): range is Range => Boolean(range));
+
+    if (ranges.length === 0) {
+      highlightRegistry.delete(persistedHighlightName);
+      root.removeAttribute('data-range-thread-highlights');
+      return;
+    }
+
+    highlightRegistry.set(persistedHighlightName, new Highlight(...ranges));
+    root.setAttribute('data-range-thread-highlights', 'true');
+
+    return () => {
+      highlightRegistry.delete(persistedHighlightName);
+      root.removeAttribute('data-range-thread-highlights');
+    };
+  }, [message.role, persistedHighlightName, threads]);
+
   return (
     <div
       className="py-4"
@@ -104,6 +204,7 @@ function MessageRow({
           </span>
         </div>
         <div
+          ref={messageContentRef}
           data-message-content="true"
           className={`${markdownContentClassName} mt-2 text-base leading-relaxed text-foreground`}
         >
