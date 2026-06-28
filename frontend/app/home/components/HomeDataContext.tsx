@@ -9,15 +9,20 @@ import {
   useRef,
   type ReactNode,
 } from 'react';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useHomeData } from '@/app/home/components/useHomeData';
 import {
   createTemporaryId,
   DEFAULT_TEMPORARY_MEMORY_MODE,
   type TemporaryMemoryMode,
 } from '@/lib/chat-session';
-import type { ConversationListItem, SidebarMentorGroup } from '@/app/home/types';
+import type {
+  ConversationListItem,
+  SidebarMentorGroup,
+  SidebarWorkspaceGroup,
+} from '@/app/home/types';
 import type { MentorListItem } from '@/lib/mentors/types';
+import type { WorkspaceListItem } from '@/lib/workspaces';
 import type { ConversationBranch, BranchSelectionMap, Message } from '@/app/home/types';
 import type {
   ThreadMessage,
@@ -37,8 +42,13 @@ import {
 // ---------------------------------------------------------------------------
 
 export type SelectedChat =
-  | { kind: 'persistent'; conversationId: string; mentorId: string | null }
-  | { kind: 'draft'; draftId: string; mentorId: string | null }
+  | {
+      kind: 'persistent';
+      conversationId: string;
+      mentorId: string | null;
+      workspaceId: string | null;
+    }
+  | { kind: 'draft'; draftId: string; mentorId: string | null; workspaceId: string | null }
   | { kind: 'temporary'; tempChatId: string };
 
 type ThreadMetaRecord = Record<string, ThreadMeta[]>;
@@ -48,6 +58,7 @@ type ThreadStatusRecord = Record<string, ThreadSessionStatus>;
 export interface PersistentDraftChat {
   id: string;
   mentorId: string | null;
+  workspaceId: string | null;
   title: 'New chat';
   createdAt: string;
   updatedAt: string;
@@ -129,6 +140,7 @@ function readHomeSelectionHandoff(): HomeSelectionHandoff | null {
       kind: 'draft',
       draft: {
         ...parsed.draft,
+        workspaceId: parsed.draft.workspaceId ?? null,
         messages: parsed.draft.messages.map(fromStoredMessage),
       },
     };
@@ -183,7 +195,9 @@ function serializeTemporaryChats(chats: TemporaryChatSession[]): string {
 interface HomeDataContextValue {
   // Sidebar data
   mentors: MentorListItem[];
+  workspaces: WorkspaceListItem[];
   conversations: ConversationListItem[];
+  workspaceGroups: SidebarWorkspaceGroup[];
   mentorGroups: SidebarMentorGroup[];
   loadingLists: boolean;
   listError: string | null;
@@ -197,7 +211,7 @@ interface HomeDataContextValue {
   setTemporaryChats: React.Dispatch<React.SetStateAction<TemporaryChatSession[]>>;
   updateDraftChat: (id: string, updater: (d: PersistentDraftChat) => PersistentDraftChat) => void;
   updateTemporaryChat: (id: string, updater: (c: TemporaryChatSession) => TemporaryChatSession) => void;
-  getOrCreateDraft: (mentorId: string | null) => PersistentDraftChat;
+  getOrCreateDraft: (mentorId: string | null, workspaceId?: string | null) => PersistentDraftChat;
 
   // Selection
   selectedChat: SelectedChat | null;
@@ -208,7 +222,7 @@ interface HomeDataContextValue {
   handleSelectConversation: (conversation: ConversationListItem) => void;
   handleSelectDraft: (draftId: string) => void;
   handleSelectTemporaryChat: (tempChatId: string) => void;
-  handleCreateDraftSelection: (mentorId: string | null) => void;
+  handleCreateDraftSelection: (mentorId: string | null, workspaceId?: string | null) => void;
   handleCreateTemporaryChat: () => void;
   handleCloseTemporaryChat: (tempChatId: string) => void;
 
@@ -232,6 +246,7 @@ interface HomeDataContextValue {
   openPersistentConversation: (id: string, opts?: { replace?: boolean }) => void;
   replacePersistentConversationUrl: (id: string) => void;
   openHomeWorkspace: () => void;
+  openWorkspace: (workspaceId: string) => void;
   buildHomeHref: (pathname: string) => string;
   routeConversationId: string | null;
   e2eQueryParam: string | null;
@@ -264,10 +279,13 @@ export function HomeDataProvider({
   skipInitialSidebarRefresh = false,
 }: Props) {
   const router = useRouter();
+  const pathname = usePathname();
 
   const {
     mentors,
+    workspaces,
     conversations,
+    workspaceGroups,
     mentorGroups,
     loadingLists,
     listError,
@@ -359,6 +377,7 @@ export function HomeDataProvider({
       kind: 'draft',
       draftId: handoff.draft.id,
       mentorId: handoff.draft.mentorId,
+      workspaceId: handoff.draft.workspaceId ?? null,
     };
     setDraftChats((prev) =>
       prev.some((d) => d.id === handoff.draft.id) ? prev : [handoff.draft, ...prev]
@@ -388,11 +407,15 @@ export function HomeDataProvider({
     []
   );
 
-  const createDraft = useCallback((mentorId: string | null): PersistentDraftChat => {
+  const createDraft = useCallback((
+    mentorId: string | null,
+    workspaceId: string | null = null
+  ): PersistentDraftChat => {
     const now = new Date().toISOString();
     return {
       id: createTemporaryId('draft'),
       mentorId,
+      workspaceId,
       title: 'New chat',
       createdAt: now,
       updatedAt: now,
@@ -403,10 +426,12 @@ export function HomeDataProvider({
   }, []);
 
   const getOrCreateDraft = useCallback(
-    (mentorId: string | null) => {
-      const existing = draftChats.find((d) => d.mentorId === mentorId);
+    (mentorId: string | null, workspaceId: string | null = null) => {
+      const existing = draftChats.find(
+        (d) => d.mentorId === mentorId && d.workspaceId === workspaceId
+      );
       if (existing) return existing;
-      const draft = createDraft(mentorId);
+      const draft = createDraft(mentorId, workspaceId);
       setDraftChats((prev) => [draft, ...prev]);
       return draft;
     },
@@ -427,10 +452,22 @@ export function HomeDataProvider({
   );
 
   const openHomeWorkspace = useCallback(() => {
-    if (!clientRouteConversationId) return;
+    if (!clientRouteConversationId && pathname === '/home') {
+      return;
+    }
+
     setClientRouteConversationId(null);
     router.push(buildHomeHref('/home'), { scroll: false });
-  }, [buildHomeHref, clientRouteConversationId, router]);
+  }, [buildHomeHref, clientRouteConversationId, pathname, router]);
+
+  const openWorkspace = useCallback(
+    (workspaceId: string) => {
+      const href = buildHomeHref(`/workspaces/${encodeURIComponent(workspaceId)}`);
+      setClientRouteConversationId(null);
+      router.push(href, { scroll: false });
+    },
+    [buildHomeHref, router]
+  );
 
   const openPersistentConversation = useCallback(
     (conversationId: string, options?: { replace?: boolean }) => {
@@ -469,45 +506,55 @@ export function HomeDataProvider({
     (draftId: string) => {
       const draft = draftChats.find((d) => d.id === draftId);
       if (!draft) return;
-      const next: SelectedChat = { kind: 'draft', draftId, mentorId: draft.mentorId };
+      const next: SelectedChat = {
+        kind: 'draft',
+        draftId,
+        mentorId: draft.mentorId,
+        workspaceId: draft.workspaceId,
+      };
       prepareForChatSwitchRef.current(next);
-      if (clientRouteConversationId) {
+      if (clientRouteConversationId || pathname !== '/home') {
         persistHomeSelectionHandoff({ kind: 'draft', draft });
       }
       selectedChatRef.current = next;
       setSelectedChat(next);
       openHomeWorkspace();
     },
-    [clientRouteConversationId, draftChats, openHomeWorkspace]
+    [clientRouteConversationId, draftChats, openHomeWorkspace, pathname]
   );
 
   const handleSelectTemporaryChat = useCallback(
     (tempChatId: string) => {
       const next: SelectedChat = { kind: 'temporary', tempChatId };
       prepareForChatSwitchRef.current(next);
-      if (clientRouteConversationId) {
+      if (clientRouteConversationId || pathname !== '/home') {
         persistHomeSelectionHandoff({ kind: 'temporary', tempChatId });
       }
       selectedChatRef.current = next;
       setSelectedChat(next);
       openHomeWorkspace();
     },
-    [clientRouteConversationId, openHomeWorkspace]
+    [clientRouteConversationId, openHomeWorkspace, pathname]
   );
 
   const handleCreateDraftSelection = useCallback(
-    (mentorId: string | null) => {
-      const draft = getOrCreateDraft(mentorId);
-      const next: SelectedChat = { kind: 'draft', draftId: draft.id, mentorId };
+    (mentorId: string | null, workspaceId: string | null = null) => {
+      const draft = getOrCreateDraft(mentorId, workspaceId);
+      const next: SelectedChat = {
+        kind: 'draft',
+        draftId: draft.id,
+        mentorId,
+        workspaceId,
+      };
       prepareForChatSwitchRef.current(next);
-      if (clientRouteConversationId) {
+      if (clientRouteConversationId || pathname !== '/home') {
         persistHomeSelectionHandoff({ kind: 'draft', draft });
       }
       selectedChatRef.current = next;
       setSelectedChat(next);
       openHomeWorkspace();
     },
-    [clientRouteConversationId, getOrCreateDraft, openHomeWorkspace]
+    [clientRouteConversationId, getOrCreateDraft, openHomeWorkspace, pathname]
   );
 
   const handleCreateTemporaryChat = useCallback(() => {
@@ -528,13 +575,13 @@ export function HomeDataProvider({
     const next: SelectedChat = { kind: 'temporary', tempChatId: chat.id };
     prepareForChatSwitchRef.current(next);
     setTemporaryChats((prev) => [chat, ...prev]);
-    if (clientRouteConversationId) {
+    if (clientRouteConversationId || pathname !== '/home') {
       persistHomeSelectionHandoff({ kind: 'temporary', tempChatId: chat.id });
     }
     selectedChatRef.current = next;
     setSelectedChat(next);
     openHomeWorkspace();
-  }, [clientRouteConversationId, openHomeWorkspace]);
+  }, [clientRouteConversationId, openHomeWorkspace, pathname]);
 
   const handleCloseTemporaryChat = useCallback(
     (tempChatId: string) => {
@@ -588,7 +635,9 @@ export function HomeDataProvider({
 
   const value: HomeDataContextValue = {
     mentors,
+    workspaces,
     conversations,
+    workspaceGroups,
     mentorGroups,
     loadingLists,
     listError,
@@ -618,6 +667,7 @@ export function HomeDataProvider({
     openPersistentConversation,
     replacePersistentConversationUrl,
     openHomeWorkspace,
+    openWorkspace,
     buildHomeHref,
     routeConversationId: clientRouteConversationId,
     e2eQueryParam,

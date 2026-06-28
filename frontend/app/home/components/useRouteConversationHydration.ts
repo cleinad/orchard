@@ -125,6 +125,7 @@ export function useRouteConversationHydration({
         kind: 'persistent',
         conversationId: effectiveRouteConversationId,
         mentorId: loadedConversation.mentor_id,
+        workspaceId: loadedConversation.workspace_id,
       };
       const shouldPreserveCurrentTranscript =
         currentPersistentSelection?.conversationId === effectiveRouteConversationId;
@@ -166,12 +167,14 @@ export function useRouteConversationHydration({
         kind: 'persistent',
         conversationId: effectiveRouteConversationId,
         mentorId: null,
+        workspaceId: null,
       });
       setListError(err instanceof Error ? err.message : 'Failed to load conversation');
       setSelectedChat({
         kind: 'persistent',
         conversationId: effectiveRouteConversationId,
         mentorId: null,
+        workspaceId: null,
       });
       setIsRouteConversationLoading(false);
       setRouteConversationError(

@@ -1,10 +1,12 @@
 import type { Message } from '@/app/home/types';
+import type { SelectionStreamVersion } from '@/app/home/components/markdownSelectableStream';
 
 export interface ThreadSource {
   highlightedText: string;
   sourceMessageId: string;
   startOffset: number;
   endOffset: number;
+  selectionStreamVersion?: SelectionStreamVersion;
 }
 
 export interface ThreadMeta extends ThreadSource {

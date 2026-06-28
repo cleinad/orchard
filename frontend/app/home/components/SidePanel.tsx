@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useCallback, useState } from 'react';
+import { useEffect, useCallback, useState, type DragEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import SidebarPanelIcon from '@/app/components/SidebarPanelIcon';
 import Tooltip from '@/app/components/Tooltip';
@@ -8,17 +8,19 @@ import {
   RailIconAllChats,
   RailIconNewChat,
   RailIconTemporary,
+  RailIconWorkspace,
 } from '@/app/home/components/home-rail-icons';
 import { useViewerIdentity } from '@/app/components/useViewerIdentity';
 import { initialsFor } from '@/lib/mentors/ui-helpers';
 import type {
   ConversationListItem,
-  SidebarMentorGroup,
+  SidebarWorkspaceGroup,
 } from '@/app/home/types';
 
 interface DraftChatListItem {
   id: string;
   mentor_id: string | null;
+  workspace_id: string | null;
   title: string;
   updated_at: string;
 }
@@ -34,24 +36,33 @@ interface Props {
   onClose: () => void;
   onToggleSidePanel: () => void;
   onNewChatKeen: () => void;
+  onOpenWorkspacesSection: () => void;
   onOpenTemporarySection: () => void;
   onOpenAllChats: () => void;
-  mentorGroups: SidebarMentorGroup[];
+  workspaceGroups: SidebarWorkspaceGroup[];
+  conversations: ConversationListItem[];
   draftChats: DraftChatListItem[];
   temporaryChats: TemporaryChatListItem[];
   selectedConversationId: string | null;
   selectedDraftId: string | null;
   selectedTempChatId: string | null;
   selectedMentorId: string | null;
+  selectedWorkspaceId: string | null;
   onSelectConversation: (conversation: ConversationListItem) => void;
   onSelectDraft: (draftId: string) => void;
   onSelectTemporaryChat: (tempChatId: string) => void;
-  onCreateDraft: (mentorId: string | null) => void;
+  onCreateWorkspaceDraft: (workspaceId: string) => void;
+  onCreateWorkspace: () => void;
+  onOpenWorkspace: (workspaceId: string) => void;
   onCloseTemporaryChat: (tempChatId: string) => void;
+  onMoveConversation: (
+    conversation: ConversationListItem,
+    targetWorkspaceId: string | null
+  ) => Promise<void>;
 }
 
-function getMentorKey(mentorId: string | null) {
-  return mentorId ?? '__keen__';
+function getWorkspaceKey(workspaceId: string) {
+  return `workspace:${workspaceId}`;
 }
 
 function formatDate(input: string): string {
@@ -66,30 +77,46 @@ function formatDate(input: string): string {
 
 const railIconButtonClass =
   'relative z-10 inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-md text-foreground transition-colors hover:bg-foreground/[0.04]';
+const CHAT_LIST_KEY = '__chats__';
+const GLOBAL_DROP_TARGET_KEY = 'global';
 
 export default function SidePanel({
   isOpen,
   onClose,
   onToggleSidePanel,
   onNewChatKeen,
+  onOpenWorkspacesSection,
   onOpenTemporarySection,
   onOpenAllChats,
-  mentorGroups,
+  workspaceGroups,
+  conversations,
   draftChats,
   temporaryChats,
   selectedConversationId,
   selectedDraftId,
   selectedTempChatId,
   selectedMentorId,
+  selectedWorkspaceId,
   onSelectConversation,
   onSelectDraft,
   onSelectTemporaryChat,
-  onCreateDraft,
+  onCreateWorkspaceDraft,
+  onCreateWorkspace,
+  onOpenWorkspace,
   onCloseTemporaryChat,
+  onMoveConversation,
 }: Props) {
   const router = useRouter();
-  const [expandedMentors, setExpandedMentors] = useState<Record<string, boolean>>({});
+  const [expandedWorkspaces, setExpandedWorkspaces] = useState<Record<string, boolean>>({});
   const [visibleCounts, setVisibleCounts] = useState<Record<string, number>>({});
+  const [draggedConversation, setDraggedConversation] = useState<ConversationListItem | null>(null);
+  const [activeDropTarget, setActiveDropTarget] = useState<string | null>(null);
+  const [movingConversationId, setMovingConversationId] = useState<string | null>(null);
+  const [moveError, setMoveError] = useState<string | null>(null);
+  const [pendingMove, setPendingMove] = useState<{
+    conversation: ConversationListItem;
+    targetWorkspaceId: string | null;
+  } | null>(null);
   const { viewer } = useViewerIdentity();
   const profileName = viewer?.fullName || viewer?.email || 'Your profile';
   const profileInitials = initialsFor(profileName);
@@ -109,26 +136,63 @@ export default function SidePanel({
   }, [isOpen, handleEscape]);
 
   useEffect(() => {
-    if (!selectedMentorId && !selectedDraftId && !selectedConversationId) {
+    if (!selectedMentorId && !selectedWorkspaceId && !selectedDraftId && !selectedConversationId) {
       return;
     }
 
-    const mentorKey = getMentorKey(selectedMentorId);
-    const draftByMentorKey = new Map(
-      draftChats.map((draft) => [getMentorKey(draft.mentor_id), draft])
+    if (selectedWorkspaceId) {
+      const workspaceKey = getWorkspaceKey(selectedWorkspaceId);
+      const draftByWorkspaceKey = new Map(
+        draftChats
+          .filter((draft) => draft.workspace_id)
+          .map((draft) => [getWorkspaceKey(draft.workspace_id!), draft])
+      );
+      const group = workspaceGroups.find((entry) => entry.workspace_id === selectedWorkspaceId);
+      if (!group) return;
+
+      setExpandedWorkspaces((prev) => ({ ...prev, [workspaceKey]: true }));
+
+      const items = [
+        ...(draftByWorkspaceKey.get(workspaceKey)
+          ? [{ kind: 'draft' as const, id: draftByWorkspaceKey.get(workspaceKey)!.id }]
+          : []),
+        ...group.conversations.map((conversation) => ({
+          kind: 'conversation' as const,
+          id: conversation.id,
+        })),
+      ];
+
+      const selectedIndex = items.findIndex((item) =>
+        item.kind === 'draft'
+          ? item.id === selectedDraftId
+          : item.id === selectedConversationId
+      );
+
+      if (selectedIndex >= 0) {
+        const minimumVisible = selectedIndex < 3 ? 3 : Math.max(10, selectedIndex + 1);
+        setVisibleCounts((prev) => ({
+          ...prev,
+          [workspaceKey]: Math.max(prev[workspaceKey] ?? 3, minimumVisible),
+        }));
+      }
+
+      return;
+    }
+
+    if (selectedMentorId) {
+      return;
+    }
+
+    const globalDraft = draftChats.find((draft) => !draft.workspace_id && !draft.mentor_id);
+    const globalConversations = conversations.filter(
+      (conversation) => !conversation.workspace_id && !conversation.mentor_id
     );
-    const group = mentorGroups.find((entry) => entry.mentor_id === selectedMentorId);
-    if (!group) {
-      return;
-    }
-
-    setExpandedMentors((prev) => ({ ...prev, [mentorKey]: true }));
 
     const items = [
-      ...(draftByMentorKey.get(mentorKey)
-        ? [{ kind: 'draft' as const, id: draftByMentorKey.get(mentorKey)!.id }]
+      ...(globalDraft
+        ? [{ kind: 'draft' as const, id: globalDraft.id }]
         : []),
-      ...group.conversations.map((conversation) => ({
+      ...globalConversations.map((conversation) => ({
         kind: 'conversation' as const,
         id: conversation.id,
       })),
@@ -144,179 +208,388 @@ export default function SidePanel({
       const minimumVisible = selectedIndex < 3 ? 3 : Math.max(10, selectedIndex + 1);
       setVisibleCounts((prev) => ({
         ...prev,
-        [mentorKey]: Math.max(prev[mentorKey] ?? 3, minimumVisible),
+        [CHAT_LIST_KEY]: Math.max(prev[CHAT_LIST_KEY] ?? 10, minimumVisible),
       }));
     }
   }, [
+    conversations,
     draftChats,
-    mentorGroups,
     selectedConversationId,
     selectedDraftId,
     selectedMentorId,
+    selectedWorkspaceId,
+    workspaceGroups,
   ]);
 
-  const draftByMentorKey = new Map(
-    draftChats.map((draft) => [getMentorKey(draft.mentor_id), draft])
+  const draftByWorkspaceKey = new Map(
+    draftChats
+      .filter((draft) => draft.workspace_id)
+      .map((draft) => [getWorkspaceKey(draft.workspace_id!), draft])
+  );
+  const globalDraft = draftChats.find((draft) => !draft.workspace_id && !draft.mentor_id) || null;
+  const globalConversations = conversations.filter(
+    (conversation) => !conversation.workspace_id && !conversation.mentor_id
+  );
+  const visibleChatCount = visibleCounts[CHAT_LIST_KEY] ?? 10;
+  const visibleGlobalConversations = globalConversations.slice(0, visibleChatCount);
+  const hasMoreGlobalConversations = globalConversations.length > visibleGlobalConversations.length;
+
+  const getDropTargetKey = (workspaceId: string | null) =>
+    workspaceId ? getWorkspaceKey(workspaceId) : GLOBAL_DROP_TARGET_KEY;
+
+  const canDropConversation = (
+    conversation: ConversationListItem | null,
+    targetWorkspaceId: string | null
+  ) => {
+    if (!conversation || conversation.mentor_id) return false;
+    return (conversation.workspace_id ?? null) !== targetWorkspaceId;
+  };
+
+  const performConversationMove = useCallback(
+    async (conversation: ConversationListItem, targetWorkspaceId: string | null) => {
+      setMovingConversationId(conversation.id);
+      setMoveError(null);
+
+      try {
+        await onMoveConversation(conversation, targetWorkspaceId);
+        if (targetWorkspaceId) {
+          const workspaceKey = getWorkspaceKey(targetWorkspaceId);
+          setExpandedWorkspaces((prev) => ({ ...prev, [workspaceKey]: true }));
+        }
+        setPendingMove(null);
+      } catch (error) {
+        setMoveError(error instanceof Error ? error.message : 'Could not move chat.');
+      } finally {
+        setMovingConversationId(null);
+        setDraggedConversation(null);
+        setActiveDropTarget(null);
+      }
+    },
+    [onMoveConversation]
   );
 
-  // Mentor list sits under the Chats heading; same expand/draft logic as before.
-  const mentorList = (
-    <div className="pt-1">
-      {mentorGroups.map((group) => {
-        const mentorKey = getMentorKey(group.mentor_id);
-        const draft = draftByMentorKey.get(mentorKey) || null;
-        const isExpanded = expandedMentors[mentorKey] || false;
-        const visibleCount = visibleCounts[mentorKey] ?? 3;
-        const visibleConversations = isExpanded
-          ? group.conversations.slice(0, visibleCount)
-          : [];
-        const hasMore = group.conversations.length > visibleConversations.length;
-        const isSelectedMentor =
-          selectedMentorId === group.mentor_id &&
-          (selectedConversationId !== null || selectedDraftId !== null);
+  const handleConversationDrop = (
+    event: DragEvent<HTMLElement>,
+    targetWorkspaceId: string | null
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
 
-        return (
-          <div key={mentorKey} className="py-1">
-            <div
-              className={`flex items-center gap-2 rounded-xl px-3 py-1.5 transition-colors ${
-                isSelectedMentor ? 'bg-foreground/[0.05]' : 'hover:bg-foreground/[0.03]'
+    const conversation = draggedConversation;
+    if (!conversation || !canDropConversation(conversation, targetWorkspaceId)) {
+      setActiveDropTarget(null);
+      return;
+    }
+
+    if (targetWorkspaceId === null && conversation.workspace_id) {
+      setPendingMove({ conversation, targetWorkspaceId });
+      setActiveDropTarget(null);
+      setDraggedConversation(null);
+      return;
+    }
+
+    void performConversationMove(conversation, targetWorkspaceId);
+  };
+
+  const handleDropTargetDragOver = (
+    event: DragEvent<HTMLElement>,
+    targetWorkspaceId: string | null
+  ) => {
+    if (!canDropConversation(draggedConversation, targetWorkspaceId)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    setActiveDropTarget(getDropTargetKey(targetWorkspaceId));
+  };
+
+  const handleDropTargetDragLeave = (
+    event: DragEvent<HTMLElement>,
+    targetWorkspaceId: string | null
+  ) => {
+    if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+    setActiveDropTarget((current) =>
+      current === getDropTargetKey(targetWorkspaceId) ? null : current
+    );
+  };
+
+  const getConversationDragProps = (conversation: ConversationListItem) => ({
+    draggable: !conversation.mentor_id && movingConversationId !== conversation.id,
+    onDragStart: (event: DragEvent<HTMLButtonElement>) => {
+      if (conversation.mentor_id || movingConversationId === conversation.id) {
+        event.preventDefault();
+        return;
+      }
+
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('text/plain', conversation.id);
+      setDraggedConversation(conversation);
+      setMoveError(null);
+    },
+    onDragEnd: () => {
+      setDraggedConversation(null);
+      setActiveDropTarget(null);
+    },
+    'data-testid': `conversation-row-${conversation.id}`,
+  });
+
+  const getDropTargetClass = (workspaceId: string | null) => {
+    const isActive = activeDropTarget === getDropTargetKey(workspaceId);
+    return isActive
+      ? 'outline outline-2 outline-foreground/30 bg-foreground/[0.06]'
+      : '';
+  };
+
+  const renderWorkspaceIcon = (group: SidebarWorkspaceGroup) => (
+    <span
+      className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md text-xs"
+      style={{
+        backgroundColor: group.workspace_accent_color
+          ? `${group.workspace_accent_color}22`
+          : 'var(--surface-muted)',
+        color: group.workspace_accent_color || 'var(--muted)',
+      }}
+    >
+      {group.workspace_icon || <RailIconWorkspace className="h-3.5 w-3.5" />}
+    </span>
+  );
+
+  const workspaceList = (
+    <div className="pb-3">
+      {workspaceGroups.length === 0 ? (
+        <div className="px-3 py-2 text-xs text-muted">No workspaces yet.</div>
+      ) : (
+        workspaceGroups.map((group) => {
+          const workspaceKey = getWorkspaceKey(group.workspace_id);
+          const draft = draftByWorkspaceKey.get(workspaceKey) || null;
+          const isExpanded = expandedWorkspaces[workspaceKey] || false;
+          const visibleCount = visibleCounts[workspaceKey] ?? 3;
+          const visibleConversations = isExpanded
+            ? group.conversations.slice(0, visibleCount)
+            : [];
+          const hasMore = group.conversations.length > visibleConversations.length;
+          const isSelectedWorkspace =
+            selectedWorkspaceId === group.workspace_id && selectedMentorId === null;
+
+          return (
+            <div key={workspaceKey} className="py-px">
+              <div
+                onDragOver={(event) => handleDropTargetDragOver(event, group.workspace_id)}
+                onDragLeave={(event) => handleDropTargetDragLeave(event, group.workspace_id)}
+                onDrop={(event) => handleConversationDrop(event, group.workspace_id)}
+                data-testid={`workspace-drop-target-${group.workspace_id}`}
+                className={`flex items-center gap-2 rounded-xl px-3 py-1 transition-colors ${
+                  isSelectedWorkspace ? 'bg-foreground/[0.05]' : 'hover:bg-foreground/[0.03]'
+                } ${getDropTargetClass(group.workspace_id)}`}
+              >
+                <button
+                  type="button"
+                  onClick={() => onOpenWorkspace(group.workspace_id)}
+                  className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                >
+                  {renderWorkspaceIcon(group)}
+                  <span className="min-w-0 flex-1 truncate font-sans text-[15px] text-foreground">
+                    {group.workspace_name}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setExpandedWorkspaces((prev) => ({
+                      ...prev,
+                      [workspaceKey]: !isExpanded,
+                    }))
+                  }
+                  className="inline-flex h-[1.625rem] w-[1.625rem] flex-shrink-0 items-center justify-center rounded-full text-muted transition-colors hover:bg-foreground/[0.05] hover:text-foreground"
+                  aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${group.workspace_name}`}
+                >
+                  <svg
+                    className={`h-4 w-4 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    viewBox="0 0 24 24"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5.25L15 12l-6 6.75" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onCreateWorkspaceDraft(group.workspace_id)}
+                  className="inline-flex h-[1.625rem] w-[1.625rem] flex-shrink-0 items-center justify-center rounded-full text-muted transition-colors hover:bg-foreground/[0.05] hover:text-foreground"
+                  aria-label={`New chat in ${group.workspace_name}`}
+                >
+                  <svg
+                    className="h-4 w-4"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    viewBox="0 0 24 24"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                  </svg>
+                </button>
+              </div>
+
+              {isExpanded && (
+                <div className="ml-6 mt-px space-y-px border-l border-border-subtle/80 pl-4">
+                  {draft && (
+                    <button
+                      type="button"
+                      onClick={() => onSelectDraft(draft.id)}
+                      className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-1.5 text-left transition-colors ${
+                        selectedDraftId === draft.id
+                          ? 'bg-foreground/[0.06]'
+                          : 'hover:bg-foreground/[0.04]'
+                      }`}
+                    >
+                      <span className="truncate font-sans text-sm text-foreground">{draft.title}</span>
+                      <span className="flex-shrink-0 font-sans text-[11px] text-muted">
+                        {formatDate(draft.updated_at)}
+                      </span>
+                    </button>
+                  )}
+
+                  {visibleConversations.map((conversation) => (
+                    <button
+                      key={conversation.id}
+                      type="button"
+                      onClick={() => onSelectConversation(conversation)}
+                      {...getConversationDragProps(conversation)}
+                      className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-1.5 text-left transition-colors ${
+                        selectedConversationId === conversation.id
+                          ? 'bg-foreground/[0.06]'
+                          : 'hover:bg-foreground/[0.04]'
+                      } ${movingConversationId === conversation.id ? 'opacity-60' : ''}`}
+                    >
+                      <span className="truncate font-sans text-sm text-foreground/88">
+                        {conversation.title}
+                      </span>
+                      <span className="flex-shrink-0 font-sans text-[11px] text-muted">
+                        {formatDate(conversation.updated_at)}
+                      </span>
+                    </button>
+                  ))}
+
+                  {group.conversations.length > 3 && (
+                    <div className="flex items-center gap-3 px-3 pt-1">
+                      {hasMore ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setVisibleCounts((prev) => ({
+                              ...prev,
+                              [workspaceKey]:
+                                (prev[workspaceKey] ?? 3) <= 3
+                                  ? 10
+                                  : (prev[workspaceKey] ?? 3) + 10,
+                            }))
+                          }
+                          className="text-[11px] font-sans font-medium tracking-wide text-muted transition-colors hover:text-foreground"
+                        >
+                          Show more
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setVisibleCounts((prev) => ({
+                              ...prev,
+                              [workspaceKey]: 3,
+                            }))
+                          }
+                          className="text-[11px] font-medium tracking-wide text-muted transition-colors hover:text-foreground"
+                        >
+                          Show less
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })
+      )}
+    </div>
+  );
+
+  const chatList = (
+    <div className="space-y-px pb-6">
+      {!globalDraft && globalConversations.length === 0 ? (
+        <p className="px-3 py-2 font-sans text-xs text-muted">No chats yet.</p>
+      ) : (
+        <>
+          {globalDraft && (
+            <button
+              type="button"
+              onClick={() => onSelectDraft(globalDraft.id)}
+              className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-1.5 text-left transition-colors ${
+                selectedDraftId === globalDraft.id
+                  ? 'bg-foreground/[0.06]'
+                  : 'hover:bg-foreground/[0.04]'
               }`}
             >
-              <button
-                type="button"
-                onClick={() =>
-                  setExpandedMentors((prev) => ({
-                    ...prev,
-                    [mentorKey]: !isExpanded,
-                  }))
-                }
-                className="flex min-w-0 flex-1 items-center gap-3 text-left"
-              >
-                <span
-                  className="h-2.5 w-2.5 flex-shrink-0 rounded-full"
-                  style={{
-                    backgroundColor: group.mentor_accent_color || '#94a3b8',
-                  }}
-                />
-                <span className="min-w-0 flex-1 truncate font-sans text-[15px] text-foreground">
-                  {group.mentor_name}
-                </span>
-                <svg
-                  className={`h-4 w-4 flex-shrink-0 text-muted transition-transform ${
-                    isExpanded ? 'rotate-90' : ''
-                  }`}
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  viewBox="0 0 24 24"
+              <span className="truncate font-sans text-sm text-foreground">{globalDraft.title}</span>
+              <span className="flex-shrink-0 font-sans text-[11px] text-muted">
+                {formatDate(globalDraft.updated_at)}
+              </span>
+            </button>
+          )}
+
+          {visibleGlobalConversations.map((conversation) => (
+            <button
+              key={conversation.id}
+              type="button"
+              onClick={() => onSelectConversation(conversation)}
+              {...getConversationDragProps(conversation)}
+              className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-1.5 text-left transition-colors ${
+                selectedConversationId === conversation.id
+                  ? 'bg-foreground/[0.06]'
+                  : 'hover:bg-foreground/[0.04]'
+              } ${movingConversationId === conversation.id ? 'opacity-60' : ''}`}
+            >
+              <span className="truncate font-sans text-sm text-foreground/88">
+                {conversation.title}
+              </span>
+              <span className="flex-shrink-0 font-sans text-[11px] text-muted">
+                {formatDate(conversation.updated_at)}
+              </span>
+            </button>
+          ))}
+
+          {globalConversations.length > 10 && (
+            <div className="flex items-center gap-3 px-3 pt-1">
+              {hasMoreGlobalConversations ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setVisibleCounts((prev) => ({
+                      ...prev,
+                      [CHAT_LIST_KEY]:
+                        (prev[CHAT_LIST_KEY] ?? 10) + 10,
+                    }))
+                  }
+                  className="text-[11px] font-sans font-medium tracking-wide text-muted transition-colors hover:text-foreground"
                 >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M9 5.25L15 12l-6 6.75"
-                  />
-                </svg>
-              </button>
-              <button
-                type="button"
-                onClick={() => onCreateDraft(group.mentor_id)}
-                className="inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-muted transition-colors hover:bg-foreground/[0.05] hover:text-foreground"
-                aria-label={`New chat with ${group.mentor_name}`}
-              >
-                <svg
-                  className="h-4 w-4"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  viewBox="0 0 24 24"
+                  Show more
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setVisibleCounts((prev) => ({
+                      ...prev,
+                      [CHAT_LIST_KEY]: 10,
+                    }))
+                  }
+                  className="text-[11px] font-medium tracking-wide text-muted transition-colors hover:text-foreground"
                 >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M12 4.5v15m7.5-7.5h-15"
-                  />
-                </svg>
-              </button>
+                  Show less
+                </button>
+              )}
             </div>
-
-            {isExpanded && (
-              <div className="ml-6 mt-1 space-y-0.5 border-l border-border-subtle/80 pl-4">
-                {draft && (
-                  <button
-                    type="button"
-                    onClick={() => onSelectDraft(draft.id)}
-                    className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-1.5 text-left transition-colors ${
-                      selectedDraftId === draft.id
-                        ? 'bg-foreground/[0.06]'
-                        : 'hover:bg-foreground/[0.04]'
-                    }`}
-                  >
-                    <span className="truncate font-sans text-sm text-foreground">{draft.title}</span>
-                    <span className="flex-shrink-0 font-sans text-[11px] text-muted">
-                      {formatDate(draft.updated_at)}
-                    </span>
-                  </button>
-                )}
-
-                {visibleConversations.map((conversation) => (
-                  <button
-                    key={conversation.id}
-                    type="button"
-                    onClick={() => onSelectConversation(conversation)}
-                    className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-1.5 text-left transition-colors ${
-                      selectedConversationId === conversation.id
-                        ? 'bg-foreground/[0.06]'
-                        : 'hover:bg-foreground/[0.04]'
-                    }`}
-                  >
-                    <span className="truncate font-sans text-sm text-foreground/88">
-                      {conversation.title}
-                    </span>
-                    <span className="flex-shrink-0 font-sans text-[11px] text-muted">
-                      {formatDate(conversation.updated_at)}
-                    </span>
-                  </button>
-                ))}
-
-                {group.conversations.length > 3 && (
-                  <div className="flex items-center gap-3 px-3 pt-1">
-                    {hasMore ? (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setVisibleCounts((prev) => ({
-                            ...prev,
-                            [mentorKey]:
-                              (prev[mentorKey] ?? 3) <= 3
-                                ? 10
-                                : (prev[mentorKey] ?? 3) + 10,
-                          }))
-                        }
-                        className="text-[11px] font-sans font-medium tracking-wide text-muted transition-colors hover:text-foreground"
-                      >
-                        Show more
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setVisibleCounts((prev) => ({
-                            ...prev,
-                            [mentorKey]: 3,
-                          }))
-                        }
-                        className="text-[11px] font-medium tracking-wide text-muted transition-colors hover:text-foreground"
-                      >
-                        Show less
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        );
-      })}
+          )}
+        </>
+      )}
     </div>
   );
 
@@ -344,6 +617,16 @@ export default function SidePanel({
           <RailIconNewChat className="h-5 w-5 text-foreground" />
         </button>
       </Tooltip>
+      <Tooltip content="Workspaces" side="right">
+        <button
+          type="button"
+          onClick={onOpenWorkspacesSection}
+          className={railIconButtonClass}
+          aria-label="Workspaces"
+        >
+          <RailIconWorkspace className="h-5 w-5 text-foreground" />
+        </button>
+      </Tooltip>
       <Tooltip content="Temporary" side="right">
         <button
           type="button"
@@ -354,12 +637,12 @@ export default function SidePanel({
           <RailIconTemporary className="h-5 w-5 text-foreground" />
         </button>
       </Tooltip>
-      <Tooltip content="All chats" side="right">
+      <Tooltip content="Chats" side="right">
         <button
           type="button"
           onClick={onOpenAllChats}
           className={railIconButtonClass}
-          aria-label="All chats"
+          aria-label="Chats"
         >
           <RailIconAllChats className="h-5 w-5 text-foreground" />
         </button>
@@ -369,6 +652,78 @@ export default function SidePanel({
 
   return (
     <>
+      {pendingMove && (
+        <div
+          className="fixed inset-0 z-[90] flex items-center justify-center bg-foreground/[0.18] px-4 backdrop-blur-sm"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !movingConversationId) {
+              setPendingMove(null);
+            }
+          }}
+          onKeyDown={(event) => {
+            event.stopPropagation();
+            if (event.key === 'Escape' && !movingConversationId) {
+              setPendingMove(null);
+            }
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="move-chat-title"
+            className="w-full max-w-sm rounded-lg border border-border-subtle bg-background p-4 shadow-2xl"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 id="move-chat-title" className="font-sans text-base font-semibold text-foreground">
+                  Move this chat to Chats?
+                </h2>
+                <p className="mt-2 font-sans text-sm leading-5 text-muted">
+                  Existing workspace memories from this chat will stay in the workspace and will not
+                  become global.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPendingMove(null)}
+                disabled={movingConversationId !== null}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted transition-colors hover:bg-foreground/[0.05] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                aria-label="Close"
+              >
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.7" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setPendingMove(null)}
+                disabled={movingConversationId !== null}
+                className="rounded-lg border border-border-subtle bg-surface px-3 py-2 font-sans text-sm font-semibold text-foreground transition hover:bg-foreground/[0.04] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  void performConversationMove(
+                    pendingMove.conversation,
+                    pendingMove.targetWorkspaceId
+                  )
+                }
+                disabled={movingConversationId !== null}
+                className="rounded-lg bg-foreground px-3 py-2 font-sans text-sm font-semibold text-background transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {movingConversationId ? 'Moving...' : 'Move chat'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div
         className={`fixed inset-0 z-40 bg-foreground/[0.06] backdrop-blur-sm transition-opacity duration-300 dark:bg-black/40 lg:hidden ${
           isOpen ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'
@@ -442,6 +797,43 @@ export default function SidePanel({
                   </button>
                 </div>
 
+                <div id="side-panel-section-workspaces" className="scroll-mt-2">
+                  <div className="flex h-10 w-full items-center">
+                    <div className="flex w-14 flex-shrink-0 items-center justify-center">
+                      <RailIconWorkspace className="h-5 w-5 text-foreground" />
+                    </div>
+                    <span className="font-sans text-sm font-medium text-foreground">Workspaces</span>
+                    <button
+                      type="button"
+                      onClick={onCreateWorkspace}
+                      className="ml-auto mr-3 inline-flex h-7 w-7 items-center justify-center rounded-full text-muted transition-colors hover:bg-foreground/[0.05] hover:text-foreground"
+                      aria-label="New workspace"
+                    >
+                      <svg
+                        className="h-4 w-4"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                      </svg>
+                    </button>
+                  </div>
+                  <div className="pl-14 pr-2">
+                    {workspaceList}
+                  </div>
+                </div>
+
+                {moveError && (
+                  <p
+                    className="ml-14 mr-5 rounded-md border border-amber-300/70 bg-amber-50 px-3 py-2 font-sans text-xs text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100"
+                    role="alert"
+                  >
+                    {moveError}
+                  </p>
+                )}
+
                 <div
                   id="side-panel-section-temporary"
                   className="scroll-mt-2"
@@ -508,13 +900,37 @@ export default function SidePanel({
                 </div>
 
                 <div id="side-panel-section-all-chats" className="scroll-mt-2">
-                  <div className="flex h-10 w-full items-center">
+                  <div
+                    className={`flex h-10 w-full items-center transition-colors ${getDropTargetClass(null)}`}
+                    onDragOver={(event) => handleDropTargetDragOver(event, null)}
+                    onDragLeave={(event) => handleDropTargetDragLeave(event, null)}
+                    onDrop={(event) => handleConversationDrop(event, null)}
+                    data-testid="global-drop-target"
+                  >
                     <div className="flex w-14 flex-shrink-0 items-center justify-center">
                       <RailIconAllChats className="h-5 w-5 text-foreground" />
                     </div>
-                    <span className="font-sans text-sm font-medium text-foreground">All chats</span>
+                    <span className="font-sans text-sm font-medium text-foreground">Chats</span>
+                    <button
+                      type="button"
+                      onClick={onNewChatKeen}
+                      className="ml-auto mr-3 inline-flex h-7 w-7 items-center justify-center rounded-full text-muted transition-colors hover:bg-foreground/[0.05] hover:text-foreground"
+                      aria-label="New chat"
+                    >
+                      <svg
+                        className="h-4 w-4"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                      </svg>
+                    </button>
                   </div>
-                  <div className="pl-14 pb-6 pr-2">{mentorList}</div>
+                  <div className="pl-14 pb-6 pr-2">
+                    {chatList}
+                  </div>
                 </div>
                 </div>{/* end header rows */}
               </div>

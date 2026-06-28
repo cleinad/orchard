@@ -135,6 +135,7 @@ export function useHomeFixtureRuntime({
       conversationId:
         fixture.conversationId ?? `fixture-${fixture.key}`,
       mentorId: null,
+      workspaceId: null,
     });
   }, [
     composerDraftInputsStorageKey,

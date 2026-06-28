@@ -43,6 +43,9 @@ interface TableConfig {
   rows: MockRow[];
   /** Rows returned by .select().single() after an insert/update. Shifts one per call. */
   returnOnMutate?: MockRow[];
+  mutateError?:
+    | unknown
+    | ((operation: 'insert' | 'update' | 'upsert' | 'delete', args: unknown) => unknown);
 }
 
 interface MockSupabaseOptions {
@@ -104,9 +107,18 @@ export function createMockSupabase(options: MockSupabaseOptions = {}) {
       try {
         if (operation !== 'select') {
           const tableConf = tables[table];
-          const mutateReturn = tableConf?.returnOnMutate?.shift();
+          const mutateError = typeof tableConf?.mutateError === 'function'
+            ? tableConf.mutateError(operation, args)
+            : tableConf?.mutateError;
 
           mutations.push({ table, operation, args, filters });
+
+          if (mutateError) {
+            resolve({ data: null, error: mutateError });
+            return;
+          }
+
+          const mutateReturn = tableConf?.returnOnMutate?.shift();
 
           if (selectCalled && singleMode && mutateReturn) {
             resolve({ data: mutateReturn, error: null });

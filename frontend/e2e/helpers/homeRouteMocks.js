@@ -1,10 +1,20 @@
 const DEFAULT_CHAT_MODELS = [
   {
-    id: 'gpt-5.4',
-    label: 'GPT 5.4',
+    id: 'gpt-5.5',
+    label: 'GPT-5.5',
     provider: 'openai',
+    providerLabel: 'OpenAI',
+    iconKey: 'openai',
+    description: 'Best OpenAI model for complex reasoning and coding.',
+    badge: 'Max',
     available: true,
     isDefault: true,
+    effort: {
+      levels: ['low', 'medium', 'high', 'max'],
+      defaultLevel: 'medium',
+      supportsThinkingToggle: true,
+      defaultThinkingEnabled: true,
+    },
   },
 ];
 
@@ -22,6 +32,23 @@ function parseEqFilter(value) {
   return decodeURIComponent(value.slice(3));
 }
 
+function parseInFilter(value) {
+  if (!value || !value.startsWith('in.(') || !value.endsWith(')')) {
+    return [];
+  }
+
+  return value
+    .slice(4, -1)
+    .split(',')
+    .map((item) => decodeURIComponent(item.trim()))
+    .filter(Boolean);
+}
+
+function fallbackTitleFromMessage(message) {
+  const normalized = typeof message === 'string' ? message.trim() : '';
+  return normalized.length > 0 ? normalized.slice(0, 60) : 'New chat';
+}
+
 async function fulfillJson(route, json, status = 200) {
   await route.fulfill({
     status,
@@ -34,11 +61,16 @@ async function mockHomeDataRoutes(page, state) {
   const resolvedState = {
     viewer: DEFAULT_VIEWER,
     mentors: [],
+    workspaces: [],
+    memoryItems: [],
+    memoryItemSources: [],
     conversations: [],
     messagesByConversationId: {},
+    attachmentsByMessageId: {},
     branchesByConversationId: {},
     threadsByConversationId: {},
     chatModels: DEFAULT_CHAT_MODELS,
+    createdConversations: [],
     ...state,
   };
 
@@ -48,6 +80,254 @@ async function mockHomeDataRoutes(page, state) {
 
   await page.route('**/api/mentors', async (route) => {
     await fulfillJson(route, resolvedState.mentors);
+  });
+
+  await page.route('**/api/workspaces', async (route) => {
+    const method = route.request().method();
+
+    if (method === 'POST') {
+      const body = route.request().postDataJSON();
+      const now = new Date().toISOString();
+      const workspace = {
+        id: `workspace-e2e-created-${resolvedState.workspaces.length + 1}`,
+        name: body?.name || 'Workspace',
+        description: body?.description ?? null,
+        context: body?.context ?? null,
+        icon: body?.icon ?? null,
+        accent_color: body?.accent_color ?? null,
+        created_at: now,
+        updated_at: now,
+      };
+      resolvedState.workspaces.unshift(workspace);
+      await fulfillJson(route, { workspace }, 201);
+      return;
+    }
+
+    await fulfillJson(route, { workspaces: resolvedState.workspaces });
+  });
+
+  await page.route('**/api/workspaces/*', async (route) => {
+    const url = new URL(route.request().url());
+    const workspaceId = decodeURIComponent(url.pathname.split('/').pop() || '');
+    const method = route.request().method();
+    const workspace = resolvedState.workspaces.find((entry) => entry.id === workspaceId);
+
+    if (!workspace) {
+      await fulfillJson(route, { error: 'Workspace not found' }, 404);
+      return;
+    }
+
+    if (method === 'PATCH') {
+      const body = route.request().postDataJSON();
+      Object.assign(workspace, {
+        ...(Object.prototype.hasOwnProperty.call(body, 'name') ? { name: body.name } : {}),
+        ...(Object.prototype.hasOwnProperty.call(body, 'description') ? { description: body.description } : {}),
+        ...(Object.prototype.hasOwnProperty.call(body, 'context') ? { context: body.context } : {}),
+        updated_at: new Date().toISOString(),
+      });
+      await fulfillJson(route, { workspace });
+      return;
+    }
+
+    if (method === 'DELETE') {
+      const conversationIds = resolvedState.conversations
+        .filter((conversation) => conversation.workspace_id === workspaceId)
+        .map((conversation) => conversation.id);
+      const memoryIds = resolvedState.memoryItems
+        .filter(
+          (item) => item.owner_type === 'workspace' && item.owner_id === workspaceId
+        )
+        .map((item) => item.id);
+
+      resolvedState.workspaces = resolvedState.workspaces.filter(
+        (entry) => entry.id !== workspaceId
+      );
+      resolvedState.conversations = resolvedState.conversations.filter(
+        (conversation) => conversation.workspace_id !== workspaceId
+      );
+      resolvedState.memoryItems = resolvedState.memoryItems.filter(
+        (item) => !(item.owner_type === 'workspace' && item.owner_id === workspaceId)
+      );
+
+      for (const conversationId of conversationIds) {
+        delete resolvedState.messagesByConversationId[conversationId];
+        delete resolvedState.branchesByConversationId[conversationId];
+        delete resolvedState.threadsByConversationId[conversationId];
+      }
+
+      await fulfillJson(route, {
+        success: true,
+        deleted: {
+          workspace: 1,
+          conversations: conversationIds.length,
+          memoryItems: memoryIds.length,
+        },
+      });
+      return;
+    }
+
+    await fulfillJson(route, { workspace });
+  });
+
+  await page.route('**/api/memory/items*', async (route) => {
+    const url = new URL(route.request().url());
+    const scope = url.searchParams.get('scope') || 'all';
+    const items =
+      scope.startsWith('workspace:')
+        ? resolvedState.memoryItems.filter(
+            (item) =>
+              item.owner_type === 'workspace' &&
+              item.owner_id === scope.replace(/^workspace:/, '')
+          )
+        : resolvedState.memoryItems;
+
+    await fulfillJson(route, { items });
+  });
+
+  await page.route('**/api/conversations', async (route) => {
+    const method = route.request().method();
+
+    if (method === 'POST') {
+      const body = route.request().postDataJSON();
+      const queuedConversation = resolvedState.createdConversations.shift();
+      const now = new Date().toISOString();
+      const conversation = queuedConversation || {
+        id: `conversation-e2e-created-${resolvedState.conversations.length + 1}`,
+        title: fallbackTitleFromMessage(body?.initialMessage),
+        mentor_id: body?.mentorId ?? null,
+        workspace_id: body?.workspaceId ?? null,
+        created_at: now,
+        updated_at: now,
+      };
+
+      resolvedState.conversations.unshift(conversation);
+      await fulfillJson(route, {
+        conversation: {
+          id: conversation.id,
+          title: conversation.title,
+          mentorId: conversation.mentor_id ?? conversation.mentorId ?? null,
+          workspaceId: conversation.workspace_id ?? conversation.workspaceId ?? null,
+          createdAt: conversation.created_at ?? conversation.createdAt ?? now,
+          updatedAt: conversation.updated_at ?? conversation.updatedAt ?? now,
+        },
+      }, 201);
+      return;
+    }
+
+    if (method === 'DELETE') {
+      const body = route.request().postDataJSON();
+      const conversationId = body?.conversationId;
+      resolvedState.conversations = resolvedState.conversations.filter(
+        (conversation) => conversation.id !== conversationId
+      );
+      delete resolvedState.messagesByConversationId[conversationId];
+      await fulfillJson(route, { ok: true });
+      return;
+    }
+
+    await route.fallback();
+  });
+
+  await page.route('**/api/conversations/*/context', async (route) => {
+    const method = route.request().method();
+    if (method !== 'PATCH') {
+      await route.fallback();
+      return;
+    }
+
+    const url = new URL(route.request().url());
+    const parts = url.pathname.split('/');
+    const conversationId = decodeURIComponent(parts[parts.length - 2] || '');
+    const body = route.request().postDataJSON();
+    const targetWorkspaceId = body?.workspaceId ?? null;
+    const conversation = resolvedState.conversations.find((entry) => entry.id === conversationId);
+
+    if (!conversation) {
+      await fulfillJson(route, { error: 'Conversation not found' }, 404);
+      return;
+    }
+
+    if (conversation.mentor_id) {
+      await fulfillJson(route, { error: 'Mentor conversations cannot be moved yet' }, 400);
+      return;
+    }
+
+    if (conversation.workspace_id === targetWorkspaceId) {
+      await fulfillJson(route, { error: 'Conversation is already in that context' }, 409);
+      return;
+    }
+
+    if (
+      targetWorkspaceId &&
+      !resolvedState.workspaces.some((workspace) => workspace.id === targetWorkspaceId)
+    ) {
+      await fulfillJson(route, { error: 'Workspace not found' }, 404);
+      return;
+    }
+
+    const sourceWorkspaceId = conversation.workspace_id ?? null;
+    const sourceOwnerType = sourceWorkspaceId ? 'workspace' : 'global';
+    const sourceOwnerId = sourceWorkspaceId;
+    let movedMemoryCount = 0;
+    let leftMemoryCount = 0;
+
+    const sourceConversationIdsForMemory = (memoryItem) => {
+      const sourceRows = resolvedState.memoryItemSources.filter(
+        (source) => source.memory_item_id === memoryItem.id && source.conversation_id
+      );
+      if (sourceRows.length > 0) {
+        return sourceRows.map((source) => source.conversation_id);
+      }
+      return memoryItem.source_conversation_id ? [memoryItem.source_conversation_id] : [];
+    };
+
+    if (targetWorkspaceId) {
+      for (const item of resolvedState.memoryItems) {
+        if (item.status !== 'active') continue;
+        if (item.owner_type !== sourceOwnerType) continue;
+        if (sourceOwnerType === 'global' && item.owner_id !== null) continue;
+        if (sourceOwnerType === 'workspace' && item.owner_id !== sourceOwnerId) continue;
+
+        const sourceConversationIds = sourceConversationIdsForMemory(item);
+        if (!sourceConversationIds.includes(conversationId)) continue;
+
+        const hasOtherSource = sourceConversationIds.some((id) => id !== conversationId);
+        if (hasOtherSource) {
+          leftMemoryCount += 1;
+          continue;
+        }
+
+        item.owner_type = 'workspace';
+        item.owner_id = targetWorkspaceId;
+        movedMemoryCount += 1;
+      }
+    } else {
+      leftMemoryCount = resolvedState.memoryItems.filter((item) => {
+        if (item.status !== 'active') return false;
+        if (item.owner_type !== 'workspace' || item.owner_id !== sourceWorkspaceId) return false;
+        return sourceConversationIdsForMemory(item).includes(conversationId);
+      }).length;
+    }
+
+    conversation.workspace_id = targetWorkspaceId;
+    conversation.mentor_id = null;
+    conversation.updated_at = new Date().toISOString();
+
+    await fulfillJson(route, {
+      conversation: {
+        id: conversation.id,
+        title: conversation.title,
+        mentorId: conversation.mentor_id,
+        workspaceId: conversation.workspace_id,
+        createdAt: conversation.created_at,
+        updatedAt: conversation.updated_at,
+      },
+      memory: {
+        moved: movedMemoryCount,
+        copied: 0,
+        leftInPlace: leftMemoryCount,
+      },
+    });
   });
 
   await page.route('**/auth/v1/user*', async (route) => {
@@ -125,6 +405,24 @@ async function mockHomeDataRoutes(page, state) {
     }
 
     await fulfillJson(route, messages);
+  });
+
+  await page.route('**/rest/v1/message_attachments*', async (route) => {
+    const url = new URL(route.request().url());
+    const messageIdFilter = parseEqFilter(url.searchParams.get('message_id'));
+    const messageIdFilters = parseInFilter(url.searchParams.get('message_id'));
+    const messageIds = messageIdFilter
+      ? [messageIdFilter]
+      : messageIdFilters.length > 0
+        ? messageIdFilters
+        : Object.values(resolvedState.messagesByConversationId)
+          .flat()
+          .map((message) => message.id);
+    const attachments = messageIds.flatMap(
+      (messageId) => resolvedState.attachmentsByMessageId[messageId] || []
+    );
+
+    await fulfillJson(route, attachments);
   });
 
   await page.route('**/rest/v1/conversation_branches*', async (route) => {

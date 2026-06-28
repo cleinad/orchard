@@ -7,9 +7,16 @@ import {
   getComposerStateKey,
 } from '@/app/home/components/homeSelection';
 import type { SearchMetadata, SearchMode } from '@/lib/chat-search';
+import {
+  DEFAULT_RESPONSE_STYLE,
+  isDefaultResponseStyle,
+  sanitizeResponseStyle,
+  type ResponseStyle,
+} from '@/lib/response-style';
 
 interface UsePerChatComposerStateParams {
   storageKey: string;
+  responseStyleStorageKey: string;
   selection: SelectedChat | null;
 }
 
@@ -78,6 +85,7 @@ export function moveSearchModeBetweenKeys(
 }
 
 export function usePerChatComposerState({
+  responseStyleStorageKey,
   storageKey,
   selection,
 }: UsePerChatComposerStateParams) {
@@ -90,6 +98,9 @@ export function usePerChatComposerState({
   const [searchModesByChatKey, setSearchModesByChatKey] = useState<
     Record<string, SearchMode>
   >(() => ({ ...searchModesSessionStore }));
+  const [responseStylesByChatKey, setResponseStylesByChatKey] = useState<
+    Record<string, ResponseStyle>
+  >({});
   const composerDraftInputsRef = useRef<Record<string, string>>({});
 
   useEffect(() => {
@@ -100,6 +111,8 @@ export function usePerChatComposerState({
   const input = composerDraftInputsByChatKey[activeComposerStateKey] ?? '';
   const activeSearchState = searchStatesByChatKey[activeComposerStateKey] ?? null;
   const activeSearchMode = getSearchModeFromMap(searchModesByChatKey, activeComposerStateKey);
+  const activeResponseStyle =
+    responseStylesByChatKey[activeComposerStateKey] ?? DEFAULT_RESPONSE_STYLE;
 
   const setInputForSelection = useCallback(
     (nextSelection: SelectedChat | null, value: string) => {
@@ -165,6 +178,28 @@ export function usePerChatComposerState({
     []
   );
 
+  const setResponseStyleForSelection = useCallback(
+    (nextSelection: SelectedChat | null, value: ResponseStyle) => {
+      const key = getComposerStateKey(nextSelection);
+      const normalized = {
+        ...sanitizeResponseStyle({ ...value, sessionNote: '' }),
+        sessionNote: value.sessionNote.slice(0, 1_000),
+      };
+
+      setResponseStylesByChatKey((prev) => {
+        if (isDefaultResponseStyle(normalized)) {
+          return deleteRecordKey(prev, key);
+        }
+
+        return {
+          ...prev,
+          [key]: normalized,
+        };
+      });
+    },
+    []
+  );
+
   const setSearchModeForSelection = useCallback(
     (nextSelection: SelectedChat | null, mode: SearchMode) => {
       const key = nextSelection
@@ -176,13 +211,44 @@ export function usePerChatComposerState({
     [activeComposerStateKey]
   );
 
+  const clearResponseStyleForSelection = useCallback((nextSelection: SelectedChat | null) => {
+    const key = getComposerStateKey(nextSelection);
+    setResponseStylesByChatKey((prev) => deleteRecordKey(prev, key));
+  }, []);
+
+  const moveResponseStyleBetweenSelections = useCallback(
+    (fromSelection: SelectedChat | null, toSelection: SelectedChat) => {
+      const fromKey = getComposerStateKey(fromSelection);
+      const toKey = getComposerStateKey(toSelection);
+
+      setResponseStylesByChatKey((prev) => {
+        const style = prev[fromKey];
+        if (!style) {
+          return prev;
+        }
+
+        const next = { ...prev };
+        delete next[fromKey];
+        next[toKey] = style;
+        return next;
+      });
+    },
+    []
+  );
+
   const clearSelectionState = useCallback(
     (nextSelection: SelectedChat | null) => {
       clearInputForSelection(nextSelection);
       clearSearchStateForSelection(nextSelection);
       clearSearchModeForSelection(nextSelection);
+      clearResponseStyleForSelection(nextSelection);
     },
-    [clearInputForSelection, clearSearchModeForSelection, clearSearchStateForSelection]
+    [
+      clearInputForSelection,
+      clearResponseStyleForSelection,
+      clearSearchModeForSelection,
+      clearSearchStateForSelection,
+    ]
   );
 
   const resetAllComposerState = useCallback(() => {
@@ -192,6 +258,7 @@ export function usePerChatComposerState({
       delete searchModesSessionStore[key];
     }
     setSearchModesByChatKey({});
+    setResponseStylesByChatKey({});
   }, []);
 
   useEffect(() => {
@@ -226,18 +293,54 @@ export function usePerChatComposerState({
     );
   }, [composerDraftInputsByChatKey, storageKey]);
 
+  useEffect(() => {
+    const stored = window.sessionStorage.getItem(responseStyleStorageKey);
+    if (!stored) {
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(stored) as Record<string, unknown>;
+      const restoredStyles = Object.fromEntries(
+        Object.entries(parsed)
+          .map(([key, value]) => [key, sanitizeResponseStyle(value)] as const)
+          .filter(([, value]) => !isDefaultResponseStyle(value))
+      );
+      setResponseStylesByChatKey(restoredStyles);
+    } catch (error) {
+      console.error('Failed to restore response styles:', error);
+      window.sessionStorage.removeItem(responseStyleStorageKey);
+    }
+  }, [responseStyleStorageKey]);
+
+  useEffect(() => {
+    if (Object.keys(responseStylesByChatKey).length === 0) {
+      window.sessionStorage.removeItem(responseStyleStorageKey);
+      return;
+    }
+
+    window.sessionStorage.setItem(
+      responseStyleStorageKey,
+      JSON.stringify(responseStylesByChatKey)
+    );
+  }, [responseStyleStorageKey, responseStylesByChatKey]);
+
   return {
     activeSearchMode,
     activeSearchState,
+    activeResponseStyle,
     composerDraftInputsRef,
     input,
     clearInputForSelection,
+    clearResponseStyleForSelection,
     clearSearchModeForSelection,
     clearSearchStateForSelection,
     clearSelectionState,
+    moveResponseStyleBetweenSelections,
     moveSearchModeBetweenSelections,
     resetAllComposerState,
     setInputForSelection,
+    setResponseStyleForSelection,
     setSearchModeForSelection,
     setSearchStateForSelection,
   };

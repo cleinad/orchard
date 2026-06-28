@@ -9,9 +9,10 @@ vi.mock('@/lib/supabase-server', () => ({
 }));
 
 function createAuthenticatedSupabase(
-  tables: Record<string, { rows: object[]; returnOnMutate?: object[] }> = {}
+  tables: Record<string, { rows: object[]; returnOnMutate?: object[] }> = {},
+  rpcResults: Record<string, { data?: unknown; error?: unknown }> = {}
 ) {
-  const { client, tracker } = createMockSupabase({ tables });
+  const { client, tracker } = createMockSupabase({ tables, rpcResults });
   const supabase = {
     ...client,
     auth: {
@@ -23,6 +24,34 @@ function createAuthenticatedSupabase(
   };
 
   return { supabase, tracker };
+}
+
+async function runMoveConversationRequest(
+  conversationId: string,
+  body: unknown,
+  rpcResults: Record<string, { data?: unknown; error?: unknown }> = {}
+) {
+  const { supabase, tracker } = createAuthenticatedSupabase({}, rpcResults);
+  mockCreateSupabaseServerClient.mockResolvedValue(supabase);
+
+  const { PATCH } = await import('@/app/api/conversations/[conversationId]/context/route');
+  const request = new NextRequest(
+    `http://localhost/api/conversations/${conversationId}/context`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+      headers: {
+        'content-type': 'application/json',
+      },
+    }
+  );
+
+  const response = await PATCH(request, {
+    params: Promise.resolve({ conversationId }),
+  });
+  const json = await response.json();
+
+  return { response, body: json, tracker };
 }
 
 async function runCreateConversationRequest(
@@ -88,6 +117,7 @@ describe('conversations route', () => {
               id: 'conv-1',
               title: 'Help me think through product pricing',
               mentor_id: null,
+              workspace_id: null,
               created_at: '2026-06-04T12:00:00.000Z',
               updated_at: '2026-06-04T12:00:00.000Z',
             },
@@ -101,6 +131,7 @@ describe('conversations route', () => {
       id: 'conv-1',
       title: 'Help me think through product pricing',
       mentorId: null,
+      workspaceId: null,
       createdAt: '2026-06-04T12:00:00.000Z',
       updatedAt: '2026-06-04T12:00:00.000Z',
     });
@@ -108,7 +139,54 @@ describe('conversations route', () => {
       user_id: 'user-1',
       title: 'Help me think through product pricing',
       mentor_id: null,
+      workspace_id: null,
     });
+  });
+
+  it('creates a workspace conversation when workspaceId is provided', async () => {
+    const { response, body, tracker } = await runCreateConversationRequest(
+      {
+        initialMessage: 'Plan the next training block',
+        workspaceId: 'workspace-1',
+      },
+      {
+        workspaces: {
+          rows: [{ id: 'workspace-1' }],
+        },
+        conversations: {
+          rows: [],
+          returnOnMutate: [
+            {
+              id: 'conv-workspace-1',
+              title: 'Plan the next training block',
+              mentor_id: null,
+              workspace_id: 'workspace-1',
+              created_at: '2026-06-04T12:00:00.000Z',
+              updated_at: '2026-06-04T12:00:00.000Z',
+            },
+          ],
+        },
+      }
+    );
+
+    expect(response.status).toBe(201);
+    expect(body.conversation.workspaceId).toBe('workspace-1');
+    expect(tracker.inserts('conversations')[0].args).toMatchObject({
+      mentor_id: null,
+      workspace_id: 'workspace-1',
+    });
+  });
+
+  it('rejects conversations with both mentorId and workspaceId', async () => {
+    const { response, body, tracker } = await runCreateConversationRequest({
+      initialMessage: 'Ambiguous context',
+      mentorId: 'mentor-1',
+      workspaceId: 'workspace-1',
+    });
+
+    expect(response.status).toBe(400);
+    expect(body.error).toBe('A conversation cannot have both a mentor and a workspace');
+    expect(tracker.inserts('conversations')).toHaveLength(0);
   });
 
   it('requires mentor ownership when mentorId is provided', async () => {
@@ -174,5 +252,105 @@ describe('conversations route', () => {
     expect(response.status).toBe(409);
     expect(body.error).toBe('Conversation is not empty');
     expect(tracker.deletes('conversations')).toHaveLength(0);
+  });
+
+  it('moves a conversation context through the transactional RPC', async () => {
+    const { response, body, tracker } = await runMoveConversationRequest(
+      'conversation-1',
+      {
+        workspaceId: 'workspace-1',
+        memoryPolicy: 'conservative',
+      },
+      {
+        move_conversation_context: {
+          data: {
+            conversation_found: true,
+            target_workspace_found: true,
+            conversation: {
+              id: 'conversation-1',
+              title: 'Training plan',
+              mentor_id: null,
+              workspace_id: 'workspace-1',
+              created_at: '2026-06-27T12:00:00.000Z',
+              updated_at: '2026-06-27T12:01:00.000Z',
+            },
+            memory: {
+              moved: 1,
+              copied: 0,
+              leftInPlace: 2,
+            },
+          },
+          error: null,
+        },
+      }
+    );
+
+    expect(response.status).toBe(200);
+    expect(body).toEqual({
+      conversation: {
+        id: 'conversation-1',
+        title: 'Training plan',
+        mentorId: null,
+        workspaceId: 'workspace-1',
+        createdAt: '2026-06-27T12:00:00.000Z',
+        updatedAt: '2026-06-27T12:01:00.000Z',
+      },
+      memory: {
+        moved: 1,
+        copied: 0,
+        leftInPlace: 2,
+      },
+    });
+    expect(tracker.rpcs).toEqual([
+      {
+        fn: 'move_conversation_context',
+        args: {
+          p_conversation_id: 'conversation-1',
+          p_workspace_id: 'workspace-1',
+          p_memory_policy: 'conservative',
+        },
+      },
+    ]);
+  });
+
+  it('maps move validation failures to user-facing statuses', async () => {
+    const missingConversation = await runMoveConversationRequest(
+      'missing-conversation',
+      { workspaceId: 'workspace-1' },
+      {
+        move_conversation_context: {
+          data: { conversation_found: false },
+          error: null,
+        },
+      }
+    );
+    expect(missingConversation.response.status).toBe(404);
+    expect(missingConversation.body.error).toBe('Conversation not found');
+
+    const missingWorkspace = await runMoveConversationRequest(
+      'conversation-1',
+      { workspaceId: 'missing-workspace' },
+      {
+        move_conversation_context: {
+          data: { conversation_found: true, target_workspace_found: false },
+          error: null,
+        },
+      }
+    );
+    expect(missingWorkspace.response.status).toBe(404);
+    expect(missingWorkspace.body.error).toBe('Workspace not found');
+
+    const mentorConversation = await runMoveConversationRequest(
+      'conversation-mentor',
+      { workspaceId: 'workspace-1' },
+      {
+        move_conversation_context: {
+          data: { conversation_found: true, error: 'mentor_context_unsupported' },
+          error: null,
+        },
+      }
+    );
+    expect(mentorConversation.response.status).toBe(400);
+    expect(mentorConversation.body.error).toBe('Mentor conversations cannot be moved yet');
   });
 });

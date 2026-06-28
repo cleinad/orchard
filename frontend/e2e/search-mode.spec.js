@@ -77,17 +77,17 @@ test('default composer sends auto search mode', async ({ page }) => {
   const state = await mockHomeDataRoutes(page, {
     conversations: [],
     messagesByConversationId: {},
+    createdConversations: [
+      createConversation({
+        id: conversationId,
+        title: 'Name Brainstorm',
+      }),
+    ],
   });
 
   await mockChatRoute(page, async (body) => {
     expect(body.searchMode).toBe('auto');
 
-    state.conversations.unshift(
-      createConversation({
-        id: conversationId,
-        title: 'Name Brainstorm',
-      })
-    );
     state.messagesByConversationId[conversationId] = [
       createMessage({
         id: 'message-user-auto',
@@ -145,17 +145,17 @@ test('always search sends required search mode and renders a scalable source tra
   const state = await mockHomeDataRoutes(page, {
     conversations: [],
     messagesByConversationId: {},
+    createdConversations: [
+      createConversation({
+        id: conversationId,
+        title: 'OpenAI Pricing Changes',
+      }),
+    ],
   });
 
   await mockChatRoute(page, async (body) => {
     expect(body.searchMode).toBe('required');
 
-    state.conversations.unshift(
-      createConversation({
-        id: conversationId,
-        title: 'OpenAI Pricing Changes',
-      })
-    );
     state.messagesByConversationId[conversationId] = [
       createMessage({
         id: 'message-user-1',

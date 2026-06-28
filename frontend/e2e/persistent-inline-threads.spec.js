@@ -155,7 +155,7 @@ test('persistent error markers survive reload and reopen with cached thread stat
   await expect(page.getByTestId('thread-panel')).toContainText(errorMessage);
 });
 
-test('renders a persisted inline thread from offsets when highlighted text includes a list marker', async ({ page }) => {
+test('renders a persisted inline thread from v2 offsets in an ordered list', async ({ page }) => {
   await mockThreadMessagesRoute(page, async ({ threadId }) => {
     expect(threadId).toBe('persisted-thread-list-marker-1');
     return {
@@ -233,7 +233,7 @@ test('renders a persisted inline thread on the repeated occurrence selected by o
   );
 });
 
-test('renders a persisted inline thread from offsets when highlighted text includes a bullet marker', async ({ page }) => {
+test('renders a persisted inline thread from v2 offsets in a bullet list', async ({ page }) => {
   await mockThreadMessagesRoute(page, async ({ threadId }) => {
     expect(threadId).toBe('persisted-thread-bullet-list-1');
     return {

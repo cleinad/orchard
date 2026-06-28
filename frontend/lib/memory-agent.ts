@@ -54,6 +54,7 @@ interface ConversationMessage {
 interface ProcessMemoryV2Context {
   conversationId?: string | null;
   mentorId?: string | null;
+  workspaceId?: string | null;
   sourceMessageId?: string | null;
   sourceRole?: 'user' | 'assistant';
 }
@@ -78,8 +79,12 @@ export async function processMemoryV2(
   latestResponse: string,
   context: ProcessMemoryV2Context = {}
 ): Promise<void> {
-  const ownerType: MemoryOwnerType = context.mentorId ? 'mentor' : 'global';
-  const ownerId = context.mentorId ?? null;
+  const ownerType: MemoryOwnerType = context.workspaceId
+    ? 'workspace'
+    : context.mentorId
+      ? 'mentor'
+      : 'global';
+  const ownerId = context.workspaceId ?? context.mentorId ?? null;
 
   const fullExchange = [
     ...conversationMessages.slice(-8),
@@ -125,10 +130,10 @@ export async function processMemoryV2(
     .order('updated_at', { ascending: false })
     .limit(300);
 
-  if (ownerType === 'mentor') {
-    scopeQuery = scopeQuery.eq('owner_id', ownerId);
-  } else {
+  if (ownerType === 'global') {
     scopeQuery = scopeQuery.is('owner_id', null);
+  } else {
+    scopeQuery = scopeQuery.eq('owner_id', ownerId);
   }
 
   const { data: existingRows, error: existingError } = await scopeQuery;
@@ -200,6 +205,7 @@ export async function processMemoryV2(
       }
 
       replaceActiveItem(activeItems, updatedRow as MemoryItem);
+      await recordMemoryItemSource(supabase, userId, updatedRow.id, context);
       embeddingUpserts.set(updatedRow.id, {
         memoryItemId: updatedRow.id,
         text: updatedRow.text,
@@ -235,6 +241,7 @@ export async function processMemoryV2(
       }
 
       replaceActiveItem(activeItems, mergedRow as MemoryItem);
+      await recordMemoryItemSource(supabase, userId, mergedRow.id, context);
       embeddingUpserts.set(mergedRow.id, {
         memoryItemId: mergedRow.id,
         text: mergedRow.text,
@@ -272,6 +279,7 @@ export async function processMemoryV2(
     }
 
     activeItems.unshift(insertedRow as MemoryItem);
+    await recordMemoryItemSource(supabase, userId, insertedRow.id, context);
     embeddingUpserts.set(insertedRow.id, {
       memoryItemId: insertedRow.id,
       text: insertedRow.text,
@@ -301,6 +309,38 @@ export async function processMemory(
   context: ProcessMemoryV2Context = {}
 ): Promise<void> {
   await processMemoryV2(supabase, userId, conversationMessages, latestResponse, context);
+}
+
+async function recordMemoryItemSource(
+  supabase: SupabaseClient,
+  userId: string,
+  memoryItemId: string,
+  context: ProcessMemoryV2Context
+) {
+  if (!context.conversationId && !context.sourceMessageId) {
+    return;
+  }
+
+  const { error } = await supabase
+    .from('memory_item_sources')
+    .upsert(
+      {
+        memory_item_id: memoryItemId,
+        conversation_id: context.conversationId ?? null,
+        message_id: context.sourceMessageId ?? null,
+        user_id: userId,
+        source_role: context.sourceRole ?? 'user',
+        contribution_type: 'extracted',
+      },
+      {
+        onConflict: 'memory_item_id,conversation_id,message_id,contribution_type',
+        ignoreDuplicates: true,
+      }
+    );
+
+  if (error) {
+    console.error('[Memory V2] failed to record memory source:', error.message);
+  }
 }
 
 function sanitizeType(value: string): string {

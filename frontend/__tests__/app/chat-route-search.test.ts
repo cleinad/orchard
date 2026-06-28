@@ -128,9 +128,13 @@ vi.mock('@/lib/models', () => ({
   })),
   SEARCH_PLANNER_MODEL_ID: 'qwen/qwen-2.5-7b-instruct',
   SEARCH_PLANNER_PROVIDER: 'openrouter',
+  getChatModelProviderOptions: vi.fn(() => undefined),
+  getNoChatModelConfiguredMessage: vi.fn(() => 'No chat model is configured.'),
   resolveChatModelSelection: vi.fn(() => ({
     id: 'gpt-5.4',
+    requestedId: 'gpt-5.4',
     provider: 'openai',
+    apiModelId: 'gpt-5.4',
   })),
 }));
 

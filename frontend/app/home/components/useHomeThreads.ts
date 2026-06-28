@@ -3,6 +3,10 @@ import {
   getOffsetsFromRange,
   restoreRangeFromOffsets,
 } from '@/app/home/components/selectableTextIndex';
+import {
+  DEFAULT_SELECTION_STREAM_VERSION,
+  getSelectionStreamVersion,
+} from '@/app/home/components/markdownSelectableStream';
 import type { PopoverState } from '@/app/home/components/TextSelectionPopover';
 import type { ThreadSession, ThreadSource } from '@/app/home/components/threadTypes';
 
@@ -51,6 +55,7 @@ interface ActiveSelection {
   sourceMessageId: string;
   startOffset: number;
   endOffset: number;
+  selectionStreamVersion: typeof DEFAULT_SELECTION_STREAM_VERSION;
 }
 
 interface CreateThreadSessionOptions {
@@ -149,7 +154,11 @@ export function useHomeThreads(
       return;
     }
 
-    const resolvedOffsets = getOffsetsFromRange(messageContentEl, range);
+    const resolvedOffsets = getOffsetsFromRange(
+      messageContentEl,
+      range,
+      DEFAULT_SELECTION_STREAM_VERSION
+    );
     if (!resolvedOffsets) {
       return;
     }
@@ -163,7 +172,7 @@ export function useHomeThreads(
     const messageId = messageEl?.getAttribute('data-message-id');
     const messageRole = messageEl?.getAttribute('data-message-role');
 
-    if (!messageId || messageRole !== 'assistant') {
+    if (!messageId || messageRole !== 'assistant' || messageId.startsWith('streaming-')) {
       return;
     }
 
@@ -183,6 +192,7 @@ export function useHomeThreads(
       sourceMessageId: messageId,
       startOffset: resolvedOffsets.startOffset,
       endOffset: resolvedOffsets.endOffset,
+      selectionStreamVersion: DEFAULT_SELECTION_STREAM_VERSION,
     };
 
     setHighlightSource({
@@ -190,6 +200,7 @@ export function useHomeThreads(
       sourceMessageId: nextSelection.sourceMessageId,
       startOffset: nextSelection.startOffset,
       endOffset: nextSelection.endOffset,
+      selectionStreamVersion: nextSelection.selectionStreamVersion,
     });
     setPopoverState({
       anchorRect: nextSelection.anchorRect,
@@ -198,6 +209,7 @@ export function useHomeThreads(
       sourceMessageId: nextSelection.sourceMessageId,
       startOffset: nextSelection.startOffset,
       endOffset: nextSelection.endOffset,
+      selectionStreamVersion: nextSelection.selectionStreamVersion,
     });
   }, [learningMode, scrollContainerRef]);
 
@@ -236,7 +248,8 @@ export function useHomeThreads(
     const range = restoreRangeFromOffsets(
       messageContentEl,
       highlightSource.startOffset,
-      highlightSource.endOffset
+      highlightSource.endOffset,
+      getSelectionStreamVersion(highlightSource.selectionStreamVersion)
     );
 
     if (!range) {
@@ -245,7 +258,21 @@ export function useHomeThreads(
     }
 
     setPersistentHighlight(range);
-  }, [clearPersistentHighlight, highlightSource, scrollContainerRef, setPersistentHighlight]);
+
+    if (popoverState) {
+      const selection = window.getSelection();
+      if (selection) {
+        selection.removeAllRanges();
+        selection.addRange(range.cloneRange());
+      }
+    }
+  }, [
+    clearPersistentHighlight,
+    highlightSource,
+    popoverState,
+    scrollContainerRef,
+    setPersistentHighlight,
+  ]);
 
   const createThreadSession = useCallback(
     (session: ThreadSession, options?: CreateThreadSessionOptions) => {

@@ -55,6 +55,17 @@ const INLINE_THREADS_RICH_CONTENT = [
   '',
   'Research note [1] links timing to rendering.',
 ].join('\n');
+const INLINE_THREADS_TABLE_CONTENT = [
+  'Here is a compact comparison:',
+  '',
+  '| Phase | Trigger | Result |',
+  '| --- | --- | --- |',
+  '| Microtask | Promise callback | Runs before paint |',
+  '| Render | Frame commit | Shows updated UI |',
+  '| Paint | Browser draw | Pixels become visible |',
+  '',
+  'The important bit is how phase boundaries affect user-visible work.',
+].join('\n');
 const CONVERSATION_MAP_MESSAGES: Message[] = [
   {
     id: 'map-user-root',
@@ -163,7 +174,7 @@ const CONVERSATION_MAP_BRANCHES: ConversationBranch[] = [
 ];
 
 const FIXTURE_MESSAGES: Record<
-  'temporary' | 'persistent' | 'orderedList' | 'repeatedText' | 'bulletList' | 'rich',
+  'temporary' | 'persistent' | 'orderedList' | 'repeatedText' | 'bulletList' | 'rich' | 'table',
   Message[]
 > = {
   temporary: [
@@ -240,6 +251,15 @@ const FIXTURE_MESSAGES: Record<
       },
     },
   ],
+  table: [
+    {
+      id: 'assistant-inline-threads-table-fixture',
+      role: 'assistant',
+      content: INLINE_THREADS_TABLE_CONTENT,
+      timestamp: new Date('2026-04-05T09:00:00.000Z'),
+      previousMessageId: null,
+    },
+  ],
 };
 
 const HOME_E2E_FIXTURES: Record<string, HomeE2eFixture> = {
@@ -264,9 +284,9 @@ const HOME_E2E_FIXTURES: Record<string, HomeE2eFixture> = {
       {
         threadId: 'persisted-thread-list-marker-1',
         sourceMessageId: 'assistant-inline-threads-ordered-list-fixture',
-        highlightedText: `3. ${INLINE_THREADS_ORDERED_LIST_TEXT}`,
-        startOffset: 1,
-        endOffset: INLINE_THREADS_ORDERED_LIST_TEXT.length + 1,
+        highlightedText: INLINE_THREADS_ORDERED_LIST_TEXT,
+        startOffset: 0,
+        endOffset: INLINE_THREADS_ORDERED_LIST_TEXT.length,
       },
     ],
   },
@@ -294,9 +314,9 @@ const HOME_E2E_FIXTURES: Record<string, HomeE2eFixture> = {
       {
         threadId: 'persisted-thread-bullet-list-1',
         sourceMessageId: 'assistant-inline-threads-bullet-list-fixture',
-        highlightedText: `• ${INLINE_THREADS_BULLET_LIST_TEXT}`,
-        startOffset: 1,
-        endOffset: INLINE_THREADS_BULLET_LIST_TEXT.length + 1,
+        highlightedText: INLINE_THREADS_BULLET_LIST_TEXT,
+        startOffset: 0,
+        endOffset: INLINE_THREADS_BULLET_LIST_TEXT.length,
       },
     ],
   },
@@ -305,6 +325,12 @@ const HOME_E2E_FIXTURES: Record<string, HomeE2eFixture> = {
     chatMode: 'temporary',
     conversationId: null,
     messages: FIXTURE_MESSAGES.rich,
+  },
+  'inline-threads-table-selection': {
+    key: 'inline-threads-table-selection',
+    chatMode: 'persistent',
+    conversationId: 'conversation-inline-threads-table-fixture',
+    messages: FIXTURE_MESSAGES.table,
   },
   'conversation-map-temporary': {
     key: 'conversation-map-temporary',

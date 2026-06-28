@@ -16,6 +16,11 @@ import {
   markdownRemarkPlugins,
   normalizeMathMarkdown,
 } from "@/lib/markdown";
+import {
+  boundaryBetweenTags,
+  isFormattingWhitespaceText,
+  isTableStructureTag,
+} from "@/app/home/components/markdownSelectableStream";
 import type { InlineThreadMarker } from "@/app/home/components/threadTypes";
 import type { PersistedSearchMetadata } from "@/lib/chat-search";
 import { splitTextWithCitations } from "@/lib/search-citations";
@@ -212,7 +217,7 @@ function ThreadIndicator({
       ? "bg-sky-200/45 text-sky-950 hover:bg-sky-200/70 dark:bg-sky-300/15 dark:text-sky-100 dark:hover:bg-sky-300/25"
       : thread.status === "error"
         ? "bg-rose-200/45 text-rose-950 hover:bg-rose-200/70 dark:bg-rose-300/15 dark:text-rose-100 dark:hover:bg-rose-300/25"
-        : "bg-amber-200/45 text-stone-950 hover:bg-amber-200/70 dark:bg-amber-300/15 dark:text-amber-100 dark:hover:bg-amber-300/25";
+        : "bg-[#fef3c7] text-stone-950 hover:bg-[#fde68a] dark:bg-[#5b4516] dark:text-amber-100 dark:hover:bg-[#6f5419]";
 
   return (
     <span
@@ -228,7 +233,7 @@ function ThreadIndicator({
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") onClick(thread);
       }}
-      className={`box-decoration-clone cursor-pointer rounded-[0.35rem] px-1 py-0.5 font-medium transition-colors ${statusClassName}`}
+      className={`box-decoration-clone cursor-pointer rounded-[2px] px-1 py-0.5 font-medium transition-colors ${statusClassName}`}
       title="View thread"
     >
       {children}
@@ -290,6 +295,10 @@ function isSelectionExcluded(node: HastNode) {
   return node.properties?.["data-selection-exclude"] !== undefined;
 }
 
+function isInlineThreadNode(node: HastNode) {
+  return typeof node.properties?.["data-inline-thread-id"] === "string";
+}
+
 function annotateSelectionTextNodes(nodes: HastNode[] | undefined): HastNode[] | undefined {
   if (!nodes || nodes.length === 0) {
     return nodes;
@@ -328,6 +337,7 @@ function shouldSkipInlineThreadWrapping(node: HastNode) {
   const classNames = getClassNames(node);
   return (
     isSelectionExcluded(node) ||
+    isInlineThreadNode(node) ||
     node.tagName === "math" ||
     node.tagName === "annotation" ||
     classNames.includes("katex-mathml")
@@ -347,13 +357,36 @@ function shouldSkipInlineCitationWrapping(node: HastNode) {
   );
 }
 
+function getHastTagName(node: HastNode) {
+  return node.type === "element" ? node.tagName ?? null : null;
+}
+
+function canContainInlineThreadMarker(tagName: string | null) {
+  return !isTableStructureTag(tagName);
+}
+
+function shouldIgnoreStructuralText(node: HastNode, parentTagName: string | null) {
+  if (node.type !== "text") {
+    return false;
+  }
+
+  const value = node.value ?? "";
+  return isTableStructureTag(parentTagName) || isFormattingWhitespaceText(value, parentTagName);
+}
+
 function getHastTextLength(node: HastNode): number {
   if (node.type === "text") {
     return node.value?.length ?? 0;
   }
 
   if (node.type === "element") {
-    if (isSelectionExcluded(node)) {
+    const classNames = getClassNames(node);
+    if (
+      isSelectionExcluded(node)
+      || node.tagName === "math"
+      || node.tagName === "annotation"
+      || classNames.includes("katex-mathml")
+    ) {
       return 0;
     }
 
@@ -363,7 +396,38 @@ function getHastTextLength(node: HastNode): number {
     }
   }
 
-  return (node.children || []).reduce((total, child) => total + getHastTextLength(child), 0);
+  return getHastChildrenTextLength(node.children, node.tagName ?? null);
+}
+
+function getHastChildrenTextLength(
+  nodes: HastNode[] | undefined,
+  parentTagName: string | null
+) {
+  if (!nodes || nodes.length === 0) {
+    return 0;
+  }
+
+  let total = 0;
+  let previousIncludedTagName: string | null = null;
+
+  for (const child of nodes) {
+    if (shouldIgnoreStructuralText(child, parentTagName)) {
+      continue;
+    }
+
+    const childTagName = getHastTagName(child);
+    const boundary = boundaryBetweenTags(parentTagName, previousIncludedTagName, childTagName);
+    if (boundary) {
+      total += boundary.length;
+    }
+
+    total += getHastTextLength(child);
+    if (childTagName && child.type === "element" && !shouldSkipInlineThreadWrapping(child)) {
+      previousIncludedTagName = childTagName;
+    }
+  }
+
+  return total;
 }
 
 function createThreadSpanNode(text: string, thread: InlineThreadMarker): HastNode {
@@ -461,17 +525,35 @@ function annotateAtomicThreadNode(
 function annotateThreadNodes(
   nodes: HastNode[] | undefined,
   matches: TextMatch[],
-  cursorRef: CursorRef
+  cursorRef: CursorRef,
+  parentTagName: string | null
 ): HastNode[] | undefined {
   if (!nodes || nodes.length === 0 || matches.length === 0) {
     return nodes;
   }
 
   const nextChildren: HastNode[] = [];
+  let previousIncludedTagName: string | null = null;
 
   for (const child of nodes) {
+    if (shouldIgnoreStructuralText(child, parentTagName)) {
+      nextChildren.push(child);
+      continue;
+    }
+
+    const childTagName = getHastTagName(child);
+    const boundary = boundaryBetweenTags(parentTagName, previousIncludedTagName, childTagName);
+    if (boundary) {
+      cursorRef.current += boundary.length;
+    }
+
     if (child.type === "text") {
-      nextChildren.push(...splitTextNode(child, matches, cursorRef));
+      if (canContainInlineThreadMarker(parentTagName)) {
+        nextChildren.push(...splitTextNode(child, matches, cursorRef));
+      } else {
+        cursorRef.current += child.value?.length ?? 0;
+        nextChildren.push(child);
+      }
       continue;
     }
 
@@ -479,18 +561,33 @@ function annotateThreadNodes(
       if (shouldSkipInlineThreadWrapping(child)) {
         cursorRef.current += getHastTextLength(child);
         nextChildren.push(child);
+        if (isInlineThreadNode(child)) {
+          previousIncludedTagName = child.tagName ?? previousIncludedTagName;
+        }
         continue;
       }
 
       if (getSelectionText(child) !== null) {
-        nextChildren.push(annotateAtomicThreadNode(child, matches, cursorRef));
+        if (canContainInlineThreadMarker(parentTagName)) {
+          nextChildren.push(annotateAtomicThreadNode(child, matches, cursorRef));
+        } else {
+          cursorRef.current += getHastTextLength(child);
+          nextChildren.push(child);
+        }
+        previousIncludedTagName = child.tagName ?? previousIncludedTagName;
         continue;
       }
 
       nextChildren.push({
         ...child,
-        children: annotateThreadNodes(child.children, matches, cursorRef),
+        children: annotateThreadNodes(
+          child.children,
+          matches,
+          cursorRef,
+          child.tagName ?? null
+        ),
       });
+      previousIncludedTagName = child.tagName ?? previousIncludedTagName;
       continue;
     }
 
@@ -507,7 +604,7 @@ function rehypeInlineThreads(matches: TextMatch[]) {
     }
 
     const cursorRef: CursorRef = { current: 0 };
-    tree.children = annotateThreadNodes(tree.children, matches, cursorRef);
+    tree.children = annotateThreadNodes(tree.children, matches, cursorRef, null);
   };
 }
 
@@ -600,7 +697,9 @@ export default function MarkdownWithThreads({
   );
   const rehypePlugins: NonNullable<Options["rehypePlugins"]> = useMemo(() => {
     const inlineThreadPlugin =
-      [rehypeInlineThreads, matches] as unknown as NonNullable<Options["rehypePlugins"]>[number];
+      [rehypeInlineThreads, matches] as unknown as NonNullable<
+        Options["rehypePlugins"]
+      >[number];
     const inlineCitationPlugin =
       [rehypeInlineCitations, validCitationSourceIds] as unknown as NonNullable<
         Options["rehypePlugins"]

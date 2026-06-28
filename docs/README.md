@@ -44,12 +44,14 @@ If docs conflict, prefer:
 - [features/auth-and-route-protection.md](./features/auth-and-route-protection.md): auth model, protected routes including `/home/[conversationId]`, proxy rules, and testing coverage
 - [features/chat-model-selection.md](./features/chat-model-selection.md): model picker behavior across routed home chats, resolution rules, availability rules, and verification
 - [features/conversation-branching.md](./features/conversation-branching.md): branch chips, conversation map, tree state, persistence model, and runtime isolation rules
+- [features/image-attachments.md](./features/image-attachments.md): image paste/drop/upload behavior, Supabase Storage flow, model-native vision handling, validation, and cleanup boundaries
 - [features/inline-threads.md](./features/inline-threads.md): text selection, popover behavior, thread panel rules, keyboard behavior, and edge cases across `/home` and `/home/[conversationId]`
 - [features/live-search.md](./features/live-search.md): search-mode behavior, provider-backed retrieval pipeline, persisted source metadata, and safety constraints
 - [features/memory.md](./features/memory.md): memory system architecture, read/write paths, schema, and API shape
 - [features/mentors.md](./features/mentors.md): built-in and custom mentors, data model, prompt construction, and API integration
 - [features/multi-chat-home.md](./features/multi-chat-home.md): multi-conversation home behavior, persistent conversation URLs, route hydration including the routed-history loading placeholder, non-persistent handoff back to `/home`, sidebar model, runtime state, and database impact
 - [features/temporary-chat.md](./features/temporary-chat.md): temporary chat behavior, memory modes, URL-less `/home` behavior, first-click handoff from routed conversations, and chat route behavior
+- [features/workspaces.md](./features/workspaces.md): workspace grouping, dedicated workspace pages, workspace context, and scoped memory behavior
 
 ## Current Search Status
 

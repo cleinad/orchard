@@ -79,6 +79,35 @@ describe('memory item routes', () => {
     });
   });
 
+  it('applies workspace scope only after validating workspace ownership', async () => {
+    const { supabase, tracker } = createRouteSupabase({
+      tables: {
+        workspaces: { rows: [{ id: 'workspace-abc' }] },
+        memory_items: { rows: [] },
+      },
+    });
+    mockCreateSupabaseServerClient.mockResolvedValue(supabase);
+
+    const { GET } = await import('@/app/api/memory/items/route');
+    const response = await GET(
+      new NextRequest(
+        'http://localhost/api/memory/items?scope=workspace:workspace-abc'
+      )
+    );
+
+    expect(response.status).toBe(200);
+    expect(tracker.selects('workspaces')[0].filters).toMatchObject({
+      'eq:id': 'workspace-abc',
+      'eq:user_id': 'user-1',
+    });
+    expect(tracker.selects('memory_items')[0].filters).toMatchObject({
+      'eq:user_id': 'user-1',
+      'eq:status': 'active',
+      'eq:owner_type': 'workspace',
+      'eq:owner_id': 'workspace-abc',
+    });
+  });
+
   it('normalizes PATCH payloads and re-embeds active items', async () => {
     const { supabase, tracker } = createRouteSupabase({
       tables: {

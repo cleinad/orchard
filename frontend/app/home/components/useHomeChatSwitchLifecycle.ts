@@ -17,8 +17,10 @@ import type { PendingBranchTarget } from '@/app/home/components/conversationTree
 interface UseHomeChatSwitchLifecycleParams {
   clearComposerInputForSelection: (selection: SelectedChat | null) => void;
   clearPendingChatRequestForSelection: (selection: SelectedChat) => void;
+  clearResponseStyleForSelection: (selection: SelectedChat | null) => void;
   clearSearchModeForSelection: (selection: SelectedChat | null) => void;
   clearSearchStateForSelection: (selection: SelectedChat | null) => void;
+  cleanupTemporaryChatAttachments: (tempChatId: string) => void;
   composerDraftInputsRef: MutableRefObject<Record<string, string>>;
   endProgrammaticTranscriptNavigation: () => void;
   registerCloseTempChatCleanup: (fn: (tempChatId: string) => void) => void;
@@ -43,8 +45,10 @@ interface UseHomeChatSwitchLifecycleParams {
 export function useHomeChatSwitchLifecycle({
   clearComposerInputForSelection,
   clearPendingChatRequestForSelection,
+  clearResponseStyleForSelection,
   clearSearchModeForSelection,
   clearSearchStateForSelection,
+  cleanupTemporaryChatAttachments,
   composerDraftInputsRef,
   endProgrammaticTranscriptNavigation,
   registerCloseTempChatCleanup,
@@ -110,6 +114,7 @@ export function useHomeChatSwitchLifecycle({
           prev.filter((draft) => draft.id !== currentDraft.id)
         );
         clearComposerInputForSelection(currentSelection);
+        clearResponseStyleForSelection(currentSelection);
         clearSearchModeForSelection(currentSelection);
         clearSearchStateForSelection(currentSelection);
         clearPendingChatRequestForSelection(currentSelection);
@@ -118,6 +123,7 @@ export function useHomeChatSwitchLifecycle({
     [
       clearComposerInputForSelection,
       clearPendingChatRequestForSelection,
+      clearResponseStyleForSelection,
       clearSearchModeForSelection,
       clearSearchStateForSelection,
       composerDraftInputsRef,
@@ -145,8 +151,10 @@ export function useHomeChatSwitchLifecycle({
 
   useEffect(() => {
     registerCloseTempChatCleanup((tempChatId: string) => {
+      cleanupTemporaryChatAttachments(tempChatId);
       const closedSelection: SelectedChat = { kind: 'temporary', tempChatId };
       clearComposerInputForSelection(closedSelection);
+      clearResponseStyleForSelection(closedSelection);
       clearSearchModeForSelection(closedSelection);
       clearSearchStateForSelection(closedSelection);
       clearPendingChatRequestForSelection(closedSelection);
@@ -154,8 +162,10 @@ export function useHomeChatSwitchLifecycle({
   }, [
     clearComposerInputForSelection,
     clearPendingChatRequestForSelection,
+    clearResponseStyleForSelection,
     clearSearchModeForSelection,
     clearSearchStateForSelection,
+    cleanupTemporaryChatAttachments,
     registerCloseTempChatCleanup,
   ]);
 }

@@ -22,8 +22,14 @@ export function useChatModelCatalog(
       id: option.id,
       label: option.label,
       provider: option.provider,
+      providerLabel: option.providerLabel,
+      iconKey: option.iconKey,
+      description: option.description,
+      ...(option.badge ? { badge: option.badge } : {}),
       available: true,
       isDefault: option.id === DEFAULT_CHAT_MODEL_ID,
+      ...(option.effort ? { effort: option.effort } : {}),
+      supportsImages: option.supportsImages ?? false,
     }))
   );
 

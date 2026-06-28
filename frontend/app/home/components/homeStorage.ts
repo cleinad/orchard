@@ -5,6 +5,7 @@ export interface StoredMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
+  attachments?: Message['attachments'];
   timestamp: string;
   searchMetadata?: Message['searchMetadata'];
   previousMessageId: string | null;
@@ -23,6 +24,7 @@ export function toStoredMessage(message: Message): StoredMessage {
     id: message.id,
     role: message.role,
     content: message.content,
+    attachments: message.attachments ?? [],
     timestamp: message.timestamp.toISOString(),
     searchMetadata: message.searchMetadata ?? null,
     previousMessageId: message.previousMessageId,
@@ -34,6 +36,7 @@ export function fromStoredMessage(message: StoredMessage): Message {
     id: message.id,
     role: message.role,
     content: message.content,
+    attachments: message.attachments ?? [],
     timestamp: new Date(message.timestamp),
     searchMetadata: message.searchMetadata ?? null,
     previousMessageId: message.previousMessageId ?? null,

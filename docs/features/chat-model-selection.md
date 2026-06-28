@@ -11,9 +11,17 @@ Main chat now supports a user-selectable model dropdown in the composer. The sel
 
 The current curated options are:
 
-- **GPT 5.4** → OpenAI `gpt-5.4`
-- **Sonnet 4.6** → Anthropic `claude-sonnet-4-6`
-- **Gemini 3** → Google `gemini-3-flash-preview`
+- **Auto** → resolves server-side to the first configured Chinese provider target
+- **GPT-5.5** → OpenAI `gpt-5.5`
+- **GPT-5.4** → OpenAI `gpt-5.4`
+- **Gemini 3.1 Pro** → Google `gemini-3.1-pro-preview`
+- **Claude Sonnet 4.6** → Anthropic `claude-sonnet-4-6`
+- **Claude Opus 4.8** → Anthropic `claude-opus-4-8`
+- **Gemini 3 Flash** → Google `gemini-3-flash-preview`
+- **DeepSeek V4 Flash** → DeepSeek `deepseek-v4-flash`
+- **DeepSeek V4 Pro** → DeepSeek `deepseek-v4-pro`
+- **Qwen 3.7 Plus** → Alibaba `qwen3.7-plus`
+- **Kimi K2.7 Code** → Moonshot `kimi-k2.7-code`
 
 This is intentionally a **catalog-based** system rather than a hardcoded single `CHAT_MODEL`. Labels, provider ids, API model ids, availability, and fallback logic are now centralized so future model expansion is straightforward.
 
@@ -21,15 +29,16 @@ This is intentionally a **catalog-based** system rather than a hardcoded single 
 
 - The model picker lives under the main composer, to the right of the existing voice/search controls.
 - The selected model is stored in `localStorage` under `keen-chat-model`.
+- The selected effort level is stored in `localStorage` under `keen-chat-model-effort`.
+- The thinking toggle is stored in `localStorage` under `keen-chat-thinking-enabled`.
 - Changing the model affects the **next turn only**.
 - Switching models does **not** reset the conversation, create a new chat, or alter thread state.
 - If a provider is not configured on the server, that option is shown as unavailable and disabled in the dropdown.
+- Effort controls appear only for models with provider-supported effort or thinking options.
 
 ## Roadmap
 
-- Expand the catalog from 3 curated options to a larger provider/model menu
 - Add grouped model sections by provider
-- Add model capability metadata (tool use, reasoning, multimodal, cost tier)
 - Add an optional per-mentor persistent model preference in the mentor settings UI
 - Add admin or debug UI for surfacing the final resolved model in the app itself
 
@@ -41,7 +50,7 @@ There are now three layers:
 
 1. **Catalog layer** — static model definitions, ids, labels, providers
 2. **Resolver layer** — server-side availability + fallback logic
-3. **Request layer** — frontend sends `modelId`, chat route resolves the final model used for generation
+3. **Request layer** — frontend sends `modelId`, optional effort, and optional thinking state; chat route resolves the final model used for generation
 
 ### Data Flow
 
@@ -55,7 +64,7 @@ selectedModelId state — frontend/app/home/[[...conversationId]]/page.tsx
 Persisted to localStorage key "keen-chat-model"
     |
     v
-POST /api/chat body includes { modelId }
+POST /api/chat body includes { modelId, modelEffort?, thinkingEnabled? }
     |
     v
 Chat route validates modelId
@@ -70,7 +79,7 @@ resolveChatModelSelection(modelId ?? mentor.model_id ?? null)
     +--- nothing configured --------------> return 503
     |
     v
-generateText() uses resolved provider/model
+streamText()/generateText() use resolved provider/model + providerOptions
     |
     v
 Response includes resolvedModelId + resolvedProvider
@@ -96,8 +105,33 @@ Provider availability is derived from env vars:
 - `OPENAI_API_KEY`
 - `ANTHROPIC_API_KEY`
 - `GOOGLE_GENERATIVE_AI_API_KEY`
+- `DEEPSEEK_API_KEY`
+- `ALIBABA_API_KEY`
+- `MOONSHOT_API_KEY`
 
-Only configured providers are considered available at runtime. If the preferred default (`Gemini 3`) is unavailable, the resolver falls back to the first available catalog option.
+Only configured providers are considered available at runtime. If the preferred default (`Auto`) has no configured Chinese-provider target, the resolver falls back to the first available concrete catalog option.
+
+### Auto Mode
+
+`Auto` is a virtual model id. It is selectable only when at least one auto target is configured. It resolves in this order:
+
+1. DeepSeek V4 Flash
+2. Qwen 3.7 Plus
+3. Kimi K2.7 Code
+4. DeepSeek V4 Pro
+
+The response metadata reports the resolved concrete model id and provider, not `auto`.
+
+### Effort And Thinking
+
+The UI uses a normalized effort vocabulary, but the server maps it per provider:
+
+- OpenAI: `reasoningEffort`
+- Anthropic: adaptive thinking plus `effort`
+- Google Gemini 3: `thinkingConfig.thinkingLevel`
+- DeepSeek: `thinking` and `reasoningEffort`
+- Alibaba/Qwen: `enableThinking` and `thinkingBudget`
+- Moonshot/Kimi K2.7 Code: no effort control; the model thinks by default and the app does not send a `thinking` parameter
 
 ### Verification Metadata
 
@@ -131,4 +165,4 @@ This exists so model resolution can be verified in:
 
 See [chat-model-selection.md](../testing/chat-model-selection.md) for focused commands, automated coverage, and manual verification.
 
-The current automated boundary is catalog and resolver behavior. Browser payloads, dropdown behavior, localStorage persistence, and dev console logs are still verified manually.
+The current automated boundary covers catalog data, resolver behavior, providerOptions mapping, and route payload handling. Browser dropdown behavior, localStorage persistence, and dev console logs are still verified manually or through e2e smoke tests.

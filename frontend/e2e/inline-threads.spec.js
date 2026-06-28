@@ -9,6 +9,10 @@ const {
 const PRIMARY_SELECTION_TEXT = 'microtasks run before the browser paints the next frame';
 const SECONDARY_SELECTION_TEXT = 'promise callbacks can update state before rendering catches up.';
 const FRACTION_MATH_SELECTION = 'bc−ad';
+const TABLE_HEADER_SELECTION = 'Phase\tTrigger\tResult';
+const TABLE_ROW_SELECTION = 'Microtask\tPromise callback\tRuns before paint';
+const PARAGRAPH_TO_TABLE_SELECTION = 'comparison:\nPhase\tTrigger';
+const TABLE_TO_PARAGRAPH_SELECTION = 'Pixels become visible\nThe important bit';
 const RICH_SELECTION_CASES = [
   'Paragraph text includes',
   'queueMicrotask()',
@@ -21,6 +25,31 @@ const RICH_SELECTION_CASES = [
   FRACTION_MATH_SELECTION,
   '[1]',
 ];
+
+async function getTableMetrics(table) {
+  return table.evaluate((tableEl) => {
+    const round = (value) => Math.round(value * 100) / 100;
+    const rect = tableEl.getBoundingClientRect();
+
+    return {
+      width: round(rect.width),
+      height: round(rect.height),
+      rows: Array.from(tableEl.querySelectorAll('tr')).map((row) =>
+        round(row.getBoundingClientRect().height)
+      ),
+    };
+  });
+}
+
+function expectStableTableMetrics(after, before) {
+  expect(Math.abs(after.width - before.width)).toBeLessThanOrEqual(1);
+  expect(after.height).toBeLessThanOrEqual(before.height + 8);
+  expect(after.rows.length).toBe(before.rows.length);
+
+  after.rows.forEach((height, index) => {
+    expect(height).toBeLessThanOrEqual(before.rows[index] + 8);
+  });
+}
 
 test('promotes an unsent popover draft into the thread panel', async ({ page }) => {
   const { messageId, selectedText } = await gotoHomeFixture(page);
@@ -279,12 +308,12 @@ test('copy after source selection and paste into the popover input keep native c
   await selectTextInMessage(page, messageId, selectedText);
   await expect(page.getByTestId('selection-popover')).toBeVisible();
 
-  await page.keyboard.press('Control+C');
+  await page.keyboard.press('ControlOrMeta+C');
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(selectedText);
 
   await page.evaluate(() => navigator.clipboard.writeText('How does this affect paint?'));
   await page.getByTestId('selection-popover-input').click();
-  await page.keyboard.press('Control+V');
+  await page.keyboard.press('ControlOrMeta+V');
   await expect(page.getByTestId('selection-popover-input')).toHaveValue(
     'How does this affect paint?'
   );
@@ -292,7 +321,7 @@ test('copy after source selection and paste into the popover input keep native c
   await page.keyboard.press('Escape');
   await selectTextInMessage(page, messageId, 'E=mc2');
   await expect(page.getByTestId('selection-popover')).toBeVisible();
-  await page.keyboard.press('Control+C');
+  await page.keyboard.press('ControlOrMeta+C');
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('E=mc2');
 });
 
@@ -321,6 +350,9 @@ test('renders inline markers for code and math selections from offsets', async (
   await page.getByTestId('selection-popover-input').fill('code-marker');
   await page.getByTestId('selection-popover-input').press('Enter');
 
+  const messageContent = page.locator(`[data-message-id="${messageId}"] [data-message-content]`);
+  await expect(messageContent).toHaveAttribute('data-range-thread-highlights', 'true');
+
   const codeMarkerFragments = page.locator('pre code [data-testid="inline-thread-link"]');
   await expect.poll(() => codeMarkerFragments.count()).toBeGreaterThan(1);
   const codeMarkerText = await codeMarkerFragments.evaluateAll((nodes) =>
@@ -331,9 +363,18 @@ test('renders inline markers for code and math selections from offsets', async (
   expect(codeMarkerText).toContain('();');
   await expect
     .poll(() =>
-      codeMarkerFragments.first().evaluate((node) => window.getComputedStyle(node).boxShadow)
+      codeMarkerFragments.first().evaluate((node) => {
+        const style = window.getComputedStyle(node);
+        return {
+          backgroundColor: style.backgroundColor,
+          boxShadow: style.boxShadow,
+        };
+      })
     )
-    .toBe('none');
+    .toEqual({
+      backgroundColor: 'rgba(0, 0, 0, 0)',
+      boxShadow: 'none',
+    });
 
   await selectTextInMessage(page, messageId, 'E=mc2');
   await page.getByTestId('selection-popover-input').fill('math-marker');
@@ -353,7 +394,7 @@ test('renders inline markers for code and math selections from offsets', async (
       boxShadow: style.boxShadow,
     };
   });
-  expect(mathMarkerStyles.backgroundColor).toBe('rgb(254, 243, 199)');
+  expect(mathMarkerStyles.backgroundColor).toBe('rgba(0, 0, 0, 0)');
   expect(mathMarkerStyles.borderRadius).toBe('2px');
   expect(mathMarkerStyles.boxShadow).toBe('none');
 
@@ -370,10 +411,180 @@ test('renders inline markers for code and math selections from offsets', async (
   const fractionMarkerStyles = await fractionMarkerFragments.last().evaluate((node) => {
     const style = window.getComputedStyle(node);
     return {
+      backgroundColor: style.backgroundColor,
       borderRadius: style.borderRadius,
       boxShadow: style.boxShadow,
     };
   });
+  expect(fractionMarkerStyles.backgroundColor).toBe('rgba(0, 0, 0, 0)');
   expect(fractionMarkerStyles.borderRadius).toBe('2px');
   expect(fractionMarkerStyles.boxShadow).toBe('none');
+});
+
+test('captures table selections with spreadsheet text and smooth persisted highlighting', async ({
+  page,
+}) => {
+  const consoleErrors = [];
+  page.on('console', (message) => {
+    if (
+      message.type() === 'error'
+      && /cannot be a child|hydration|nested <span>/i.test(message.text())
+    ) {
+      consoleErrors.push(message.text());
+    }
+  });
+
+  const headerQuestion = 'Explain this table header.';
+  const rowQuestion = 'Explain this table row.';
+  const headerAnswer = 'The header names the table dimensions.';
+  const rowAnswer = 'Microtasks run after the current task but before paint becomes visible.';
+
+  await mockChatRoute(page, async (body) => {
+    expect(body.conversationId).toBe('conversation-inline-threads-table-fixture');
+    expect(body.selectionStreamVersion).toBe('markdown-structure-v2');
+
+    if (body.highlightedText === TABLE_HEADER_SELECTION) {
+      expect(body.message).toBe(headerQuestion);
+      return {
+        threadId: 'persisted-thread-table-header-1',
+        userMessageId: 'persisted-table-header-user-1',
+        assistantMessageId: 'persisted-table-header-assistant-1',
+        message: headerAnswer,
+      };
+    }
+
+    expect(body.message).toBe(rowQuestion);
+    expect(body.highlightedText).toBe(TABLE_ROW_SELECTION);
+    return {
+      threadId: 'persisted-thread-table-1',
+      userMessageId: 'persisted-table-user-1',
+      assistantMessageId: 'persisted-table-assistant-1',
+      message: rowAnswer,
+    };
+  });
+
+  const { messageId, selectedText } = await gotoHomeFixture(page, 'inline-threads-table-selection');
+  expect(selectedText).toBe(TABLE_ROW_SELECTION);
+  const table = page.locator(`[data-message-id="${messageId}"] table`);
+  await expect(table).toBeVisible();
+
+  const baselineMetrics = await getTableMetrics(table);
+  const invalidTableMarkers = page.locator(
+    [
+      'table > [data-testid="inline-thread-link"]',
+      'thead > [data-testid="inline-thread-link"]',
+      'tbody > [data-testid="inline-thread-link"]',
+      'tfoot > [data-testid="inline-thread-link"]',
+      'tr > [data-testid="inline-thread-link"]',
+    ].join(',')
+  );
+
+  await selectTextInMessage(page, messageId, TABLE_HEADER_SELECTION);
+  await page.getByTestId('selection-popover-input').fill(headerQuestion);
+  await page.getByTestId('selection-popover-input').press('Enter');
+
+  const headerMarkerFragments = page.locator('th [data-testid="inline-thread-link"]');
+  await expect.poll(() => headerMarkerFragments.count()).toBeGreaterThan(0);
+  await expect(headerMarkerFragments.first()).toContainText('Phase');
+  await expect(invalidTableMarkers).toHaveCount(0);
+
+  await selectTextInMessage(page, messageId, selectedText);
+  await page.getByTestId('selection-popover-input').fill(rowQuestion);
+  await page.getByTestId('selection-popover-input').press('Enter');
+
+  const messageContent = page.locator(`[data-message-id="${messageId}"] [data-message-content]`);
+  await expect(messageContent).toHaveAttribute('data-range-thread-highlights', 'true');
+  await expect(invalidTableMarkers).toHaveCount(0);
+
+  const tableMarkerFragments = page.locator('td [data-testid="inline-thread-link"]');
+  await expect.poll(() => tableMarkerFragments.count()).toBeGreaterThan(0);
+  await expect(tableMarkerFragments.first()).toContainText('Microtask');
+
+  const highlightedMetrics = await getTableMetrics(table);
+  expectStableTableMetrics(highlightedMetrics, baselineMetrics);
+  expect(consoleErrors).toEqual([]);
+
+  await expect
+    .poll(() =>
+      tableMarkerFragments.first().evaluate((node) => window.getComputedStyle(node).backgroundColor)
+    )
+    .toBe('rgba(0, 0, 0, 0)');
+
+  await tableMarkerFragments.first().click();
+  await expect(page.getByTestId('thread-panel')).toHaveAttribute('data-state', 'open');
+  await expect(page.getByTestId('thread-panel')).toContainText(rowQuestion);
+  await expect(page.getByTestId('thread-panel')).toContainText(rowAnswer);
+});
+
+test('keeps table structure valid for paragraph-table boundary selections', async ({ page }) => {
+  const consoleErrors = [];
+  page.on('console', (message) => {
+    if (
+      message.type() === 'error'
+      && /cannot be a child|hydration|nested <span>/i.test(message.text())
+    ) {
+      consoleErrors.push(message.text());
+    }
+  });
+
+  const cases = new Map([
+    [
+      PARAGRAPH_TO_TABLE_SELECTION,
+      {
+        question: 'Explain paragraph to table.',
+        answer: 'The paragraph introduces the first table columns.',
+        threadId: 'persisted-thread-table-boundary-before-1',
+      },
+    ],
+    [
+      TABLE_TO_PARAGRAPH_SELECTION,
+      {
+        question: 'Explain table to paragraph.',
+        answer: 'The final table row leads into the summary paragraph.',
+        threadId: 'persisted-thread-table-boundary-after-1',
+      },
+    ],
+  ]);
+
+  await mockChatRoute(page, async (body) => {
+    expect(body.conversationId).toBe('conversation-inline-threads-table-fixture');
+    expect(body.selectionStreamVersion).toBe('markdown-structure-v2');
+
+    const match = cases.get(body.highlightedText);
+    expect(match).toBeTruthy();
+    expect(body.message).toBe(match.question);
+
+    return {
+      threadId: match.threadId,
+      userMessageId: `${match.threadId}-user`,
+      assistantMessageId: `${match.threadId}-assistant`,
+      message: match.answer,
+    };
+  });
+
+  const { messageId } = await gotoHomeFixture(page, 'inline-threads-table-selection');
+  const table = page.locator(`[data-message-id="${messageId}"] table`);
+  await expect(table).toBeVisible();
+
+  const baselineMetrics = await getTableMetrics(table);
+  const invalidTableMarkers = page.locator(
+    [
+      'table > [data-testid="inline-thread-link"]',
+      'thead > [data-testid="inline-thread-link"]',
+      'tbody > [data-testid="inline-thread-link"]',
+      'tfoot > [data-testid="inline-thread-link"]',
+      'tr > [data-testid="inline-thread-link"]',
+    ].join(',')
+  );
+
+  for (const [selectionText, { question }] of cases) {
+    await selectTextInMessage(page, messageId, selectionText);
+    await page.getByTestId('selection-popover-input').fill(question);
+    await page.getByTestId('selection-popover-input').press('Enter');
+    await expect(invalidTableMarkers).toHaveCount(0);
+  }
+
+  const highlightedMetrics = await getTableMetrics(table);
+  expectStableTableMetrics(highlightedMetrics, baselineMetrics);
+  expect(consoleErrors).toEqual([]);
 });
