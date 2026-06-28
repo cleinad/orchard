@@ -76,7 +76,7 @@ function createActivitySummary(events: SearchActivityEvent[]): SearchActivitySum
         ? `Reusing ${latest.reusedCount} prior sources and searching fresh results`
         : 'Searching fresh results';
   }
-  if (latest?.type === 'search_started') activeLabel = `Searching: ${latest.query}`;
+  if (latest?.type === 'search_started') activeLabel = `Searching ${latest.query}`;
   if (latest?.type === 'relevance_checked') activeLabel = latest.reason;
 
   return {
@@ -85,21 +85,17 @@ function createActivitySummary(events: SearchActivityEvent[]): SearchActivitySum
   };
 }
 
-function createVisibleActivitySummary(
-  events: SearchActivityEvent[],
-  mode: SearchMode
-): SearchActivitySummary {
-  if (mode !== 'auto') {
-    return createActivitySummary(events);
-  }
-
+function createVisibleActivitySummary(events: SearchActivityEvent[]): SearchActivitySummary {
   return createActivitySummary(
     events.filter(
       (event) =>
-        !(event.type === 'planning_started' && event.label === 'Understanding the follow-up...')
+        event.type !== 'planning_started'
         && event.type !== 'search_decision_started'
         && event.type !== 'search_decision_completed'
         && event.type !== 'search_skipped'
+        && event.type !== 'plan_selected'
+        && event.type !== 'prior_sources_checked'
+        && event.type !== 'relevance_checked'
     )
   );
 }
@@ -223,6 +219,19 @@ function combineOutputs({
   };
 }
 
+function createRejectedOutput(output: SearchPipelineOutput): SearchPipelineOutput {
+  const status =
+    output.status === 'missing_config' || output.status === 'timeout' || output.status === 'upstream_error'
+      ? output.status
+      : 'no_results';
+
+  return {
+    ...output,
+    status,
+    results: [],
+  };
+}
+
 export async function runConversationalSearch(
   input: ConversationalSearchInput,
   dependencies: {
@@ -259,7 +268,12 @@ export async function runConversationalSearch(
       return;
     }
 
-    dependencies.activityWriter?.(createVisibleActivitySummary(events, input.searchMode));
+    const visibleActivity = createVisibleActivitySummary(events);
+    if (visibleActivity.events.length === 0) {
+      return;
+    }
+
+    dependencies.activityWriter?.(visibleActivity);
   };
 
   publishActivity();
@@ -498,24 +512,23 @@ export async function runConversationalSearch(
     }
   }
 
-  const acceptedOutput = {
-    ...combinedOutput,
-    results: assessment.scoredResults.map((item) => item.source).slice(0, 10),
-  };
+  const acceptedOutput = assessment.accepted
+    ? {
+        ...combinedOutput,
+        results: assessment.scoredResults.map((item) => item.source).slice(0, 10),
+      }
+    : createRejectedOutput(combinedOutput);
   const sources = sourcesFromSearchOutput(acceptedOutput);
 
   events.push({
     type: 'search_completed',
     sourceCount: sources.length,
-    collapsedLabel:
-      sources.length > 0
-        ? `Searched ${plan.resolvedIntent} across ${sources.length} sources`
-        : `Searched ${plan.resolvedIntent} but found no useful sources`,
+    collapsedLabel: 'Search completed',
   });
   publishActivity();
 
   const activity = createActivitySummary(events);
-  const visibleActivity = createVisibleActivitySummary(events, input.searchMode);
+  const visibleActivity = createVisibleActivitySummary(events);
   const shouldExposeActivity = exposeActivity;
 
   const metadata = shouldExposeActivity

@@ -114,7 +114,7 @@ describe('search citations helpers', () => {
       resolvedIntent: 'Find the current status of Iran ceasefire talks.',
       topicEntities: ['Iran', 'ceasefire'],
       activity: {
-        collapsedLabel: 'Searched Iran ceasefire talks across 2 sources',
+        collapsedLabel: 'Search completed',
         events: [
           {
             type: 'search_started',
@@ -124,7 +124,7 @@ describe('search citations helpers', () => {
           {
             type: 'search_completed',
             sourceCount: 2,
-            collapsedLabel: 'Searched Iran ceasefire talks across 2 sources',
+            collapsedLabel: 'Search completed',
           },
         ],
       },
@@ -146,7 +146,7 @@ describe('search citations helpers', () => {
     expect(parsePersistedSearchMetadata(metadata)).toMatchObject({
       version: 2,
       activity: {
-        collapsedLabel: 'Searched Iran ceasefire talks across 2 sources',
+        collapsedLabel: 'Search completed',
         events: [
           expect.objectContaining({
             type: 'search_started',

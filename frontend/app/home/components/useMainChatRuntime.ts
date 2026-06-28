@@ -317,6 +317,10 @@ interface MainChatRuntimeParams {
     fromSelection: SelectedChat,
     toSelection: SelectedChat
   ) => void;
+  moveSearchModeBetweenSelections: (
+    fromSelection: SelectedChat | null,
+    toSelection: SelectedChat | null
+  ) => void;
   pendingBranch: PendingBranchTarget | null;
   pendingChatRequestsRef: MutableRefObject<Record<string, PendingChatRequest>>;
   persistentBranches: ConversationBranch[];
@@ -878,6 +882,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
         );
 
         params.movePendingChatRequestBetweenSelections(draftSelection, promotedSelection);
+        params.moveSearchModeBetweenSelections(draftSelection, promotedSelection);
         params.clearSearchStateForSelection(draftSelection);
 
         if (shouldFocusPromotedDraft) {

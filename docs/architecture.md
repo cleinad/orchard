@@ -7,7 +7,7 @@
 | App + API | Next.js | Shared TypeScript surface for UI, route handlers, auth, and AI orchestration |
 | Database | Supabase (Postgres) | Auth, persistence, RLS, and pgvector-backed memory |
 | Chat Models | AI SDK providers | Common streaming interface across Google, Anthropic, and OpenAI models |
-| Search | Brave / Exa | Optional live retrieval behind explicit search mode |
+| Search | Brave / Exa | Optional live retrieval behind auto, required, or off search modes |
 | STT | Deepgram | Browser microphone audio streams directly to Deepgram with short-lived tokens |
 | TTS | ElevenLabs | Optional spoken assistant responses |
 

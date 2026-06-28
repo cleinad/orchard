@@ -31,27 +31,16 @@ interface MessageRowProps {
 function searchActivityEventLabel(event: SearchActivityEvent) {
   switch (event.type) {
     case 'planning_started':
-      return event.label;
     case 'search_decision_started':
-      return event.label;
     case 'search_decision_completed':
-      return event.shouldSearch
-        ? `Auto search: ${event.reason}`
-        : `Auto skipped search: ${event.reason}`;
     case 'search_skipped':
-      return event.label;
     case 'plan_selected':
-      return `Planned search for ${event.resolvedIntent}`;
     case 'prior_sources_checked':
-      return event.reusedCount > 0
-        ? `Checked prior sources and reused ${event.reusedCount}`
-        : 'Checked prior sources';
-    case 'search_started':
-      return `Searched: ${event.query}`;
     case 'relevance_checked':
-      return event.reason;
     case 'search_completed':
-      return event.collapsedLabel;
+      return '';
+    case 'search_started':
+      return `Searched ${event.query}`;
     default: {
       const exhaustiveCheck: never = event;
       return exhaustiveCheck;
@@ -88,7 +77,7 @@ function MessageRow({
       .map(searchActivityEventLabel)
       .filter((label, index, labels) => label && labels.indexOf(label) === index)
     ?? [];
-  const canExpandSearchActivity = searchActivitySteps.length > 1;
+  const canExpandSearchActivity = searchActivitySteps.length > 0;
   const hasSources = hasUsableSearchSources(replySearchMetadata);
   const handleCitationClick = useCallback(
     (sourceId: number) => onCitationClick(message.id, sourceId),

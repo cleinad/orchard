@@ -26,8 +26,9 @@ describe('readChatStream', () => {
       collapsedLabel: 'Searching fresh results',
       events: [
         {
-          type: 'planning_started',
-          label: 'Understanding the follow-up...',
+          type: 'search_started',
+          query: 'OpenAI updates',
+          attempt: 1,
         },
       ],
     };

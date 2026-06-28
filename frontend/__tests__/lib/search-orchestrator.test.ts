@@ -191,27 +191,39 @@ describe('conversational search orchestrator', () => {
     });
     expect(activityWriter).toHaveBeenCalledWith(
       expect.objectContaining({
-        collapsedLabel: 'Planning search...',
+        collapsedLabel: 'Searching latest OpenAI updates',
         events: expect.not.arrayContaining([
+          expect.objectContaining({ type: 'planning_started' }),
           expect.objectContaining({ type: 'search_decision_started' }),
           expect.objectContaining({ type: 'search_decision_completed' }),
+          expect.objectContaining({ type: 'plan_selected' }),
+          expect.objectContaining({ type: 'prior_sources_checked' }),
+          expect.objectContaining({ type: 'relevance_checked' }),
         ]),
       })
     );
     expect(activityWriter).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        collapsedLabel: expect.stringContaining('Searched Find latest OpenAI updates. across 1 sources'),
+        collapsedLabel: 'Search completed',
         events: expect.not.arrayContaining([
+          expect.objectContaining({ type: 'planning_started' }),
           expect.objectContaining({ type: 'search_decision_started' }),
           expect.objectContaining({ type: 'search_decision_completed' }),
+          expect.objectContaining({ type: 'plan_selected' }),
+          expect.objectContaining({ type: 'prior_sources_checked' }),
+          expect.objectContaining({ type: 'relevance_checked' }),
         ]),
       })
     );
     expect(run.metadata).toMatchObject({
       activity: expect.objectContaining({
         events: expect.not.arrayContaining([
+          expect.objectContaining({ type: 'planning_started' }),
           expect.objectContaining({ type: 'search_decision_started' }),
           expect.objectContaining({ type: 'search_decision_completed' }),
+          expect.objectContaining({ type: 'plan_selected' }),
+          expect.objectContaining({ type: 'prior_sources_checked' }),
+          expect.objectContaining({ type: 'relevance_checked' }),
         ]),
       }),
     });
@@ -259,19 +271,27 @@ describe('conversational search orchestrator', () => {
     });
     expect(activityWriter).toHaveBeenCalledWith(
       expect.objectContaining({
-        collapsedLabel: 'Planning search...',
+        collapsedLabel: 'Searching obscure topic sources',
         events: expect.not.arrayContaining([
+          expect.objectContaining({ type: 'planning_started' }),
           expect.objectContaining({ type: 'search_decision_started' }),
           expect.objectContaining({ type: 'search_decision_completed' }),
+          expect.objectContaining({ type: 'plan_selected' }),
+          expect.objectContaining({ type: 'prior_sources_checked' }),
+          expect.objectContaining({ type: 'relevance_checked' }),
         ]),
       })
     );
     expect(activityWriter).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        collapsedLabel: 'Searched Find sources on an obscure topic. but found no useful sources',
+        collapsedLabel: 'Search completed',
         events: expect.not.arrayContaining([
+          expect.objectContaining({ type: 'planning_started' }),
           expect.objectContaining({ type: 'search_decision_started' }),
           expect.objectContaining({ type: 'search_decision_completed' }),
+          expect.objectContaining({ type: 'plan_selected' }),
+          expect.objectContaining({ type: 'prior_sources_checked' }),
+          expect.objectContaining({ type: 'relevance_checked' }),
         ]),
       })
     );
@@ -279,7 +299,7 @@ describe('conversational search orchestrator', () => {
       status: 'no_results',
       sources: [],
       activity: expect.objectContaining({
-        collapsedLabel: 'Searched Find sources on an obscure topic. but found no useful sources',
+        collapsedLabel: 'Search completed',
       }),
     });
   });
@@ -315,13 +335,24 @@ describe('conversational search orchestrator', () => {
     expect(run.action).toBe('failed');
     expect(activityWriter).toHaveBeenCalledWith(
       expect.objectContaining({
-        collapsedLabel: 'Searched Find OpenAI updates. but found no useful sources',
+        collapsedLabel: 'Searching OpenAI updates',
+      })
+    );
+    expect(activityWriter).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        collapsedLabel: 'Search completed',
+        events: expect.not.arrayContaining([
+          expect.objectContaining({ type: 'planning_started' }),
+          expect.objectContaining({ type: 'plan_selected' }),
+          expect.objectContaining({ type: 'prior_sources_checked' }),
+          expect.objectContaining({ type: 'relevance_checked' }),
+        ]),
       })
     );
     expect(run.metadata).toMatchObject({
       status: 'no_results',
       activity: expect.objectContaining({
-        collapsedLabel: 'Searched Find OpenAI updates. but found no useful sources',
+        collapsedLabel: 'Search completed',
       }),
     });
   });
@@ -383,7 +414,7 @@ describe('conversational search orchestrator', () => {
     expect(run.metadata).toMatchObject({
       resolvedIntent: expect.stringContaining('beneficial'),
       activity: {
-        collapsedLabel: expect.stringContaining('Searched'),
+        collapsedLabel: 'Search completed',
       },
       sources: expect.arrayContaining([
         expect.objectContaining({ url: 'https://example.com/prior-iran', origin: 'prior' }),
@@ -443,5 +474,67 @@ describe('conversational search orchestrator', () => {
     expect(searchPipeline).toHaveBeenCalledTimes(2);
     expect(run.attempts).toHaveLength(2);
     expect(run.action).toBe('searched');
+  });
+
+  it('does not expose rejected sources as usable grounding after repair fails', async () => {
+    const searchPipeline = vi
+      .fn()
+      .mockResolvedValueOnce(
+        searchOutput('latest Iran ceasefire current status', [
+          {
+            title: 'What About Now lyrics',
+            url: 'https://lyrics.com/song',
+            domain: 'lyrics.com',
+            snippet: 'Lyrics and music video.',
+            provider: 'brave',
+            sourceType: 'other',
+            publishedAt: null,
+            origin: 'fresh',
+          },
+        ])
+      )
+      .mockResolvedValueOnce(
+        searchOutput('repair', [
+          {
+            title: 'Music video roundup',
+            url: 'https://video.example.com/music',
+            domain: 'video.example.com',
+            snippet: 'Song, album, and official video coverage.',
+            provider: 'brave',
+            sourceType: 'video',
+            publishedAt: null,
+            origin: 'fresh',
+          },
+        ])
+      );
+
+    const run = await runConversationalSearch(
+      {
+        latestMessage: 'what about now?',
+        messages: [
+          {
+            role: 'assistant',
+            content: 'Recent reports describe an Iran ceasefire proposal and diplomatic talks.',
+          },
+        ],
+        currentTime: '2026-06-17 10:00 (America/Vancouver)',
+        currentDateLabel: '2026-06-17',
+        searchMode: 'required',
+      },
+      { searchPipeline }
+    );
+
+    expect(searchPipeline).toHaveBeenCalledTimes(2);
+    expect(run.action).toBe('failed');
+    expect(run.metadata).toMatchObject({
+      status: 'no_results',
+      sources: [],
+      queries: expect.arrayContaining([expect.stringContaining('Iran')]),
+      resolvedIntent: expect.stringContaining('Iran'),
+      topicEntities: expect.arrayContaining(['Iran']),
+      activity: expect.objectContaining({
+        collapsedLabel: 'Search completed',
+      }),
+    });
   });
 });

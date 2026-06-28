@@ -11,7 +11,7 @@ Keen is a chat-first workspace for research and exploration centered on:
 - ongoing conversations around a subject
 - multi-chat navigation for returning to previous investigations
 - transcript-native conversation branching inside a chat
-- explicit search mode for current or external information
+- auto/required/off search modes for current or external information
 - continuity across conversations so users can build understanding over time
 
 Additional product surfaces like inline threads, temporary chats, and mentors build on top of that core model.
@@ -45,7 +45,7 @@ If docs conflict, prefer:
 - [features/chat-model-selection.md](./features/chat-model-selection.md): model picker behavior across routed home chats, resolution rules, availability rules, and verification
 - [features/conversation-branching.md](./features/conversation-branching.md): branch chips, conversation map, tree state, persistence model, and runtime isolation rules
 - [features/inline-threads.md](./features/inline-threads.md): text selection, popover behavior, thread panel rules, keyboard behavior, and edge cases across `/home` and `/home/[conversationId]`
-- [features/live-search.md](./features/live-search.md): explicit search-mode behavior, provider-backed retrieval pipeline, persisted source metadata, and safety constraints
+- [features/live-search.md](./features/live-search.md): search-mode behavior, provider-backed retrieval pipeline, persisted source metadata, and safety constraints
 - [features/memory.md](./features/memory.md): memory system architecture, read/write paths, schema, and API shape
 - [features/mentors.md](./features/mentors.md): built-in and custom mentors, data model, prompt construction, and API integration
 - [features/multi-chat-home.md](./features/multi-chat-home.md): multi-conversation home behavior, persistent conversation URLs, route hydration including the routed-history loading placeholder, non-persistent handoff back to `/home`, sidebar model, runtime state, and database impact
@@ -55,7 +55,7 @@ If docs conflict, prefer:
 
 Search mode has shipped its first provider-backed slice:
 
-- explicit-only search toggle
+- auto/required/off search selector
 - deterministic internal routing with no extra model hop
 - `Brave + Exa` retrieval pipeline
 - persisted v2 source metadata with a larger reply-attached source tray

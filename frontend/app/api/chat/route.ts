@@ -261,6 +261,35 @@ function sanitizeSearchQuery(value: string) {
   return value.replace(/\s+/g, ' ').trim().slice(0, 280);
 }
 
+function logAutoSearchFailure({
+  traceId,
+  conversationId,
+  latestMessage,
+  activity,
+  error,
+}: {
+  traceId: string;
+  conversationId: string | null;
+  latestMessage: string;
+  activity: SearchActivitySummary | null;
+  error: unknown;
+}) {
+  console.warn('[chat] auto search failed invisibly', {
+    traceId,
+    conversationId,
+    searchMode: 'auto',
+    latestMessagePreview: sanitizeSearchQuery(latestMessage),
+    lastActivityLabel: activity?.collapsedLabel ?? null,
+    lastActivityEvent:
+      activity?.events.length ? activity.events[activity.events.length - 1]?.type ?? null : null,
+    error: error instanceof Error ? error.message : String(error),
+  });
+}
+
+function isSearchInfrastructureFailure(status: PersistedSearchMetadata['status']) {
+  return status === 'missing_config' || status === 'timeout' || status === 'upstream_error';
+}
+
 function resolveSearchMode({
   searchMode,
   searchEnabled,
@@ -894,6 +923,14 @@ export async function POST(request: NextRequest) {
 
           searchTelemetry.logRequestStarted({ searchMode });
 
+          const bufferedAutoActivities: SearchActivitySummary[] = [];
+          const writeSearchActivity = (activity: SearchActivitySummary) => {
+            writer.write({
+              type: 'data-searchActivity',
+              data: activity,
+            });
+          };
+
           try {
             const searchDecisionModelConfig = getSearchDecisionModelConfig();
             const searchRun = await runConversationalSearch(
@@ -923,22 +960,49 @@ export async function POST(request: NextRequest) {
                   return runSearchPipeline(query, { telemetry: queryTelemetry });
                 },
                 activityWriter: (activity) => {
-                  writer.write({
-                    type: 'data-searchActivity',
-                    data: activity,
-                  });
+                  if (searchMode === 'auto') {
+                    bufferedAutoActivities.push(activity);
+                    return;
+                  }
+
+                  writeSearchActivity(activity);
                 },
               }
             );
 
-            search = withSearchDebugMetadata(
-              createSearchMetadataFromPersisted(searchMode, searchRun.metadata),
-              {
-                decision: searchRun.decision,
-                skippedReason: searchRun.skippedReason,
+            const autoInfrastructureFailure =
+              searchMode === 'auto'
+              && searchRun.metadata !== null
+              && isSearchInfrastructureFailure(searchRun.metadata.status)
+              && searchRun.metadata.sources.length === 0;
+
+            if (autoInfrastructureFailure) {
+              logAutoSearchFailure({
+                traceId: searchTraceId,
+                conversationId: activeConversationId,
+                latestMessage: message,
+                activity: bufferedAutoActivities.at(-1) ?? searchRun.activity,
+                error: searchRun.metadata?.status ?? 'auto_search_failed',
+              });
+            } else if (searchMode === 'auto') {
+              for (const activity of bufferedAutoActivities) {
+                writeSearchActivity(activity);
               }
-            );
-            persistedSearchMetadata = search.metadata;
+            }
+
+            search = autoInfrastructureFailure
+              ? withSearchDebugMetadata(createNotAttemptedSearchMetadata(searchMode), {
+                  decision: searchRun.decision,
+                  skippedReason: searchRun.skippedReason,
+                })
+              : withSearchDebugMetadata(
+                  createSearchMetadataFromPersisted(searchMode, searchRun.metadata),
+                  {
+                    decision: searchRun.decision,
+                    skippedReason: searchRun.skippedReason,
+                  }
+                );
+            persistedSearchMetadata = autoInfrastructureFailure ? null : search.metadata;
 
             const groundedSystemPrompt = persistedSearchMetadata
               ? buildGroundedSearchSystemPrompt(baseSystemPrompt, persistedSearchMetadata)
@@ -949,7 +1013,17 @@ export async function POST(request: NextRequest) {
               durationMs: Date.now() - searchStartedAt,
               error,
             });
-            console.error('[chat] search pipeline failed', error);
+            if (searchMode === 'auto') {
+              logAutoSearchFailure({
+                traceId: searchTraceId,
+                conversationId: activeConversationId,
+                latestMessage: message,
+                activity: bufferedAutoActivities.at(-1) ?? null,
+                error,
+              });
+            } else {
+              console.error('[chat] search pipeline failed', error);
+            }
             const failedQuery = sanitizeSearchQuery(message) || null;
             const failureActivity =
               searchMode === 'required' ? createRequiredSearchFailureActivity(failedQuery) : null;

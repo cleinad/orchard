@@ -53,6 +53,30 @@ export function clearSearchModeForKey(
   return deleteRecordKey(modesByChatKey, key);
 }
 
+export function moveSearchModeBetweenKeys(
+  modesByChatKey: Record<string, SearchMode>,
+  fromKey: string,
+  toKey: string,
+  sessionStore: Record<string, SearchMode> = searchModesSessionStore
+) {
+  const mode = modesByChatKey[fromKey] ?? sessionStore[fromKey] ?? 'auto';
+  delete sessionStore[fromKey];
+  let nextModes = deleteRecordKey(modesByChatKey, fromKey);
+
+  if (mode === 'auto') {
+    delete sessionStore[toKey];
+    return deleteRecordKey(nextModes, toKey);
+  }
+
+  sessionStore[toKey] = mode;
+  nextModes = {
+    ...nextModes,
+    [toKey]: mode,
+  };
+
+  return nextModes;
+}
+
 export function usePerChatComposerState({
   storageKey,
   selection,
@@ -132,6 +156,15 @@ export function usePerChatComposerState({
     setSearchModesByChatKey((prev) => clearSearchModeForKey(prev, key));
   }, []);
 
+  const moveSearchModeBetweenSelections = useCallback(
+    (fromSelection: SelectedChat | null, toSelection: SelectedChat | null) => {
+      const fromKey = getComposerStateKey(fromSelection);
+      const toKey = getComposerStateKey(toSelection);
+      setSearchModesByChatKey((prev) => moveSearchModeBetweenKeys(prev, fromKey, toKey));
+    },
+    []
+  );
+
   const setSearchModeForSelection = useCallback(
     (nextSelection: SelectedChat | null, mode: SearchMode) => {
       const key = nextSelection
@@ -202,6 +235,7 @@ export function usePerChatComposerState({
     clearSearchModeForSelection,
     clearSearchStateForSelection,
     clearSelectionState,
+    moveSearchModeBetweenSelections,
     resetAllComposerState,
     setInputForSelection,
     setSearchModeForSelection,
