@@ -1609,7 +1609,7 @@ export async function POST(request: NextRequest) {
       execute: async ({ writer }) => {
         let search = createNotAttemptedSearchMetadata(searchMode);
         let persistedSearchMetadata: PersistedSearchMetadata | null = null;
-        let finalSystemPrompt = `${baseSystemPrompt}\n\nReply to the user's latest message directly. Do not return an empty response.`;
+        let finalSystemPrompt = baseSystemPrompt;
 
         if (searchMode !== 'off') {
           const searchTraceId = crypto.randomUUID();
@@ -1707,7 +1707,7 @@ export async function POST(request: NextRequest) {
             const groundedSystemPrompt = persistedSearchMetadata
               ? buildGroundedSearchSystemPrompt(baseSystemPrompt, persistedSearchMetadata)
               : baseSystemPrompt;
-            finalSystemPrompt = `${groundedSystemPrompt}\n\nReply directly in 2 to 4 sentences. Do not return an empty response.`;
+            finalSystemPrompt = groundedSystemPrompt;
           } catch (error) {
             searchTelemetry.logPipelineFailed({
               durationMs: Date.now() - searchStartedAt,
@@ -1740,11 +1740,16 @@ export async function POST(request: NextRequest) {
                 data: failureActivity,
               });
             }
-            finalSystemPrompt = `${baseSystemPrompt}\n\nReply to the user's latest message directly. Do not return an empty response.`;
+            finalSystemPrompt = baseSystemPrompt;
           }
         }
 
-        finalSystemPrompt = `${finalSystemPrompt}\n\n${buildResponseStylePrompt(responseStyle)}\n\n${RESPONSE_FORMATTING_PROMPT}`;
+        finalSystemPrompt = [
+          finalSystemPrompt,
+          buildResponseStylePrompt(responseStyle),
+          RESPONSE_FORMATTING_PROMPT,
+          'Do not return an empty response.',
+        ].join('\n\n');
         const capturedSearch = search;
         const capturedPersistedSearchMetadata = persistedSearchMetadata;
 
