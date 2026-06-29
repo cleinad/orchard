@@ -307,8 +307,107 @@ body {
   text-underline-offset: 0.18em;
 }
 
+.markdown-content {
+  isolation: isolate;
+  position: relative;
+}
+
+.markdown-content > :not(.thread-highlight-overlay) {
+  position: relative;
+  z-index: 1;
+}
+
+.thread-highlight-overlay {
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+  position: absolute;
+  z-index: 0;
+}
+
+.thread-highlight-overlay__rect {
+  background: #fef3c7;
+  border-radius: 4px;
+  position: absolute;
+  transition:
+    background-color 120ms ease,
+    opacity 120ms ease;
+}
+
+.thread-highlight-overlay__rect[data-highlight-kind="active"] {
+  background: color-mix(in srgb, var(--accent) 20%, #fef3c7);
+}
+
+.thread-highlight-overlay__rect[data-highlight-context="math"] {
+  border-radius: 5px;
+}
+
+.thread-highlight-overlay__rect[data-highlight-context="code"] {
+  border-radius: 3px;
+}
+
+.thread-highlight-overlay__rect[data-highlight-context="table"] {
+  border-radius: 2px;
+}
+
+.thread-highlight-overlay__rect[data-highlight-status="loading"] {
+  background: #e0f2fe;
+}
+
+.thread-highlight-overlay__rect[data-highlight-status="error"] {
+  background: #ffe4e6;
+}
+
+.thread-highlight-overlay__rect[data-highlight-emphasized="true"] {
+  background: #fde68a;
+}
+
+.dark .thread-highlight-overlay__rect {
+  background: #5b4516;
+}
+
+.dark .thread-highlight-overlay__rect[data-highlight-kind="active"] {
+  background: color-mix(in srgb, var(--accent) 28%, #5b4516);
+}
+
+.dark .thread-highlight-overlay__rect[data-highlight-status="loading"] {
+  background: #16435f;
+}
+
+.dark .thread-highlight-overlay__rect[data-highlight-status="error"] {
+  background: #651f2c;
+}
+
+.dark .thread-highlight-overlay__rect[data-highlight-emphasized="true"] {
+  background: #6f5419;
+}
+
+.markdown-content [data-testid="inline-thread-link"] {
+  --tw-ring-color: transparent !important;
+  --tw-ring-offset-shadow: 0 0 #0000 !important;
+  --tw-ring-shadow: 0 0 #0000 !important;
+  background-color: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  color: inherit !important;
+  font-weight: inherit !important;
+  outline: none !important;
+  text-decoration: none !important;
+}
+
+.markdown-content [data-testid="inline-thread-link"]:hover,
+.markdown-content [data-testid="inline-thread-link"]:focus,
+.markdown-content [data-testid="inline-thread-link"]:focus-visible,
+.markdown-content [data-testid="inline-thread-link"]:active {
+  background-color: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
 .markdown-content[data-range-thread-highlights="true"] [data-testid="inline-thread-link"] {
   background-color: transparent !important;
+  border: 0 !important;
   box-shadow: none !important;
   color: inherit !important;
   font-weight: inherit !important;
@@ -317,9 +416,9 @@ body {
 
 .markdown-content[data-range-thread-highlights="true"] [data-testid="inline-thread-link"]:hover,
 .markdown-content[data-range-thread-highlights="true"] [data-testid="inline-thread-link"]:focus-visible {
-  background-color: color-mix(in srgb, #fef3c7 35%, transparent) !important;
-  outline: 1px solid color-mix(in srgb, #d97706 32%, transparent);
-  outline-offset: 1px;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  outline: none !important;
 }
 
 .markdown-content code {
@@ -440,6 +539,7 @@ body {
   background: var(--markdown-code-panel-bg);
   box-shadow: none;
   padding: 1rem 1rem 1.08rem;
+  position: relative;
 }
 
 .markdown-content pre code {
@@ -448,8 +548,18 @@ body {
   background: transparent;
   color: inherit;
   padding: 0;
+  position: relative;
   font-size: 0.94em;
   line-height: 1.65;
+  z-index: 1;
+}
+
+.thread-highlight-code-overlay {
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+  position: absolute;
+  z-index: 0;
 }
 
 .markdown-content .hljs {
@@ -526,7 +636,8 @@ body {
   --tw-ring-color: transparent !important;
   --tw-ring-offset-shadow: 0 0 #0000 !important;
   --tw-ring-shadow: 0 0 #0000 !important;
-  background-color: #fef3c7 !important;
+  background-color: transparent !important;
+  border: 0 !important;
   border-radius: 2px !important;
   box-shadow: none !important;
   color: inherit !important;
@@ -537,59 +648,65 @@ body {
 }
 
 .markdown-content .katex-html [data-testid="inline-thread-link"]:hover {
-  background-color: #fde68a !important;
+  background-color: transparent !important;
+  border: 0 !important;
   box-shadow: none !important;
+  outline: none !important;
 }
 
 .markdown-content .katex-html [data-testid="inline-thread-link"][data-thread-status="loading"] {
-  background-color: #dff4ff !important;
+  background-color: transparent !important;
 }
 
 .markdown-content .katex-html [data-testid="inline-thread-link"][data-thread-status="loading"]:hover {
-  background-color: #c7edff !important;
+  background-color: transparent !important;
 }
 
 .markdown-content .katex-html [data-testid="inline-thread-link"][data-thread-status="error"] {
-  background-color: #ffe4e6 !important;
+  background-color: transparent !important;
 }
 
 .markdown-content .katex-html [data-testid="inline-thread-link"][data-thread-status="error"]:hover {
-  background-color: #fecdd3 !important;
+  background-color: transparent !important;
 }
 
 .dark .markdown-content .katex-html [data-testid="inline-thread-link"] {
-  background-color: #5b4516 !important;
+  background-color: transparent !important;
 }
 
 .dark .markdown-content .katex-html [data-testid="inline-thread-link"]:hover {
-  background-color: #6f5419 !important;
+  background-color: transparent !important;
 }
 
 .dark .markdown-content .katex-html [data-testid="inline-thread-link"][data-thread-status="loading"] {
-  background-color: #16435f !important;
+  background-color: transparent !important;
 }
 
 .dark .markdown-content .katex-html [data-testid="inline-thread-link"][data-thread-status="loading"]:hover {
-  background-color: #1d5576 !important;
+  background-color: transparent !important;
 }
 
 .dark .markdown-content .katex-html [data-testid="inline-thread-link"][data-thread-status="error"] {
-  background-color: #651f2c !important;
+  background-color: transparent !important;
 }
 
 .dark .markdown-content .katex-html [data-testid="inline-thread-link"][data-thread-status="error"]:hover {
-  background-color: #7a2635 !important;
+  background-color: transparent !important;
 }
 
 .markdown-content[data-range-thread-highlights="true"] .katex-html [data-testid="inline-thread-link"] {
   background-color: transparent !important;
+  border: 0 !important;
   color: inherit !important;
   padding: 0 0.02em !important;
 }
 
 .markdown-content[data-range-thread-highlights="true"] .katex-html [data-testid="inline-thread-link"]:hover,
 .markdown-content[data-range-thread-highlights="true"] .katex-html [data-testid="inline-thread-link"]:focus-visible {
-  background-color: color-mix(in srgb, #fef3c7 35%, transparent) !important;
+  background-color: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  outline: none !important;
 }
 
 .font-heading {

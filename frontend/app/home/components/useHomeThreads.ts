@@ -1,53 +1,8 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
-import {
-  getOffsetsFromRange,
-  restoreRangeFromOffsets,
-} from '@/app/home/components/selectableTextIndex';
-import {
-  DEFAULT_SELECTION_STREAM_VERSION,
-  getSelectionStreamVersion,
-} from '@/app/home/components/markdownSelectableStream';
+import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
+import { getOffsetsFromRange } from '@/app/home/components/selectableTextIndex';
+import { DEFAULT_SELECTION_STREAM_VERSION } from '@/app/home/components/markdownSelectableStream';
 import type { PopoverState } from '@/app/home/components/TextSelectionPopover';
 import type { ThreadSession, ThreadSource } from '@/app/home/components/threadTypes';
-
-const ACTIVE_SELECTION_HIGHLIGHT = 'keen-active-selection';
-const HIGHLIGHT_STYLE_ID = 'keen-active-selection-styles';
-
-/** Inject ::highlight() CSS at runtime; build CSS parser (Turbopack) doesn't support this pseudo-element. */
-function ensureHighlightStylesInjected() {
-  if (typeof document === 'undefined' || document.getElementById(HIGHLIGHT_STYLE_ID)) return;
-  const style = document.createElement('style');
-  style.id = HIGHLIGHT_STYLE_ID;
-  style.textContent = `
-::highlight(${ACTIVE_SELECTION_HIGHLIGHT}) {
-  background-color: color-mix(in srgb, var(--accent) 28%, transparent);
-  text-decoration: underline;
-  text-decoration-color: color-mix(in srgb, var(--accent) 45%, transparent);
-  text-decoration-thickness: 0.08em;
-  text-underline-offset: 0.16em;
-}
-.dark::highlight(${ACTIVE_SELECTION_HIGHLIGHT}) {
-  background-color: color-mix(in srgb, var(--accent) 36%, transparent);
-}`;
-  document.head.appendChild(style);
-}
-
-function getHighlightRegistry() {
-  if (
-    typeof CSS === 'undefined'
-    || typeof Highlight === 'undefined'
-    || !('highlights' in CSS)
-  ) {
-    return null;
-  }
-
-  return (CSS as typeof CSS & {
-    highlights?: {
-      set: (name: string, highlight: Highlight) => void;
-      delete: (name: string) => void;
-    };
-  }).highlights ?? null;
-}
 
 interface ActiveSelection {
   anchorRect: PopoverState['anchorRect'];
@@ -71,38 +26,15 @@ export function useHomeThreads(
   const [threadPanelOpen, setThreadPanelOpen] = useState(false);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [threadSessionsById, setThreadSessionsById] = useState<Record<string, ThreadSession>>({});
-  const highlightedRangeRef = useRef<Range | null>(null);
   const selectionResolveTimerRef = useRef<number | null>(null);
-
-  const clearPersistentHighlight = useCallback(() => {
-    highlightedRangeRef.current = null;
-    getHighlightRegistry()?.delete(ACTIVE_SELECTION_HIGHLIGHT);
-  }, []);
-
-  const setPersistentHighlight = useCallback((range: Range) => {
-    const nextRange = range.cloneRange();
-    highlightedRangeRef.current = nextRange;
-
-    const highlightRegistry = getHighlightRegistry();
-    if (!highlightRegistry) {
-      return;
-    }
-
-    highlightRegistry.set(ACTIVE_SELECTION_HIGHLIGHT, new Highlight(nextRange));
-  }, []);
-
-  useEffect(() => {
-    ensureHighlightStylesInjected();
-  }, []);
 
   useEffect(() => {
     return () => {
       if (selectionResolveTimerRef.current !== null) {
         window.clearTimeout(selectionResolveTimerRef.current);
       }
-      clearPersistentHighlight();
     };
-  }, [clearPersistentHighlight]);
+  }, []);
 
   const activeSession =
     activeSessionId
@@ -110,13 +42,12 @@ export function useHomeThreads(
       : null;
 
   const resetThreadUi = useCallback(() => {
-    clearPersistentHighlight();
     setPopoverState(null);
     setHighlightSource(null);
     setThreadPanelOpen(false);
     setActiveSessionId(null);
     setThreadSessionsById({});
-  }, [clearPersistentHighlight]);
+  }, []);
 
   const dismissPopover = useCallback(() => {
     setPopoverState(null);
@@ -211,6 +142,7 @@ export function useHomeThreads(
       endOffset: nextSelection.endOffset,
       selectionStreamVersion: nextSelection.selectionStreamVersion,
     });
+    selection.removeAllRanges();
   }, [learningMode, scrollContainerRef]);
 
   const handlePointerUp = useCallback(() => {
@@ -227,52 +159,6 @@ export function useHomeThreads(
       resolveActiveSelection();
     }, 0);
   }, [learningMode, resolveActiveSelection]);
-
-  useLayoutEffect(() => {
-    if (!highlightSource) {
-      clearPersistentHighlight();
-      return;
-    }
-
-    const scrollContainer = scrollContainerRef.current;
-    const messageEl = scrollContainer?.querySelector<HTMLElement>(
-      `[data-message-id="${highlightSource.sourceMessageId}"]`
-    );
-    const messageContentEl = messageEl?.querySelector<HTMLElement>('[data-message-content]');
-
-    if (!messageContentEl) {
-      clearPersistentHighlight();
-      return;
-    }
-
-    const range = restoreRangeFromOffsets(
-      messageContentEl,
-      highlightSource.startOffset,
-      highlightSource.endOffset,
-      getSelectionStreamVersion(highlightSource.selectionStreamVersion)
-    );
-
-    if (!range) {
-      clearPersistentHighlight();
-      return;
-    }
-
-    setPersistentHighlight(range);
-
-    if (popoverState) {
-      const selection = window.getSelection();
-      if (selection) {
-        selection.removeAllRanges();
-        selection.addRange(range.cloneRange());
-      }
-    }
-  }, [
-    clearPersistentHighlight,
-    highlightSource,
-    popoverState,
-    scrollContainerRef,
-    setPersistentHighlight,
-  ]);
 
   const createThreadSession = useCallback(
     (session: ThreadSession, options?: CreateThreadSessionOptions) => {
@@ -348,6 +234,7 @@ export function useHomeThreads(
 
   return {
     popoverState,
+    highlightSource,
     activeSessionId,
     activeSession,
     threadPanelOpen,
