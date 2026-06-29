@@ -199,6 +199,13 @@ test('always search sends required search mode and renders a scalable source tra
   await composer.press('Enter');
 
   await expect(page).toHaveURL(new RegExp(`/home/${conversationId}\\?e2e=search-mode$`));
+  const inlineCitations = page.getByTestId('search-citation');
+  await expect(inlineCitations).toHaveCount(2);
+  await expect(inlineCitations.nth(0)).toHaveText('1');
+  await expect(inlineCitations.nth(1)).toHaveText('2');
+  await expect(inlineCitations.nth(0).locator('img')).toHaveCount(0);
+  await expect(inlineCitations.nth(0)).toHaveAttribute('data-selection-exclude', 'true');
+  await expect(inlineCitations.nth(0)).toHaveCSS('user-select', 'none');
   await expect(page.getByRole('button', { name: 'Sources 10' })).toBeVisible();
 
   await page.getByRole('button', { name: 'Sources 10' }).click();

@@ -24,7 +24,9 @@ import {
 import type { InlineThreadMarker } from "@/app/home/components/threadTypes";
 import type { PersistedSearchMetadata } from "@/lib/chat-search";
 import { splitTextWithCitations } from "@/lib/search-citations";
-import SourceFavicon from "@/app/home/components/SourceFavicon";
+import InlineCitation, {
+  type InlineCitationVariant,
+} from "@/app/home/components/InlineCitation";
 
 interface MarkdownWithThreadsProps {
   content: string;
@@ -32,6 +34,7 @@ interface MarkdownWithThreadsProps {
   onThreadClick: (thread: InlineThreadMarker) => void;
   searchMetadata?: PersistedSearchMetadata | null;
   activeCitationSourceId?: number | null;
+  citationVariant?: InlineCitationVariant;
   onCitationClick?: (sourceId: number) => void;
 }
 
@@ -448,6 +451,7 @@ function createCitationNode(text: string, sourceId: number): HastNode {
     properties: {
       type: "button",
       "data-citation-source-id": String(sourceId),
+      "data-selection-exclude": "true",
     },
     children: [{ type: "text", value: text }],
   };
@@ -677,6 +681,7 @@ export default function MarkdownWithThreads({
   onThreadClick,
   searchMetadata = null,
   activeCitationSourceId = null,
+  citationVariant = "numberOnly",
   onCitationClick,
 }: MarkdownWithThreadsProps) {
   const matches = useMemo(() => normalizeThreadMatches(threads), [threads]);
@@ -743,33 +748,14 @@ export default function MarkdownWithThreads({
             const source = sourceById.get(numericSourceId);
 
             return (
-              <button
+              <InlineCitation
                 {...rest}
-                type="button"
-                data-testid="search-citation"
-                data-source-id={numericSourceId}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onCitationClick(numericSourceId);
-                }}
-                aria-pressed={activeCitationSourceId === numericSourceId}
-                title={source ? `${source.title} — ${source.domain}` : undefined}
-                className={`mx-0.5 inline-flex h-[1.35rem] min-w-[1.35rem] translate-y-[-0.08rem] items-center justify-center gap-1 rounded-full border px-1.5 align-baseline font-sans text-[11px] font-medium transition-colors ${
-                  activeCitationSourceId === numericSourceId
-                    ? "border-foreground/20 bg-foreground/[0.07] text-foreground"
-                    : "border-border-subtle bg-surface/60 text-muted hover:bg-foreground/[0.04] hover:text-foreground"
-                }`}
-              >
-                {source && (
-                  <SourceFavicon
-                    domain={source.domain}
-                    title={source.title}
-                    size={13}
-                    className="opacity-90"
-                  />
-                )}
-                <span>{numericSourceId}</span>
-              </button>
+                active={activeCitationSourceId === numericSourceId}
+                onClick={() => onCitationClick(numericSourceId)}
+                source={source}
+                sourceId={numericSourceId}
+                variant={citationVariant}
+              />
             );
           }
         }
@@ -777,7 +763,14 @@ export default function MarkdownWithThreads({
         return <button {...props}>{children}</button>;
       },
     }),
-    [activeCitationSourceId, onCitationClick, onThreadClick, sourceById, threadById]
+    [
+      activeCitationSourceId,
+      citationVariant,
+      onCitationClick,
+      onThreadClick,
+      sourceById,
+      threadById,
+    ]
   );
   const normalizedContent = normalizeMathMarkdown(content);
 
