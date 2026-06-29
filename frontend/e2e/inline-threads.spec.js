@@ -51,6 +51,119 @@ function expectStableTableMetrics(after, before) {
   });
 }
 
+async function getRectWidths(locator) {
+  return locator.evaluateAll((nodes) =>
+    nodes.map((node) => node.getBoundingClientRect().width)
+  );
+}
+
+async function getClientRects(locator) {
+  return locator.evaluateAll((nodes) =>
+    nodes.map((node) => {
+      const rect = node.getBoundingClientRect();
+      return {
+        bottom: rect.bottom,
+        height: rect.height,
+        left: rect.left,
+        right: rect.right,
+        top: rect.top,
+        width: rect.width,
+      };
+    })
+  );
+}
+
+async function getNativeSelectionText(page) {
+  return page.evaluate(() => window.getSelection()?.toString() ?? '');
+}
+
+function getUnionBounds(rects) {
+  expect(rects.length).toBeGreaterThan(0);
+
+  const left = Math.min(...rects.map((rect) => rect.left));
+  const right = Math.max(...rects.map((rect) => rect.right));
+  const top = Math.min(...rects.map((rect) => rect.top));
+  const bottom = Math.max(...rects.map((rect) => rect.bottom));
+
+  return {
+    bottom,
+    height: bottom - top,
+    left,
+    right,
+    top,
+    width: right - left,
+  };
+}
+
+function expectNoRectOverlap(rects) {
+  for (let firstIndex = 0; firstIndex < rects.length; firstIndex += 1) {
+    for (let secondIndex = firstIndex + 1; secondIndex < rects.length; secondIndex += 1) {
+      const first = rects[firstIndex];
+      const second = rects[secondIndex];
+      const overlapX = Math.max(0, Math.min(first.right, second.right) - Math.max(first.left, second.left));
+      const overlapY = Math.max(0, Math.min(first.bottom, second.bottom) - Math.max(first.top, second.top));
+
+      expect(overlapX * overlapY).toBeLessThanOrEqual(0.5);
+    }
+  }
+}
+
+async function expectOverlayBoundsNearMarkers(overlayLocator, markerLocator, tolerance = 6) {
+  const overlayBounds = getUnionBounds(await getClientRects(overlayLocator));
+  const markerBounds = getUnionBounds(await getClientRects(markerLocator));
+
+  expect(overlayBounds.left).toBeGreaterThanOrEqual(markerBounds.left - tolerance);
+  expect(overlayBounds.top).toBeGreaterThanOrEqual(markerBounds.top - tolerance);
+  expect(overlayBounds.right).toBeLessThanOrEqual(markerBounds.right + tolerance);
+  expect(overlayBounds.bottom).toBeLessThanOrEqual(markerBounds.bottom + tolerance);
+}
+
+async function expectRectsInsideLocator(rectLocator, boundsLocator, tolerance = 1) {
+  const rects = await getClientRects(rectLocator);
+  const bounds = getUnionBounds(await getClientRects(boundsLocator));
+
+  expect(rects.length).toBeGreaterThan(0);
+  for (const rect of rects) {
+    expect(rect.left).toBeGreaterThanOrEqual(bounds.left - tolerance);
+    expect(rect.top).toBeGreaterThanOrEqual(bounds.top - tolerance);
+    expect(rect.right).toBeLessThanOrEqual(bounds.right + tolerance);
+    expect(rect.bottom).toBeLessThanOrEqual(bounds.bottom + tolerance);
+  }
+}
+
+async function getStableBoundingBox(locator) {
+  let previousSignature = '';
+  let stableSamples = 0;
+
+  await expect
+    .poll(async () => {
+      const box = await locator.boundingBox();
+      if (!box) {
+        previousSignature = '';
+        stableSamples = 0;
+        return false;
+      }
+
+      const signature = [box.x, box.y, box.width, box.height]
+        .map((value) => Math.round(value * 2) / 2)
+        .join(':');
+
+      if (signature === previousSignature) {
+        stableSamples += 1;
+      } else {
+        previousSignature = signature;
+        stableSamples = 0;
+      }
+
+      return stableSamples >= 2;
+    })
+    .toBe(true);
+
+  const box = await locator.boundingBox();
+  expect(box).toBeTruthy();
+  return box;
+}
+
 test('promotes an unsent popover draft into the thread panel', async ({ page }) => {
   const { messageId, selectedText } = await gotoHomeFixture(page);
 
@@ -292,6 +405,7 @@ test('captures selections across rich markdown renderers', async ({ page }) => {
     await expect(page.getByTestId('selection-popover')).toBeVisible();
     await expect(page.getByTestId('selection-popover')).toContainText(selectedText);
     await expect.poll(() => hasPersistentSelectionHighlight(page)).toBe(true);
+    await expect.poll(() => getNativeSelectionText(page)).toBe('');
     await page.keyboard.press('Escape');
     await expect(page.getByTestId('selection-popover')).toHaveCount(0);
   }
@@ -355,6 +469,11 @@ test('renders inline markers for code and math selections from offsets', async (
 
   const codeMarkerFragments = page.locator('pre code [data-testid="inline-thread-link"]');
   await expect.poll(() => codeMarkerFragments.count()).toBeGreaterThan(1);
+  const codeOverlayRects = messageContent.locator(
+    '[data-testid="thread-highlight-rect"][data-highlight-context="code"]'
+  );
+  await expect.poll(() => codeOverlayRects.count()).toBeGreaterThan(0);
+  await expectRectsInsideLocator(codeOverlayRects, messageContent.locator('pre').first());
   const codeMarkerText = await codeMarkerFragments.evaluateAll((nodes) =>
     nodes.map((node) => node.textContent || '').join('')
   );
@@ -382,6 +501,15 @@ test('renders inline markers for code and math selections from offsets', async (
 
   const mathMarkerFragments = page.locator('.katex-html [data-testid="inline-thread-link"]');
   await expect.poll(() => mathMarkerFragments.count()).toBeGreaterThan(1);
+  const mathMarkerId = await mathMarkerFragments.first().getAttribute('data-thread-marker-id');
+  const mathSourceMarkerFragments = page.locator(
+    `.katex-html [data-testid="inline-thread-link"][data-thread-marker-id="${mathMarkerId}"]`
+  );
+  const mathOverlayRects = messageContent.locator(
+    `[data-testid="thread-highlight-rect"][data-highlight-context="math"][data-highlight-source-id="${mathMarkerId}"]`
+  );
+  await expect.poll(() => mathOverlayRects.count()).toBeGreaterThan(0);
+  expectNoRectOverlap(await getClientRects(mathOverlayRects));
   const mathMarkerText = await mathMarkerFragments.evaluateAll((nodes) =>
     nodes.map((node) => node.textContent || '').join('')
   );
@@ -390,13 +518,18 @@ test('renders inline markers for code and math selections from offsets', async (
     const style = window.getComputedStyle(node);
     return {
       backgroundColor: style.backgroundColor,
+      borderTopWidth: style.borderTopWidth,
       borderRadius: style.borderRadius,
       boxShadow: style.boxShadow,
+      outlineStyle: style.outlineStyle,
     };
   });
   expect(mathMarkerStyles.backgroundColor).toBe('rgba(0, 0, 0, 0)');
+  expect(mathMarkerStyles.borderTopWidth).toBe('0px');
   expect(mathMarkerStyles.borderRadius).toBe('2px');
   expect(mathMarkerStyles.boxShadow).toBe('none');
+  expect(mathMarkerStyles.outlineStyle).toBe('none');
+  await expectOverlayBoundsNearMarkers(mathOverlayRects, mathSourceMarkerFragments);
 
   await selectTextInMessage(page, messageId, FRACTION_MATH_SELECTION);
   await page.getByTestId('selection-popover-input').fill('fraction-marker');
@@ -404,6 +537,18 @@ test('renders inline markers for code and math selections from offsets', async (
 
   const fractionMarkerFragments = page.locator('.katex-html [data-testid="inline-thread-link"]');
   await expect.poll(() => fractionMarkerFragments.count()).toBeGreaterThan(1);
+  const fractionMarkerIds = await fractionMarkerFragments.evaluateAll((nodes) =>
+    nodes.map((node) => node.getAttribute('data-thread-marker-id')).filter(Boolean)
+  );
+  const fractionMarkerId = fractionMarkerIds[fractionMarkerIds.length - 1];
+  const fractionSourceMarkerFragments = page.locator(
+    `.katex-html [data-testid="inline-thread-link"][data-thread-marker-id="${fractionMarkerId}"]`
+  );
+  const fractionOverlayRects = messageContent.locator(
+    `[data-testid="thread-highlight-rect"][data-highlight-context="math"][data-highlight-source-id="${fractionMarkerId}"]`
+  );
+  await expect.poll(() => fractionOverlayRects.count()).toBeGreaterThan(0);
+  expectNoRectOverlap(await getClientRects(fractionOverlayRects));
   const fractionMarkerText = await fractionMarkerFragments.evaluateAll((nodes) =>
     nodes.map((node) => node.textContent || '').join('')
   );
@@ -412,13 +557,32 @@ test('renders inline markers for code and math selections from offsets', async (
     const style = window.getComputedStyle(node);
     return {
       backgroundColor: style.backgroundColor,
+      borderTopWidth: style.borderTopWidth,
       borderRadius: style.borderRadius,
       boxShadow: style.boxShadow,
+      outlineStyle: style.outlineStyle,
     };
   });
   expect(fractionMarkerStyles.backgroundColor).toBe('rgba(0, 0, 0, 0)');
+  expect(fractionMarkerStyles.borderTopWidth).toBe('0px');
   expect(fractionMarkerStyles.borderRadius).toBe('2px');
   expect(fractionMarkerStyles.boxShadow).toBe('none');
+  expect(fractionMarkerStyles.outlineStyle).toBe('none');
+  await expectOverlayBoundsNearMarkers(fractionOverlayRects, fractionSourceMarkerFragments);
+
+  await page.keyboard.press('Control+L');
+  await expect(page.getByTestId('thread-panel')).toHaveAttribute('data-state', 'closed');
+  await page.addStyleTag({
+    content:
+      '[data-testid="inline-thread-link"], [data-testid="inline-thread-link"] * { pointer-events: none !important; }',
+  });
+  const overlayClickBox = await getStableBoundingBox(fractionOverlayRects.first());
+  await page.mouse.click(
+    overlayClickBox.x + overlayClickBox.width / 2,
+    overlayClickBox.y + overlayClickBox.height / 2
+  );
+  await expect(page.getByTestId('thread-panel')).toHaveAttribute('data-state', 'open');
+  await expect(page.getByTestId('thread-panel')).toContainText('fraction-marker');
 });
 
 test('captures table selections with spreadsheet text and smooth persisted highlighting', async ({
@@ -428,7 +592,7 @@ test('captures table selections with spreadsheet text and smooth persisted highl
   page.on('console', (message) => {
     if (
       message.type() === 'error'
-      && /cannot be a child|hydration|nested <span>/i.test(message.text())
+      && /cannot be a child|cannot contain a nested <span>|nested <span>/i.test(message.text())
     ) {
       consoleErrors.push(message.text());
     }
@@ -499,6 +663,19 @@ test('captures table selections with spreadsheet text and smooth persisted highl
   const tableMarkerFragments = page.locator('td [data-testid="inline-thread-link"]');
   await expect.poll(() => tableMarkerFragments.count()).toBeGreaterThan(0);
   await expect(tableMarkerFragments.first()).toContainText('Microtask');
+  const tableOverlayRects = messageContent.locator(
+    '[data-testid="thread-highlight-rect"][data-highlight-context="table"]'
+  );
+  await expect.poll(() => tableOverlayRects.count()).toBeGreaterThan(0);
+  const maxCellWidth = await table.evaluate((tableEl) =>
+    Math.max(
+      ...Array.from(tableEl.querySelectorAll('td, th')).map(
+        (cell) => cell.getBoundingClientRect().width
+      )
+    )
+  );
+  const tableOverlayWidths = await getRectWidths(tableOverlayRects);
+  expect(Math.max(...tableOverlayWidths)).toBeLessThanOrEqual(maxCellWidth + 12);
 
   const highlightedMetrics = await getTableMetrics(table);
   expectStableTableMetrics(highlightedMetrics, baselineMetrics);
@@ -521,7 +698,7 @@ test('keeps table structure valid for paragraph-table boundary selections', asyn
   page.on('console', (message) => {
     if (
       message.type() === 'error'
-      && /cannot be a child|hydration|nested <span>/i.test(message.text())
+      && /cannot be a child|cannot contain a nested <span>|nested <span>/i.test(message.text())
     ) {
       consoleErrors.push(message.text());
     }

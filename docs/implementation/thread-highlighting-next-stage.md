@@ -12,7 +12,9 @@ This spec is intended to be used as an implementation goal.
 
 ## Implementation Status
 
-The earlier v2 stream, table-safe DOM, click-target, and table-selection work has been implemented. This document now tracks the remaining custom rect overlay work.
+The earlier v2 stream, table-safe DOM, click-target, and table-selection work has been implemented.
+
+The custom rect overlay described here is now implemented as the primary visual highlight path for active and persisted thread highlights. Inline thread spans remain as click and keyboard targets, but their backgrounds are demoted when overlay geometry is available. CSS Highlight API painting is no longer the primary runtime path.
 
 ## Intended Outcome
 
@@ -20,9 +22,27 @@ Thread highlights should feel stable, smooth, and boringly correct.
 
 Users should be able to highlight text inside paragraphs, lists, code blocks, math, and tables without the rendered message changing shape. Persisted highlights should reopen threads reliably, and the visual highlight should not depend on whether the underlying renderer split content into many spans, table nodes, or KaTeX layout boxes.
 
+The most important visible upgrade is math. A selected math expression should read as one intentional highlight surface, not as scattered chips around individual KaTeX spans. Inline math should feel as smooth as normal text. Display math should preserve the shape of fractions, superscripts, subscripts, operators, and wrapped formulas while reducing tiny gaps and speckling. Subexpression selections, such as a numerator term or a few variables inside a larger formula, should remain possible and should look cleanly selected without forcing the whole formula to become atomic.
+
 Tables in particular must remain structurally stable while the next visual layer improves smoothness.
 
-## Remaining Step: Solve Fragmentation With A Custom Rect Overlay
+## Core Visual Principle
+
+The underlying rendered DOM is allowed to stay fragmented.
+
+Markdown, syntax highlighting, tables, and KaTeX all produce complex DOM for good reasons. Trying to force those renderers into one continuous wrapper would either break semantics, distort layout, or lose useful subexpression selection.
+
+The goal is not to make the DOM unfragmented. The goal is to layer a smoother, app-controlled highlight surface above the fragmented DOM.
+
+That means:
+
+- canonical offsets remain the source of truth
+- restored DOM ranges remain the bridge from text model to layout
+- inline spans remain click targets and fallback markers
+- the primary visual highlight becomes an overlay made from measured range geometry
+- smoothing happens in the overlay merge rules, not by rewriting renderer output
+
+## Implemented Direction: Solve Fragmentation With A Custom Rect Overlay
 
 Best recommended path: build a custom highlight overlay based on `Range.getClientRects()`.
 
@@ -83,14 +103,98 @@ Why this is the best option:
 - It keeps canonical offsets as the source of truth.
 - It can replace both CSS Highlight API visuals and span-background visuals over time.
 
-CSS Highlight API can remain as a short-term fallback or simpler baseline, but the overlay should become the primary path for the "seamless, unbroken blocks" target.
+CSS Highlight API was useful as a short-term baseline, but the overlay is now the primary path for the "seamless, unbroken blocks" target.
 
-## Recommended Work Sequence
+## Recommended Phased Approach
 
-1. Build the custom rect overlay behind a feature boundary.
-2. Move active and persisted highlights onto the overlay.
-3. Tune rect merging for code, tables, and KaTeX.
-4. Keep CSS Highlight API/span backgrounds only as fallback.
+### Phase 1: Overlay Infrastructure
+
+Build a `ThreadHighlightOverlay` layer inside each message content root. Implemented in [ThreadHighlightOverlay.tsx](../../frontend/app/home/components/ThreadHighlightOverlay.tsx).
+
+Responsibilities:
+
+- accept restored `Range` objects for active and persisted thread highlights
+- read `range.getClientRects()`
+- convert viewport rects to coordinates relative to `[data-message-content]`
+- render absolutely positioned highlight rectangles behind text
+- update on resize, scroll, message content changes, and thread hover/focus state
+- avoid changing markdown, table, code, or KaTeX DOM structure
+
+This phase now restores ranges from offsets, measures rect geometry, excludes overlay DOM from the canonical selectable stream, and remeasures on resize, scroll, and font settling.
+
+### Phase 2: Persisted Highlight Overlay
+
+Move persisted thread visuals onto the overlay first. Implemented.
+
+Keep existing inline thread spans for click targets. When the overlay is active, marker spans should remain visually quiet, as they do today with range highlights.
+
+Why persisted first:
+
+- persisted highlights are already reconstructed from offsets
+- they expose the math/code fragmentation problem clearly
+- they do not need to track the browser's live selection in real time
+- fallback behavior remains straightforward if overlay measurement fails
+
+### Phase 3: Generic Rect Merging
+
+Add renderer-agnostic merge rules. Implemented baseline rules:
+
+- discard zero-size or near-zero rects
+- round coordinates to reduce subpixel shimmer
+- group rects by visual line using vertical overlap
+- merge same-line rects when horizontal gaps are below a small threshold
+- preserve separate rectangles across wrapped lines
+- recompute when fonts/layout settle
+
+This should improve normal paragraphs, inline code, code blocks, and many simple math cases before adding renderer-specific tuning.
+
+### Phase 4: KaTeX-Specific Smoothing
+
+Tune overlay behavior inside `.katex-html`. Implemented baseline smoothing:
+
+Recommended rules:
+
+- use only visible KaTeX HTML rects; hidden MathML remains excluded
+- merge tiny adjacent rects more aggressively than normal text
+- tolerate small vertical deltas caused by superscripts, subscripts, and fraction layout
+- avoid creating a single full-formula blob for small subexpression selections
+- preserve subexpression selection for cases like numerator pieces, variables, and inline terms
+
+The desired outcome is that the selected math expression reads as one intentional highlight surface even though the underlying KaTeX DOM may contain many small spans.
+
+### Phase 5: Table And Code Refinement
+
+Extend the same overlay model to complex non-math regions. Implemented baseline support:
+
+- clip or group table rects by cell so highlights do not bleed across borders unintentionally
+- optionally render a soft full-cell/full-row band when a selection covers most of a cell or row
+- merge code-block rects across syntax token spans while preserving line breaks
+- avoid covering code-block chrome, copy buttons, or excluded selection regions
+
+This phase should preserve all table-safe DOM work from the previous revamp. The overlay improves paint only; it must not introduce table wrappers or layout changes.
+
+### Phase 6: Active Highlight Overlay
+
+Move active selection/pending-thread highlights onto the same overlay path. Implemented.
+
+This makes active and persisted highlights visually consistent. It also avoids having three visual systems competing with each other:
+
+- browser native selection
+- CSS Highlight API
+- persisted span backgrounds
+
+The browser's native selection can still appear during the immediate drag gesture, but once the app captures offsets, the app-owned overlay should become the stable visual state.
+
+### Phase 7: Fallback And Cleanup
+
+Keep fallbacks but demote them. Current state:
+
+- CSS Highlight API is no longer the active/persisted visual path
+- marker span backgrounds remain a final fallback for unsupported browsers or failed measurements
+- click targets remain separate from visual geometry
+- diagnostics should log when a stored range cannot be restored or measured
+
+Tests now assert overlay geometry and smoothness expectations instead of accepting fragmented span backgrounds as normal.
 
 ## Success Criteria
 

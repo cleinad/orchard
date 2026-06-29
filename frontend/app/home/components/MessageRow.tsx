@@ -4,72 +4,47 @@ import {
   memo,
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
+  type FocusEvent,
   type MouseEvent,
+  type PointerEvent,
 } from 'react';
 import MarkdownWithThreads from '@/app/home/components/MarkdownWithThreads';
 import SearchSourcesTray from '@/app/home/components/SearchSourcesTray';
+import ThreadHighlightOverlay, {
+  type ThreadHighlightOverlaySource,
+} from '@/app/home/components/ThreadHighlightOverlay';
 import type { BranchChip } from '@/app/home/components/conversationTree';
-import type { InlineThreadMarker } from '@/app/home/components/threadTypes';
+import type { InlineThreadMarker, ThreadSource } from '@/app/home/components/threadTypes';
 import type { Message } from '@/app/home/types';
 import { getSelectionStreamVersion } from '@/app/home/components/markdownSelectableStream';
-import { restoreRangeFromOffsets } from '@/app/home/components/selectableTextIndex';
 import type { ChatImageAttachment } from '@/lib/chat-attachments';
 import { markdownContentClassName } from '@/lib/markdown';
 import { hasUsableSearchSources } from '@/lib/search-citations';
 import type { SearchActivityEvent } from '@/lib/search/types';
 import SourceFavicon from '@/app/home/components/SourceFavicon';
 
-const PERSISTED_HIGHLIGHT_STYLE_PREFIX = 'keen-persisted-thread-highlight-style';
+function getHighlightSourceIdAtPoint(root: HTMLElement, clientX: number, clientY: number) {
+  const overlayRects = Array.from(
+    root.querySelectorAll<HTMLElement>('[data-testid="thread-highlight-rect"]')
+  ).reverse();
+  const hitRect = overlayRects.find((element) => {
+    const rect = element.getBoundingClientRect();
+    return (
+      clientX >= rect.left
+      && clientX <= rect.right
+      && clientY >= rect.top
+      && clientY <= rect.bottom
+    );
+  });
 
-function getHighlightRegistry() {
-  if (
-    typeof CSS === 'undefined'
-    || typeof Highlight === 'undefined'
-    || !('highlights' in CSS)
-  ) {
-    return null;
-  }
-
-  return (CSS as typeof CSS & {
-    highlights?: {
-      set: (name: string, highlight: Highlight) => void;
-      delete: (name: string) => void;
-    };
-  }).highlights ?? null;
-}
-
-function createHighlightName(messageId: string) {
-  return `keen-persisted-thread-${messageId.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
-}
-
-function ensurePersistedHighlightStyles(highlightName: string) {
-  const styleId = `${PERSISTED_HIGHLIGHT_STYLE_PREFIX}-${highlightName}`;
-  if (typeof document === 'undefined' || document.getElementById(styleId)) {
-    return;
-  }
-
-  const style = document.createElement('style');
-  style.id = styleId;
-  style.textContent = `
-::highlight(${highlightName}) {
-  background-color: color-mix(in srgb, #fef3c7 78%, transparent);
-  text-decoration: underline;
-  text-decoration-color: color-mix(in srgb, #d97706 42%, transparent);
-  text-decoration-thickness: 0.08em;
-  text-underline-offset: 0.16em;
-}
-.dark::highlight(${highlightName}) {
-  background-color: color-mix(in srgb, #6f5419 78%, transparent);
-  text-decoration-color: color-mix(in srgb, #fbbf24 44%, transparent);
-}`;
-  document.head.appendChild(style);
+  return hitRect?.dataset.highlightSourceId ?? null;
 }
 
 interface MessageRowProps {
+  activeHighlightSource: ThreadSource | null;
   activeName: string;
   activeSourceId: number | null;
   branchChips: BranchChip[];
@@ -107,6 +82,7 @@ function searchActivityEventLabel(event: SearchActivityEvent) {
 }
 
 function MessageRow({
+  activeHighlightSource,
   activeName,
   activeSourceId,
   branchChips,
@@ -123,11 +99,8 @@ function MessageRow({
   onTraySourceSelect,
 }: MessageRowProps) {
   const [selectedImage, setSelectedImage] = useState<ChatImageAttachment | null>(null);
+  const [emphasizedThreadMarkerId, setEmphasizedThreadMarkerId] = useState<string | null>(null);
   const messageContentRef = useRef<HTMLDivElement | null>(null);
-  const persistedHighlightName = useMemo(
-    () => createHighlightName(message.id),
-    [message.id]
-  );
   const replySearchMetadata =
     message.role === 'assistant' ? message.searchMetadata ?? null : null;
   const searchActivity =
@@ -165,7 +138,110 @@ function MessageRow({
     },
     [message.id, onTraySourceSelect]
   );
+  const activeHighlightForMessage =
+    activeHighlightSource?.sourceMessageId === message.id ? activeHighlightSource : null;
 
+  const overlaySources = useMemo<ThreadHighlightOverlaySource[]>(() => {
+    if (message.role !== 'assistant') {
+      return [];
+    }
+
+    const activeSourceVersion = activeHighlightForMessage
+      ? getSelectionStreamVersion(activeHighlightForMessage.selectionStreamVersion)
+      : null;
+    const matchesActiveSource = (thread: InlineThreadMarker) =>
+      Boolean(
+        activeHighlightForMessage
+        && thread.sourceMessageId === activeHighlightForMessage.sourceMessageId
+        && thread.startOffset === activeHighlightForMessage.startOffset
+        && thread.endOffset === activeHighlightForMessage.endOffset
+        && getSelectionStreamVersion(thread.selectionStreamVersion) === activeSourceVersion
+      );
+
+    const sources = threads.map<ThreadHighlightOverlaySource>((thread) => ({
+      id: thread.markerId,
+      kind: matchesActiveSource(thread) ? 'active' : 'persisted',
+      startOffset: thread.startOffset,
+      endOffset: thread.endOffset,
+      selectionStreamVersion: getSelectionStreamVersion(thread.selectionStreamVersion),
+      status: thread.status,
+      emphasized: emphasizedThreadMarkerId === thread.markerId,
+    }));
+
+    if (
+      activeHighlightForMessage
+      && !threads.some((thread) => matchesActiveSource(thread))
+    ) {
+      sources.push({
+        id: `active-${message.id}-${activeHighlightForMessage.startOffset}-${activeHighlightForMessage.endOffset}`,
+        kind: 'active',
+        startOffset: activeHighlightForMessage.startOffset,
+        endOffset: activeHighlightForMessage.endOffset,
+        selectionStreamVersion: activeSourceVersion ?? undefined,
+      });
+    }
+
+    return sources;
+  }, [
+    activeHighlightForMessage,
+    emphasizedThreadMarkerId,
+    message.id,
+    message.role,
+    threads,
+  ]);
+  const threadByMarkerId = useMemo(
+    () => new Map(threads.map((thread) => [thread.markerId, thread])),
+    [threads]
+  );
+  const getThreadMarkerIdFromTarget = useCallback((target: EventTarget | null) => {
+    if (!(target instanceof Element)) return null;
+
+    return target
+      .closest<HTMLElement>('[data-testid="inline-thread-link"]')
+      ?.dataset.threadMarkerId ?? null;
+  }, []);
+  const handleThreadMarkerPointerOver = useCallback(
+    (event: PointerEvent<HTMLDivElement>) => {
+      const markerId = getThreadMarkerIdFromTarget(event.target);
+      if (markerId) setEmphasizedThreadMarkerId(markerId);
+    },
+    [getThreadMarkerIdFromTarget]
+  );
+  const handleThreadMarkerPointerOut = useCallback(
+    (event: PointerEvent<HTMLDivElement>) => {
+      const currentMarkerId = getThreadMarkerIdFromTarget(event.target);
+      if (!currentMarkerId) return;
+
+      const nextMarkerId = getThreadMarkerIdFromTarget(event.relatedTarget);
+      if (nextMarkerId === currentMarkerId) return;
+
+      setEmphasizedThreadMarkerId((current) =>
+        current === currentMarkerId ? null : current
+      );
+    },
+    [getThreadMarkerIdFromTarget]
+  );
+  const handleThreadMarkerFocus = useCallback(
+    (event: FocusEvent<HTMLDivElement>) => {
+      const markerId = getThreadMarkerIdFromTarget(event.target);
+      if (markerId) setEmphasizedThreadMarkerId(markerId);
+    },
+    [getThreadMarkerIdFromTarget]
+  );
+  const handleThreadMarkerBlur = useCallback(
+    (event: FocusEvent<HTMLDivElement>) => {
+      const currentMarkerId = getThreadMarkerIdFromTarget(event.target);
+      if (!currentMarkerId) return;
+
+      const nextMarkerId = getThreadMarkerIdFromTarget(event.relatedTarget);
+      if (nextMarkerId === currentMarkerId) return;
+
+      setEmphasizedThreadMarkerId((current) =>
+        current === currentMarkerId ? null : current
+      );
+    },
+    [getThreadMarkerIdFromTarget]
+  );
   useEffect(() => {
     if (!selectedImage) {
       return;
@@ -181,43 +257,29 @@ function MessageRow({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedImage]);
 
-  useLayoutEffect(() => {
+  useEffect(() => {
+    if (message.role !== 'assistant' || overlaySources.length === 0) {
+      return;
+    }
+
     const root = messageContentRef.current;
-    const highlightRegistry = getHighlightRegistry();
+    if (!root) return;
 
-    if (message.role !== 'assistant' || !root || !highlightRegistry || threads.length === 0) {
-      highlightRegistry?.delete(persistedHighlightName);
-      root?.removeAttribute('data-range-thread-highlights');
-      return;
-    }
+    const handleDocumentClick = (event: globalThis.MouseEvent) => {
+      if (event.button !== 0) return;
 
-    ensurePersistedHighlightStyles(persistedHighlightName);
+      const sourceId = getHighlightSourceIdAtPoint(root, event.clientX, event.clientY);
+      const thread = sourceId ? threadByMarkerId.get(sourceId) : null;
 
-    const ranges = threads
-      .map((thread) =>
-        restoreRangeFromOffsets(
-          root,
-          thread.startOffset,
-          thread.endOffset,
-          getSelectionStreamVersion(thread.selectionStreamVersion)
-        )
-      )
-      .filter((range): range is Range => Boolean(range));
-
-    if (ranges.length === 0) {
-      highlightRegistry.delete(persistedHighlightName);
-      root.removeAttribute('data-range-thread-highlights');
-      return;
-    }
-
-    highlightRegistry.set(persistedHighlightName, new Highlight(...ranges));
-    root.setAttribute('data-range-thread-highlights', 'true');
-
-    return () => {
-      highlightRegistry.delete(persistedHighlightName);
-      root.removeAttribute('data-range-thread-highlights');
+      if (thread) {
+        onThreadClick(thread);
+      }
     };
-  }, [message.role, persistedHighlightName, threads]);
+
+    const ownerDocument = root.ownerDocument;
+    ownerDocument.addEventListener('click', handleDocumentClick, true);
+    return () => ownerDocument.removeEventListener('click', handleDocumentClick, true);
+  }, [message.role, onThreadClick, overlaySources.length, threadByMarkerId]);
 
   return (
     <div
@@ -274,7 +336,14 @@ function MessageRow({
           ref={messageContentRef}
           data-message-content="true"
           className={`${markdownContentClassName} mt-2 text-base leading-relaxed text-foreground`}
+          onBlur={handleThreadMarkerBlur}
+          onFocus={handleThreadMarkerFocus}
+          onPointerOut={handleThreadMarkerPointerOut}
+          onPointerOver={handleThreadMarkerPointerOver}
         >
+          {overlaySources.length > 0 && (
+            <ThreadHighlightOverlay rootRef={messageContentRef} sources={overlaySources} />
+          )}
           <MarkdownWithThreads
             content={message.content}
             threads={threads}

@@ -263,6 +263,7 @@ function HomePageInner() {
   const splitPaneRef = useRef<HTMLDivElement>(null);
   const {
     popoverState,
+    highlightSource,
     activeSession,
     threadPanelOpen,
     threadSessionsById,
@@ -953,6 +954,7 @@ function HomePageInner() {
               }}
             >
               <ConversationView
+                activeHighlightSource={highlightSource}
                 listError={shouldShowRouteConversationError ? null : listError}
                 routeConversationError={routeConversationError}
                 messages={activeMessages}

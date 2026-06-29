@@ -469,7 +469,7 @@ test('desktop map opens in a split pane and activates a full branch route from o
   await expect(transcript.getByText(ALT_NESTED_VISUAL)).toBeVisible();
   await expect(transcript.getByText(MAIN_REPLY)).toHaveCount(0);
 
-  const anchorPosition = await page.evaluate(() => {
+  const getAnchorTopOffset = () => page.evaluate(() => {
     const container = document.querySelector('[data-testid="home-scroll-container"]');
     const prompt = document.querySelector('[data-message-id="map-alt-nested-alt-user"]');
     if (!(container instanceof HTMLElement) || !(prompt instanceof HTMLElement)) {
@@ -484,8 +484,9 @@ test('desktop map opens in a split pane and activates a full branch route from o
     };
   });
 
+  const anchorPosition = await getAnchorTopOffset();
   expect(anchorPosition.topOffset).toBeGreaterThanOrEqual(0);
-  expect(anchorPosition.topOffset).toBeLessThan(180);
+  await expect.poll(async () => (await getAnchorTopOffset()).topOffset).toBeLessThan(180);
 });
 
 test('desktop map navigation does not rebound the transcript back to the bottom', async ({
@@ -504,8 +505,7 @@ test('desktop map navigation does not rebound the transcript back to the bottom'
   await mapPane.locator('[data-map-node-id="map-alt-nested-alt-assistant"]').click();
   await expect(transcript.getByText(ALT_NESTED_VISUAL)).toBeVisible();
 
-  const deepBranchScrollTop = await getScrollTop();
-  expect(deepBranchScrollTop).toBeGreaterThan(250);
+  await expect.poll(getScrollTop).toBeGreaterThan(250);
 
   await mapPane.locator('[data-map-node-id="map-assistant-root"]').click();
 
