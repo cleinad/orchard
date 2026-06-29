@@ -27,7 +27,7 @@ This is intentionally a **catalog-based** system rather than a hardcoded single 
 
 ## User Experience
 
-- The model picker lives under the main composer, to the right of the existing voice/search controls.
+- The model picker lives under the main composer, to the right of the search-mode control and response-style picker. Voice controls are intentionally hidden.
 - The selected model is stored in `localStorage` under `keen-chat-model`.
 - The selected effort level is stored in `localStorage` under `keen-chat-model-effort`.
 - The thinking toggle is stored in `localStorage` under `keen-chat-thinking-enabled`.

@@ -72,7 +72,7 @@ Use these checks when changing the search pipeline or citation UI:
 - Navigate between multiple entries in the tray and confirm the detail panel updates.
 - Reload the conversation and confirm citations and the source tray still work.
 - Confirm older replies with no `search_metadata` render without empty citation controls.
-- Confirm sidebar previews and TTS do not expose raw `[1]` markers.
+- Confirm sidebar previews and any future text-reuse path do not expose raw `[1]` markers.
 
 ## Current Gaps
 
