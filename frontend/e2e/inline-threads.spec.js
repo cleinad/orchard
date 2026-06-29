@@ -200,9 +200,15 @@ test('submitting a selection question opens the thread panel immediately and sho
   await expect(page.getByTestId('thread-panel')).toHaveAttribute('data-state', 'open');
   await expect(page.getByTestId('thread-panel')).toContainText(question);
   await expect(page.getByTestId('thread-panel-loading')).toBeVisible();
+  const loadingMarker = page.locator(
+    '[data-testid="inline-thread-link"][data-thread-status="loading"]'
+  );
+  await expect(loadingMarker).toContainText(selectedText);
+  await expect(loadingMarker).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  await loadingMarker.hover();
   await expect(
-    page.locator('[data-testid="inline-thread-link"][data-thread-status="loading"]')
-  ).toContainText(selectedText);
+    page.locator('[data-testid="thread-highlight-rect"][data-highlight-emphasized="true"]')
+  ).toHaveCount(0);
 
   response.resolve({
     message: 'Because microtasks flush before rendering.',
@@ -294,9 +300,11 @@ test('temporary thread results persist if you switch chats before the answer res
   await page.getByTestId('selection-popover-input').fill(question);
   await page.getByTestId('selection-popover-input').press('Enter');
 
-  await expect(
-    page.locator('[data-testid="inline-thread-link"][data-thread-status="loading"]')
-  ).toContainText(PRIMARY_SELECTION_TEXT);
+  const loadingMarker = page.locator(
+    '[data-testid="inline-thread-link"][data-thread-status="loading"]'
+  );
+  await expect(loadingMarker).toContainText(PRIMARY_SELECTION_TEXT);
+  await expect(loadingMarker).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
 
   await page.getByLabel('New temporary chat').click();
   await expect(page.getByRole('heading', { name: 'Temporary chat' })).toBeVisible();

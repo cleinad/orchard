@@ -165,7 +165,7 @@ function MessageRow({
       endOffset: thread.endOffset,
       selectionStreamVersion: getSelectionStreamVersion(thread.selectionStreamVersion),
       status: thread.status,
-      emphasized: emphasizedThreadMarkerId === thread.markerId,
+      emphasized: thread.status !== 'loading' && emphasizedThreadMarkerId === thread.markerId,
     }));
 
     if (
