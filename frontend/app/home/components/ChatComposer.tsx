@@ -13,8 +13,6 @@ import Tooltip from '@/app/components/Tooltip';
 import ChatModelPicker from '@/app/home/components/ChatModelPicker';
 import ResponseStylePicker from '@/app/home/components/ResponseStylePicker';
 import type { PendingChatImageAttachment } from '@/app/home/components/chatImageUploads';
-import type { MicStatus } from '@/app/home/components/useMicrophone';
-import type { TranscriptStatus } from '@/app/home/components/useTranscription';
 import { MAX_CHAT_IMAGE_ATTACHMENTS } from '@/lib/chat-attachments';
 import type { TemporaryMemoryMode } from '@/lib/chat-session';
 import type { SearchMode } from '@/lib/chat-search';
@@ -34,30 +32,18 @@ interface ChatComposerProps {
   isLoading: boolean;
   imageInputDisabled: boolean;
   isUploadingImages: boolean;
-  micActive: boolean;
   pendingImageAttachments: PendingChatImageAttachment[];
   responseStyle: ResponseStyle;
   selectedModelId: ChatModelId;
   modelEffortOverrides: ChatModelEffortOverrides;
   thinkingEnabledOverrides: ChatModelThinkingOverrides;
-  ttsEnabled: boolean;
   searchMode: SearchMode;
   temporaryChatEnabled: boolean;
   showTemporaryIntro: boolean;
   temporaryMemoryMode: TemporaryMemoryMode;
-  finalTranscript: string;
-  interimTranscript: string;
-  transcriptionStatus: TranscriptStatus;
-  microphoneStatus: MicStatus;
-  microphoneErrorMessage: string | null;
   searchWarning: string | null;
   imageWarning: string | null;
-  isTtsLoading: boolean;
-  isTtsPlaying: boolean;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
-  waveformRef: RefObject<SVGPolylineElement | null>;
-  waveformGlowRef: RefObject<SVGPolylineElement | null>;
-  waveformContainerRef: RefObject<HTMLDivElement | null>;
   onInputChange: (value: string) => void;
   onAttachImages: (files: File[]) => void;
   onRemoveImageAttachment: (id: string) => void;
@@ -65,22 +51,10 @@ interface ChatComposerProps {
   onModelEffortChange: (modelId: ChatModelId, effort: ChatModelEffortLevel) => void;
   onThinkingEnabledChange: (modelId: ChatModelId, enabled: boolean) => void;
   onResponseStyleChange: (value: ResponseStyle) => void;
-  onToggleTts: () => void;
   onSearchModeChange: (mode: SearchMode) => void;
   onTemporaryMemoryModeChange: (mode: TemporaryMemoryMode) => void;
   onSubmit: FormEventHandler<HTMLFormElement>;
   onKeyDown: KeyboardEventHandler<HTMLTextAreaElement>;
-}
-
-function getTranscriptStatusLabel(status: TranscriptStatus) {
-  switch (status) {
-    case 'connected':
-      return 'Listening';
-    case 'connecting':
-      return 'Connecting...';
-    default:
-      return 'Ready';
-  }
 }
 
 export default function ChatComposer({
@@ -90,30 +64,18 @@ export default function ChatComposer({
   isLoading,
   imageInputDisabled,
   isUploadingImages,
-  micActive,
   pendingImageAttachments,
   responseStyle,
   selectedModelId,
   modelEffortOverrides,
   thinkingEnabledOverrides,
-  ttsEnabled,
   searchMode,
   temporaryChatEnabled,
   showTemporaryIntro,
   temporaryMemoryMode,
-  finalTranscript,
-  interimTranscript,
-  transcriptionStatus,
-  microphoneStatus,
-  microphoneErrorMessage,
   searchWarning,
   imageWarning,
-  isTtsLoading,
-  isTtsPlaying,
   textareaRef,
-  waveformRef,
-  waveformGlowRef,
-  waveformContainerRef,
   onInputChange,
   onAttachImages,
   onRemoveImageAttachment,
@@ -121,7 +83,6 @@ export default function ChatComposer({
   onModelEffortChange,
   onThinkingEnabledChange,
   onResponseStyleChange,
-  onToggleTts,
   onSearchModeChange,
   onTemporaryMemoryModeChange,
   onSubmit,
@@ -129,7 +90,6 @@ export default function ChatComposer({
 }: ChatComposerProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDraggingImage, setIsDraggingImage] = useState(false);
-  const hasTranscript = finalTranscript.length > 0 || interimTranscript.length > 0;
   const hasAvailableChatModels = chatModels.some((model) => model.available);
   const [searchMenuOpen, setSearchMenuOpen] = useState(false);
   const searchMenuRef = useRef<HTMLDivElement | null>(null);
@@ -301,52 +261,6 @@ export default function ChatComposer({
           </div>
         )}
 
-        {hasTranscript && !isLoading && (
-          <div className="mb-3 rounded-lg bg-surface px-4 py-2 font-sans text-sm text-muted shadow-sm">
-            <span className="text-xs font-medium tracking-wider text-muted/60">
-              Listening
-            </span>
-            <p className="mt-1">
-              {finalTranscript}
-              {interimTranscript && (
-                <span className="text-muted/50"> {interimTranscript}</span>
-              )}
-              <span className="ml-1 inline-block h-4 w-0.5 animate-pulse bg-muted/50" />
-            </p>
-          </div>
-        )}
-
-        <div
-          ref={waveformContainerRef}
-          className={`relative mx-auto mb-1 h-0.5 max-w-[90%] overflow-hidden rounded-full transition-[opacity,max-height] duration-300 ${
-            micActive ? 'max-h-4 opacity-100' : 'max-h-0 opacity-0'
-          }`}
-        >
-          <svg
-            viewBox="0 0 240 4"
-            className="absolute inset-0 h-full w-full"
-            preserveAspectRatio="none"
-          >
-            <polyline
-              ref={waveformRef}
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="4"
-              points="0,2 240,2"
-              className="text-muted transition-colors duration-300"
-            />
-            <polyline
-              ref={waveformGlowRef}
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="4"
-              points="0,2 240,2"
-              className="text-muted/40 opacity-50 transition-opacity duration-300"
-              style={{ filter: 'blur(2px)' }}
-            />
-          </svg>
-        </div>
-
         <form
           onSubmit={onSubmit}
           onPaste={handlePaste}
@@ -398,7 +312,7 @@ export default function ChatComposer({
               value={input}
               onChange={(event) => onInputChange(event.target.value)}
               onKeyDown={onKeyDown}
-              placeholder={micActive ? 'Listening...' : `Message ${activeName}...`}
+              placeholder={`Message ${activeName}...`}
               rows={1}
               disabled={isUploadingImages}
               className="composer-scrollbar w-full min-h-10 min-w-0 resize-none bg-transparent pl-3 pr-[5.5rem] py-2.5 font-sans text-sm leading-relaxed text-foreground placeholder-muted/50 outline-none disabled:cursor-not-allowed disabled:opacity-50 overflow-y-auto"
@@ -465,56 +379,6 @@ export default function ChatComposer({
 
           <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2 px-1">
             <div className="flex items-center gap-1.5">
-              <Tooltip
-                content={
-                  ttsEnabled
-                    ? 'Voice — Text-to-speech for responses'
-                    : 'Voice — Currently off'
-                }
-                side="bottom"
-              >
-                <button
-                  type="button"
-                  aria-pressed={ttsEnabled}
-                  aria-label={ttsEnabled ? 'Voice on' : 'Voice off'}
-                  onClick={onToggleTts}
-                  className={`flex h-7 w-7 items-center justify-center rounded-md border transition-colors ${
-                    ttsEnabled
-                      ? 'border-foreground/[0.10] bg-foreground/[0.05] text-foreground'
-                      : 'border-border-subtle text-muted hover:bg-foreground/[0.04] hover:text-foreground/70'
-                  }`}
-                >
-                  <svg
-                    className="h-3.5 w-3.5"
-                    fill={ttsEnabled ? 'currentColor' : 'none'}
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    viewBox="0 0 24 24"
-                  >
-                    {ttsEnabled ? (
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M11.25 5.25L6.75 9H4.5v6h2.25l4.5 3.75V5.25zm4.5 4.5a4.5 4.5 0 010 4.5m2.25-6.75a7.5 7.5 0 010 9"
-                      />
-                    ) : (
-                      <>
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M11.25 5.25L6.75 9H4.5v6h2.25l4.5 3.75V5.25z"
-                        />
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M15.75 9.75l4.5 4.5m0-4.5l-4.5 4.5"
-                        />
-                      </>
-                    )}
-                  </svg>
-                </button>
-              </Tooltip>
-
               <div ref={searchMenuRef} className="relative">
                 <Tooltip content={searchModeTooltip[searchMode]} side="bottom">
                   <button
@@ -616,29 +480,6 @@ export default function ChatComposer({
           )}
         </form>
 
-        <div className="mt-2 flex items-center justify-between px-4 font-sans text-xs text-muted/60">
-          <div className="flex items-center gap-3">
-            {micActive && (
-              <span className="flex items-center gap-1.5">
-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
-                <span>{getTranscriptStatusLabel(transcriptionStatus)}</span>
-              </span>
-            )}
-            {isTtsLoading && <span>Generating voice...</span>}
-            {isTtsPlaying && <span>Speaking...</span>}
-          </div>
-        </div>
-
-        {microphoneStatus === 'blocked' && (
-          <p className="mt-2 text-center font-sans text-xs text-muted">
-            Microphone permission denied. Check browser settings.
-          </p>
-        )}
-        {microphoneStatus === 'error' && microphoneErrorMessage && (
-          <p className="mt-2 text-center font-sans text-xs text-rose-500">
-            {microphoneErrorMessage}
-          </p>
-        )}
       </div>
     </div>
   );

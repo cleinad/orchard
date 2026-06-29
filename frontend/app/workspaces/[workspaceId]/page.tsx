@@ -145,9 +145,6 @@ export default function WorkspacePage() {
   const contextTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const nameInputRef = useRef<HTMLInputElement | null>(null);
   const savingWorkspaceNameRef = useRef(false);
-  const waveformRef = useRef<SVGPolylineElement | null>(null);
-  const waveformGlowRef = useRef<SVGPolylineElement | null>(null);
-  const waveformContainerRef = useRef<HTMLDivElement | null>(null);
 
   const chatModels = useChatModelCatalog(selectedModelId, setSelectedModelId);
   const selectedChatModel = chatModels.find((model) => model.id === selectedModelId) ?? null;
@@ -694,30 +691,18 @@ export default function WorkspacePage() {
                 isLoading={composerLoading}
                 imageInputDisabled
                 isUploadingImages={false}
-                micActive={false}
                 pendingImageAttachments={[]}
                 responseStyle={responseStyle}
                 selectedModelId={selectedModelId}
                 modelEffortOverrides={modelEffortOverrides}
                 thinkingEnabledOverrides={thinkingEnabledOverrides}
-                ttsEnabled={false}
                 searchMode={searchMode}
                 temporaryChatEnabled={false}
                 showTemporaryIntro={false}
                 temporaryMemoryMode="off"
-                finalTranscript=""
-                interimTranscript=""
-                transcriptionStatus="idle"
-                microphoneStatus="idle"
-                microphoneErrorMessage={null}
                 searchWarning={composerWarning}
                 imageWarning={null}
-                isTtsLoading={false}
-                isTtsPlaying={false}
                 textareaRef={textareaRef}
-                waveformRef={waveformRef}
-                waveformGlowRef={waveformGlowRef}
-                waveformContainerRef={waveformContainerRef}
                 onInputChange={setComposerInput}
                 onAttachImages={() => {}}
                 onRemoveImageAttachment={() => {}}
@@ -725,7 +710,6 @@ export default function WorkspacePage() {
                 onModelEffortChange={updateSelectedModelEffort}
                 onThinkingEnabledChange={updateThinkingEnabled}
                 onResponseStyleChange={setResponseStyle}
-                onToggleTts={() => {}}
                 onSearchModeChange={setSearchMode}
                 onTemporaryMemoryModeChange={() => {}}
                 onSubmit={handleComposerSubmit}

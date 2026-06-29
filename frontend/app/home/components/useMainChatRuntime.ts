@@ -39,7 +39,6 @@ import {
   toChatHistory,
 } from '@/lib/chat-session';
 import { getBrowserTimeZone } from '@/lib/browser-timezone';
-import { stripCitationMarkers } from '@/lib/search-citations';
 import type { ChatModelEffortLevel, ChatModelId } from '@/lib/chat-models';
 import type { ResponseStyle } from '@/lib/response-style';
 
@@ -339,7 +338,6 @@ interface LoadedConversationMessages {
 
 interface MainChatRuntimeParams {
   activeMessages: Message[];
-  autoSendTimerRef: MutableRefObject<ReturnType<typeof setTimeout> | null>;
   clearComposerInputForSelection: (selection: SelectedChat | null) => void;
   clearPendingChatRequestForSelection: (selection: SelectedChat) => void;
   clearSearchStateForSelection: (selection: SelectedChat | null) => void;
@@ -396,9 +394,6 @@ interface MainChatRuntimeParams {
   setUserHasScrolledState: (nextValue: boolean) => void;
   temporaryChatsRef: MutableRefObject<TemporaryChatSession[]>;
   tempChatTitle: string;
-  transcription: { clearTranscript: () => void };
-  tts: { speak: (text: string) => void };
-  ttsEnabled: boolean;
   updateDraftChat: (id: string, updater: (draft: PersistentDraftChat) => PersistentDraftChat) => void;
   updateTemporaryChat: (
     id: string,
@@ -448,12 +443,6 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
     if (!messageText && displayAttachments.length === 0 && uploadedAttachments.length === 0) {
       return { accepted: false, completed: false };
     }
-
-    if (params.autoSendTimerRef.current) {
-      clearTimeout(params.autoSendTimerRef.current);
-      params.autoSendTimerRef.current = null;
-    }
-    params.transcription.clearTranscript();
 
     const now = new Date();
     const nextUpdatedAt = now.toISOString();
@@ -1259,14 +1248,6 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
         finalSearchMetadata
       );
 
-      if (
-        params.ttsEnabled
-        && data.message
-        && !data.message.startsWith('Something went wrong')
-        && canApplyTemporaryResponse
-      ) {
-        params.tts.speak(stripCitationMarkers(data.message, finalSearchMetadata));
-      }
       return { accepted: true, completed: true, uploadedAttachments };
     } catch {
       if (!requestAccepted && (uploadedAttachments.length > 0 || displayAttachments.length > 0)) {

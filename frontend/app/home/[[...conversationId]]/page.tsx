@@ -39,7 +39,6 @@ import { getTemporaryChatAttachmentStoragePaths } from '@/app/home/components/te
 import { useConversationMapState } from '@/app/home/components/useConversationMapState';
 import { useConversationMapRuntime } from '@/app/home/components/useConversationMapRuntime';
 import { useChatModelCatalog } from '@/app/home/components/useChatModelCatalog';
-import { useHomeVoice } from '@/app/home/components/useHomeVoice';
 import { useActiveConversationModel } from '@/app/home/components/useActiveConversationModel';
 import { usePendingChatRequests } from '@/app/home/components/usePendingChatRequests';
 import { usePerChatComposerState } from '@/app/home/components/usePerChatComposerState';
@@ -47,7 +46,6 @@ import { usePersistedJson } from '@/app/home/components/usePersistedJson';
 import { usePersistedString } from '@/app/home/components/usePersistedString';
 import { useRouteConversationHydration } from '@/app/home/components/useRouteConversationHydration';
 import { useTranscriptNavigation } from '@/app/home/components/useTranscriptNavigation';
-import { useVoiceAutoSend } from '@/app/home/components/useVoiceAutoSend';
 import type {
   ThreadMeta,
   ThreadSession,
@@ -75,7 +73,6 @@ import { CHAT_IMAGE_BUCKET, type ChatImageAttachment } from '@/lib/chat-attachme
 import type { TemporaryMemoryMode } from '@/lib/chat-session';
 import { supabase } from '@/lib/supabase';
 
-const TTS_STORAGE_KEY = 'keen-tts-enabled';
 const CHAT_MODEL_STORAGE_KEY = 'keen-chat-model';
 const CHAT_MODEL_EFFORT_OVERRIDES_STORAGE_KEY = 'keen-chat-model-effort-overrides-v1';
 const CHAT_MODEL_THINKING_OVERRIDES_STORAGE_KEY = 'keen-chat-thinking-overrides-v1';
@@ -123,7 +120,7 @@ function findLatestConversationForMentor(
 }
 
 /**
- * Home page - editorial voice + text conversation interface
+ * Home page - editorial tone and text conversation interface
  */
 export default function HomePage() {
   return (
@@ -260,19 +257,6 @@ function HomePageInner() {
   const homeE2eFixture = getHomeE2eFixture(searchParams.get('e2e'));
   const isHomeE2eFixture = homeE2eFixture !== null;
 
-  const {
-    micActive,
-    ttsEnabled,
-    tts,
-    microphone,
-    transcription,
-    visualization,
-    stopMic: stopVoiceCapture,
-    toggleTtsEnabled,
-  } = useHomeVoice(TTS_STORAGE_KEY);
-  // Voice controls are hidden for now; keep the underlying wiring dormant until the feature is revisited.
-  const voiceControlsEnabled = false;
-  const voiceOutputEnabled = voiceControlsEnabled && ttsEnabled;
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -393,7 +377,6 @@ function HomePageInner() {
     setCurrentMapMessageId,
   });
 
-  const autoSendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mentorSlugHandledRef = useRef(false);
   const selectedDraftChatRef = useRef<PersistentDraftChat | null>(null);
   const persistentSelectedBranchIdsRef = useRef<BranchSelectionMap>({});
@@ -500,14 +483,6 @@ function HomePageInner() {
     listError,
     isHomeE2eFixture,
   ]);
-
-  const stopMic = useCallback(() => {
-    if (autoSendTimerRef.current) {
-      clearTimeout(autoSendTimerRef.current);
-      autoSendTimerRef.current = null;
-    }
-    stopVoiceCapture();
-  }, [stopVoiceCapture]);
 
   const clearPendingImageAttachments = useCallback(() => {
     setPendingImageAttachments((current) => {
@@ -618,9 +593,7 @@ function HomePageInner() {
     setSelectedChat,
     setTemporaryChats,
     setUserHasScrolledState,
-    stopMic,
     tempChatTitle: TEMP_CHAT_TITLE,
-    tts,
   });
 
   useHomeChatSwitchLifecycle({
@@ -647,8 +620,6 @@ function HomePageInner() {
     setPersistentSelectedBranchIds,
     setPersistentThreadsMap,
     setUserHasScrolledState,
-    stopMic,
-    tts,
   });
 
   const {
@@ -727,7 +698,6 @@ function HomePageInner() {
 
   const sendMessage = useMainChatRuntime({
     activeMessages,
-    autoSendTimerRef,
     clearComposerInputForSelection,
     clearPendingChatRequestForSelection,
     clearSearchStateForSelection,
@@ -769,20 +739,8 @@ function HomePageInner() {
     setUserHasScrolledState,
     temporaryChatsRef,
     tempChatTitle: TEMP_CHAT_TITLE,
-    transcription,
-    tts,
-    ttsEnabled: voiceOutputEnabled,
     updateDraftChat,
     updateTemporaryChat,
-  });
-
-  useVoiceAutoSend({
-    autoSendTimerRef,
-    finalTranscript: transcription.finalTranscript,
-    interimTranscript: transcription.interimTranscript,
-    isLoading,
-    micActive,
-    sendMessage,
   });
 
   const consumedInitialSendConversationIdsRef = useRef<Set<string>>(new Set());
@@ -1061,30 +1019,18 @@ function HomePageInner() {
           isLoading={isLoading}
           imageInputDisabled={!selectedModelSupportsImages}
           isUploadingImages={isUploadingImages}
-          micActive={micActive}
           pendingImageAttachments={pendingImageAttachments}
           responseStyle={activeResponseStyle}
           selectedModelId={selectedModelId}
           modelEffortOverrides={modelEffortOverrides}
           thinkingEnabledOverrides={thinkingEnabledOverrides}
-          ttsEnabled={voiceOutputEnabled}
           searchMode={activeSearchMode}
           temporaryChatEnabled={isTemporaryChat}
           showTemporaryIntro={isTemporaryChat && activeMessages.length === 0}
           temporaryMemoryMode={activeTemporaryMemoryMode}
-          finalTranscript={transcription.finalTranscript}
-          interimTranscript={transcription.interimTranscript}
-          transcriptionStatus={transcription.status}
-          microphoneStatus={microphone.status}
-          microphoneErrorMessage={microphone.errorMessage}
           searchWarning={activeSearchState?.warning ?? null}
           imageWarning={imageWarning}
-          isTtsLoading={tts.isLoading}
-          isTtsPlaying={tts.isPlaying}
           textareaRef={textareaRef}
-          waveformRef={visualization.lineRef}
-          waveformGlowRef={visualization.glowRef}
-          waveformContainerRef={visualization.visualRef}
           onInputChange={(value) => setComposerInputForSelection(composerStateSelection, value)}
           onAttachImages={handleAttachImages}
           onRemoveImageAttachment={handleRemoveImageAttachment}
@@ -1094,7 +1040,6 @@ function HomePageInner() {
           onResponseStyleChange={(value) =>
             setResponseStyleForSelection(composerStateSelection, value)
           }
-          onToggleTts={toggleTtsEnabled}
           onSearchModeChange={(mode) => setSearchModeForSelection(composerStateSelection, mode)}
           onTemporaryMemoryModeChange={updateSelectedTemporaryMemoryMode}
           onSubmit={handleSubmit}

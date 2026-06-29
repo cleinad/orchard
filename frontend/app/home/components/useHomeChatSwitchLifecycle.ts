@@ -38,8 +38,6 @@ interface UseHomeChatSwitchLifecycleParams {
   setPersistentSelectedBranchIds: Dispatch<SetStateAction<BranchSelectionMap>>;
   setPersistentThreadsMap: Dispatch<SetStateAction<Map<string, ThreadMeta[]>>>;
   setUserHasScrolledState: (nextValue: boolean) => void;
-  stopMic: () => void;
-  tts: { stop: () => void };
 }
 
 export function useHomeChatSwitchLifecycle({
@@ -66,8 +64,6 @@ export function useHomeChatSwitchLifecycle({
   setPersistentSelectedBranchIds,
   setPersistentThreadsMap,
   setUserHasScrolledState,
-  stopMic,
-  tts,
 }: UseHomeChatSwitchLifecycleParams) {
   useEffect(() => {
     selectedDraftChatRef.current = selectedDraftChat;
@@ -75,8 +71,6 @@ export function useHomeChatSwitchLifecycle({
 
   const prepareForChatSwitch = useCallback(
     (nextSelection: SelectedChat | null) => {
-      tts.stop();
-      stopMic();
       resetThreadUi();
       setPendingBranch(null);
       setConversationMapOpen(false);
@@ -140,8 +134,6 @@ export function useHomeChatSwitchLifecycle({
       setPersistentSelectedBranchIds,
       setPersistentThreadsMap,
       setUserHasScrolledState,
-      stopMic,
-      tts,
     ]
   );
 
