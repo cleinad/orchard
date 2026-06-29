@@ -2,11 +2,12 @@
 
 import { useCallback, useState, type RefObject } from 'react';
 import MessageRow from '@/app/home/components/MessageRow';
-import type { InlineThreadMarker } from '@/app/home/components/threadTypes';
+import type { InlineThreadMarker, ThreadSource } from '@/app/home/components/threadTypes';
 import type { Message } from '@/app/home/types';
 import type { BranchChip } from '@/app/home/components/conversationTree';
 
 interface ConversationViewProps {
+  activeHighlightSource: ThreadSource | null;
   listError: string | null;
   routeConversationError: string | null;
   messages: Message[];
@@ -26,6 +27,7 @@ interface ConversationViewProps {
 }
 
 export default function ConversationView({
+  activeHighlightSource,
   listError,
   routeConversationError,
   messages,
@@ -144,6 +146,7 @@ export default function ConversationView({
             return (
               <MessageRow
                 key={message.renderId ?? message.id}
+                activeHighlightSource={activeHighlightSource}
                 activeName={activeName}
                 activeSourceId={activeSourceId}
                 branchChips={branchChips}

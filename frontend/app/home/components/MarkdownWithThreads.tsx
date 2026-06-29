@@ -211,13 +211,6 @@ function ThreadIndicator({
   thread: InlineThreadMarker;
   onClick: (thread: InlineThreadMarker) => void;
 }) {
-  const statusClassName =
-    thread.status === "loading"
-      ? "bg-sky-200/45 text-sky-950 hover:bg-sky-200/70 dark:bg-sky-300/15 dark:text-sky-100 dark:hover:bg-sky-300/25"
-      : thread.status === "error"
-        ? "bg-rose-200/45 text-rose-950 hover:bg-rose-200/70 dark:bg-rose-300/15 dark:text-rose-100 dark:hover:bg-rose-300/25"
-        : "bg-[#fef3c7] text-stone-950 hover:bg-[#fde68a] dark:bg-[#5b4516] dark:text-amber-100 dark:hover:bg-[#6f5419]";
-
   return (
     <span
       role="button"
@@ -232,7 +225,7 @@ function ThreadIndicator({
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") onClick(thread);
       }}
-      className={`box-decoration-clone cursor-pointer rounded-[2px] px-1 py-0.5 font-medium transition-colors ${statusClassName}`}
+      className="box-decoration-clone cursor-pointer rounded-[2px] px-1 py-0.5 transition-colors"
       title="View thread"
     >
       {children}

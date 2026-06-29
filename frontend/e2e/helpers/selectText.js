@@ -244,12 +244,11 @@ async function selectTextInMessage(page, messageId, text) {
 
 async function hasPersistentSelectionHighlight(page) {
   return page.evaluate(() => {
-    if (typeof CSS === 'undefined' || !('highlights' in CSS)) {
-      return false;
-    }
-
-    const registry = CSS.highlights;
-    return typeof registry?.get === 'function' && Boolean(registry.get('keen-active-selection'));
+    return Boolean(
+      document.querySelector(
+        '[data-testid="thread-highlight-rect"][data-highlight-kind="active"]'
+      )
+    );
   });
 }
 
