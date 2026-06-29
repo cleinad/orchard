@@ -205,7 +205,25 @@ test('always search sends required search mode and renders a scalable source tra
   await expect(inlineCitations.nth(1)).toHaveText('2');
   await expect(inlineCitations.nth(0).locator('img')).toHaveCount(0);
   await expect(inlineCitations.nth(0)).toHaveAttribute('data-selection-exclude', 'true');
+  await expect(inlineCitations.nth(0)).not.toHaveAttribute('title', /.+/);
   await expect(inlineCitations.nth(0)).toHaveCSS('user-select', 'none');
+  const citationPreviews = page.getByTestId('search-citation-preview');
+  await expect(citationPreviews).toHaveCount(2);
+  await expect(citationPreviews.nth(0)).toContainText('Source 1');
+  await expect(citationPreviews.nth(0)).toContainText('Snippet 1');
+  await expect(citationPreviews.nth(0)).toBeHidden();
+  await expect(citationPreviews.nth(0)).toHaveAttribute('href', 'https://example.com/source-1');
+  await expect(citationPreviews.nth(0)).toHaveCSS('text-decoration-line', 'none');
+  await inlineCitations.nth(0).hover();
+  await expect(citationPreviews.nth(0)).toBeVisible();
+  await citationPreviews.nth(0).hover();
+  await expect(citationPreviews.nth(0)).toBeVisible();
+  const [citationPopup] = await Promise.all([
+    page.waitForEvent('popup'),
+    citationPreviews.nth(0).click(),
+  ]);
+  await expect(citationPopup).toHaveURL('https://example.com/source-1');
+  await citationPopup.close();
   await expect(page.getByRole('button', { name: 'Sources 10' })).toBeVisible();
 
   await page.getByRole('button', { name: 'Sources 10' }).click();
