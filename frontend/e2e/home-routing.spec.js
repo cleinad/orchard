@@ -650,22 +650,64 @@ test('model effort controls use a drill-in panel on narrow viewports', async ({ 
   await mockHomeDataRoutes(page, {
     conversations: [],
     messagesByConversationId: {},
+    chatModels: [
+      {
+        id: 'gpt-5.5',
+        label: 'GPT-5.5',
+        provider: 'openai',
+        providerLabel: 'OpenAI',
+        iconKey: 'openai',
+        description: 'Best OpenAI model for complex reasoning and coding.',
+        badge: 'Max',
+        available: true,
+        isDefault: true,
+        supportsImages: true,
+        effort: {
+          levels: ['low', 'medium', 'high', 'max'],
+          defaultLevel: 'medium',
+          supportsThinkingToggle: true,
+          defaultThinkingEnabled: true,
+        },
+      },
+      {
+        id: 'gemini-3-flash-preview',
+        label: 'Gemini 3 Flash',
+        provider: 'google',
+        providerLabel: 'Google',
+        iconKey: 'google',
+        description: 'Fast Gemini 3 model with broad thinking-level support.',
+        available: true,
+        isDefault: false,
+        supportsImages: true,
+        effort: {
+          levels: ['minimal', 'low', 'medium', 'high'],
+          defaultLevel: 'medium',
+          supportsThinkingToggle: false,
+          defaultThinkingEnabled: true,
+        },
+      },
+    ],
   });
 
   await page.goto('/home?e2e=home-routing-effort-drilldown');
 
   await page.getByRole('button', { name: /Chat model: GPT-5\.5/ }).click();
-  await page.getByRole('menuitemradio', { name: /GPT-5\.5/ }).click();
+  await page.getByRole('menuitemradio', { name: /Gemini 3 Flash/ }).click();
 
   const popover = page.locator('.chat-model-picker-popover');
   const panels = page.locator('.chat-model-picker-panels');
   const panelsBox = await panels.boundingBox();
 
   await expect(popover).toHaveAttribute('data-effort-mode', 'drilldown');
+  await expect(page.getByRole('button', { name: /Chat model: Gemini 3 Flash/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Attach image' })).toBeEnabled();
   await expect(page.getByRole('button', { name: /^Models$/ })).toBeVisible();
-  await expect(page.getByText('GPT-5.5 effort')).toBeVisible();
+  await expect(page.getByText('Gemini 3 Flash effort')).toBeVisible();
   await expect(page.getByRole('menu', { name: 'Model effort' })).toBeVisible();
   await expect(page.locator('.chat-model-effort-panel')).toHaveCount(0);
+  await expect
+    .poll(() => page.evaluate(() => window.localStorage.getItem('keen-chat-model')))
+    .toBe('gemini-3-flash-preview');
 
   expect(panelsBox).not.toBeNull();
   expect(panelsBox.width).toBeGreaterThan(220);

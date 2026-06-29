@@ -339,12 +339,13 @@ export default function ChatModelPicker({
       return;
     }
 
+    onChange(model.id);
+
     if (effortPresentation === 'drilldown' && model.effort) {
       setActiveEffortModelId(model.id);
       return;
     }
 
-    onChange(model.id);
     setActiveEffortModelId(model.effort ? model.id : null);
   };
 
