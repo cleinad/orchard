@@ -39,6 +39,8 @@ export default function TextSelectionPopover({
   const [fallbackLeft, setFallbackLeft] = useState<number | null>(null);
   const [supportsAnchorPositioning, setSupportsAnchorPositioning] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const hasEditedQuestionRef = useRef(false);
 
   useEffect(() => {
     setSupportsAnchorPositioning(
@@ -50,7 +52,18 @@ export default function TextSelectionPopover({
   }, []);
 
   useEffect(() => {
+    hasEditedQuestionRef.current = false;
     setCustomQuestion("");
+  }, [popoverState]);
+
+  useEffect(() => {
+    if (!popoverState) return;
+
+    const animationFrame = window.requestAnimationFrame(() => {
+      inputRef.current?.focus({ preventScroll: true });
+    });
+
+    return () => window.cancelAnimationFrame(animationFrame);
   }, [popoverState]);
 
   const handleDismiss = useCallback(() => {
@@ -96,6 +109,22 @@ export default function TextSelectionPopover({
     };
 
     const handleCopy = (event: ClipboardEvent) => {
+      const input = inputRef.current;
+      if (input && event.target === input) {
+        const hasInputSelection =
+          input.selectionStart !== null
+          && input.selectionEnd !== null
+          && input.selectionEnd > input.selectionStart;
+
+        if (hasInputSelection || hasEditedQuestionRef.current) {
+          return;
+        }
+
+        event.clipboardData?.setData("text/plain", popoverState.selectedText);
+        event.preventDefault();
+        return;
+      }
+
       if (isEditableTarget(event.target)) {
         return;
       }
@@ -194,7 +223,6 @@ export default function TextSelectionPopover({
           fallbackPlacement === "top"
             ? "translate(-50%, calc(-100% - 8px))"
             : "translate(-50%, 8px)",
-        zIndex: 60,
       };
 
   const anchorStyle: CSSProperties = {
@@ -233,10 +261,14 @@ export default function TextSelectionPopover({
         <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-2">
           <form onSubmit={handleCustomSubmit} className="min-w-0 flex-1">
             <input
+              ref={inputRef}
               data-testid="selection-popover-input"
               type="text"
               value={customQuestion}
-              onChange={(event) => setCustomQuestion(event.target.value)}
+              onChange={(event) => {
+                hasEditedQuestionRef.current = true;
+                setCustomQuestion(event.target.value);
+              }}
               placeholder="Ask about this…"
               className="h-8 w-full rounded-md border border-border-subtle bg-foreground/[0.03] px-2.5 font-sans font-reading text-xs text-foreground placeholder:text-muted/45 outline-none transition-colors focus:border-foreground/[0.18] focus:ring-1 focus:ring-foreground/10"
             />

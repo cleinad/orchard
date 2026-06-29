@@ -267,6 +267,12 @@ function MessageRow({
 
     const handleDocumentClick = (event: globalThis.MouseEvent) => {
       if (event.button !== 0) return;
+      if (
+        event.target instanceof Element
+        && event.target.closest('[data-testid="selection-popover"]')
+      ) {
+        return;
+      }
 
       const sourceId = getHighlightSourceIdAtPoint(root, event.clientX, event.clientY);
       const thread = sourceId ? threadByMarkerId.get(sourceId) : null;

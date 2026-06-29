@@ -169,7 +169,23 @@ test('promotes an unsent popover draft into the thread panel', async ({ page }) 
 
   await selectTextInMessage(page, messageId, selectedText);
   await expect(page.getByTestId('selection-popover')).toBeVisible();
+  await expect(page.getByTestId('selection-popover-input')).toBeFocused();
   await expect.poll(() => hasPersistentSelectionHighlight(page)).toBe(true);
+
+  const highlightBox = await page.getByTestId('thread-highlight-rect').first().boundingBox();
+  expect(highlightBox).toBeTruthy();
+  await page.getByTestId('selection-popover-input').evaluate((input, box) => {
+    input.dispatchEvent(
+      new MouseEvent('click', {
+        bubbles: true,
+        button: 0,
+        cancelable: true,
+        clientX: box.x + box.width / 2,
+        clientY: box.y + box.height / 2,
+      })
+    );
+  }, highlightBox);
+  await expect(page.getByTestId('thread-panel')).toHaveAttribute('data-state', 'closed');
 
   const draft = 'Why does that happen?';
   await page.getByTestId('selection-popover-input').fill(draft);
@@ -434,9 +450,20 @@ test('copy after source selection and paste into the popover input keep native c
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(selectedText);
 
   await page.evaluate(() => navigator.clipboard.writeText('How does this affect paint?'));
-  await page.getByTestId('selection-popover-input').click();
   await page.keyboard.press('ControlOrMeta+V');
   await expect(page.getByTestId('selection-popover-input')).toHaveValue(
+    'How does this affect paint?'
+  );
+
+  await page.evaluate(() => navigator.clipboard.writeText('clipboard sentinel'));
+  await page.keyboard.press('ControlOrMeta+C');
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(
+    'clipboard sentinel'
+  );
+
+  await page.getByTestId('selection-popover-input').selectText();
+  await page.keyboard.press('ControlOrMeta+C');
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(
     'How does this affect paint?'
   );
 

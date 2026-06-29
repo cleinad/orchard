@@ -808,6 +808,7 @@ body {
   position: absolute;
   inset: auto;
   margin: 0;
+  z-index: 70;
   /* Match TextSelectionPopover width utility — compact inline toolbar, not a wide card */
   max-inline-size: min(18rem, calc(100vw - 1rem));
 }
