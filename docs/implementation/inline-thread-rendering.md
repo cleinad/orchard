@@ -54,13 +54,13 @@ The hook:
 - calculates `startOffset` and `endOffset` through the shared selectable-text index for that content root and stream version
 - stores the active selection for popover placement and highlight reconstruction
 
-The browser’s native selection is preserved so normal copy remains available. The app also rebuilds its own persistent highlight state from offsets so the source remains visible when focus moves.
+The browser’s native selection is preserved so normal copy remains available. The app also keeps the active source offsets in state so the overlay can keep the source visible when focus moves.
 
 ### 2. Active highlight reconstruction
 
-While a popover or derived thread is active, the same hook rebuilds a DOM `Range` from `startOffset` and `endOffset`.
+While a popover or derived thread is active, the same hook rebuilds a DOM `Range` from `startOffset` and `endOffset` when it needs to preserve the native selection for copy behavior.
 
-That reconstructed range drives the `CSS.highlights` entry for the active source highlight. This is why the source text can stay highlighted even after focus changes or the panel opens.
+The visible active highlight is rendered by `ThreadHighlightOverlay` inside the matching message row. The overlay receives the active source offsets, restores the range inside `[data-message-content]`, measures `Range.getClientRects()`, merges nearby rects, and paints an app-owned highlight surface.
 
 ### 3. Persistence
 
@@ -104,7 +104,7 @@ Instead it:
 
 At render time, those marker spans become clickable `ThreadIndicator` elements.
 
-Persisted visual highlighting no longer depends on those marker spans as the primary background. Message rows restore DOM ranges from thread offsets and register CSS Highlight API ranges when supported. The spans remain the click/focus target; the smoother range highlight carries the main visual treatment.
+Persisted visual highlighting no longer depends on those marker spans as the primary background. Message rows pass persisted thread offsets to `ThreadHighlightOverlay`, which restores DOM ranges and paints measured rect overlays for text, code, math, and table selections. The spans remain the click/focus target; the smoother overlay carries the main visual treatment.
 
 ### 6. Tables and structural boundaries
 

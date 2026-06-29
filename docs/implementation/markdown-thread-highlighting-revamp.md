@@ -43,17 +43,17 @@ The ideal experience is that users do not need to know whether the highlighted c
 
 ## Current System Summary
 
-The current inline-thread system has two anchoring paths that agree on offsets but diverge visually:
+The current inline-thread system has one durable anchoring model and two rendering responsibilities:
 
 - Selection capture builds offsets from a DOM walk inside `[data-message-content]`.
-- Active highlights restore a DOM `Range` from those offsets and draw it with the CSS Highlight API.
+- Active and persisted visual highlights restore DOM ranges from those offsets and draw an app-owned rect overlay.
 - Persisted thread markers are rendered in `MarkdownWithThreads.tsx` by walking the HAST tree, tracking offsets, splitting matching text nodes, and wrapping text fragments in clickable spans.
 
 This means:
 
-- Active selection can look relatively smooth because it is a browser range highlight.
-- Persisted markers can look fragmented because markdown, syntax highlighting, and KaTeX split content into many nested text nodes.
-- Code and math currently work, but the implementation accepts fragmented marker spans as normal.
+- Active and persisted highlights use the same visual model.
+- Persisted markers can remain fragmented as click targets because the overlay carries the primary visual treatment.
+- Code, math, and tables can keep renderer-specific DOM while the overlay smooths the selected surface.
 - Tables would add another structure where raw text-node concatenation is not enough.
 
 ## Core Problem
@@ -225,19 +225,20 @@ Recommended direction:
 3. Draw highlight backgrounds with a range-based mechanism.
 4. Keep inline spans or small affordances for click targets, but do not rely on span backgrounds as the primary highlight visual.
 
-Preferred visual path:
+Implemented visual path:
 
-- Use CSS Highlight API for active highlight and, where practical, persisted thread highlights.
-- Register one named highlight per visible thread or one aggregate highlight for all non-active persisted threads.
+- Use `ThreadHighlightOverlay` for active and persisted thread highlights.
+- Restore DOM ranges from canonical offsets, measure `Range.getClientRects()`, and merge nearby rects into a smoother app-owned highlight surface.
+- Tune merge rules for math, code, and table contexts without rewriting renderer output.
 - Keep existing inline marker spans as transparent or low-visual click targets.
 - Add a small thread affordance near the range if text-only click targets are too hard to discover.
 
 Fallback path:
 
-- If CSS Highlight API is unavailable, keep existing span backgrounds.
-- Improve span styling with `box-decoration-break`, low padding, and special table/code/math styles.
+- If overlay measurement fails, keep existing span backgrounds as the final functional fallback.
+- Keep span styling with `box-decoration-break`, low padding, and special table/code/math styles.
 
-This allows modern browsers to show smooth range highlights while older environments still have functional persisted markers.
+This lets the app smooth fragmented markdown, code, table, and KaTeX selections with one visual model while preserving functional persisted markers.
 
 ## Click Target Strategy
 
@@ -349,7 +350,7 @@ Thread selection is currently disabled for streaming messages. Keep that behavio
 
 ### Browser Support
 
-CSS Highlight API should be treated as progressive enhancement for persisted visuals. The functional fallback should remain span-based.
+The overlay uses standard DOM range geometry and absolutely positioned elements. The functional fallback remains span-based if a range cannot be restored or measured.
 
 ### Accessibility
 
@@ -456,9 +457,10 @@ Current implementation notes:
 - GFM table parsing is enabled with `remark-gfm`.
 - Table selection uses spreadsheet-style tabs between cells and newlines between rows in `highlightedText`.
 - Table marker insertion is table-safe: marker spans are only inserted inside legal text containers such as `td` and `th`, never directly under table structure.
-- Persisted visual highlights are drawn from restored DOM ranges through the CSS Highlight API when available.
-- Inline marker spans remain as keyboard/mouse click targets, but their background becomes transparent when range highlights are active.
-- The span-background fallback remains for browsers without CSS Highlight API support.
+- Active and persisted visual highlights are drawn by `ThreadHighlightOverlay` from restored DOM range geometry.
+- Math, code, and table highlights use context-aware rect merging to reduce fragmented visual chips without changing markdown, KaTeX, code, or table DOM structure.
+- Inline marker spans remain as keyboard/mouse click targets, but their background becomes transparent when overlay highlights are active.
+- The span-background fallback remains for failed range restoration or measurement.
 
 Verification performed:
 
@@ -471,4 +473,4 @@ Known residual constraints:
 
 - Overlapping persisted thread ranges are still normalized by dropping later overlaps.
 - Old pipe-table anchors remain legacy anchors; they are not auto-migrated into table-aware offsets.
-- The smooth persisted highlight layer depends on CSS Highlight API support; unsupported browsers use the existing span fallback.
+- Overlay smoothing is geometry-based; unsupported or failed measurements use the existing span fallback.
