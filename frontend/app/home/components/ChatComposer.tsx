@@ -475,30 +475,57 @@ export default function ChatComposer({
                     aria-expanded={searchMenuOpen}
                     aria-label={`Search mode ${searchModeLabels[searchMode].toLowerCase()}`}
                     onClick={() => setSearchMenuOpen((open) => !open)}
-                    className={`flex h-7 w-7 items-center justify-center rounded-md border transition-colors ${
-                      searchMode === 'required'
-                        ? 'border-foreground/[0.10] bg-foreground/[0.05] text-foreground'
+                    className={`inline-flex h-8 min-w-[6.4rem] items-center justify-between gap-2 rounded-lg border px-3 text-left font-sans font-medium transition ${
+                      searchMenuOpen || searchMode === 'required'
+                        ? 'border-foreground/[0.08] bg-foreground/[0.055] text-foreground'
                         : searchMode === 'off'
-                          ? 'border-border-subtle text-muted/60 hover:bg-foreground/[0.04] hover:text-foreground/70'
-                          : 'border-border-subtle text-muted hover:bg-foreground/[0.04] hover:text-foreground/70'
+                          ? 'border-transparent bg-background text-foreground/55 hover:bg-foreground/[0.035] hover:text-foreground/75'
+                          : 'border-transparent bg-background text-foreground/88 hover:bg-foreground/[0.035] hover:text-foreground'
                     }`}
                   >
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span
+                        className={`flex h-4 w-4 flex-shrink-0 items-center justify-center ${
+                          searchMode === 'required' ? 'text-accent' : 'text-current'
+                        }`}
+                      >
+                        <svg
+                          aria-hidden="true"
+                          className="h-4 w-4"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.8"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M12 21a9 9 0 100-18 9 9 0 000 18z"
+                          />
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M3.6 9h16.8M3.6 15h16.8M12 3c2.1 2.25 3.15 5.25 3.15 9S14.1 18.75 12 21M12 3C9.9 5.25 8.85 8.25 8.85 12S9.9 18.75 12 21"
+                          />
+                        </svg>
+                      </span>
+                      <span className="truncate text-[13px]">Search</span>
+                    </span>
+
                     <svg
-                      className="h-3.5 w-3.5"
+                      aria-hidden="true"
+                      className={`h-3.5 w-3.5 flex-shrink-0 text-muted transition-transform duration-150 ${
+                        searchMenuOpen ? 'rotate-180' : ''
+                      }`}
                       fill="none"
                       stroke="currentColor"
-                      strokeWidth="2"
-                      viewBox="0 0 24 24"
+                      strokeWidth="1.8"
+                      viewBox="0 0 20 20"
                     >
                       <path
+                        d="M5.5 7.5L10 12l4.5-4.5"
                         strokeLinecap="round"
                         strokeLinejoin="round"
-                        d="M12 21a9 9 0 100-18 9 9 0 000 18z"
-                      />
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M3.6 9h16.8M3.6 15h16.8M12 3c2.1 2.25 3.15 5.25 3.15 9S14.1 18.75 12 21M12 3C9.9 5.25 8.85 8.25 8.85 12S9.9 18.75 12 21"
                       />
                     </svg>
                   </button>
@@ -508,9 +535,8 @@ export default function ChatComposer({
                   <div
                     role="menu"
                     aria-label="Search mode"
-                    className="absolute bottom-9 left-0 z-30 w-max rounded-lg border border-border-subtle bg-surface p-1 font-sans text-xs shadow-lg"
+                    className="absolute bottom-10 left-0 z-30 min-w-[11rem] rounded-[1.1rem] bg-background p-1.5 font-sans text-xs text-foreground shadow-[0_16px_36px_rgba(15,23,42,0.12)] ring-1 ring-black/[0.06] dark:shadow-[0_18px_40px_rgba(0,0,0,0.28)] dark:ring-white/[0.06]"
                   >
-                    <span className="pointer-events-none absolute -bottom-1 left-3 h-2 w-2 rotate-45 border-b border-r border-border-subtle bg-surface" />
                     {(['auto', 'required', 'off'] as const).map((mode) => (
                       <button
                         key={mode}
@@ -521,15 +547,15 @@ export default function ChatComposer({
                           onSearchModeChange(mode);
                           setSearchMenuOpen(false);
                         }}
-                        className={`grid h-8 w-full grid-cols-[1fr_0.375rem] items-center gap-3 whitespace-nowrap rounded-md px-2.5 text-left transition-colors ${
+                        className={`grid h-9 w-full grid-cols-[1fr_0.875rem] items-center gap-3 whitespace-nowrap rounded-xl px-2.5 text-left transition-colors ${
                           searchMode === mode
-                            ? 'bg-foreground/[0.06] text-foreground'
-                            : 'text-muted hover:bg-foreground/[0.04] hover:text-foreground'
+                            ? 'bg-foreground/[0.055] text-foreground'
+                            : 'text-muted hover:bg-foreground/[0.035] hover:text-foreground'
                         }`}
                       >
-                        <span>{searchModeLabels[mode]}</span>
+                        <span className="text-[13px] font-medium">{searchModeLabels[mode]}</span>
                         {searchMode === mode && (
-                          <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                          <span className="h-1.5 w-1.5 justify-self-center rounded-full bg-accent" />
                         )}
                       </button>
                     ))}
