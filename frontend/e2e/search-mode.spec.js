@@ -204,9 +204,9 @@ test('always search sends required search mode and renders a scalable source tra
   await expect(inlineCitations.nth(0)).toHaveText('1');
   await expect(inlineCitations.nth(1)).toHaveText('2');
   await expect(inlineCitations.nth(0).locator('img')).toHaveCount(0);
-  await expect(inlineCitations.nth(0)).toHaveAttribute('data-selection-exclude', 'true');
+  await expect(inlineCitations.nth(0)).not.toHaveAttribute('data-selection-exclude', /.+/);
+  await expect(inlineCitations.nth(0)).toHaveAttribute('data-selection-text', '[1]');
   await expect(inlineCitations.nth(0)).not.toHaveAttribute('title', /.+/);
-  await expect(inlineCitations.nth(0)).toHaveCSS('user-select', 'none');
   const citationPreviews = page.getByTestId('search-citation-preview');
   await expect(citationPreviews).toHaveCount(2);
   await expect(citationPreviews.nth(0)).toContainText('Source 1');

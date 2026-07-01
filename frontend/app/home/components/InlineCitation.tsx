@@ -22,7 +22,7 @@ interface InlineCitationProps
 }
 
 const BASE_CLASS_NAME =
-  "mx-0.5 inline-flex translate-y-[-0.08rem] select-none items-center justify-center rounded-full border align-baseline font-sans text-[11px] font-medium transition-colors";
+  "mx-0.5 inline-flex translate-y-[-0.08rem] items-center justify-center rounded-full border align-baseline font-sans text-[11px] font-medium transition-colors";
 
 const VARIANT_CLASS_NAMES: Record<InlineCitationVariant, string> = {
   logoNumber: "h-[1.35rem] min-w-[1.35rem] gap-1 px-1.5",
@@ -114,7 +114,6 @@ export default function InlineCitation({
 
   return (
     <span
-      data-selection-exclude="true"
       onMouseEnter={openPreview}
       onMouseLeave={scheduleClosePreview}
       onFocus={openPreview}
@@ -128,7 +127,6 @@ export default function InlineCitation({
       <button
         {...props}
         type="button"
-        data-selection-exclude="true"
         data-testid="search-citation"
         data-source-id={sourceId}
         onClick={(event) => {

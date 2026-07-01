@@ -182,17 +182,41 @@ async function selectTextInMessage(page, messageId, text) {
       return false;
     }
 
+    const getTextNodeInElement = (element, edge) => {
+      const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+      let current = walker.nextNode();
+      let match = null;
+      while (current) {
+        if (current.textContent) {
+          match = current;
+          if (edge === 'start') return match;
+        }
+        current = walker.nextNode();
+      }
+      return match;
+    };
+
     const range = document.createRange();
     if (startEntry.kind === 'boundary') {
       const nextEntry = segments.find((entry) => entry.kind !== 'boundary' && entry.end > start);
       if (!nextEntry) return false;
       if (nextEntry.kind === 'atomic') {
-        range.setStartBefore(nextEntry.element);
+        const textNode = getTextNodeInElement(nextEntry.element, 'start');
+        if (textNode) {
+          range.setStart(textNode, 0);
+        } else {
+          range.setStartBefore(nextEntry.element);
+        }
       } else {
         range.setStart(nextEntry.node, 0);
       }
     } else if (startEntry.kind === 'atomic') {
-      range.setStartBefore(startEntry.element);
+      const textNode = getTextNodeInElement(startEntry.element, 'start');
+      if (textNode) {
+        range.setStart(textNode, 0);
+      } else {
+        range.setStartBefore(startEntry.element);
+      }
     } else {
       range.setStart(startEntry.node, start - startEntry.start);
     }
@@ -203,12 +227,22 @@ async function selectTextInMessage(page, messageId, text) {
         .find((entry) => entry.kind !== 'boundary' && entry.start < end);
       if (!previousEntry) return false;
       if (previousEntry.kind === 'atomic') {
-        range.setEndAfter(previousEntry.element);
+        const textNode = getTextNodeInElement(previousEntry.element, 'end');
+        if (textNode) {
+          range.setEnd(textNode, textNode.textContent?.length ?? 0);
+        } else {
+          range.setEndAfter(previousEntry.element);
+        }
       } else {
         range.setEnd(previousEntry.node, previousEntry.text.length);
       }
     } else if (endEntry.kind === 'atomic') {
-      range.setEndAfter(endEntry.element);
+      const textNode = getTextNodeInElement(endEntry.element, 'end');
+      if (textNode) {
+        range.setEnd(textNode, textNode.textContent?.length ?? 0);
+      } else {
+        range.setEndAfter(endEntry.element);
+      }
     } else {
       range.setEnd(endEntry.node, end - endEntry.start);
     }
@@ -226,6 +260,9 @@ async function selectTextInMessage(page, messageId, text) {
         ? range.startContainer.parentElement
         : messageEl;
     target.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerType: 'mouse' }));
+    if (target !== messageEl) {
+      messageEl.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerType: 'mouse' }));
+    }
     return true;
   }, { messageId, text });
 

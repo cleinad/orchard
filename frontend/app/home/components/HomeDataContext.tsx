@@ -203,6 +203,14 @@ interface HomeDataContextValue {
   listError: string | null;
   setListError: (err: string | null) => void;
   refreshSidebarData: () => Promise<void>;
+  upsertSidebarConversation: (conversation: {
+    id: string;
+    title?: string | null;
+    mentorId?: string | null;
+    workspaceId?: string | null;
+    updatedAt?: string | null;
+    createdAt?: string | null;
+  }) => void;
 
   // Draft + temporary chat state
   draftChats: PersistentDraftChat[];
@@ -291,6 +299,7 @@ export function HomeDataProvider({
     listError,
     setListError,
     refreshSidebarData,
+    upsertSidebarConversation,
     loadConversationById,
     loadConversationMessages,
   } = useHomeData();
@@ -643,6 +652,7 @@ export function HomeDataProvider({
     listError,
     setListError,
     refreshSidebarData,
+    upsertSidebarConversation,
     loadConversationById,
     loadConversationMessages,
     draftChats,

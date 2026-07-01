@@ -257,6 +257,57 @@ test('the first draft send replaces /home with the new persistent conversation r
   await expect(page.getByText(answer)).toBeVisible();
 });
 
+test('promoted draft stays visible in the sidebar while the first response is pending', async ({ page }) => {
+  const message = 'Sketch a launch plan for a new marketplace.';
+  const conversationId = 'conversation-promoted-sidebar-visible';
+  const answer = 'Start with one dense segment, then widen supply after repeat usage appears.';
+  const chatStarted = deferred();
+  const finishResponse = deferred();
+
+  await mockHomeDataRoutes(page, {
+    conversations: [],
+    messagesByConversationId: {},
+    createdConversations: [
+      createConversation({
+        id: conversationId,
+        title: 'Launch Plan',
+        updatedAt: '2026-04-12T12:30:01.000Z',
+        createdAt: '2026-04-12T12:30:01.000Z',
+      }),
+    ],
+  });
+
+  await mockChatRoute(page, async (body) => {
+    chatStarted.resolve(body);
+    await finishResponse.promise;
+    return {
+      conversationId,
+      conversationTitle: 'Launch Plan',
+      userMessageId: 'message-sidebar-user-1',
+      assistantMessageId: 'message-sidebar-assistant-1',
+      message: answer,
+    };
+  });
+
+  await page.goto('/home?e2e=home-routing-sidebar-visible');
+
+  const sidePanel = await ensureConversationsOpen(page);
+  await sidePanel.locator('#side-panel-section-new').getByRole('button', { name: 'New chat with Keen' }).click();
+
+  const composer = page.getByPlaceholder('Message Keen...');
+  await composer.fill(message);
+  await composer.press('Enter');
+
+  await expect(page).toHaveURL(
+    new RegExp(`/home/${conversationId}\\?e2e=home-routing-sidebar-visible$`)
+  );
+  await expect.poll(async () => (await chatStarted.promise).conversationId).toBe(conversationId);
+  await expect(sidePanel.getByTestId(`conversation-row-${conversationId}`)).toBeVisible();
+
+  finishResponse.resolve();
+  await expect(page.getByText(answer)).toBeVisible();
+});
+
 test('unsent composer text is preserved per persistent chat', async ({ page }) => {
   const firstConversationId = 'conversation-chat-scoped-input-1';
   const secondConversationId = 'conversation-chat-scoped-input-2';

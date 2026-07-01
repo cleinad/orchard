@@ -444,7 +444,7 @@ function createCitationNode(text: string, sourceId: number): HastNode {
     properties: {
       type: "button",
       "data-citation-source-id": String(sourceId),
-      "data-selection-exclude": "true",
+      "data-selection-text": text,
     },
     children: [{ type: "text", value: text }],
   };

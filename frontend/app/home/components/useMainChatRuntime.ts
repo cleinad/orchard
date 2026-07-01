@@ -64,6 +64,8 @@ interface CreateConversationResponse {
     title?: string | null;
     mentorId?: string | null;
     workspaceId?: string | null;
+    createdAt?: string | null;
+    updatedAt?: string | null;
   };
   error?: string;
 }
@@ -364,6 +366,14 @@ interface MainChatRuntimeParams {
   persistentSelectedBranchIds: BranchSelectionMap;
   persistentSelectedBranchIdsRef: MutableRefObject<BranchSelectionMap>;
   refreshSidebarData: () => Promise<void>;
+  upsertSidebarConversation: (conversation: {
+    id: string;
+    title?: string | null;
+    mentorId?: string | null;
+    workspaceId?: string | null;
+    updatedAt?: string | null;
+    createdAt?: string | null;
+  }) => void;
   responseStyle: ResponseStyle;
   searchMode: SearchMode;
   selectedChat: SelectedChat | null;
@@ -720,6 +730,14 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
           params.replacePersistentConversationUrl(promotedSelection.conversationId);
         }
 
+        params.upsertSidebarConversation({
+          id: promotedSelection.conversationId,
+          title: createData.conversation?.title ?? effectiveDraft.title,
+          mentorId: promotedSelection.mentorId,
+          workspaceId: promotedSelection.workspaceId,
+          createdAt: createData.conversation?.createdAt ?? effectiveDraft.createdAt,
+          updatedAt: createData.conversation?.updatedAt ?? nextUpdatedAt,
+        });
         params.setDraftChats((prev) =>
           prev.filter((draft) => draft.id !== promotedDraftId)
         );
@@ -1168,6 +1186,14 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
           params.replacePersistentConversationUrl(promotedSelection.conversationId);
         }
 
+        params.upsertSidebarConversation({
+          id: promotedSelection.conversationId,
+          title: data.conversationTitle ?? effectiveDraft.title,
+          mentorId: promotedSelection.mentorId,
+          workspaceId: promotedSelection.workspaceId,
+          createdAt: effectiveDraft.createdAt,
+          updatedAt: nextUpdatedAt,
+        });
         params.setDraftChats((prev) =>
           prev.filter((draft) => draft.id !== promotedDraftId)
         );

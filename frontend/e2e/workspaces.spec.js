@@ -370,6 +370,64 @@ test('workspace new chat preserves workspace selection after navigating home', a
   await expect(page).toHaveURL(/\/home\/conversation-e2e-created-1\?e2e=workspace-draft$/);
 });
 
+test('workspace sidebar draft stays visible as a chat while the first response is pending', async ({ page }) => {
+  const workspaceId = 'workspace-health';
+  const conversationId = 'conversation-workspace-sidebar-visible';
+  const chatStarted = deferred();
+  const finishResponse = deferred();
+
+  await mockHomeDataRoutes(page, {
+    workspaces: [
+      createWorkspace({
+        id: workspaceId,
+        name: 'Health',
+        description: 'Training, recovery, and bloodwork',
+        context: 'Use running and cycling training context.',
+        icon: 'H',
+      }),
+    ],
+    conversations: [],
+    createdConversations: [
+      createConversation({
+        id: conversationId,
+        title: 'Workspace Sidebar Send',
+        workspaceId,
+        updatedAt: '2026-06-25T12:30:01.000Z',
+      }),
+    ],
+  });
+
+  await mockChatRoute(page, async (body) => {
+    chatStarted.resolve(body);
+    await finishResponse.promise;
+    return {
+      message: 'Workspace sidebar answer',
+      conversationId,
+      workspaceId,
+      assistantMessageId: 'assistant-workspace-sidebar-visible',
+      userMessageId: 'user-workspace-sidebar-visible',
+    };
+  });
+
+  await page.goto(`/workspaces/${workspaceId}?e2e=workspace-sidebar-visible`);
+
+  const sidePanel = await ensureConversationsOpen(page);
+  await sidePanel.getByRole('button', { name: 'New chat in Health' }).click();
+
+  const composer = page.locator('textarea[placeholder^="Message"]').first();
+  await composer.fill('workspace sidebar send');
+  await page.keyboard.press('Enter');
+
+  await expect(page).toHaveURL(
+    new RegExp(`/home/${conversationId}\\?e2e=workspace-sidebar-visible$`)
+  );
+  await expect.poll(async () => (await chatStarted.promise).workspaceId).toBe(workspaceId);
+  await expect(sidePanel.getByTestId(`conversation-row-${conversationId}`)).toBeVisible();
+
+  finishResponse.resolve();
+  await expect(page.getByText('Workspace sidebar answer')).toBeVisible();
+});
+
 test('workspace composer persists model changes and enables image attachments for vision models', async ({ page }) => {
   const workspaceId = 'workspace-health';
 
