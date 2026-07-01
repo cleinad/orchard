@@ -13,8 +13,23 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Tooltip from '@/app/components/Tooltip';
 import ChatComposer from '@/app/home/components/ChatComposer';
 import { persistInitialSendHandoff } from '@/app/home/components/initialSendHandoff';
+import {
+  createPendingChatImageAttachments,
+  uploadChatImageAttachments,
+  type PendingChatImageAttachment,
+  type UploadedChatImageAttachment,
+} from '@/app/home/components/chatImageUploads';
+import {
+  CHAT_MODEL_EFFORT_OVERRIDES_STORAGE_KEY,
+  CHAT_MODEL_STORAGE_KEY,
+  CHAT_MODEL_THINKING_OVERRIDES_STORAGE_KEY,
+  isChatModelEffortOverrides,
+  isChatModelThinkingOverrides,
+} from '@/app/home/components/chatPreferencePersistence';
 import { useChatModelCatalog } from '@/app/home/components/useChatModelCatalog';
 import { useHomeDataContext } from '@/app/home/components/HomeDataContext';
+import { usePersistedJson } from '@/app/home/components/usePersistedJson';
+import { usePersistedString } from '@/app/home/components/usePersistedString';
 import { useSidePanel } from '@/app/home/components/SidePanelContext';
 import MemoryEntry from '@/app/home/components/MemoryEntry';
 import { useMemory } from '@/app/home/components/useMemory';
@@ -29,6 +44,8 @@ import {
 import { DEFAULT_RESPONSE_STYLE, type ResponseStyle } from '@/lib/response-style';
 import type { SearchMode } from '@/lib/chat-search';
 import type { WorkspaceListItem } from '@/lib/workspaces';
+import { CHAT_IMAGE_BUCKET } from '@/lib/chat-attachments';
+import { supabase } from '@/lib/supabase';
 
 type TabKey = 'sessions' | 'memory';
 
@@ -131,20 +148,37 @@ export default function WorkspacePage() {
   const [composerInput, setComposerInput] = useState('');
   const [composerLoading, setComposerLoading] = useState(false);
   const [searchMode, setSearchMode] = useState<SearchMode>('auto');
-  const [selectedModelId, setSelectedModelId] =
-    useState<ChatModelId>(DEFAULT_CHAT_MODEL_ID);
+  const [selectedModelId, setSelectedModelId] = usePersistedString<ChatModelId>(
+    CHAT_MODEL_STORAGE_KEY,
+    DEFAULT_CHAT_MODEL_ID,
+    isChatModelId
+  );
   const [modelEffortOverrides, setModelEffortOverrides] =
-    useState<ChatModelEffortOverrides>({});
+    usePersistedJson<ChatModelEffortOverrides>(
+      CHAT_MODEL_EFFORT_OVERRIDES_STORAGE_KEY,
+      {},
+      isChatModelEffortOverrides
+    );
   const [thinkingEnabledOverrides, setThinkingEnabledOverrides] =
-    useState<ChatModelThinkingOverrides>({});
+    usePersistedJson<ChatModelThinkingOverrides>(
+      CHAT_MODEL_THINKING_OVERRIDES_STORAGE_KEY,
+      {},
+      isChatModelThinkingOverrides
+    );
   const [responseStyle, setResponseStyle] =
     useState<ResponseStyle>(DEFAULT_RESPONSE_STYLE);
   const [composerWarning, setComposerWarning] = useState<string | null>(null);
+  const [imageWarning, setImageWarning] = useState<string | null>(null);
+  const [pendingImageAttachments, setPendingImageAttachments] = useState<
+    PendingChatImageAttachment[]
+  >([]);
+  const [isUploadingImages, setIsUploadingImages] = useState(false);
 
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const contextTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const nameInputRef = useRef<HTMLInputElement | null>(null);
   const savingWorkspaceNameRef = useRef(false);
+  const pendingImageAttachmentsRef = useRef<PendingChatImageAttachment[]>([]);
 
   const chatModels = useChatModelCatalog(selectedModelId, setSelectedModelId);
   const selectedChatModel = chatModels.find((model) => model.id === selectedModelId) ?? null;
@@ -162,6 +196,8 @@ export default function WorkspacePage() {
   const thinkingEnabledOverride = hasThinkingEnabledOverride
     ? thinkingEnabledOverrides[selectedModelId] ?? null
     : null;
+  const selectedModelSupportsImages = selectedChatModel?.supportsImages ?? true;
+  const selectedModelRejectsGifImages = selectedChatModel?.provider === 'google';
 
   const updateSelectedModelEffort = useCallback(
     (modelId: ChatModelId, effort: ChatModelEffortLevel) => {
@@ -170,7 +206,7 @@ export default function WorkspacePage() {
         [modelId]: effort,
       }));
     },
-    []
+    [setModelEffortOverrides]
   );
 
   const updateThinkingEnabled = useCallback((modelId: ChatModelId, enabled: boolean) => {
@@ -178,6 +214,18 @@ export default function WorkspacePage() {
       ...current,
       [modelId]: enabled,
     }));
+  }, [setThinkingEnabledOverrides]);
+
+  useEffect(() => {
+    pendingImageAttachmentsRef.current = pendingImageAttachments;
+  }, [pendingImageAttachments]);
+
+  useEffect(() => {
+    return () => {
+      for (const attachment of pendingImageAttachmentsRef.current) {
+        URL.revokeObjectURL(attachment.url);
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -418,23 +466,99 @@ export default function WorkspacePage() {
     }
   };
 
+  const handleAttachImages = useCallback(async (files: File[]) => {
+    if (files.length === 0) {
+      return;
+    }
+
+    if (!selectedModelSupportsImages) {
+      setImageWarning('The selected model cannot read images. Choose a vision-capable model.');
+      return;
+    }
+
+    if (
+      selectedModelRejectsGifImages
+      && files.some((file) => file.type === 'image/gif' || file.name.toLowerCase().endsWith('.gif'))
+    ) {
+      setImageWarning('Google models do not support GIF images here. Use PNG, JPEG, or WebP.');
+      return;
+    }
+
+    if (isUploadingImages) {
+      setImageWarning('Wait for the current image upload to finish.');
+      return;
+    }
+
+    const result = await createPendingChatImageAttachments(
+      files,
+      pendingImageAttachments.length
+    );
+
+    if (result.attachments.length > 0) {
+      setPendingImageAttachments((current) => [...current, ...result.attachments]);
+    }
+
+    setImageWarning(result.error);
+  }, [
+    isUploadingImages,
+    pendingImageAttachments.length,
+    selectedModelRejectsGifImages,
+    selectedModelSupportsImages,
+  ]);
+
+  const handleRemoveImageAttachment = useCallback((id: string) => {
+    setPendingImageAttachments((current) => {
+      const attachment = current.find((item) => item.id === id);
+      if (attachment) {
+        URL.revokeObjectURL(attachment.url);
+      }
+
+      return current.filter((item) => item.id !== id);
+    });
+  }, []);
+
   const handleComposerSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const message = composerInput.trim();
-    if (!message || composerLoading) {
+    const imagesToSend = pendingImageAttachments;
+    let uploadedAttachments: UploadedChatImageAttachment[] = [];
+    let shouldRevokeLocalImageUrls = false;
+
+    if ((!message && imagesToSend.length === 0) || composerLoading || isUploadingImages) {
+      return;
+    }
+
+    if (imagesToSend.length > 0 && !selectedModelSupportsImages) {
+      setImageWarning('The selected model cannot read images. Choose a vision-capable model.');
+      return;
+    }
+
+    if (
+      selectedModelRejectsGifImages
+      && imagesToSend.some((attachment) => attachment.mimeType === 'image/gif')
+    ) {
+      setImageWarning('Google models do not support GIF images here. Use PNG, JPEG, or WebP.');
       return;
     }
 
     setComposerLoading(true);
+    if (imagesToSend.length > 0) {
+      setIsUploadingImages(true);
+    }
     setComposerWarning(null);
+    setImageWarning(null);
     setError(null);
 
     try {
+      if (imagesToSend.length > 0) {
+        uploadedAttachments = await uploadChatImageAttachments(imagesToSend);
+      }
+
       const response = await fetch('/api/conversations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          initialMessage: message,
+          initialMessage: message || 'Image question',
           workspaceId,
         }),
       });
@@ -455,13 +579,32 @@ export default function WorkspacePage() {
         thinkingEnabled: thinkingEnabledOverride,
         responseStyle,
         searchMode,
+        uploadedAttachments,
       });
       setComposerInput('');
+      setPendingImageAttachments([]);
+      shouldRevokeLocalImageUrls = imagesToSend.length > 0;
       openPersistentConversation(conversationId);
       void refreshSidebarData();
     } catch (err) {
-      setComposerWarning(err instanceof Error ? err.message : 'Failed to start workspace chat.');
+      if (uploadedAttachments.length > 0) {
+        await supabase.storage
+          .from(CHAT_IMAGE_BUCKET)
+          .remove(uploadedAttachments.map((attachment) => attachment.storagePath));
+      }
+
+      setComposerWarning(
+        err instanceof Error ? err.message : 'Failed to start workspace chat.'
+      );
     } finally {
+      if (shouldRevokeLocalImageUrls) {
+        for (const attachment of imagesToSend) {
+          URL.revokeObjectURL(attachment.url);
+        }
+      }
+      if (imagesToSend.length > 0) {
+        setIsUploadingImages(false);
+      }
       setComposerLoading(false);
     }
   };
@@ -689,9 +832,9 @@ export default function WorkspacePage() {
                 chatModels={chatModels}
                 input={composerInput}
                 isLoading={composerLoading}
-                imageInputDisabled
-                isUploadingImages={false}
-                pendingImageAttachments={[]}
+                imageInputDisabled={!selectedModelSupportsImages}
+                isUploadingImages={isUploadingImages}
+                pendingImageAttachments={pendingImageAttachments}
                 responseStyle={responseStyle}
                 selectedModelId={selectedModelId}
                 modelEffortOverrides={modelEffortOverrides}
@@ -701,11 +844,11 @@ export default function WorkspacePage() {
                 showTemporaryIntro={false}
                 temporaryMemoryMode="off"
                 searchWarning={composerWarning}
-                imageWarning={null}
+                imageWarning={imageWarning}
                 textareaRef={textareaRef}
                 onInputChange={setComposerInput}
-                onAttachImages={() => {}}
-                onRemoveImageAttachment={() => {}}
+                onAttachImages={handleAttachImages}
+                onRemoveImageAttachment={handleRemoveImageAttachment}
                 onModelChange={setSelectedModelId}
                 onModelEffortChange={updateSelectedModelEffort}
                 onThinkingEnabledChange={updateThinkingEnabled}

@@ -1053,6 +1053,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
             error: data.error || 'Failed to send message.',
             restoreComposerSelection,
             uploadedAttachments,
+            cleanupUploadedAttachments: uploadedAttachments,
           };
         }
 

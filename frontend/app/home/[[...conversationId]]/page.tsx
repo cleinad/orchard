@@ -39,6 +39,13 @@ import { getTemporaryChatAttachmentStoragePaths } from '@/app/home/components/te
 import { useConversationMapState } from '@/app/home/components/useConversationMapState';
 import { useConversationMapRuntime } from '@/app/home/components/useConversationMapRuntime';
 import { useChatModelCatalog } from '@/app/home/components/useChatModelCatalog';
+import {
+  CHAT_MODEL_EFFORT_OVERRIDES_STORAGE_KEY,
+  CHAT_MODEL_STORAGE_KEY,
+  CHAT_MODEL_THINKING_OVERRIDES_STORAGE_KEY,
+  isChatModelEffortOverrides,
+  isChatModelThinkingOverrides,
+} from '@/app/home/components/chatPreferencePersistence';
 import { useActiveConversationModel } from '@/app/home/components/useActiveConversationModel';
 import { usePendingChatRequests } from '@/app/home/components/usePendingChatRequests';
 import { usePerChatComposerState } from '@/app/home/components/usePerChatComposerState';
@@ -53,7 +60,6 @@ import type {
 import {
   DEFAULT_CHAT_MODEL_ID,
   isChatModelId,
-  isChatModelEffortLevel,
   type ChatModelEffortOverrides,
   type ChatModelEffortLevel,
   type ChatModelId,
@@ -73,41 +79,10 @@ import { CHAT_IMAGE_BUCKET, type ChatImageAttachment } from '@/lib/chat-attachme
 import type { TemporaryMemoryMode } from '@/lib/chat-session';
 import { supabase } from '@/lib/supabase';
 
-const CHAT_MODEL_STORAGE_KEY = 'keen-chat-model';
-const CHAT_MODEL_EFFORT_OVERRIDES_STORAGE_KEY = 'keen-chat-model-effort-overrides-v1';
-const CHAT_MODEL_THINKING_OVERRIDES_STORAGE_KEY = 'keen-chat-thinking-overrides-v1';
 const COMPOSER_DRAFT_INPUTS_STORAGE_KEY = 'keen-home-composer-draft-inputs-v1';
 const RESPONSE_STYLE_STORAGE_KEY = 'keen-home-response-styles-v1';
 const PERSISTENT_THREAD_RUNTIME_STORAGE_KEY = 'keen-persistent-thread-runtime-v1';
 const TEMP_CHAT_TITLE = 'Temporary chat';
-
-function isPlainRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function isChatModelEffortOverrides(value: unknown): value is ChatModelEffortOverrides {
-  if (!isPlainRecord(value)) {
-    return false;
-  }
-
-  return Object.entries(value).every(
-    ([modelId, effort]) =>
-      isChatModelId(modelId)
-      && typeof effort === 'string'
-      && isChatModelEffortLevel(effort)
-  );
-}
-
-function isChatModelThinkingOverrides(value: unknown): value is ChatModelThinkingOverrides {
-  if (!isPlainRecord(value)) {
-    return false;
-  }
-
-  return Object.entries(value).every(
-    ([modelId, enabled]) =>
-      isChatModelId(modelId) && typeof enabled === 'boolean'
-  );
-}
 
 function findLatestConversationForMentor(
   mentorId: string | null,
@@ -797,9 +772,19 @@ function HomePageInner() {
       thinkingEnabled: handoff.thinkingEnabled,
       responseStyle: handoff.responseStyle,
       searchMode: handoff.searchMode,
+      uploadedAttachments: handoff.uploadedAttachments,
     }).then((result) => {
       if (!result.accepted && result.error) {
         setImageWarning(result.error);
+      }
+      if (
+        !result.accepted
+        && result.cleanupUploadedAttachments
+        && result.cleanupUploadedAttachments.length > 0
+      ) {
+        void supabase.storage
+          .from(CHAT_IMAGE_BUCKET)
+          .remove(result.cleanupUploadedAttachments.map((attachment) => attachment.storagePath));
       }
     });
   }, [

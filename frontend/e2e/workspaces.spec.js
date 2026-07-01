@@ -304,6 +304,79 @@ test('workspace new chat preserves workspace selection after navigating home', a
   await expect(page).toHaveURL(/\/home\/conversation-e2e-created-1\?e2e=workspace-draft$/);
 });
 
+test('workspace composer persists model changes and enables image attachments for vision models', async ({ page }) => {
+  const workspaceId = 'workspace-health';
+
+  await mockHomeDataRoutes(page, {
+    workspaces: [
+      createWorkspace({
+        id: workspaceId,
+        name: 'Health',
+        description: 'Training, recovery, and bloodwork',
+        icon: 'H',
+      }),
+    ],
+    conversations: [],
+    chatModels: [
+      {
+        id: 'auto',
+        label: 'Auto',
+        provider: 'auto',
+        providerLabel: 'Auto',
+        iconKey: 'auto',
+        description: 'Routes automatically.',
+        available: true,
+        isDefault: true,
+        supportsImages: false,
+      },
+      {
+        id: 'gemini-3-flash-preview',
+        label: 'Gemini 3 Flash',
+        provider: 'google',
+        providerLabel: 'Google',
+        iconKey: 'google',
+        description: 'Fast Gemini 3 model with image support.',
+        available: true,
+        isDefault: false,
+        supportsImages: true,
+        effort: {
+          levels: ['minimal', 'low', 'medium', 'high'],
+          defaultLevel: 'medium',
+          supportsThinkingToggle: false,
+          defaultThinkingEnabled: true,
+        },
+      },
+    ],
+  });
+
+  await page.goto(`/workspaces/${workspaceId}?e2e=workspace-images`);
+
+  await expect(page.getByRole('button', { name: 'Attach image' })).toBeDisabled();
+  await page.getByRole('button', { name: /Chat model: Auto/ }).click();
+  await page.getByRole('menuitemradio', { name: /Gemini 3 Flash/ }).click();
+
+  await expect(page.getByRole('button', { name: /Chat model: Gemini 3 Flash/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Attach image' })).toBeEnabled();
+  await expect
+    .poll(() => page.evaluate(() => window.localStorage.getItem('keen-chat-model')))
+    .toBe('gemini-3-flash-preview');
+
+  await page.reload();
+  await expect(page.getByRole('button', { name: /Chat model: Gemini 3 Flash/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Attach image' })).toBeEnabled();
+
+  await page.locator('input[type="file"]').setInputFiles({
+    name: 'workspace.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=',
+      'base64'
+    ),
+  });
+
+  await expect(page.getByAltText('workspace.png')).toBeVisible();
+});
+
 test('dragging a default chat into a workspace moves the chat and single-source global memory', async ({ page }) => {
   const workspaceId = 'workspace-health';
   const conversationId = 'conversation-keen-drag';
