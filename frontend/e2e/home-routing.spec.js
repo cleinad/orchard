@@ -44,6 +44,9 @@ async function ensureConversationsOpen(page) {
   return sidePanel;
 }
 
+const TINY_PNG_BASE64 =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=';
+
 test('hydrates a persistent conversation on direct /home/[conversationId] entry', async ({ page }) => {
   const conversationId = 'conversation-direct-route';
   const question = 'How did early delivery logistics work?';
@@ -713,6 +716,59 @@ test('model effort controls use a drill-in panel on narrow viewports', async ({ 
   expect(panelsBox.width).toBeGreaterThan(220);
   expect(panelsBox.x).toBeGreaterThanOrEqual(0);
   expect(panelsBox.x + panelsBox.width).toBeLessThanOrEqual(390);
+});
+
+test('home composer removes attached images when switching to a non-vision model', async ({ page }) => {
+  await mockHomeDataRoutes(page, {
+    conversations: [],
+    messagesByConversationId: {},
+    chatModels: [
+      {
+        id: 'gemini-3-flash-preview',
+        label: 'Gemini 3 Flash',
+        provider: 'google',
+        providerLabel: 'Google',
+        iconKey: 'google',
+        description: 'Fast Gemini 3 model with image support.',
+        available: true,
+        isDefault: true,
+        supportsImages: true,
+      },
+      {
+        id: 'auto',
+        label: 'Auto',
+        provider: 'auto',
+        providerLabel: 'Auto',
+        iconKey: 'auto',
+        description: 'Routes automatically.',
+        available: true,
+        isDefault: false,
+        supportsImages: false,
+      },
+    ],
+  });
+  await page.addInitScript(() => {
+    window.localStorage.setItem('keen-chat-model', 'gemini-3-flash-preview');
+  });
+
+  await page.goto('/home?e2e=home-routing-image-model-switch');
+
+  await expect(page.getByRole('button', { name: /Chat model: Gemini 3 Flash/ })).toBeVisible();
+  await page.locator('input[type="file"]').setInputFiles({
+    name: 'home-switch.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from(TINY_PNG_BASE64, 'base64'),
+  });
+  await expect(page.getByAltText('home-switch.png')).toBeVisible();
+
+  await page.getByRole('button', { name: /Chat model: Gemini 3 Flash/ }).click();
+  await page.getByRole('menuitemradio', { name: /Auto/ }).click();
+
+  await expect(page.getByAltText('home-switch.png')).toHaveCount(0);
+  await expect(page.getByTestId('composer-image-warning')).toHaveText(
+    'Removed attached images because the selected model cannot read images.'
+  );
+  await expect(page.getByRole('button', { name: 'Attach image' })).toBeDisabled();
 });
 
 test('a second chat can send while another chat is still in flight', async ({ page }) => {
