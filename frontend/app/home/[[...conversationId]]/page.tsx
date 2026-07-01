@@ -13,9 +13,7 @@ import HomeBackground from '@/app/home/components/HomeBackground';
 import HomeHeader from '@/app/home/components/HomeHeader';
 import ChatComposer from '@/app/home/components/ChatComposer';
 import {
-  createPendingChatImageAttachments,
   uploadChatImageAttachments,
-  type PendingChatImageAttachment,
 } from '@/app/home/components/chatImageUploads';
 import ConversationMap from '@/app/home/components/ConversationMap';
 import ConversationView from '@/app/home/components/ConversationView';
@@ -53,6 +51,11 @@ import { usePersistedJson } from '@/app/home/components/usePersistedJson';
 import { usePersistedString } from '@/app/home/components/usePersistedString';
 import { useRouteConversationHydration } from '@/app/home/components/useRouteConversationHydration';
 import { useTranscriptNavigation } from '@/app/home/components/useTranscriptNavigation';
+import {
+  GOOGLE_GIF_UNSUPPORTED_MESSAGE,
+  IMAGE_MODEL_UNSUPPORTED_MESSAGE,
+  useChatImageComposerState,
+} from '@/app/home/components/useChatImageComposerState';
 import type {
   ThreadMeta,
   ThreadSession,
@@ -158,8 +161,25 @@ function HomePageInner() {
     },
     [setThinkingEnabledOverrides]
   );
-  const selectedModelSupportsImages = selectedChatModel?.supportsImages ?? true;
-  const selectedModelRejectsGifImages = selectedChatModel?.provider === 'google';
+  const {
+    imageInputDisabledReason,
+    imageWarning,
+    isUploadingImages,
+    pendingImageAttachments,
+    selectedModelRejectsGifImages,
+    selectedModelSupportsImages,
+    clearPendingImageAttachments,
+    handleAttachImages,
+    handleModelChange,
+    handleRemoveImageAttachment,
+    setImageWarning,
+    setIsUploadingImages,
+    setPendingImageAttachments,
+  } = useChatImageComposerState({
+    chatModels,
+    selectedChatModel,
+    setSelectedModelId,
+  });
   const [persistentMessages, setPersistentMessages] = useState<Message[]>([]);
   const [persistentBranches, setPersistentBranches] = useState<ConversationBranch[]>([]);
   const [persistentSelectedBranchIds, setPersistentSelectedBranchIds] =
@@ -170,11 +190,6 @@ function HomePageInner() {
   const [persistentThreadRuntimes, setPersistentThreadRuntimes] =
     useState<PersistentThreadRuntimeRecord>({});
   const [pendingBranch, setPendingBranch] = useState<PendingBranchTarget | null>(null);
-  const [pendingImageAttachments, setPendingImageAttachments] = useState<
-    PendingChatImageAttachment[]
-  >([]);
-  const [isUploadingImages, setIsUploadingImages] = useState(false);
-  const [imageWarning, setImageWarning] = useState<string | null>(null);
   const [currentMapMessageId, setCurrentMapMessageId] = useState<string | null>(null);
   const [isDesktopViewport, setIsDesktopViewport] = useState(false);
 
@@ -358,7 +373,6 @@ function HomePageInner() {
   const persistentSelectedBranchIdsRef = useRef<BranchSelectionMap>({});
   const persistentThreadRuntimesRef = useRef<PersistentThreadRuntimeRecord>({});
   const temporaryChatsRef = useRef<TemporaryChatSession[]>([]);
-  const pendingImageAttachmentsRef = useRef<PendingChatImageAttachment[]>([]);
   const threadSessionsRef = useRef<Record<string, ThreadSession>>({});
 
   useEffect(() => {
@@ -366,10 +380,8 @@ function HomePageInner() {
     persistentSelectedBranchIdsRef.current = persistentSelectedBranchIds;
     persistentThreadRuntimesRef.current = persistentThreadRuntimes;
     temporaryChatsRef.current = temporaryChats;
-    pendingImageAttachmentsRef.current = pendingImageAttachments;
     threadSessionsRef.current = threadSessionsById;
   }, [
-    pendingImageAttachments,
     persistentSelectedBranchIds,
     persistentThreadRuntimes,
     temporaryChats,
@@ -460,17 +472,6 @@ function HomePageInner() {
     isHomeE2eFixture,
   ]);
 
-  const clearPendingImageAttachments = useCallback(() => {
-    setPendingImageAttachments((current) => {
-      for (const attachment of current) {
-        URL.revokeObjectURL(attachment.url);
-      }
-
-      return [];
-    });
-    setImageWarning(null);
-  }, []);
-
   const cleanupTemporaryChatAttachments = useCallback((tempChatId: string) => {
     const storagePaths = getTemporaryChatAttachmentStoragePaths(
       temporaryChatsRef.current,
@@ -482,14 +483,6 @@ function HomePageInner() {
     }
   }, []);
 
-  useEffect(() => {
-    return () => {
-      for (const attachment of pendingImageAttachmentsRef.current) {
-        URL.revokeObjectURL(attachment.url);
-      }
-    };
-  }, []);
-
   const previousSelectedChatKeyRef = useRef<string | null>(selectedChatKey);
   useEffect(() => {
     if (previousSelectedChatKeyRef.current === selectedChatKey) {
@@ -499,58 +492,6 @@ function HomePageInner() {
     previousSelectedChatKeyRef.current = selectedChatKey;
     clearPendingImageAttachments();
   }, [clearPendingImageAttachments, selectedChatKey]);
-
-  const handleAttachImages = useCallback(async (files: File[]) => {
-    if (files.length === 0) {
-      return;
-    }
-
-    if (!selectedModelSupportsImages) {
-      setImageWarning('The selected model cannot read images. Choose a vision-capable model.');
-      return;
-    }
-
-    if (
-      selectedModelRejectsGifImages
-      && files.some((file) => file.type === 'image/gif' || file.name.toLowerCase().endsWith('.gif'))
-    ) {
-      setImageWarning('Google models do not support GIF images here. Use PNG, JPEG, or WebP.');
-      return;
-    }
-
-    if (isUploadingImages) {
-      setImageWarning('Wait for the current image upload to finish.');
-      return;
-    }
-
-    const result = await createPendingChatImageAttachments(
-      files,
-      pendingImageAttachments.length
-    );
-
-    if (result.attachments.length > 0) {
-      setPendingImageAttachments((current) => [...current, ...result.attachments]);
-    }
-
-    setImageWarning(result.error);
-  }, [
-    isUploadingImages,
-    pendingImageAttachments.length,
-    selectedModelRejectsGifImages,
-    selectedModelSupportsImages,
-  ]);
-
-  const handleRemoveImageAttachment = useCallback((id: string) => {
-    setPendingImageAttachments((current) => {
-      const attachment = current.find((item) => item.id === id);
-      if (attachment) {
-        URL.revokeObjectURL(attachment.url);
-      }
-
-      return current.filter((item) => item.id !== id);
-    });
-    setImageWarning(null);
-  }, []);
 
   useHomeFixtureRuntime({
     composerDraftInputsStorageKey: COMPOSER_DRAFT_INPUTS_STORAGE_KEY,
@@ -790,6 +731,7 @@ function HomePageInner() {
   }, [
     selectedChat,
     sendMessage,
+    setImageWarning,
     setModelEffortOverrides,
     setResponseStyleForSelection,
     setSearchModeForSelection,
@@ -809,7 +751,7 @@ function HomePageInner() {
     }
 
     if (imagesToSend.length > 0 && !selectedModelSupportsImages) {
-      setImageWarning('The selected model cannot read images. Choose a vision-capable model.');
+      setImageWarning(IMAGE_MODEL_UNSUPPORTED_MESSAGE);
       return;
     }
 
@@ -817,7 +759,7 @@ function HomePageInner() {
       selectedModelRejectsGifImages
       && imagesToSend.some((attachment) => attachment.mimeType === 'image/gif')
     ) {
-      setImageWarning('Google models do not support GIF images here. Use PNG, JPEG, or WebP.');
+      setImageWarning(GOOGLE_GIF_UNSUPPORTED_MESSAGE);
       return;
     }
 
@@ -1004,7 +946,7 @@ function HomePageInner() {
           chatModels={chatModels}
           input={input}
           isLoading={isLoading}
-          imageInputDisabled={!selectedModelSupportsImages}
+          imageInputDisabledReason={imageInputDisabledReason}
           isUploadingImages={isUploadingImages}
           pendingImageAttachments={pendingImageAttachments}
           responseStyle={activeResponseStyle}
@@ -1020,8 +962,9 @@ function HomePageInner() {
           textareaRef={textareaRef}
           onInputChange={(value) => setComposerInputForSelection(composerStateSelection, value)}
           onAttachImages={handleAttachImages}
+          onImageWarning={setImageWarning}
           onRemoveImageAttachment={handleRemoveImageAttachment}
-          onModelChange={setSelectedModelId}
+          onModelChange={handleModelChange}
           onModelEffortChange={updateSelectedModelEffort}
           onThinkingEnabledChange={updateThinkingEnabled}
           onResponseStyleChange={(value) =>

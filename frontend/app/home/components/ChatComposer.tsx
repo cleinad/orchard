@@ -7,6 +7,7 @@ import {
   type DragEventHandler,
   type FormEventHandler,
   type KeyboardEventHandler,
+  type ReactElement,
   type RefObject,
 } from 'react';
 import Tooltip from '@/app/components/Tooltip';
@@ -30,7 +31,7 @@ interface ChatComposerProps {
   chatModels: ChatModelListItem[];
   input: string;
   isLoading: boolean;
-  imageInputDisabled: boolean;
+  imageInputDisabledReason: string | null;
   isUploadingImages: boolean;
   pendingImageAttachments: PendingChatImageAttachment[];
   responseStyle: ResponseStyle;
@@ -46,6 +47,7 @@ interface ChatComposerProps {
   textareaRef: RefObject<HTMLTextAreaElement | null>;
   onInputChange: (value: string) => void;
   onAttachImages: (files: File[]) => void;
+  onImageWarning: (message: string | null) => void;
   onRemoveImageAttachment: (id: string) => void;
   onModelChange: (modelId: ChatModelId) => void;
   onModelEffortChange: (modelId: ChatModelId, effort: ChatModelEffortLevel) => void;
@@ -62,7 +64,7 @@ export default function ChatComposer({
   chatModels,
   input,
   isLoading,
-  imageInputDisabled,
+  imageInputDisabledReason,
   isUploadingImages,
   pendingImageAttachments,
   responseStyle,
@@ -78,6 +80,7 @@ export default function ChatComposer({
   textareaRef,
   onInputChange,
   onAttachImages,
+  onImageWarning,
   onRemoveImageAttachment,
   onModelChange,
   onModelEffortChange,
@@ -125,8 +128,66 @@ export default function ChatComposer({
 
   const canSubmit = Boolean(input.trim() || pendingImageAttachments.length > 0);
   const isBusy = isLoading || isUploadingImages;
-  const attachDisabled =
-    isBusy || imageInputDisabled || pendingImageAttachments.length >= MAX_CHAT_IMAGE_ATTACHMENTS;
+  const attachDisabledReason =
+    isUploadingImages
+      ? 'Wait for the current image upload to finish.'
+      : isLoading
+        ? 'Wait for the current response to finish.'
+        : imageInputDisabledReason
+          ? imageInputDisabledReason
+          : pendingImageAttachments.length >= MAX_CHAT_IMAGE_ATTACHMENTS
+            ? `Attach up to ${MAX_CHAT_IMAGE_ATTACHMENTS} images at a time.`
+            : null;
+  const attachDisabled = Boolean(attachDisabledReason);
+  const onlyImagesWarning = 'Only image uploads are supported here.';
+
+  const getFilesFromItems = (items: DataTransferItemList | undefined | null) =>
+    Array.from(items || [])
+      .filter((item) => item.kind === 'file')
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => file !== null);
+
+  const getFilesFromTransfer = (
+    files: FileList | undefined | null,
+    items: DataTransferItemList | undefined | null
+  ) => {
+    const listedFiles = Array.from(files || []);
+    return listedFiles.length > 0 ? listedFiles : getFilesFromItems(items);
+  };
+
+  const dedupeFiles = (files: File[]) => {
+    const seen = new Set<string>();
+    return files.filter((file) => {
+      const key = `${file.name}:${file.type}:${file.size}:${file.lastModified}`;
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+  };
+
+  const filterImageFiles = (files: File[]) =>
+    files.filter((file) => file.type.startsWith('image/'));
+
+  const handleRejectedFiles = (files: File[]) => {
+    if (files.length === 0) {
+      return false;
+    }
+
+    const imageFiles = filterImageFiles(files);
+    if (imageFiles.length === 0 || imageFiles.length < files.length) {
+      onImageWarning(onlyImagesWarning);
+      return true;
+    }
+
+    if (attachDisabledReason) {
+      onImageWarning(attachDisabledReason);
+      return true;
+    }
+
+    return false;
+  };
 
   useEffect(() => {
     if (!textareaRef.current) {
@@ -143,7 +204,7 @@ export default function ChatComposer({
   const handleFileInputChange: ChangeEventHandler<HTMLInputElement> = (event) => {
     const files = Array.from(event.currentTarget.files || []);
     event.currentTarget.value = '';
-    if (attachDisabled) {
+    if (handleRejectedFiles(files)) {
       return;
     }
 
@@ -151,24 +212,24 @@ export default function ChatComposer({
   };
 
   const handlePaste: ClipboardEventHandler<HTMLFormElement> = (event) => {
-    const files = Array.from(event.clipboardData.files).filter((file) =>
-      file.type.startsWith('image/')
+    const files = dedupeFiles(
+      getFilesFromTransfer(event.clipboardData.files, event.clipboardData.items)
     );
 
     if (files.length > 0) {
       event.preventDefault();
-      if (!attachDisabled) {
-        onAttachImages(files);
+      if (handleRejectedFiles(files)) {
+        return;
       }
+
+      onAttachImages(files);
     }
   };
 
   const handleDragOver: DragEventHandler<HTMLFormElement> = (event) => {
-    if (
-      Array.from(event.dataTransfer.items).some((item) => item.type.startsWith('image/'))
-    ) {
+    if (Array.from(event.dataTransfer.items).some((item) => item.kind === 'file')) {
       event.preventDefault();
-      if (!attachDisabled) {
+      if (!attachDisabledReason) {
         setIsDraggingImage(true);
       }
     }
@@ -181,18 +242,71 @@ export default function ChatComposer({
   };
 
   const handleDrop: DragEventHandler<HTMLFormElement> = (event) => {
-    const files = Array.from(event.dataTransfer.files).filter((file) =>
-      file.type.startsWith('image/')
+    const files = dedupeFiles(
+      getFilesFromTransfer(event.dataTransfer.files, event.dataTransfer.items)
     );
 
     if (files.length > 0) {
       event.preventDefault();
-      if (!attachDisabled) {
-        onAttachImages(files);
+      if (handleRejectedFiles(files)) {
+        setIsDraggingImage(false);
+        return;
       }
+
+      onAttachImages(files);
     }
 
     setIsDraggingImage(false);
+  };
+
+  const attachButton = (
+    <button
+      type="button"
+      onClick={() => fileInputRef.current?.click()}
+      disabled={attachDisabled}
+      aria-label="Attach image"
+      className={`flex h-9 w-9 items-center justify-center rounded-md border border-transparent p-0 text-muted transition-colors hover:border-foreground/[0.08] hover:bg-foreground/[0.04] hover:text-foreground/70 disabled:cursor-not-allowed disabled:opacity-50 ${
+        attachDisabledReason ? 'pointer-events-none' : ''
+      }`}
+    >
+      <svg
+        className="h-5 w-5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        viewBox="0 0 24 24"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M6.5 4.5h11A2.5 2.5 0 0120 7v11a2.5 2.5 0 01-2.5 2.5h-11A2.5 2.5 0 014 18V7a2.5 2.5 0 012.5-2.5z"
+        />
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M4.5 17.5l4.25-4.25a1.4 1.4 0 012 0l2.75 2.75 1.75-1.75a1.4 1.4 0 012 0l2.25 2.25"
+        />
+        <circle cx="15.75" cy="8.75" r="1.25" fill="currentColor" stroke="none" />
+      </svg>
+    </button>
+  );
+
+  const renderAttachButton = (): ReactElement => {
+    if (!attachDisabledReason) {
+      return attachButton;
+    }
+
+    return (
+      <Tooltip content={attachDisabledReason} side="top">
+        <span
+          className="inline-flex h-9 w-9 items-center justify-center rounded-md"
+          tabIndex={0}
+          aria-label={`Attach image disabled: ${attachDisabledReason}`}
+        >
+          {attachButton}
+        </span>
+      </Tooltip>
+    );
   };
 
   return (
@@ -328,33 +442,7 @@ export default function ChatComposer({
                 className="hidden"
                 onChange={handleFileInputChange}
               />
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={attachDisabled}
-                aria-label="Attach image"
-                className="flex h-9 w-9 items-center justify-center rounded-md border border-transparent p-0 text-muted transition-colors hover:border-foreground/[0.08] hover:bg-foreground/[0.04] hover:text-foreground/70 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <svg
-                  className="h-5 w-5"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M6.5 4.5h11A2.5 2.5 0 0120 7v11a2.5 2.5 0 01-2.5 2.5h-11A2.5 2.5 0 014 18V7a2.5 2.5 0 012.5-2.5z"
-                  />
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M4.5 17.5l4.25-4.25a1.4 1.4 0 012 0l2.75 2.75 1.75-1.75a1.4 1.4 0 012 0l2.25 2.25"
-                  />
-                  <circle cx="15.75" cy="8.75" r="1.25" fill="currentColor" stroke="none" />
-                </svg>
-              </button>
+              {renderAttachButton()}
               <button
                 type="submit"
                 disabled={!canSubmit || isBusy}
@@ -474,7 +562,10 @@ export default function ChatComposer({
             </div>
           )}
           {imageWarning && (
-            <div className="mt-2 rounded-lg border border-amber-300/70 bg-amber-50 px-3 py-2 font-sans text-xs text-amber-900 shadow-sm dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100">
+            <div
+              data-testid="composer-image-warning"
+              className="mt-2 rounded-lg border border-amber-300/70 bg-amber-50 px-3 py-2 font-sans text-xs text-amber-900 shadow-sm dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100"
+            >
               {imageWarning}
             </div>
           )}

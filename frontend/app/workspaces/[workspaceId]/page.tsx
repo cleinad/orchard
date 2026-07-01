@@ -14,9 +14,7 @@ import Tooltip from '@/app/components/Tooltip';
 import ChatComposer from '@/app/home/components/ChatComposer';
 import { persistInitialSendHandoff } from '@/app/home/components/initialSendHandoff';
 import {
-  createPendingChatImageAttachments,
   uploadChatImageAttachments,
-  type PendingChatImageAttachment,
   type UploadedChatImageAttachment,
 } from '@/app/home/components/chatImageUploads';
 import {
@@ -31,6 +29,11 @@ import { useHomeDataContext } from '@/app/home/components/HomeDataContext';
 import { usePersistedJson } from '@/app/home/components/usePersistedJson';
 import { usePersistedString } from '@/app/home/components/usePersistedString';
 import { useSidePanel } from '@/app/home/components/SidePanelContext';
+import {
+  GOOGLE_GIF_UNSUPPORTED_MESSAGE,
+  IMAGE_MODEL_UNSUPPORTED_MESSAGE,
+  useChatImageComposerState,
+} from '@/app/home/components/useChatImageComposerState';
 import MemoryEntry from '@/app/home/components/MemoryEntry';
 import { useMemory } from '@/app/home/components/useMemory';
 import {
@@ -168,17 +171,11 @@ export default function WorkspacePage() {
   const [responseStyle, setResponseStyle] =
     useState<ResponseStyle>(DEFAULT_RESPONSE_STYLE);
   const [composerWarning, setComposerWarning] = useState<string | null>(null);
-  const [imageWarning, setImageWarning] = useState<string | null>(null);
-  const [pendingImageAttachments, setPendingImageAttachments] = useState<
-    PendingChatImageAttachment[]
-  >([]);
-  const [isUploadingImages, setIsUploadingImages] = useState(false);
 
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const contextTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const nameInputRef = useRef<HTMLInputElement | null>(null);
   const savingWorkspaceNameRef = useRef(false);
-  const pendingImageAttachmentsRef = useRef<PendingChatImageAttachment[]>([]);
 
   const chatModels = useChatModelCatalog(selectedModelId, setSelectedModelId);
   const selectedChatModel = chatModels.find((model) => model.id === selectedModelId) ?? null;
@@ -196,8 +193,24 @@ export default function WorkspacePage() {
   const thinkingEnabledOverride = hasThinkingEnabledOverride
     ? thinkingEnabledOverrides[selectedModelId] ?? null
     : null;
-  const selectedModelSupportsImages = selectedChatModel?.supportsImages ?? true;
-  const selectedModelRejectsGifImages = selectedChatModel?.provider === 'google';
+  const {
+    imageInputDisabledReason,
+    imageWarning,
+    isUploadingImages,
+    pendingImageAttachments,
+    selectedModelRejectsGifImages,
+    selectedModelSupportsImages,
+    handleAttachImages,
+    handleModelChange,
+    handleRemoveImageAttachment,
+    setImageWarning,
+    setIsUploadingImages,
+    setPendingImageAttachments,
+  } = useChatImageComposerState({
+    chatModels,
+    selectedChatModel,
+    setSelectedModelId,
+  });
 
   const updateSelectedModelEffort = useCallback(
     (modelId: ChatModelId, effort: ChatModelEffortLevel) => {
@@ -215,18 +228,6 @@ export default function WorkspacePage() {
       [modelId]: enabled,
     }));
   }, [setThinkingEnabledOverrides]);
-
-  useEffect(() => {
-    pendingImageAttachmentsRef.current = pendingImageAttachments;
-  }, [pendingImageAttachments]);
-
-  useEffect(() => {
-    return () => {
-      for (const attachment of pendingImageAttachmentsRef.current) {
-        URL.revokeObjectURL(attachment.url);
-      }
-    };
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -466,57 +467,6 @@ export default function WorkspacePage() {
     }
   };
 
-  const handleAttachImages = useCallback(async (files: File[]) => {
-    if (files.length === 0) {
-      return;
-    }
-
-    if (!selectedModelSupportsImages) {
-      setImageWarning('The selected model cannot read images. Choose a vision-capable model.');
-      return;
-    }
-
-    if (
-      selectedModelRejectsGifImages
-      && files.some((file) => file.type === 'image/gif' || file.name.toLowerCase().endsWith('.gif'))
-    ) {
-      setImageWarning('Google models do not support GIF images here. Use PNG, JPEG, or WebP.');
-      return;
-    }
-
-    if (isUploadingImages) {
-      setImageWarning('Wait for the current image upload to finish.');
-      return;
-    }
-
-    const result = await createPendingChatImageAttachments(
-      files,
-      pendingImageAttachments.length
-    );
-
-    if (result.attachments.length > 0) {
-      setPendingImageAttachments((current) => [...current, ...result.attachments]);
-    }
-
-    setImageWarning(result.error);
-  }, [
-    isUploadingImages,
-    pendingImageAttachments.length,
-    selectedModelRejectsGifImages,
-    selectedModelSupportsImages,
-  ]);
-
-  const handleRemoveImageAttachment = useCallback((id: string) => {
-    setPendingImageAttachments((current) => {
-      const attachment = current.find((item) => item.id === id);
-      if (attachment) {
-        URL.revokeObjectURL(attachment.url);
-      }
-
-      return current.filter((item) => item.id !== id);
-    });
-  }, []);
-
   const handleComposerSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const message = composerInput.trim();
@@ -529,7 +479,7 @@ export default function WorkspacePage() {
     }
 
     if (imagesToSend.length > 0 && !selectedModelSupportsImages) {
-      setImageWarning('The selected model cannot read images. Choose a vision-capable model.');
+      setImageWarning(IMAGE_MODEL_UNSUPPORTED_MESSAGE);
       return;
     }
 
@@ -537,7 +487,7 @@ export default function WorkspacePage() {
       selectedModelRejectsGifImages
       && imagesToSend.some((attachment) => attachment.mimeType === 'image/gif')
     ) {
-      setImageWarning('Google models do not support GIF images here. Use PNG, JPEG, or WebP.');
+      setImageWarning(GOOGLE_GIF_UNSUPPORTED_MESSAGE);
       return;
     }
 
@@ -832,7 +782,7 @@ export default function WorkspacePage() {
                 chatModels={chatModels}
                 input={composerInput}
                 isLoading={composerLoading}
-                imageInputDisabled={!selectedModelSupportsImages}
+                imageInputDisabledReason={imageInputDisabledReason}
                 isUploadingImages={isUploadingImages}
                 pendingImageAttachments={pendingImageAttachments}
                 responseStyle={responseStyle}
@@ -848,8 +798,9 @@ export default function WorkspacePage() {
                 textareaRef={textareaRef}
                 onInputChange={setComposerInput}
                 onAttachImages={handleAttachImages}
+                onImageWarning={setImageWarning}
                 onRemoveImageAttachment={handleRemoveImageAttachment}
-                onModelChange={setSelectedModelId}
+                onModelChange={handleModelChange}
                 onModelEffortChange={updateSelectedModelEffort}
                 onThinkingEnabledChange={updateThinkingEnabled}
                 onResponseStyleChange={setResponseStyle}
