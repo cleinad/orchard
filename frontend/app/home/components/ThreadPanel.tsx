@@ -333,6 +333,9 @@ export default function ThreadPanel({
               </div>
             </div>
           </form>
+          <p className="mt-2 px-1 text-[11px] leading-snug text-muted/55">
+            Uses the main chat model settings.
+          </p>
         </div>
       </aside>
     </div>
