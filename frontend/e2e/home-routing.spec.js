@@ -350,6 +350,42 @@ test('desktop conversations sidebar resizes by dragging and persists width', asy
   expect(storedWidth).toBeLessThanOrEqual(600);
 });
 
+test('collapsed rail section icons reopen only their matching sidebar section', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await mockHomeDataRoutes(page, {
+    conversations: [
+      createConversation({
+        id: 'conversation-rail-section-state',
+        title: 'Rail Section State',
+      }),
+    ],
+    messagesByConversationId: {},
+  });
+
+  await page.goto('/home?e2e=rail-section-state');
+
+  const sidePanel = await ensureConversationsOpen(page);
+  const workspacesHeader = sidePanel.getByRole('button', { name: 'Workspaces' });
+  const temporaryHeader = sidePanel.getByRole('button', { name: 'Temporary' });
+  const chatsHeader = sidePanel.getByRole('button', { name: 'Chats' });
+
+  await expect(workspacesHeader).toHaveAttribute('aria-expanded', 'true');
+  await temporaryHeader.click();
+  await chatsHeader.click();
+  await expect(workspacesHeader).toHaveAttribute('aria-expanded', 'true');
+  await expect(temporaryHeader).toHaveAttribute('aria-expanded', 'false');
+  await expect(chatsHeader).toHaveAttribute('aria-expanded', 'false');
+
+  await page.keyboard.press('Escape');
+  await expect(page.locator('nav[aria-hidden]').first()).toHaveAttribute('aria-hidden', 'false');
+
+  await page.getByRole('button', { name: 'Temporary chats' }).click();
+  await expect(page.locator('nav[aria-hidden]').first()).toHaveAttribute('aria-hidden', 'true');
+  await expect(workspacesHeader).toHaveAttribute('aria-expanded', 'true');
+  await expect(temporaryHeader).toHaveAttribute('aria-expanded', 'true');
+  await expect(chatsHeader).toHaveAttribute('aria-expanded', 'false');
+});
+
 test('unsent composer text is preserved per persistent chat', async ({ page }) => {
   const firstConversationId = 'conversation-chat-scoped-input-1';
   const secondConversationId = 'conversation-chat-scoped-input-2';

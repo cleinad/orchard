@@ -7,6 +7,7 @@ import {
   type CSSProperties,
   type DragEvent,
   type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { useRouter } from 'next/navigation';
@@ -95,6 +96,30 @@ const railIconButtonClass =
   'relative z-10 inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-md text-foreground transition-colors hover:bg-foreground/[0.04]';
 const CHAT_LIST_KEY = '__chats__';
 const GLOBAL_DROP_TARGET_KEY = 'global';
+type ExpandedSectionKey = 'workspaces' | 'temporary' | 'chats';
+
+const DEFAULT_EXPANDED_SECTIONS: Record<ExpandedSectionKey, boolean> = {
+  workspaces: true,
+  temporary: true,
+  chats: true,
+};
+
+function SectionCaret({ expanded }: { expanded: boolean }) {
+  return (
+    <span className="inline-flex h-[1.625rem] w-[1.625rem] flex-shrink-0 items-center justify-center rounded-full text-muted transition-colors group-hover:bg-foreground/[0.05] group-hover:text-foreground">
+      <svg
+        className={`h-3.5 w-3.5 transition-transform ${expanded ? 'rotate-90' : ''}`}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        viewBox="0 0 24 24"
+        aria-hidden
+      >
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5.25L15 12l-6 6.75" />
+      </svg>
+    </span>
+  );
+}
 
 export default function SidePanel({
   isOpen,
@@ -131,6 +156,7 @@ export default function SidePanel({
   const [activeDropTarget, setActiveDropTarget] = useState<string | null>(null);
   const [movingConversationId, setMovingConversationId] = useState<string | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
+  const [expandedSections, setExpandedSections] = useState(DEFAULT_EXPANDED_SECTIONS);
   const [pendingMove, setPendingMove] = useState<{
     conversation: ConversationListItem;
     targetWorkspaceId: string | null;
@@ -348,6 +374,63 @@ export default function SidePanel({
       event.preventDefault();
     },
     [isOpen, onSidePanelWidthChange, sidePanelWidthPx]
+  );
+
+  const handleCollapsedRailClick = useCallback(
+    (event: ReactMouseEvent<HTMLElement>) => {
+      if (isOpen) {
+        return;
+      }
+
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      if (target?.closest('button, a, [role="button"]')) {
+        return;
+      }
+
+      onToggleSidePanel();
+    },
+    [isOpen, onToggleSidePanel]
+  );
+
+  const expandSection = useCallback((section: ExpandedSectionKey) => {
+    setExpandedSections((prev) => ({
+      ...prev,
+      [section]: true,
+    }));
+  }, []);
+
+  const toggleSection = useCallback((section: ExpandedSectionKey) => {
+    setExpandedSections((prev) => ({
+      ...prev,
+      [section]: !prev[section],
+    }));
+  }, []);
+
+  const handleOpenWorkspacesFromRail = useCallback(
+    (event: ReactMouseEvent<HTMLButtonElement>) => {
+      event.stopPropagation();
+      expandSection('workspaces');
+      onOpenWorkspacesSection();
+    },
+    [expandSection, onOpenWorkspacesSection]
+  );
+
+  const handleOpenTemporaryFromRail = useCallback(
+    (event: ReactMouseEvent<HTMLButtonElement>) => {
+      event.stopPropagation();
+      expandSection('temporary');
+      onOpenTemporarySection();
+    },
+    [expandSection, onOpenTemporarySection]
+  );
+
+  const handleOpenChatsFromRail = useCallback(
+    (event: ReactMouseEvent<HTMLButtonElement>) => {
+      event.stopPropagation();
+      expandSection('chats');
+      onOpenAllChats();
+    },
+    [expandSection, onOpenAllChats]
   );
 
   const handleConversationDrop = (
@@ -702,7 +785,7 @@ export default function SidePanel({
       <Tooltip content="Workspaces" side="right">
         <button
           type="button"
-          onClick={onOpenWorkspacesSection}
+          onClick={handleOpenWorkspacesFromRail}
           className={railIconButtonClass}
           aria-label="Workspaces"
         >
@@ -712,7 +795,7 @@ export default function SidePanel({
       <Tooltip content="Temporary" side="right">
         <button
           type="button"
-          onClick={onOpenTemporarySection}
+          onClick={handleOpenTemporaryFromRail}
           className={railIconButtonClass}
           aria-label="Temporary chats"
         >
@@ -722,7 +805,7 @@ export default function SidePanel({
       <Tooltip content="Chats" side="right">
         <button
           type="button"
-          onClick={onOpenAllChats}
+          onClick={handleOpenChatsFromRail}
           className={railIconButtonClass}
           aria-label="Chats"
         >
@@ -821,8 +904,9 @@ export default function SidePanel({
       >
         {/* Rail icons — always mounted, faded out when panel is open so the width transition has no DOM swap */}
         <nav
+          onClick={handleCollapsedRailClick}
           className={`absolute inset-y-0 left-0 flex w-14 flex-shrink-0 flex-col bg-background transition-opacity duration-300 ${
-            isOpen ? 'pointer-events-none opacity-0' : 'opacity-100'
+            isOpen ? 'pointer-events-none opacity-0' : 'cursor-pointer opacity-100'
           }`}
           aria-label="Chat navigation"
           aria-hidden={isOpen}
@@ -879,10 +963,21 @@ export default function SidePanel({
 
                 <div id="side-panel-section-workspaces" className="scroll-mt-2">
                   <div className="flex h-10 w-full items-center">
-                    <div className="flex w-14 flex-shrink-0 items-center justify-center">
-                      <RailIconWorkspace className="h-5 w-5 text-foreground" />
-                    </div>
-                    <span className="font-sans text-sm font-medium text-foreground">Workspaces</span>
+                    <button
+                      type="button"
+                      onClick={() => toggleSection('workspaces')}
+                      className="group flex min-w-0 flex-1 items-center self-stretch text-left transition-colors hover:bg-foreground/[0.04]"
+                      aria-expanded={expandedSections.workspaces}
+                      aria-controls="side-panel-workspaces-list"
+                    >
+                      <div className="flex w-14 flex-shrink-0 items-center justify-center">
+                        <RailIconWorkspace className="h-5 w-5 text-foreground" />
+                      </div>
+                      <span className="font-sans text-sm font-medium text-foreground">Workspaces</span>
+                      <span className="ml-2">
+                        <SectionCaret expanded={expandedSections.workspaces} />
+                      </span>
+                    </button>
                     <button
                       type="button"
                       onClick={onCreateWorkspace}
@@ -900,12 +995,14 @@ export default function SidePanel({
                       </svg>
                     </button>
                   </div>
-                  <div className="pl-9 pr-0">
-                    {workspaceList}
-                  </div>
+                  {expandedSections.workspaces && (
+                    <div id="side-panel-workspaces-list" className="pl-9 pr-0">
+                      {workspaceList}
+                    </div>
+                  )}
                 </div>
 
-                {moveError && (
+                {expandedSections.workspaces && moveError && (
                   <p
                     className="ml-11 mr-5 rounded-md border border-amber-300/70 bg-amber-50 px-3 py-2 font-sans text-xs text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100"
                     role="alert"
@@ -919,64 +1016,77 @@ export default function SidePanel({
                   className="scroll-mt-2"
                 >
                   <div className="flex h-10 w-full items-center">
-                    <div className="flex w-14 flex-shrink-0 items-center justify-center">
-                      <RailIconTemporary className="h-5 w-5 text-foreground" />
-                    </div>
-                    <span className="font-sans text-sm font-medium text-foreground">Temporary</span>
-                  </div>
-                  <div className="pl-11 pr-2">
-                    {temporaryChats.length > 0 ? (
-                      <div className="space-y-1">
-                        {temporaryChats.map((chat) => {
-                          const isActive = selectedTempChatId === chat.id;
-                          return (
-                            <div
-                              key={chat.id}
-                              className={`group flex items-center gap-3 rounded-xl px-3 py-1.5 transition-colors ${
-                                isActive ? 'bg-foreground/[0.06]' : 'hover:bg-foreground/[0.04]'
-                              }`}
-                            >
-                              <button
-                                type="button"
-                                onClick={() => onSelectTemporaryChat(chat.id)}
-                                aria-label={`Temp ${chat.title}`}
-                                className="flex min-w-0 flex-1 items-center gap-3 text-left"
-                              >
-                                <span className="min-w-0 flex-1 truncate font-sans text-sm text-foreground">
-                                  {chat.title}
-                                </span>
-                                <span className="flex-shrink-0 font-sans text-[11px] text-muted">
-                                  {formatDate(chat.updated_at)}
-                                </span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => onCloseTemporaryChat(chat.id)}
-                                className="rounded-full p-1 text-muted/60 transition-colors hover:text-foreground"
-                                aria-label={`Close ${chat.title}`}
-                              >
-                                <svg
-                                  className="h-3.5 w-3.5"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="1.5"
-                                  viewBox="0 0 24 24"
-                                >
-                                  <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    d="M6 18L18 6M6 6l12 12"
-                                  />
-                                </svg>
-                              </button>
-                            </div>
-                          );
-                        })}
+                    <button
+                      type="button"
+                      onClick={() => toggleSection('temporary')}
+                      className="group flex min-w-0 flex-1 items-center self-stretch text-left transition-colors hover:bg-foreground/[0.04]"
+                      aria-expanded={expandedSections.temporary}
+                      aria-controls="side-panel-temporary-list"
+                    >
+                      <div className="flex w-14 flex-shrink-0 items-center justify-center">
+                        <RailIconTemporary className="h-5 w-5 text-foreground" />
                       </div>
-                    ) : (
-                      <p className="px-3 font-sans text-xs text-muted">No temporary chats.</p>
-                    )}
+                      <span className="font-sans text-sm font-medium text-foreground">Temporary</span>
+                      <span className="ml-2">
+                        <SectionCaret expanded={expandedSections.temporary} />
+                      </span>
+                    </button>
                   </div>
+                  {expandedSections.temporary && (
+                    <div id="side-panel-temporary-list" className="pl-11 pr-2">
+                      {temporaryChats.length > 0 ? (
+                        <div className="space-y-1">
+                          {temporaryChats.map((chat) => {
+                            const isActive = selectedTempChatId === chat.id;
+                            return (
+                              <div
+                                key={chat.id}
+                                className={`group flex items-center gap-3 rounded-xl px-3 py-1.5 transition-colors ${
+                                  isActive ? 'bg-foreground/[0.06]' : 'hover:bg-foreground/[0.04]'
+                                }`}
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => onSelectTemporaryChat(chat.id)}
+                                  aria-label={`Temp ${chat.title}`}
+                                  className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                                >
+                                  <span className="min-w-0 flex-1 truncate font-sans text-sm text-foreground">
+                                    {chat.title}
+                                  </span>
+                                  <span className="flex-shrink-0 font-sans text-[11px] text-muted">
+                                    {formatDate(chat.updated_at)}
+                                  </span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => onCloseTemporaryChat(chat.id)}
+                                  className="rounded-full p-1 text-muted/60 transition-colors hover:text-foreground"
+                                  aria-label={`Close ${chat.title}`}
+                                >
+                                  <svg
+                                    className="h-3.5 w-3.5"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="1.5"
+                                    viewBox="0 0 24 24"
+                                  >
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      d="M6 18L18 6M6 6l12 12"
+                                    />
+                                  </svg>
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <p className="px-3 font-sans text-xs text-muted">No temporary chats.</p>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div id="side-panel-section-all-chats" className="scroll-mt-2">
@@ -987,10 +1097,21 @@ export default function SidePanel({
                     onDrop={(event) => handleConversationDrop(event, null)}
                     data-testid="global-drop-target"
                   >
-                    <div className="flex w-14 flex-shrink-0 items-center justify-center">
-                      <RailIconAllChats className="h-5 w-5 text-foreground" />
-                    </div>
-                    <span className="font-sans text-sm font-medium text-foreground">Chats</span>
+                    <button
+                      type="button"
+                      onClick={() => toggleSection('chats')}
+                      className="group flex min-w-0 flex-1 items-center self-stretch text-left transition-colors hover:bg-foreground/[0.04]"
+                      aria-expanded={expandedSections.chats}
+                      aria-controls="side-panel-chats-list"
+                    >
+                      <div className="flex w-14 flex-shrink-0 items-center justify-center">
+                        <RailIconAllChats className="h-5 w-5 text-foreground" />
+                      </div>
+                      <span className="font-sans text-sm font-medium text-foreground">Chats</span>
+                      <span className="ml-2">
+                        <SectionCaret expanded={expandedSections.chats} />
+                      </span>
+                    </button>
                     <button
                       type="button"
                       onClick={onNewChatKeen}
@@ -1008,9 +1129,11 @@ export default function SidePanel({
                       </svg>
                     </button>
                   </div>
-                  <div className="pl-11 pb-6 pr-2">
-                    {chatList}
-                  </div>
+                  {expandedSections.chats && (
+                    <div id="side-panel-chats-list" className="pl-11 pb-6 pr-2">
+                      {chatList}
+                    </div>
+                  )}
                 </div>
                 </div>{/* end header rows */}
               </div>
