@@ -23,6 +23,7 @@ interface SidePanelContextValue {
   widthPx: number;
   setWidthPx: (widthPx: number) => void;
   toggle: () => void;
+  open: () => void;
   close: () => void;
   // Open the panel and queue a scroll to a named section
   openWithScroll: (section: SidePanelSection) => void;
@@ -39,6 +40,7 @@ export function SidePanelProvider({ children }: { children: ReactNode }) {
   const [hasLoadedWidth, setHasLoadedWidth] = useState(false);
 
   const toggle = useCallback(() => setIsOpen((prev) => !prev), []);
+  const open = useCallback(() => setIsOpen(true), []);
   const close = useCallback(() => setIsOpen(false), []);
   const setWidthPx = useCallback((nextWidthPx: number) => {
     setWidthPxState(clampSidePanelWidthPx(nextWidthPx));
@@ -77,6 +79,7 @@ export function SidePanelProvider({ children }: { children: ReactNode }) {
         widthPx,
         setWidthPx,
         toggle,
+        open,
         close,
         openWithScroll,
         scrollRequest,

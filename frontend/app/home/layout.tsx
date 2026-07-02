@@ -14,6 +14,8 @@ import { HomeDataProvider, useHomeDataContext } from '@/app/home/components/Home
 import SidePanel from '@/app/home/components/SidePanel';
 import { getHomeE2eFixture } from '@/app/home/e2eFixtures';
 
+const SIDE_PANEL_DRAWER_BREAKPOINT_PX = 768;
+
 // ---------------------------------------------------------------------------
 // Cmd/Ctrl+B shortcut — lives here so it persists across route changes
 // ---------------------------------------------------------------------------
@@ -160,6 +162,7 @@ function HomeShell({ children }: { children: ReactNode }) {
     widthPx: sidePanelWidthPx,
     setWidthPx: setSidePanelWidthPx,
     toggle: handleToggleSidePanel,
+    open: handleOpenSidePanel,
     close: handleCloseSidePanel,
     openWithScroll,
     scrollRequest: sidePanelScrollRequest,
@@ -251,7 +254,7 @@ function HomeShell({ children }: { children: ReactNode }) {
       setCreateWorkspaceOpen(false);
       setWorkspaceNameDraft('');
       openWorkspace(payload.workspace.id);
-      if (window.innerWidth < 1024) handleCloseSidePanel();
+      if (window.innerWidth < SIDE_PANEL_DRAWER_BREAKPOINT_PX) handleCloseSidePanel();
     } catch (err) {
       setCreateWorkspaceError(err instanceof Error ? err.message : 'Failed to create workspace');
     } finally {
@@ -316,6 +319,7 @@ function HomeShell({ children }: { children: ReactNode }) {
         isOpen={sidePanelOpen}
         sidePanelWidthPx={sidePanelWidthPx}
         onClose={handleCloseSidePanel}
+        onOpen={handleOpenSidePanel}
         onToggleSidePanel={handleToggleSidePanel}
         onSidePanelWidthChange={setSidePanelWidthPx}
         onNewChatKeen={handleRailNewChatKeen}
@@ -351,24 +355,24 @@ function HomeShell({ children }: { children: ReactNode }) {
         }
         onSelectConversation={(conversation) => {
           handleSelectConversation(conversation);
-          if (window.innerWidth < 1024) handleCloseSidePanel();
+          if (window.innerWidth < SIDE_PANEL_DRAWER_BREAKPOINT_PX) handleCloseSidePanel();
         }}
         onSelectDraft={(draftId) => {
           handleSelectDraft(draftId);
-          if (window.innerWidth < 1024) handleCloseSidePanel();
+          if (window.innerWidth < SIDE_PANEL_DRAWER_BREAKPOINT_PX) handleCloseSidePanel();
         }}
         onSelectTemporaryChat={(tempChatId) => {
           handleSelectTemporaryChat(tempChatId);
-          if (window.innerWidth < 1024) handleCloseSidePanel();
+          if (window.innerWidth < SIDE_PANEL_DRAWER_BREAKPOINT_PX) handleCloseSidePanel();
         }}
         onCreateWorkspaceDraft={(workspaceId) => {
           handleCreateDraftSelection(null, workspaceId);
-          if (window.innerWidth < 1024) handleCloseSidePanel();
+          if (window.innerWidth < SIDE_PANEL_DRAWER_BREAKPOINT_PX) handleCloseSidePanel();
         }}
         onCreateWorkspace={openCreateWorkspaceModal}
         onOpenWorkspace={(workspaceId) => {
           openWorkspace(workspaceId);
-          if (window.innerWidth < 1024) handleCloseSidePanel();
+          if (window.innerWidth < SIDE_PANEL_DRAWER_BREAKPOINT_PX) handleCloseSidePanel();
         }}
         onCloseTemporaryChat={handleCloseTemporaryChat}
         onMoveConversation={handleMoveConversation}

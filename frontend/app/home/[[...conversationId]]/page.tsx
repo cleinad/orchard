@@ -1030,7 +1030,7 @@ function HomePageInner() {
           padding-left: min(21.8rem, 100vw);
         }
 
-        @media (min-width: 1024px) {
+        @media (min-width: 768px) {
           .home-main-shell[data-side-panel-open='true'] {
             padding-left: min(var(--side-panel-width), calc(100vw - 5rem));
           }

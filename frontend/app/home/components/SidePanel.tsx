@@ -50,6 +50,7 @@ interface Props {
   isOpen: boolean;
   sidePanelWidthPx: number;
   onClose: () => void;
+  onOpen: () => void;
   onToggleSidePanel: () => void;
   onSidePanelWidthChange: (widthPx: number) => void;
   onNewChatKeen: () => void;
@@ -96,6 +97,7 @@ const railIconButtonClass =
   'relative z-10 inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-md text-foreground transition-colors hover:bg-foreground/[0.04]';
 const CHAT_LIST_KEY = '__chats__';
 const GLOBAL_DROP_TARGET_KEY = 'global';
+const SIDE_PANEL_DESKTOP_MEDIA_QUERY = '(min-width: 768px)';
 type ExpandedSectionKey = 'workspaces' | 'temporary' | 'chats';
 
 const DEFAULT_EXPANDED_SECTIONS: Record<ExpandedSectionKey, boolean> = {
@@ -125,6 +127,7 @@ export default function SidePanel({
   isOpen,
   sidePanelWidthPx,
   onClose,
+  onOpen,
   onToggleSidePanel,
   onSidePanelWidthChange,
   onNewChatKeen,
@@ -317,7 +320,7 @@ export default function SidePanel({
 
   const handleStartResize = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
-      if (!isOpen || !window.matchMedia('(min-width: 1024px)').matches) {
+      if (!isOpen || !window.matchMedia(SIDE_PANEL_DESKTOP_MEDIA_QUERY).matches) {
         return;
       }
 
@@ -387,10 +390,19 @@ export default function SidePanel({
         return;
       }
 
-      onToggleSidePanel();
+      onOpen();
     },
-    [isOpen, onToggleSidePanel]
+    [isOpen, onOpen]
   );
+
+  const handleRailPanelButtonClick = useCallback(() => {
+    if (isOpen) {
+      onToggleSidePanel();
+      return;
+    }
+
+    onOpen();
+  }, [isOpen, onOpen, onToggleSidePanel]);
 
   const expandSection = useCallback((section: ExpandedSectionKey) => {
     setExpandedSections((prev) => ({
@@ -541,7 +553,7 @@ export default function SidePanel({
                 onDragLeave={(event) => handleDropTargetDragLeave(event, group.workspace_id)}
                 onDrop={(event) => handleConversationDrop(event, group.workspace_id)}
                 data-testid={`workspace-drop-target-${group.workspace_id}`}
-                className={`flex items-center gap-2 rounded-xl px-3 py-1 transition-colors ${
+                className={`mr-2 flex items-center gap-2 rounded-xl px-3 py-1 transition-colors ${
                   isSelectedWorkspace ? 'bg-foreground/[0.05]' : 'hover:bg-foreground/[0.03]'
                 } ${getDropTargetClass(group.workspace_id)}`}
               >
@@ -600,7 +612,7 @@ export default function SidePanel({
                     <button
                       type="button"
                       onClick={() => onSelectDraft(draft.id)}
-                      className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-1.5 text-left transition-colors ${
+                      className={`mr-2 flex w-[calc(100%-0.5rem)] items-center justify-between gap-3 rounded-xl px-3 py-1.5 text-left transition-colors ${
                         selectedDraftId === draft.id
                           ? 'bg-foreground/[0.06]'
                           : 'hover:bg-foreground/[0.04]'
@@ -619,7 +631,7 @@ export default function SidePanel({
                       type="button"
                       onClick={() => onSelectConversation(conversation)}
                       {...getConversationDragProps(conversation)}
-                      className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-1.5 text-left transition-colors ${
+                      className={`mr-2 flex w-[calc(100%-0.5rem)] items-center justify-between gap-3 rounded-xl px-3 py-1.5 text-left transition-colors ${
                         selectedConversationId === conversation.id
                           ? 'bg-foreground/[0.06]'
                           : 'hover:bg-foreground/[0.04]'
@@ -687,7 +699,7 @@ export default function SidePanel({
             <button
               type="button"
               onClick={() => onSelectDraft(globalDraft.id)}
-              className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-1.5 text-left transition-colors ${
+              className={`mr-2 flex w-[calc(100%-0.5rem)] items-center justify-between gap-3 rounded-xl px-3 py-1.5 text-left transition-colors ${
                 selectedDraftId === globalDraft.id
                   ? 'bg-foreground/[0.06]'
                   : 'hover:bg-foreground/[0.04]'
@@ -706,7 +718,7 @@ export default function SidePanel({
               type="button"
               onClick={() => onSelectConversation(conversation)}
               {...getConversationDragProps(conversation)}
-              className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-1.5 text-left transition-colors ${
+              className={`mr-2 flex w-[calc(100%-0.5rem)] items-center justify-between gap-3 rounded-xl px-3 py-1.5 text-left transition-colors ${
                 selectedConversationId === conversation.id
                   ? 'bg-foreground/[0.06]'
                   : 'hover:bg-foreground/[0.04]'
@@ -764,7 +776,7 @@ export default function SidePanel({
       <Tooltip content={isOpen ? 'Hide chats' : 'Chats'} side="right">
         <button
           type="button"
-          onClick={onToggleSidePanel}
+          onClick={handleRailPanelButtonClick}
           className={`${railIconButtonClass} ${isOpen ? 'text-foreground' : ''}`}
           aria-pressed={isOpen}
           aria-label={isOpen ? 'Close conversations' : 'Open conversations'}
@@ -890,7 +902,7 @@ export default function SidePanel({
       )}
 
       <div
-        className={`fixed inset-0 z-40 bg-foreground/[0.06] backdrop-blur-sm transition-opacity duration-300 dark:bg-black/40 lg:hidden ${
+        className={`side-panel-backdrop fixed inset-0 z-40 bg-foreground/[0.06] backdrop-blur-sm transition-opacity duration-300 dark:bg-black/40 ${
           isOpen ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'
         }`}
         onClick={onClose}
@@ -1041,7 +1053,7 @@ export default function SidePanel({
                             return (
                               <div
                                 key={chat.id}
-                                className={`group flex items-center gap-3 rounded-xl px-3 py-1.5 transition-colors ${
+                                className={`group mr-2 flex items-center gap-3 rounded-xl px-3 py-1.5 transition-colors ${
                                   isActive ? 'bg-foreground/[0.06]' : 'hover:bg-foreground/[0.04]'
                                 }`}
                               >
@@ -1196,7 +1208,7 @@ export default function SidePanel({
           data-testid="side-panel-resize-handle"
           onPointerDown={handleStartResize}
           onKeyDown={handleResizeKeyDown}
-          className={`group absolute inset-y-0 right-[-3px] z-20 hidden w-2 cursor-col-resize items-stretch justify-center outline-none lg:flex ${
+          className={`side-panel-resize-handle group absolute inset-y-0 right-[-3px] z-20 hidden w-2 cursor-col-resize items-stretch justify-center outline-none ${
             isOpen ? 'pointer-events-auto' : 'pointer-events-none'
           }`}
         >
@@ -1213,9 +1225,17 @@ export default function SidePanel({
           width: min(21.8rem, 100vw);
         }
 
-        @media (min-width: 1024px) {
+        @media ${SIDE_PANEL_DESKTOP_MEDIA_QUERY} {
+          .side-panel-backdrop {
+            display: none;
+          }
+
           .side-panel-shell[data-open='true'] {
             width: min(var(--side-panel-width), calc(100vw - 5rem));
+          }
+
+          .side-panel-resize-handle {
+            display: flex;
           }
         }
 
