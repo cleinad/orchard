@@ -1,22 +1,22 @@
 import {
-  useRef,
   useEffect,
+  useRef,
   useState,
   type ChangeEventHandler,
   type ClipboardEventHandler,
   type DragEventHandler,
   type FormEventHandler,
   type KeyboardEventHandler,
+  type ReactElement,
   type RefObject,
 } from 'react';
 import Tooltip from '@/app/components/Tooltip';
 import ChatModelPicker from '@/app/home/components/ChatModelPicker';
 import ResponseStylePicker from '@/app/home/components/ResponseStylePicker';
 import type { PendingChatImageAttachment } from '@/app/home/components/chatImageUploads';
-import type { MicStatus } from '@/app/home/components/useMicrophone';
-import type { TranscriptStatus } from '@/app/home/components/useTranscription';
 import { MAX_CHAT_IMAGE_ATTACHMENTS } from '@/lib/chat-attachments';
 import type { TemporaryMemoryMode } from '@/lib/chat-session';
+import type { SearchMode } from '@/lib/chat-search';
 import {
   type ChatModelEffortOverrides,
   type ChatModelEffortLevel,
@@ -31,57 +31,32 @@ interface ChatComposerProps {
   chatModels: ChatModelListItem[];
   input: string;
   isLoading: boolean;
-  imageInputDisabled: boolean;
+  imageInputDisabledReason: string | null;
   isUploadingImages: boolean;
-  micActive: boolean;
   pendingImageAttachments: PendingChatImageAttachment[];
   responseStyle: ResponseStyle;
   selectedModelId: ChatModelId;
   modelEffortOverrides: ChatModelEffortOverrides;
   thinkingEnabledOverrides: ChatModelThinkingOverrides;
-  ttsEnabled: boolean;
-  searchEnabled: boolean;
+  searchMode: SearchMode;
   temporaryChatEnabled: boolean;
   showTemporaryIntro: boolean;
   temporaryMemoryMode: TemporaryMemoryMode;
-  finalTranscript: string;
-  interimTranscript: string;
-  transcriptionStatus: TranscriptStatus;
-  microphoneStatus: MicStatus;
-  microphoneErrorMessage: string | null;
   searchWarning: string | null;
   imageWarning: string | null;
-  isTtsLoading: boolean;
-  isTtsPlaying: boolean;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
-  waveformRef: RefObject<SVGPolylineElement | null>;
-  waveformGlowRef: RefObject<SVGPolylineElement | null>;
-  waveformContainerRef: RefObject<HTMLDivElement | null>;
   onInputChange: (value: string) => void;
   onAttachImages: (files: File[]) => void;
+  onImageWarning: (message: string | null) => void;
   onRemoveImageAttachment: (id: string) => void;
   onModelChange: (modelId: ChatModelId) => void;
   onModelEffortChange: (modelId: ChatModelId, effort: ChatModelEffortLevel) => void;
   onThinkingEnabledChange: (modelId: ChatModelId, enabled: boolean) => void;
   onResponseStyleChange: (value: ResponseStyle) => void;
-  // Voice controls are hidden for now, but the wiring stays in place for later cleanup or restoration.
-  onToggleMic: () => void;
-  onToggleTts: () => void;
-  onToggleSearch: () => void;
+  onSearchModeChange: (mode: SearchMode) => void;
   onTemporaryMemoryModeChange: (mode: TemporaryMemoryMode) => void;
   onSubmit: FormEventHandler<HTMLFormElement>;
   onKeyDown: KeyboardEventHandler<HTMLTextAreaElement>;
-}
-
-function getTranscriptStatusLabel(status: TranscriptStatus) {
-  switch (status) {
-    case 'connected':
-      return 'Listening';
-    case 'connecting':
-      return 'Connecting...';
-    default:
-      return 'Ready';
-  }
 }
 
 export default function ChatComposer({
@@ -89,51 +64,130 @@ export default function ChatComposer({
   chatModels,
   input,
   isLoading,
-  imageInputDisabled,
+  imageInputDisabledReason,
   isUploadingImages,
-  micActive,
   pendingImageAttachments,
   responseStyle,
   selectedModelId,
   modelEffortOverrides,
   thinkingEnabledOverrides,
-  searchEnabled,
+  searchMode,
   temporaryChatEnabled,
   showTemporaryIntro,
   temporaryMemoryMode,
-  finalTranscript,
-  interimTranscript,
-  transcriptionStatus,
-  microphoneStatus,
-  microphoneErrorMessage,
   searchWarning,
   imageWarning,
-  isTtsLoading,
-  isTtsPlaying,
   textareaRef,
-  waveformRef,
-  waveformGlowRef,
-  waveformContainerRef,
   onInputChange,
   onAttachImages,
+  onImageWarning,
   onRemoveImageAttachment,
   onModelChange,
   onModelEffortChange,
   onThinkingEnabledChange,
   onResponseStyleChange,
-  onToggleSearch,
+  onSearchModeChange,
   onTemporaryMemoryModeChange,
   onSubmit,
   onKeyDown,
 }: ChatComposerProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDraggingImage, setIsDraggingImage] = useState(false);
-  const hasTranscript = finalTranscript.length > 0 || interimTranscript.length > 0;
   const hasAvailableChatModels = chatModels.some((model) => model.available);
+  const [searchMenuOpen, setSearchMenuOpen] = useState(false);
+  const searchMenuRef = useRef<HTMLDivElement | null>(null);
+  const searchModeLabels: Record<SearchMode, string> = {
+    auto: 'Auto',
+    required: 'Always search',
+    off: 'Off',
+  };
+  const searchModeTooltip: Record<SearchMode, string> = {
+    auto: 'Search auto: Keen will decide when live sources are needed',
+    required: 'Always search: Keen will ground this reply with live sources',
+    off: 'Search off: Keen will answer without live retrieval',
+  };
+
+  useEffect(() => {
+    if (!searchMenuOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (
+        searchMenuRef.current
+        && event.target instanceof Node
+        && !searchMenuRef.current.contains(event.target)
+      ) {
+        setSearchMenuOpen(false);
+      }
+    };
+
+    window.addEventListener('pointerdown', handlePointerDown);
+    return () => window.removeEventListener('pointerdown', handlePointerDown);
+  }, [searchMenuOpen]);
+
   const canSubmit = Boolean(input.trim() || pendingImageAttachments.length > 0);
   const isBusy = isLoading || isUploadingImages;
-  const attachDisabled =
-    isBusy || imageInputDisabled || pendingImageAttachments.length >= MAX_CHAT_IMAGE_ATTACHMENTS;
+  const attachDisabledReason =
+    isUploadingImages
+      ? 'Wait for the current image upload to finish.'
+      : isLoading
+        ? 'Wait for the current response to finish.'
+        : imageInputDisabledReason
+          ? imageInputDisabledReason
+          : pendingImageAttachments.length >= MAX_CHAT_IMAGE_ATTACHMENTS
+            ? `Attach up to ${MAX_CHAT_IMAGE_ATTACHMENTS} images at a time.`
+            : null;
+  const attachDisabled = Boolean(attachDisabledReason);
+  const onlyImagesWarning = 'Only image uploads are supported here.';
+
+  const getFilesFromItems = (items: DataTransferItemList | undefined | null) =>
+    Array.from(items || [])
+      .filter((item) => item.kind === 'file')
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => file !== null);
+
+  const getFilesFromTransfer = (
+    files: FileList | undefined | null,
+    items: DataTransferItemList | undefined | null
+  ) => {
+    const listedFiles = Array.from(files || []);
+    return listedFiles.length > 0 ? listedFiles : getFilesFromItems(items);
+  };
+
+  const dedupeFiles = (files: File[]) => {
+    const seen = new Set<string>();
+    return files.filter((file) => {
+      const key = `${file.name}:${file.type}:${file.size}:${file.lastModified}`;
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+  };
+
+  const filterImageFiles = (files: File[]) =>
+    files.filter((file) => file.type.startsWith('image/'));
+
+  const handleRejectedFiles = (files: File[]) => {
+    if (files.length === 0) {
+      return false;
+    }
+
+    const imageFiles = filterImageFiles(files);
+    if (imageFiles.length === 0 || imageFiles.length < files.length) {
+      onImageWarning(onlyImagesWarning);
+      return true;
+    }
+
+    if (attachDisabledReason) {
+      onImageWarning(attachDisabledReason);
+      return true;
+    }
+
+    return false;
+  };
 
   useEffect(() => {
     if (!textareaRef.current) {
@@ -150,7 +204,7 @@ export default function ChatComposer({
   const handleFileInputChange: ChangeEventHandler<HTMLInputElement> = (event) => {
     const files = Array.from(event.currentTarget.files || []);
     event.currentTarget.value = '';
-    if (attachDisabled) {
+    if (handleRejectedFiles(files)) {
       return;
     }
 
@@ -158,24 +212,24 @@ export default function ChatComposer({
   };
 
   const handlePaste: ClipboardEventHandler<HTMLFormElement> = (event) => {
-    const files = Array.from(event.clipboardData.files).filter((file) =>
-      file.type.startsWith('image/')
+    const files = dedupeFiles(
+      getFilesFromTransfer(event.clipboardData.files, event.clipboardData.items)
     );
 
     if (files.length > 0) {
       event.preventDefault();
-      if (!attachDisabled) {
-        onAttachImages(files);
+      if (handleRejectedFiles(files)) {
+        return;
       }
+
+      onAttachImages(files);
     }
   };
 
   const handleDragOver: DragEventHandler<HTMLFormElement> = (event) => {
-    if (
-      Array.from(event.dataTransfer.items).some((item) => item.type.startsWith('image/'))
-    ) {
+    if (Array.from(event.dataTransfer.items).some((item) => item.kind === 'file')) {
       event.preventDefault();
-      if (!attachDisabled) {
+      if (!attachDisabledReason) {
         setIsDraggingImage(true);
       }
     }
@@ -188,18 +242,71 @@ export default function ChatComposer({
   };
 
   const handleDrop: DragEventHandler<HTMLFormElement> = (event) => {
-    const files = Array.from(event.dataTransfer.files).filter((file) =>
-      file.type.startsWith('image/')
+    const files = dedupeFiles(
+      getFilesFromTransfer(event.dataTransfer.files, event.dataTransfer.items)
     );
 
     if (files.length > 0) {
       event.preventDefault();
-      if (!attachDisabled) {
-        onAttachImages(files);
+      if (handleRejectedFiles(files)) {
+        setIsDraggingImage(false);
+        return;
       }
+
+      onAttachImages(files);
     }
 
     setIsDraggingImage(false);
+  };
+
+  const attachButton = (
+    <button
+      type="button"
+      onClick={() => fileInputRef.current?.click()}
+      disabled={attachDisabled}
+      aria-label="Attach image"
+      className={`flex h-9 w-9 items-center justify-center rounded-md border border-transparent p-0 text-muted transition-colors hover:border-foreground/[0.08] hover:bg-foreground/[0.04] hover:text-foreground/70 disabled:cursor-not-allowed disabled:opacity-50 ${
+        attachDisabledReason ? 'pointer-events-none' : ''
+      }`}
+    >
+      <svg
+        className="h-5 w-5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        viewBox="0 0 24 24"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M6.5 4.5h11A2.5 2.5 0 0120 7v11a2.5 2.5 0 01-2.5 2.5h-11A2.5 2.5 0 014 18V7a2.5 2.5 0 012.5-2.5z"
+        />
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M4.5 17.5l4.25-4.25a1.4 1.4 0 012 0l2.75 2.75 1.75-1.75a1.4 1.4 0 012 0l2.25 2.25"
+        />
+        <circle cx="15.75" cy="8.75" r="1.25" fill="currentColor" stroke="none" />
+      </svg>
+    </button>
+  );
+
+  const renderAttachButton = (): ReactElement => {
+    if (!attachDisabledReason) {
+      return attachButton;
+    }
+
+    return (
+      <Tooltip content={attachDisabledReason} side="top">
+        <span
+          className="inline-flex h-9 w-9 items-center justify-center rounded-md"
+          tabIndex={0}
+          aria-label={`Attach image disabled: ${attachDisabledReason}`}
+        >
+          {attachButton}
+        </span>
+      </Tooltip>
+    );
   };
 
   return (
@@ -268,52 +375,6 @@ export default function ChatComposer({
           </div>
         )}
 
-        {hasTranscript && !isLoading && (
-          <div className="mb-3 rounded-lg bg-surface px-4 py-2 font-sans text-sm text-muted shadow-sm">
-            <span className="text-xs font-medium tracking-wider text-muted/60">
-              Listening
-            </span>
-            <p className="mt-1">
-              {finalTranscript}
-              {interimTranscript && (
-                <span className="text-muted/50"> {interimTranscript}</span>
-              )}
-              <span className="ml-1 inline-block h-4 w-0.5 animate-pulse bg-muted/50" />
-            </p>
-          </div>
-        )}
-
-        <div
-          ref={waveformContainerRef}
-          className={`relative mx-auto mb-1 h-0.5 max-w-[90%] overflow-hidden rounded-full transition-[opacity,max-height] duration-300 ${
-            micActive ? 'max-h-4 opacity-100' : 'max-h-0 opacity-0'
-          }`}
-        >
-          <svg
-            viewBox="0 0 240 4"
-            className="absolute inset-0 h-full w-full"
-            preserveAspectRatio="none"
-          >
-            <polyline
-              ref={waveformRef}
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="4"
-              points="0,2 240,2"
-              className="text-muted transition-colors duration-300"
-            />
-            <polyline
-              ref={waveformGlowRef}
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="4"
-              points="0,2 240,2"
-              className="text-muted/40 opacity-50 transition-opacity duration-300"
-              style={{ filter: 'blur(2px)' }}
-            />
-          </svg>
-        </div>
-
         <form
           onSubmit={onSubmit}
           onPaste={handlePaste}
@@ -365,7 +426,7 @@ export default function ChatComposer({
               value={input}
               onChange={(event) => onInputChange(event.target.value)}
               onKeyDown={onKeyDown}
-              placeholder={micActive ? 'Listening...' : `Message ${activeName}...`}
+              placeholder={`Message ${activeName}...`}
               rows={1}
               disabled={isUploadingImages}
               className="composer-scrollbar w-full min-h-10 min-w-0 resize-none bg-transparent pl-3 pr-[5.5rem] py-2.5 font-sans text-sm leading-relaxed text-foreground placeholder-muted/50 outline-none disabled:cursor-not-allowed disabled:opacity-50 overflow-y-auto"
@@ -381,33 +442,7 @@ export default function ChatComposer({
                 className="hidden"
                 onChange={handleFileInputChange}
               />
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={attachDisabled}
-                aria-label="Attach image"
-                className="flex h-9 w-9 items-center justify-center rounded-md border border-transparent p-0 text-muted transition-colors hover:border-foreground/[0.08] hover:bg-foreground/[0.04] hover:text-foreground/70 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <svg
-                  className="h-5 w-5"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M6.5 4.5h11A2.5 2.5 0 0120 7v11a2.5 2.5 0 01-2.5 2.5h-11A2.5 2.5 0 014 18V7a2.5 2.5 0 012.5-2.5z"
-                  />
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M4.5 17.5l4.25-4.25a1.4 1.4 0 012 0l2.75 2.75 1.75-1.75a1.4 1.4 0 012 0l2.25 2.25"
-                  />
-                  <circle cx="15.75" cy="8.75" r="1.25" fill="currentColor" stroke="none" />
-                </svg>
-              </button>
+              {renderAttachButton()}
               <button
                 type="submit"
                 disabled={!canSubmit || isBusy}
@@ -432,40 +467,101 @@ export default function ChatComposer({
 
           <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2 px-1">
             <div className="flex items-center gap-1.5">
-              <Tooltip
-                content={
-                  searchEnabled
-                    ? 'Search mode on: Keen will ground this reply with live sources'
-                    : 'Search mode off: Keen will answer without live retrieval'
-                }
-                side="bottom"
-              >
-                <button
-                  type="button"
-                  aria-pressed={searchEnabled}
-                  aria-label={searchEnabled ? 'Search mode on' : 'Search mode off'}
-                  onClick={onToggleSearch}
-                  className={`flex h-7 w-7 items-center justify-center rounded-md border transition-colors ${
-                    searchEnabled
-                      ? 'border-foreground/[0.10] bg-foreground/[0.05] text-foreground'
-                      : 'border-border-subtle text-muted hover:bg-foreground/[0.04] hover:text-foreground/70'
-                  } disabled:cursor-not-allowed disabled:opacity-50`}
-                >
-                  <svg
-                    className="h-3.5 w-3.5"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.2"
-                    viewBox="0 0 24 24"
+              <div ref={searchMenuRef} className="relative">
+                <Tooltip content={searchModeTooltip[searchMode]} side="bottom">
+                  <button
+                    type="button"
+                    aria-haspopup="menu"
+                    aria-expanded={searchMenuOpen}
+                    aria-label={`Search mode ${searchModeLabels[searchMode].toLowerCase()}`}
+                    onClick={() => setSearchMenuOpen((open) => !open)}
+                    className={`inline-flex h-8 min-w-[6.4rem] items-center justify-between gap-2 rounded-lg border px-3 text-left font-sans font-medium transition ${
+                      searchMenuOpen || searchMode === 'required'
+                        ? 'border-foreground/[0.08] bg-foreground/[0.055] text-foreground'
+                        : searchMode === 'off'
+                          ? 'border-transparent bg-background text-foreground/55 hover:bg-foreground/[0.035] hover:text-foreground/75'
+                          : 'border-transparent bg-background text-foreground/88 hover:bg-foreground/[0.035] hover:text-foreground'
+                    }`}
                   >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M21 21l-4.35-4.35m1.85-5.15a7 7 0 11-14 0 7 7 0 0114 0z"
-                    />
-                  </svg>
-                </button>
-              </Tooltip>
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span
+                        className={`flex h-4 w-4 flex-shrink-0 items-center justify-center ${
+                          searchMode === 'required' ? 'text-accent' : 'text-current'
+                        }`}
+                      >
+                        <svg
+                          aria-hidden="true"
+                          className="h-4 w-4"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.8"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M12 21a9 9 0 100-18 9 9 0 000 18z"
+                          />
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M3.6 9h16.8M3.6 15h16.8M12 3c2.1 2.25 3.15 5.25 3.15 9S14.1 18.75 12 21M12 3C9.9 5.25 8.85 8.25 8.85 12S9.9 18.75 12 21"
+                          />
+                        </svg>
+                      </span>
+                      <span className="truncate text-[13px]">Search</span>
+                    </span>
+
+                    <svg
+                      aria-hidden="true"
+                      className={`h-3.5 w-3.5 flex-shrink-0 text-muted transition-transform duration-150 ${
+                        searchMenuOpen ? 'rotate-180' : ''
+                      }`}
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      viewBox="0 0 20 20"
+                    >
+                      <path
+                        d="M5.5 7.5L10 12l4.5-4.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </button>
+                </Tooltip>
+
+                {searchMenuOpen && (
+                  <div
+                    role="menu"
+                    aria-label="Search mode"
+                    className="absolute bottom-10 left-0 z-30 min-w-[11rem] rounded-[1.1rem] bg-background p-1.5 font-sans text-xs text-foreground shadow-[0_16px_36px_rgba(15,23,42,0.12)] ring-1 ring-black/[0.06] dark:shadow-[0_18px_40px_rgba(0,0,0,0.28)] dark:ring-white/[0.06]"
+                  >
+                    {(['auto', 'required', 'off'] as const).map((mode) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        role="menuitemradio"
+                        aria-checked={searchMode === mode}
+                        onClick={() => {
+                          onSearchModeChange(mode);
+                          setSearchMenuOpen(false);
+                        }}
+                        className={`grid h-9 w-full grid-cols-[1fr_0.875rem] items-center gap-3 whitespace-nowrap rounded-xl px-2.5 text-left transition-colors ${
+                          searchMode === mode
+                            ? 'bg-foreground/[0.055] text-foreground'
+                            : 'text-muted hover:bg-foreground/[0.035] hover:text-foreground'
+                        }`}
+                      >
+                        <span className="text-[13px] font-medium">{searchModeLabels[mode]}</span>
+                        {searchMode === mode && (
+                          <span className="h-1.5 w-1.5 justify-self-center rounded-full bg-accent" />
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="ml-auto flex min-w-0 items-center gap-1.5">
@@ -492,35 +588,15 @@ export default function ChatComposer({
             </div>
           )}
           {imageWarning && (
-            <div className="mt-2 rounded-lg border border-amber-300/70 bg-amber-50 px-3 py-2 font-sans text-xs text-amber-900 shadow-sm dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100">
+            <div
+              data-testid="composer-image-warning"
+              className="mt-2 rounded-lg border border-amber-300/70 bg-amber-50 px-3 py-2 font-sans text-xs text-amber-900 shadow-sm dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100"
+            >
               {imageWarning}
             </div>
           )}
         </form>
 
-        <div className="mt-2 flex items-center justify-between px-4 font-sans text-xs text-muted/60">
-          <div className="flex items-center gap-3">
-            {micActive && (
-              <span className="flex items-center gap-1.5">
-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
-                <span>{getTranscriptStatusLabel(transcriptionStatus)}</span>
-              </span>
-            )}
-            {isTtsLoading && <span>Generating voice...</span>}
-            {isTtsPlaying && <span>Speaking...</span>}
-          </div>
-        </div>
-
-        {microphoneStatus === 'blocked' && (
-          <p className="mt-2 text-center font-sans text-xs text-muted">
-            Microphone permission denied. Check browser settings.
-          </p>
-        )}
-        {microphoneStatus === 'error' && microphoneErrorMessage && (
-          <p className="mt-2 text-center font-sans text-xs text-rose-500">
-            {microphoneErrorMessage}
-          </p>
-        )}
       </div>
     </div>
   );

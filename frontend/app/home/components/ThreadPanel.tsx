@@ -12,6 +12,7 @@ import MarkdownWithThreads from "@/app/home/components/MarkdownWithThreads";
 import SearchSourcesTray from "@/app/home/components/SearchSourcesTray";
 import type { ThreadSession } from "@/app/home/components/threadTypes";
 import { markdownContentClassName } from "@/lib/markdown";
+import { hasUsableSearchSources } from "@/lib/search-citations";
 
 interface ThreadPanelProps {
   isOpen: boolean;
@@ -226,16 +227,15 @@ export default function ThreadPanel({
                       : null
                   }
                   onCitationClick={
-                    message.searchMetadata?.status === "success"
+                    hasUsableSearchSources(message.searchMetadata)
                       ? (sourceId) => handleCitationClick(message.id, sourceId)
                       : undefined
                   }
                 />
               </div>
-              {message.searchMetadata?.status === "success"
-                && message.searchMetadata.sources.length > 0 && (
+              {hasUsableSearchSources(message.searchMetadata) && message.searchMetadata && (
                   <>
-                    <div className="mt-3">
+                    <div className="mt-2">
                       <button
                         type="button"
                         onClick={(event) => {
@@ -246,13 +246,14 @@ export default function ThreadPanel({
                           );
                         }}
                         onPointerUp={(event) => event.stopPropagation()}
-                        className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                        className={`inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-xs transition-colors ${
                           openSourceTray?.messageId === message.id
-                            ? "border-foreground/15 bg-foreground/[0.05] text-foreground"
-                            : "border-border-subtle text-muted hover:bg-foreground/[0.04] hover:text-foreground"
+                            ? "border-foreground/15 bg-foreground/[0.04] text-foreground"
+                            : "border-transparent text-muted hover:border-border-subtle hover:bg-foreground/[0.025] hover:text-foreground"
                         }`}
                       >
-                        Sources {message.searchMetadata.sources.length}
+                        <span>Sources</span>
+                        <span className="text-current/55">{message.searchMetadata.sources.length}</span>
                       </button>
                     </div>
 
@@ -332,6 +333,9 @@ export default function ThreadPanel({
               </div>
             </div>
           </form>
+          <p className="mt-2 px-1 text-[11px] leading-snug text-muted/55">
+            Uses the main chat model settings.
+          </p>
         </div>
       </aside>
     </div>

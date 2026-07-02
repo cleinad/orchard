@@ -3,12 +3,23 @@ import {
   type PersistedSearchMetadata,
   type SearchAttemptStatus,
 } from '@/lib/search-citations';
-import type { SearchPipelineOutput } from '@/lib/search/types';
+import type { SearchActivitySummary, SearchPipelineOutput } from '@/lib/search/types';
 
 export type { PersistedSearchMetadata } from '@/lib/search-citations';
 
-export const SEARCH_MODES = ['off', 'required'] as const;
+export const SEARCH_MODES = ['auto', 'required', 'off'] as const;
 export type SearchMode = (typeof SEARCH_MODES)[number];
+export type SearchSkipReason = 'mode_off' | 'auto_decision';
+export type SearchFreshnessRisk = 'none' | 'low' | 'medium' | 'high';
+
+export interface SearchDecision {
+  shouldSearch: boolean;
+  reason: string;
+  confidence: number;
+  freshnessRisk: SearchFreshnessRisk;
+  provider?: string;
+  providerModelId?: string;
+}
 
 export type SearchStatus = 'not_attempted' | SearchAttemptStatus;
 
@@ -19,6 +30,8 @@ export interface SearchMetadata {
   resultCount: number;
   warning: string | null;
   metadata: PersistedSearchMetadata | null;
+  decision?: SearchDecision;
+  skippedReason?: SearchSkipReason;
 }
 
 function getSearchWarning(
@@ -55,10 +68,6 @@ function getSearchDisclosure(metadata: SearchMetadata) {
   }
 
   switch (metadata.status) {
-    case 'no_results':
-      return "Search mode didn't find useful sources for that, so I'm answering based on what I already know.";
-    case 'partial':
-      return null;
     case 'missing_config':
     case 'timeout':
     case 'upstream_error':
@@ -89,6 +98,20 @@ export function createNotAttemptedSearchMetadata(searchMode: SearchMode): Search
   return createSearchMetadataFromPersisted(searchMode, null);
 }
 
+export function withSearchDebugMetadata(
+  metadata: SearchMetadata,
+  debug: {
+    decision?: SearchDecision | null;
+    skippedReason?: SearchSkipReason | null;
+  }
+): SearchMetadata {
+  return {
+    ...metadata,
+    ...(debug.decision ? { decision: debug.decision } : {}),
+    ...(debug.skippedReason ? { skippedReason: debug.skippedReason } : {}),
+  };
+}
+
 export function createSearchMetadataFromOutput(
   output: SearchPipelineOutput,
   searchMode: SearchMode
@@ -102,7 +125,8 @@ export function createSearchMetadataFromOutput(
 export function createFailedSearchMetadata(
   searchMode: SearchMode,
   status: Exclude<SearchAttemptStatus, 'success' | 'partial'>,
-  query: string | null
+  query: string | null,
+  activity?: SearchActivitySummary
 ): SearchMetadata {
   if (searchMode !== 'required') {
     return createSearchMetadataFromPersisted(searchMode, null);
@@ -114,6 +138,7 @@ export function createFailedSearchMetadata(
     profile: 'fresh_web',
     status,
     query,
+    ...(activity ? { activity } : {}),
     providers: [],
     sources: [],
   });

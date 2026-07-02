@@ -169,7 +169,23 @@ test('promotes an unsent popover draft into the thread panel', async ({ page }) 
 
   await selectTextInMessage(page, messageId, selectedText);
   await expect(page.getByTestId('selection-popover')).toBeVisible();
+  await expect(page.getByTestId('selection-popover-input')).toBeFocused();
   await expect.poll(() => hasPersistentSelectionHighlight(page)).toBe(true);
+
+  const highlightBox = await page.getByTestId('thread-highlight-rect').first().boundingBox();
+  expect(highlightBox).toBeTruthy();
+  await page.getByTestId('selection-popover-input').evaluate((input, box) => {
+    input.dispatchEvent(
+      new MouseEvent('click', {
+        bubbles: true,
+        button: 0,
+        cancelable: true,
+        clientX: box.x + box.width / 2,
+        clientY: box.y + box.height / 2,
+      })
+    );
+  }, highlightBox);
+  await expect(page.getByTestId('thread-panel')).toHaveAttribute('data-state', 'closed');
 
   const draft = 'Why does that happen?';
   await page.getByTestId('selection-popover-input').fill(draft);
@@ -200,9 +216,15 @@ test('submitting a selection question opens the thread panel immediately and sho
   await expect(page.getByTestId('thread-panel')).toHaveAttribute('data-state', 'open');
   await expect(page.getByTestId('thread-panel')).toContainText(question);
   await expect(page.getByTestId('thread-panel-loading')).toBeVisible();
+  const loadingMarker = page.locator(
+    '[data-testid="inline-thread-link"][data-thread-status="loading"]'
+  );
+  await expect(loadingMarker).toContainText(selectedText);
+  await expect(loadingMarker).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  await loadingMarker.hover();
   await expect(
-    page.locator('[data-testid="inline-thread-link"][data-thread-status="loading"]')
-  ).toContainText(selectedText);
+    page.locator('[data-testid="thread-highlight-rect"][data-highlight-emphasized="true"]')
+  ).toHaveCount(0);
 
   response.resolve({
     message: 'Because microtasks flush before rendering.',
@@ -294,9 +316,11 @@ test('temporary thread results persist if you switch chats before the answer res
   await page.getByTestId('selection-popover-input').fill(question);
   await page.getByTestId('selection-popover-input').press('Enter');
 
-  await expect(
-    page.locator('[data-testid="inline-thread-link"][data-thread-status="loading"]')
-  ).toContainText(PRIMARY_SELECTION_TEXT);
+  const loadingMarker = page.locator(
+    '[data-testid="inline-thread-link"][data-thread-status="loading"]'
+  );
+  await expect(loadingMarker).toContainText(PRIMARY_SELECTION_TEXT);
+  await expect(loadingMarker).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
 
   await page.getByLabel('New temporary chat').click();
   await expect(page.getByRole('heading', { name: 'Temporary chat' })).toBeVisible();
@@ -426,9 +450,20 @@ test('copy after source selection and paste into the popover input keep native c
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(selectedText);
 
   await page.evaluate(() => navigator.clipboard.writeText('How does this affect paint?'));
-  await page.getByTestId('selection-popover-input').click();
   await page.keyboard.press('ControlOrMeta+V');
   await expect(page.getByTestId('selection-popover-input')).toHaveValue(
+    'How does this affect paint?'
+  );
+
+  await page.evaluate(() => navigator.clipboard.writeText('clipboard sentinel'));
+  await page.keyboard.press('ControlOrMeta+C');
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(
+    'clipboard sentinel'
+  );
+
+  await page.getByTestId('selection-popover-input').selectText();
+  await page.keyboard.press('ControlOrMeta+C');
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(
     'How does this affect paint?'
   );
 

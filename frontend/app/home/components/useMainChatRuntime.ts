@@ -30,7 +30,8 @@ import type {
   ConversationBranch,
   Message,
 } from '@/app/home/types';
-import type { SearchMetadata } from '@/lib/chat-search';
+import type { SearchMetadata, SearchMode } from '@/lib/chat-search';
+import type { SearchActivitySummary } from '@/lib/search/types';
 import {
   createTemporaryId,
   DEFAULT_TEMPORARY_MEMORY_MODE,
@@ -38,7 +39,6 @@ import {
   toChatHistory,
 } from '@/lib/chat-session';
 import { getBrowserTimeZone } from '@/lib/browser-timezone';
-import { stripCitationMarkers } from '@/lib/search-citations';
 import type { ChatModelEffortLevel, ChatModelId } from '@/lib/chat-models';
 import type { ResponseStyle } from '@/lib/response-style';
 
@@ -54,6 +54,7 @@ export interface ChatResponse {
   resolvedModelId?: string;
   resolvedProvider?: string;
   search?: SearchMetadata;
+  searchActivity?: SearchActivitySummary | null;
   error?: string;
 }
 
@@ -63,12 +64,15 @@ interface CreateConversationResponse {
     title?: string | null;
     mentorId?: string | null;
     workspaceId?: string | null;
+    createdAt?: string | null;
+    updatedAt?: string | null;
   };
   error?: string;
 }
 
 interface ReadChatStreamOptions {
   onTextEnd?: (content: string) => void;
+  onSearchActivity?: (activity: SearchActivitySummary) => void;
 }
 
 interface PendingChatRequest {
@@ -85,7 +89,7 @@ interface SendMessageOptions {
   modelEffort?: ChatModelEffortLevel | null;
   thinkingEnabled?: boolean | null;
   responseStyle?: ResponseStyle;
-  searchEnabled?: boolean;
+  searchMode?: SearchMode;
 }
 
 interface SendMessageResult {
@@ -142,6 +146,10 @@ export async function readChatStream(
       finishVisibleText();
     } else if (event.type === 'data-chatMeta' && event.data) {
       metadata = event.data as ChatResponse;
+    } else if (event.type === 'data-searchActivity' && event.data) {
+      const activity = event.data as SearchActivitySummary;
+      metadata = { ...metadata, searchActivity: activity };
+      options.onSearchActivity?.(activity);
     } else if (event.type === 'error' && typeof event.errorText === 'string') {
       metadata = { error: event.errorText };
     }
@@ -252,6 +260,13 @@ function isLikelySamePersistedMessage(a: Message, b: Message) {
   );
 }
 
+function getSearchActivityFromMessage(message: Message) {
+  return (
+    message.searchActivity
+    ?? (message.searchMetadata?.version === 2 ? message.searchMetadata.activity ?? null : null)
+  );
+}
+
 function mergeReloadedMessagesForRender(params: {
   loadedMessages: Message[];
   currentMessages: Message[];
@@ -286,7 +301,10 @@ function mergeReloadedMessagesForRender(params: {
     return {
       ...loadedMessage,
       renderId: currentMessage.renderId,
-      searchMetadata: currentMessage.searchMetadata ?? null,
+      searchMetadata: currentMessage.searchMetadata ?? loadedMessage.searchMetadata ?? null,
+      searchActivity:
+        getSearchActivityFromMessage(currentMessage)
+        ?? getSearchActivityFromMessage(loadedMessage),
     };
   });
 
@@ -322,7 +340,6 @@ interface LoadedConversationMessages {
 
 interface MainChatRuntimeParams {
   activeMessages: Message[];
-  autoSendTimerRef: MutableRefObject<ReturnType<typeof setTimeout> | null>;
   clearComposerInputForSelection: (selection: SelectedChat | null) => void;
   clearPendingChatRequestForSelection: (selection: SelectedChat) => void;
   clearSearchStateForSelection: (selection: SelectedChat | null) => void;
@@ -338,6 +355,10 @@ interface MainChatRuntimeParams {
     fromSelection: SelectedChat | null,
     toSelection: SelectedChat
   ) => void;
+  moveSearchModeBetweenSelections: (
+    fromSelection: SelectedChat | null,
+    toSelection: SelectedChat | null
+  ) => void;
   pendingBranch: PendingBranchTarget | null;
   pendingChatRequestsRef: MutableRefObject<Record<string, PendingChatRequest>>;
   persistentBranches: ConversationBranch[];
@@ -345,8 +366,16 @@ interface MainChatRuntimeParams {
   persistentSelectedBranchIds: BranchSelectionMap;
   persistentSelectedBranchIdsRef: MutableRefObject<BranchSelectionMap>;
   refreshSidebarData: () => Promise<void>;
+  upsertSidebarConversation: (conversation: {
+    id: string;
+    title?: string | null;
+    mentorId?: string | null;
+    workspaceId?: string | null;
+    updatedAt?: string | null;
+    createdAt?: string | null;
+  }) => void;
   responseStyle: ResponseStyle;
-  searchEnabled: boolean;
+  searchMode: SearchMode;
   selectedChat: SelectedChat | null;
   selectedChatRef: MutableRefObject<SelectedChat | null>;
   selectedDraftChat: PersistentDraftChat | null;
@@ -375,9 +404,6 @@ interface MainChatRuntimeParams {
   setUserHasScrolledState: (nextValue: boolean) => void;
   temporaryChatsRef: MutableRefObject<TemporaryChatSession[]>;
   tempChatTitle: string;
-  transcription: { clearTranscript: () => void };
-  tts: { speak: (text: string) => void };
-  ttsEnabled: boolean;
   updateDraftChat: (id: string, updater: (draft: PersistentDraftChat) => PersistentDraftChat) => void;
   updateTemporaryChat: (
     id: string,
@@ -422,17 +448,11 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
     const requestThinkingEnabled =
       options.thinkingEnabled === undefined ? params.thinkingEnabled : options.thinkingEnabled;
     const requestResponseStyle = options.responseStyle ?? params.responseStyle;
-    const requestSearchEnabled = options.searchEnabled ?? params.searchEnabled;
+    const requestSearchMode = options.searchMode ?? params.searchMode;
 
     if (!messageText && displayAttachments.length === 0 && uploadedAttachments.length === 0) {
       return { accepted: false, completed: false };
     }
-
-    if (params.autoSendTimerRef.current) {
-      clearTimeout(params.autoSendTimerRef.current);
-      params.autoSendTimerRef.current = null;
-    }
-    params.transcription.clearTranscript();
 
     const now = new Date();
     const nextUpdatedAt = now.toISOString();
@@ -710,6 +730,14 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
           params.replacePersistentConversationUrl(promotedSelection.conversationId);
         }
 
+        params.upsertSidebarConversation({
+          id: promotedSelection.conversationId,
+          title: createData.conversation?.title ?? effectiveDraft.title,
+          mentorId: promotedSelection.mentorId,
+          workspaceId: promotedSelection.workspaceId,
+          createdAt: createData.conversation?.createdAt ?? effectiveDraft.createdAt,
+          updatedAt: createData.conversation?.updatedAt ?? nextUpdatedAt,
+        });
         params.setDraftChats((prev) =>
           prev.filter((draft) => draft.id !== promotedDraftId)
         );
@@ -767,6 +795,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
     let visibleAssistantContent = '';
     let visibleAssistantMessage: Message | null = null;
     let visibleFinalized = false;
+    let latestSearchActivity: SearchActivitySummary | null = null;
 
     const appendChunk = (delta: string) => {
       latestStreamedContent += delta;
@@ -792,6 +821,33 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
           messages: draft.messages.map((m) =>
             m.id === streamingMessageId ? { ...m, content: m.content + delta } : m
           ),
+        }));
+      }
+    };
+
+    const updateSearchActivity = (activity: SearchActivitySummary) => {
+      latestSearchActivity = activity;
+
+      const applyActivity = (messages: Message[]) =>
+        messages.map((message) =>
+          message.id === streamingMessageId || message.renderId === streamingMessageId
+            ? { ...message, searchActivity: activity }
+            : message
+        );
+
+      if (effectiveSelection.kind === 'temporary') {
+        params.updateTemporaryChat(effectiveSelection.tempChatId, (chat) => ({
+          ...chat,
+          messages: applyActivity(chat.messages),
+        }));
+      } else if (effectiveSelection.kind === 'persistent') {
+        if (isSameSelectedChat(params.selectedChatRef.current, effectiveSelection)) {
+          params.setPersistentMessages((prev) => applyActivity(prev));
+        }
+      } else if (effectiveDraft) {
+        params.updateDraftChat(effectiveDraft.id, (draft) => ({
+          ...draft,
+          messages: applyActivity(draft.messages),
         }));
       }
     };
@@ -835,6 +891,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
         content,
         timestamp: new Date(),
         searchMetadata: null,
+        searchActivity: latestSearchActivity,
         previousMessageId: userMessage.id,
       };
       visibleAssistantContent = content;
@@ -978,6 +1035,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
             : {}),
           previousMessageId,
           branchSourceMessageId: branchSourceMessageId ?? undefined,
+          searchMode: requestSearchMode,
           responseStyle: requestResponseStyle,
           attachments: uploadedAttachments.map((attachment) => ({
             storagePath: attachment.storagePath,
@@ -988,7 +1046,6 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
             height: attachment.height,
             cleanupOnFailure: true,
           })),
-          searchEnabled: requestSearchEnabled,
           timezone: getBrowserTimeZone(),
           chatMode:
             effectiveSelection.kind === 'temporary' ? 'temporary' : 'persistent',
@@ -1014,6 +1071,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
             error: data.error || 'Failed to send message.',
             restoreComposerSelection,
             uploadedAttachments,
+            cleanupUploadedAttachments: uploadedAttachments,
           };
         }
 
@@ -1029,6 +1087,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
       requestAccepted = true;
 
       const data = await readChatStream(response, appendChunk, {
+        onSearchActivity: updateSearchActivity,
         onTextEnd: (content) => {
           const canApplyTemporaryResponse =
             canApplyTemporaryResponseForSelection(effectiveSelection);
@@ -1055,6 +1114,11 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
       });
 
       const finalSearchMetadata = data.search?.metadata ?? null;
+      const finalSearchActivity =
+        data.searchActivity
+        ?? (finalSearchMetadata?.version === 2
+          ? finalSearchMetadata.activity ?? latestSearchActivity
+          : latestSearchActivity);
       const visibleContent = visibleAssistantContent || latestStreamedContent;
       const assistantMessage: Message = {
         id:
@@ -1066,6 +1130,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
         content: data.message ?? visibleContent,
         timestamp: new Date(),
         searchMetadata: null,
+        searchActivity: finalSearchActivity,
         previousMessageId: userMessage.id,
       };
 
@@ -1105,6 +1170,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
 
         params.movePendingChatRequestBetweenSelections(draftSelection, promotedSelection);
         params.moveResponseStyleBetweenSelections(draftSelection, promotedSelection);
+        params.moveSearchModeBetweenSelections(draftSelection, promotedSelection);
         params.clearSearchStateForSelection(draftSelection);
 
         if (shouldFocusPromotedDraft) {
@@ -1120,6 +1186,14 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
           params.replacePersistentConversationUrl(promotedSelection.conversationId);
         }
 
+        params.upsertSidebarConversation({
+          id: promotedSelection.conversationId,
+          title: data.conversationTitle ?? effectiveDraft.title,
+          mentorId: promotedSelection.mentorId,
+          workspaceId: promotedSelection.workspaceId,
+          createdAt: effectiveDraft.createdAt,
+          updatedAt: nextUpdatedAt,
+        });
         params.setDraftChats((prev) =>
           prev.filter((draft) => draft.id !== promotedDraftId)
         );
@@ -1201,14 +1275,6 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
         finalSearchMetadata
       );
 
-      if (
-        params.ttsEnabled
-        && data.message
-        && !data.message.startsWith('Something went wrong')
-        && canApplyTemporaryResponse
-      ) {
-        params.tts.speak(stripCitationMarkers(data.message, finalSearchMetadata));
-      }
       return { accepted: true, completed: true, uploadedAttachments };
     } catch {
       if (!requestAccepted && (uploadedAttachments.length > 0 || displayAttachments.length > 0)) {

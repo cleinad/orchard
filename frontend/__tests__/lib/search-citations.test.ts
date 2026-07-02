@@ -105,6 +105,67 @@ describe('search citations helpers', () => {
     });
   });
 
+  it('preserves persisted search activity and source origin', () => {
+    const metadata = createPersistedSearchMetadataV2({
+      status: 'success',
+      profile: 'fresh_web',
+      query: 'latest Iran ceasefire current status',
+      queries: ['latest Iran ceasefire current status'],
+      resolvedIntent: 'Find the current status of Iran ceasefire talks.',
+      topicEntities: ['Iran', 'ceasefire'],
+      activity: {
+        collapsedLabel: 'Search completed',
+        events: [
+          {
+            type: 'search_started',
+            query: 'latest Iran ceasefire current status',
+            attempt: 1,
+          },
+          {
+            type: 'search_completed',
+            sourceCount: 2,
+            collapsedLabel: 'Search completed',
+          },
+        ],
+      },
+      providers: ['brave'],
+      results: [
+        {
+          title: 'Prior source',
+          url: 'https://example.com/prior',
+          domain: 'example.com',
+          snippet: 'Prior source snippet',
+          provider: 'brave',
+          sourceType: 'news',
+          publishedAt: null,
+          origin: 'prior',
+        },
+      ],
+    });
+
+    expect(parsePersistedSearchMetadata(metadata)).toMatchObject({
+      version: 2,
+      activity: {
+        collapsedLabel: 'Search completed',
+        events: [
+          expect.objectContaining({
+            type: 'search_started',
+            query: 'latest Iran ceasefire current status',
+          }),
+          expect.objectContaining({
+            type: 'search_completed',
+            sourceCount: 2,
+          }),
+        ],
+      },
+      sources: [
+        expect.objectContaining({
+          origin: 'prior',
+        }),
+      ],
+    });
+  });
+
   it('parses valid persisted search metadata and rejects malformed values', () => {
     expect(parsePersistedSearchMetadata(legacySearchMetadata)).toEqual(legacySearchMetadata);
     expect(parsePersistedSearchMetadata(searchMetadata)).toEqual(searchMetadata);
@@ -129,15 +190,47 @@ describe('search citations helpers', () => {
     ]);
   });
 
+  it('splits adjacent valid citation markers into separate compact parts', () => {
+    expect(
+      splitTextWithCitations('A cited sentence [1][2].', new Set([1, 2]))
+    ).toEqual([
+      { type: 'text', text: 'A cited sentence ' },
+      { type: 'citation', text: '[1]', sourceId: 1 },
+      { type: 'citation', text: '[2]', sourceId: 2 },
+      { type: 'text', text: '.' },
+    ]);
+  });
+
+  it('does not treat numeric brackets inside words as citations', () => {
+    expect(
+      splitTextWithCitations('Use array[1] as the second item.', new Set([1]))
+    ).toEqual([{ type: 'text', text: 'Use array[1] as the second item.' }]);
+    expect(
+      splitTextWithCitations('Use array[1][2] as the nested item.', new Set([1, 2]))
+    ).toEqual([{ type: 'text', text: 'Use array[1][2] as the nested item.' }]);
+    expect(
+      stripCitationMarkers('Use array[1][2] as the nested item.', searchMetadata)
+    ).toBe('Use array[1][2] as the nested item.');
+    expect(
+      stripInvalidCitationMarkers('Use array[1][7] as the nested item.', searchMetadata)
+    ).toBe('Use array[1][7] as the nested item.');
+  });
+
   it('strips valid citation markers for context reuse', () => {
     expect(
       stripCitationMarkers('A cited sentence [1] [2].', searchMetadata)
+    ).toBe('A cited sentence.');
+    expect(
+      stripCitationMarkers('A cited sentence [1][2].', searchMetadata)
     ).toBe('A cited sentence.');
   });
 
   it('strips invalid citation markers while preserving valid ones', () => {
     expect(
       stripInvalidCitationMarkers('A cited sentence [1] [7].', searchMetadata)
+    ).toBe('A cited sentence [1].');
+    expect(
+      stripInvalidCitationMarkers('A cited sentence [1][7].', searchMetadata)
     ).toBe('A cited sentence [1].');
   });
 

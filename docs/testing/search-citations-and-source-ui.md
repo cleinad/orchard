@@ -1,6 +1,6 @@
 # Search Citations Testing
 
-This doc covers the current automated checks, focused commands, and manual verification path for explicit search mode, persisted citations, and the reply-level source UI on `/home`.
+This doc covers the current automated checks, focused commands, and manual verification path for search modes, persisted citations, and the reply-level source UI on `/home`.
 
 Companion docs:
 
@@ -13,8 +13,11 @@ Companion docs:
 - `frontend/__tests__/lib/search-telemetry.test.ts`
 - `frontend/__tests__/lib/search-router.test.ts`
 - `frontend/__tests__/lib/search-pipeline.test.ts`
+- `frontend/__tests__/lib/search-orchestrator.test.ts`
+- `frontend/__tests__/lib/search-query-planner.test.ts`
 - `frontend/__tests__/app/chat-route.test.ts`
 - `frontend/__tests__/app/chat-route-search.test.ts`
+- `frontend/__tests__/app/home/usePerChatComposerState.test.ts`
 - `frontend/e2e/search-mode.spec.js`
 
 The automated suite now verifies:
@@ -29,11 +32,15 @@ The automated suite now verifies:
 - telemetry query redaction in production and structured search event payloads
 - official sources outrank random blogs in the final evidence set
 - research sources outrank forums for evidence-heavy queries
-- `/api/chat` never uses planner-driven auto search anymore
-- `searchEnabled = false` persists `search_metadata = null`
-- `searchEnabled = true` persists normalized v2 search metadata
+- auto mode skips retrieval when sources are not useful, and runs retrieval when they are
+- auto search infrastructure failures stay user-invisible while logging internally
+- required search infrastructure failures remain visible via metadata/disclosure
+- relevance-rejected results are not persisted as usable sources or passed into grounded prompts
+- `searchMode = "off"` persists `search_metadata = null`
+- `searchMode = "required"` persists normalized v2 search metadata when usable sources exist
+- draft search mode selection survives first-message promotion into a persistent conversation
 - invalid citation ids are stripped before the assistant message is saved
-- the home surface can send an explicit search request and render a larger source tray
+- the home surface can send an Always Search request and render a larger source tray
 
 ## Focused Commands
 
@@ -41,8 +48,9 @@ From `frontend/`:
 
 ```bash
 npm run test -- __tests__/lib/search-citations.test.ts __tests__/lib/search-router.test.ts __tests__/lib/search-pipeline.test.ts
+npm run test -- __tests__/lib/search-orchestrator.test.ts __tests__/lib/search-query-planner.test.ts
 npm run test -- __tests__/lib/search-telemetry.test.ts
-npm run test -- __tests__/app/chat-route.test.ts __tests__/app/chat-route-search.test.ts
+npm run test -- __tests__/app/chat-route.test.ts __tests__/app/chat-route-search.test.ts __tests__/app/home/usePerChatComposerState.test.ts
 npm run test:e2e -- e2e/search-mode.spec.js
 ```
 
@@ -52,8 +60,11 @@ Run the e2e spec when the search toggle behavior, persisted reply metadata, or s
 
 Use these checks when changing the search pipeline or citation UI:
 
-- Ask a time-sensitive question with search off and confirm the reply uses the current local time for the browser timezone without doing retrieval.
-- Turn search on and ask a current-events or product-update question; confirm the reply is grounded and the request surfaces `Sources N`.
+- Ask a stable brainstorming question in Auto and confirm no visible search activity appears.
+- Ask a time-sensitive question in Auto and confirm search activity appears only when retrieval runs.
+- Ask a time-sensitive question with search Off and confirm the reply uses the current local time for the browser timezone without doing retrieval.
+- Use Always Search for a current-events or product-update question; confirm the reply is grounded and the request surfaces `Sources N`.
+- Use Always Search with a query that returns no useful sources; confirm the activity only shows that search ran and the reply is not grounded on rejected snippets.
 - Ask an official-source-heavy query such as product pricing or release notes and confirm official pages outrank random blogs.
 - Ask an evidence-heavy query and confirm the visible source set includes stronger research or institutional sources.
 - Click a citation chip and confirm the reply-level source tray opens under that reply.
@@ -61,7 +72,7 @@ Use these checks when changing the search pipeline or citation UI:
 - Navigate between multiple entries in the tray and confirm the detail panel updates.
 - Reload the conversation and confirm citations and the source tray still work.
 - Confirm older replies with no `search_metadata` render without empty citation controls.
-- Confirm sidebar previews and TTS do not expose raw `[1]` markers.
+- Confirm sidebar previews and any future text-reuse path do not expose raw `[1]` markers.
 
 ## Current Gaps
 

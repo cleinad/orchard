@@ -2,23 +2,24 @@
 
 ## Overview
 
-Search mode lets Keen ground a reply in fresh external sources when the user explicitly turns search on.
+Search mode lets Keen decide whether to ground a reply in fresh external sources, or lets the user explicitly force or disable retrieval for a reply.
 
 This doc is the source of truth for the shipped v1 search behavior and the near-term follow-up work.
 
-Search is now explicit-only:
+Search has three composer modes:
 
-- when search is off, Keen answers without live retrieval
-- when search is on, Keen always runs the server-owned retrieval pipeline before generating the reply
+- `Auto`: Keen decides whether live sources would materially improve the answer
+- `Always search`: Keen runs the server-owned retrieval pipeline before generating the reply
+- `Off`: Keen answers without live retrieval
 
-The UI still exposes a single simple toggle, but the backend chooses the retrieval mix internally based on the query.
+The backend chooses the retrieval mix internally based on the query.
 
 ## Shipped V1 Scope
 
 The current slice includes:
 
-- one visible `Search` toggle with no hidden auto-search path
-- deterministic routing with no second LLM call
+- a visible `Search` mode selector with `Auto`, `Always search`, and `Off`
+- conversational auto-search orchestration with deterministic fallbacks
 - `Brave` as the broad web backbone
 - `Exa` as the higher-quality and research-oriented augmentation layer
 - authority-first reranking that prefers official and institutional sources over random blogs
@@ -28,9 +29,10 @@ The current slice includes:
 
 ## User-Facing Behavior
 
-- The composer toggle is a simple `Search` on/off control.
-- Search mode is off by default.
-- Turning search on does not expose multiple visible search modes.
+- The composer exposes `Auto`, `Always search`, and `Off`.
+- Search mode defaults to `Auto`.
+- Auto-search failures are intentionally user-invisible; Keen answers normally and logs the failure internally.
+- Always Search no-result or relevance-rejected runs are recorded in metadata and shown as a neutral searched status, but do not prepend warning text to the reply.
 - Replies generated in search mode can include numeric citations such as `[1]` and `[1] [3]`.
 - Clicking a citation chip or the reply footer `Sources N` opens the reply-attached source tray.
 - Source metadata is persisted on assistant messages, so citations and sources survive reloads.
@@ -54,18 +56,19 @@ The approved `web_social` profile and `X` integration are deferred until the cor
 ## Current Execution Flow
 
 ```
-User toggles Search on
+User sends message
     |
     v
-searchEnabled state (boolean) — frontend/app/home/[[...conversationId]]/page.tsx
+searchMode state ('auto' | 'required' | 'off') — frontend/app/home/[[...conversationId]]/page.tsx
     |
     v
-POST /api/chat includes { searchEnabled, timezone? }
+POST /api/chat includes { searchMode, timezone? }
     |
     v
 Chat route maps:
-  searchEnabled = false -> mode 'off'
-  searchEnabled = true  -> mode 'required'
+  searchMode = 'off'      -> no retrieval
+  searchMode = 'auto'     -> decideSearchNecessity()
+  searchMode = 'required' -> run retrieval
     |
     +--- sanitizeHistoryMessages() strips citation markers
     |    before prior assistant text is reused
@@ -73,16 +76,20 @@ Chat route maps:
     +--- append per-reply request context
     |      (current local time from browser timezone + saved user name when available)
     |
-    +--- Mode: 'required' ---> runSearchPipeline(message)
+    +--- Mode: 'auto' -------> decide whether online sources help
+    |                          if yes, plan and run search
+    |
+    +--- Mode: 'required' ---> planSearchAction()
+    |                           runSearchPipeline(query)
     |                           classifySearchQuery()
     |                           provider retrieval in parallel
     |                           dedupe
     |                           rerank
     |                           createPersistedSearchMetadataV2()
     |                           buildGroundedSearchSystemPrompt()
-    |                           generateText()
+    |                           streamText()
     |
-    +--- Mode: 'off' --------> generateText() without retrieval
+    +--- Mode: 'off' --------> streamText() without retrieval
     |
     v
 stripInvalidCitationMarkers() removes bad ids before save
@@ -107,8 +114,10 @@ SearchSourcesTray renders the reply-attached source tray
 
 | File | Role |
 |------|------|
-| `frontend/app/api/chat/route.ts` | explicit-only search execution, grounded prompt construction, persistence, and disclosures |
-| `frontend/lib/search/router.ts` | deterministic query routing with no secondary model call |
+| `frontend/app/api/chat/route.ts` | search-mode resolution, grounded prompt construction, persistence, activity streaming, and disclosures |
+| `frontend/lib/search/orchestrator.ts` | auto/required planning, prior-source reuse, relevance checks, repair attempts, and activity summaries |
+| `frontend/lib/search/query-planner.ts` | search decision and query planning with deterministic fallbacks |
+| `frontend/lib/search/router.ts` | deterministic query routing |
 | `frontend/lib/search/providers/brave.ts` | Brave retrieval client |
 | `frontend/lib/search/providers/exa.ts` | Exa retrieval client |
 | `frontend/lib/search/rerank.ts` | deterministic authority and relevance ranking |
@@ -116,7 +125,7 @@ SearchSourcesTray renders the reply-attached source tray
 | `frontend/lib/search/telemetry.ts` | structured search logging, query redaction, and trace helpers |
 | `frontend/lib/search-citations.ts` | metadata parsing, source normalization, citation cleanup, and v1/v2 compatibility |
 | `frontend/lib/chat-search.ts` | response-level search envelope, warnings, and disclosure strings |
-| `frontend/app/home/components/ChatComposer.tsx` | explicit search-toggle copy and aria labels |
+| `frontend/app/home/components/ChatComposer.tsx` | search mode selector copy and aria labels |
 | `frontend/app/home/components/MarkdownWithThreads.tsx` | clickable citation chip rendering |
 | `frontend/app/home/components/SearchSourcesTray.tsx` | larger-source-set reply tray UI |
 | `frontend/app/home/components/useHomeData.ts` | persisted message loading and preview cleanup |
@@ -222,6 +231,7 @@ Rules:
 
 - `search_metadata = null` means search did not run for that reply
 - `status = 'partial'` means some providers failed but grounding still succeeded
+- relevance-rejected results are persisted as a no-result run with empty `sources`
 - the citation UI activates whenever usable grounded sources are present
 - source ids remain stable and numeric for citation rendering
 
@@ -235,7 +245,9 @@ Rules:
 ## Failure Handling
 
 - if one provider succeeds and another fails, Keen still answers with `partial` search metadata
-- if all providers fail or return no useful sources, Keen still answers with a disclosure
+- if Always Search returns no useful or relevance-accepted sources, Keen answers without source grounding and records the no-result status in metadata
+- if Always Search hits provider/config/timeout failures, Keen answers with a disclosure
+- if Auto Search hits an internal search failure, Keen answers normally without user-visible warning or activity and logs the failure internally
 - search snippets remain untrusted source material and are only used as grounding context
 - invalid citation ids are stripped before save
 

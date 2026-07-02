@@ -23,6 +23,8 @@ import { getSelectionStreamVersion } from '@/app/home/components/markdownSelecta
 import type { ChatImageAttachment } from '@/lib/chat-attachments';
 import { markdownContentClassName } from '@/lib/markdown';
 import { hasUsableSearchSources } from '@/lib/search-citations';
+import type { SearchActivityEvent } from '@/lib/search/types';
+import SourceFavicon from '@/app/home/components/SourceFavicon';
 
 function getHighlightSourceIdAtPoint(root: HTMLElement, clientX: number, clientY: number) {
   const overlayRects = Array.from(
@@ -59,6 +61,26 @@ interface MessageRowProps {
   onTraySourceSelect: (messageId: string, sourceId: number) => void;
 }
 
+function searchActivityEventLabel(event: SearchActivityEvent) {
+  switch (event.type) {
+    case 'planning_started':
+    case 'search_decision_started':
+    case 'search_decision_completed':
+    case 'search_skipped':
+    case 'plan_selected':
+    case 'prior_sources_checked':
+    case 'relevance_checked':
+    case 'search_completed':
+      return '';
+    case 'search_started':
+      return `Searched ${event.query}`;
+    default: {
+      const exhaustiveCheck: never = event;
+      return exhaustiveCheck;
+    }
+  }
+}
+
 function MessageRow({
   activeHighlightSource,
   activeName,
@@ -81,6 +103,18 @@ function MessageRow({
   const messageContentRef = useRef<HTMLDivElement | null>(null);
   const replySearchMetadata =
     message.role === 'assistant' ? message.searchMetadata ?? null : null;
+  const searchActivity =
+    message.role === 'assistant'
+      ? message.searchActivity
+        ?? (replySearchMetadata?.version === 2 ? replySearchMetadata.activity ?? null : null)
+      : null;
+  const searchActivityLabel = searchActivity?.collapsedLabel ?? null;
+  const searchActivitySteps =
+    searchActivity?.events
+      .map(searchActivityEventLabel)
+      .filter((label, index, labels) => label && labels.indexOf(label) === index)
+    ?? [];
+  const canExpandSearchActivity = searchActivitySteps.length > 0;
   const hasSources = hasUsableSearchSources(replySearchMetadata);
   const handleCitationClick = useCallback(
     (sourceId: number) => onCitationClick(message.id, sourceId),
@@ -95,6 +129,13 @@ function MessageRow({
   );
   const handleTraySourceSelect = useCallback(
     (sourceId: number) => onTraySourceSelect(message.id, sourceId),
+    [message.id, onTraySourceSelect]
+  );
+  const handleFooterSourceClick = useCallback(
+    (event: MouseEvent<HTMLButtonElement>, sourceId: number) => {
+      event.stopPropagation();
+      onTraySourceSelect(message.id, sourceId);
+    },
     [message.id, onTraySourceSelect]
   );
   const activeHighlightForMessage =
@@ -124,7 +165,7 @@ function MessageRow({
       endOffset: thread.endOffset,
       selectionStreamVersion: getSelectionStreamVersion(thread.selectionStreamVersion),
       status: thread.status,
-      emphasized: emphasizedThreadMarkerId === thread.markerId,
+      emphasized: thread.status !== 'loading' && emphasizedThreadMarkerId === thread.markerId,
     }));
 
     if (
@@ -226,6 +267,12 @@ function MessageRow({
 
     const handleDocumentClick = (event: globalThis.MouseEvent) => {
       if (event.button !== 0) return;
+      if (
+        event.target instanceof Element
+        && event.target.closest('[data-testid="selection-popover"]')
+      ) {
+        return;
+      }
 
       const sourceId = getHighlightSourceIdAtPoint(root, event.clientX, event.clientY);
       const thread = sourceId ? threadByMarkerId.get(sourceId) : null;
@@ -265,6 +312,32 @@ function MessageRow({
             })}
           </span>
         </div>
+
+        {searchActivityLabel && (
+          <div
+            className="mt-2 font-sans text-xs text-muted/70"
+            onPointerUp={(event) => event.stopPropagation()}
+          >
+            {canExpandSearchActivity ? (
+              <details className="group">
+                <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 rounded-md py-0.5 text-muted/80 transition-colors hover:text-foreground">
+                  <span>{searchActivityLabel}</span>
+                  <span className="text-muted/45 transition group-open:rotate-90">&gt;</span>
+                </summary>
+                <ol className="mt-1.5 space-y-1 pl-3 text-muted/60">
+                  {searchActivitySteps.map((step, index) => (
+                    <li key={`${index}-${step}`} className="list-decimal pl-1">
+                      {step}
+                    </li>
+                  ))}
+                </ol>
+              </details>
+            ) : (
+              <span>{searchActivityLabel}</span>
+            )}
+          </div>
+        )}
+
         <div
           ref={messageContentRef}
           data-message-content="true"
@@ -320,19 +393,45 @@ function MessageRow({
 
         {!message.isStreaming && hasSources && replySearchMetadata && (
           <>
-            <div className="mt-3">
+            <div className="mt-2 flex min-h-7 flex-wrap items-center gap-x-2 gap-y-1 font-sans text-xs text-muted">
               <button
                 type="button"
                 onClick={handleSourcesClick}
                 onPointerUp={(event) => event.stopPropagation()}
-                className={`inline-flex items-center rounded-full border px-3 py-1 font-sans text-xs font-medium transition-colors ${
+                className={`inline-flex h-7 items-center gap-1.5 rounded-md border px-2 transition-colors ${
                   isSourceTrayOpen
-                    ? 'border-foreground/15 bg-foreground/[0.05] text-foreground'
-                    : 'border-border-subtle text-muted hover:bg-foreground/[0.04] hover:text-foreground'
+                    ? 'border-foreground/15 bg-foreground/[0.04] text-foreground'
+                    : 'border-transparent text-muted hover:border-border-subtle hover:bg-foreground/[0.025] hover:text-foreground'
                 }`}
               >
-                Sources {replySearchMetadata.sources.length}
+                <span>Sources</span>
+                <span className="text-current/55">{replySearchMetadata.sources.length}</span>
               </button>
+              <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                {replySearchMetadata.sources.slice(0, 3).map((source) => (
+                  <button
+                    key={source.id}
+                    type="button"
+                    className="inline-flex min-w-0 max-w-[9rem] items-center gap-1.5 rounded-md px-1 py-0.5 text-muted/80 transition-colors hover:bg-foreground/[0.025] hover:text-foreground"
+                    title={source.title}
+                    onClick={(event) => handleFooterSourceClick(event, source.id)}
+                    onPointerUp={(event) => event.stopPropagation()}
+                  >
+                    <SourceFavicon domain={source.domain} title={source.title} size={14} />
+                    <span className="truncate">{source.domain}</span>
+                  </button>
+                ))}
+                {replySearchMetadata.sources.length > 3 && (
+                  <button
+                    type="button"
+                    className="rounded-md px-1 py-0.5 text-muted/60 transition-colors hover:bg-foreground/[0.025] hover:text-foreground"
+                    onClick={handleSourcesClick}
+                    onPointerUp={(event) => event.stopPropagation()}
+                  >
+                    +{replySearchMetadata.sources.length - 3}
+                  </button>
+                )}
+              </span>
             </div>
 
             {isSourceTrayOpen && (

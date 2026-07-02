@@ -18,6 +18,7 @@ interface UseHomeChatSwitchLifecycleParams {
   clearComposerInputForSelection: (selection: SelectedChat | null) => void;
   clearPendingChatRequestForSelection: (selection: SelectedChat) => void;
   clearResponseStyleForSelection: (selection: SelectedChat | null) => void;
+  clearSearchModeForSelection: (selection: SelectedChat | null) => void;
   clearSearchStateForSelection: (selection: SelectedChat | null) => void;
   cleanupTemporaryChatAttachments: (tempChatId: string) => void;
   composerDraftInputsRef: MutableRefObject<Record<string, string>>;
@@ -37,14 +38,13 @@ interface UseHomeChatSwitchLifecycleParams {
   setPersistentSelectedBranchIds: Dispatch<SetStateAction<BranchSelectionMap>>;
   setPersistentThreadsMap: Dispatch<SetStateAction<Map<string, ThreadMeta[]>>>;
   setUserHasScrolledState: (nextValue: boolean) => void;
-  stopMic: () => void;
-  tts: { stop: () => void };
 }
 
 export function useHomeChatSwitchLifecycle({
   clearComposerInputForSelection,
   clearPendingChatRequestForSelection,
   clearResponseStyleForSelection,
+  clearSearchModeForSelection,
   clearSearchStateForSelection,
   cleanupTemporaryChatAttachments,
   composerDraftInputsRef,
@@ -64,8 +64,6 @@ export function useHomeChatSwitchLifecycle({
   setPersistentSelectedBranchIds,
   setPersistentThreadsMap,
   setUserHasScrolledState,
-  stopMic,
-  tts,
 }: UseHomeChatSwitchLifecycleParams) {
   useEffect(() => {
     selectedDraftChatRef.current = selectedDraftChat;
@@ -73,8 +71,6 @@ export function useHomeChatSwitchLifecycle({
 
   const prepareForChatSwitch = useCallback(
     (nextSelection: SelectedChat | null) => {
-      tts.stop();
-      stopMic();
       resetThreadUi();
       setPendingBranch(null);
       setConversationMapOpen(false);
@@ -113,6 +109,7 @@ export function useHomeChatSwitchLifecycle({
         );
         clearComposerInputForSelection(currentSelection);
         clearResponseStyleForSelection(currentSelection);
+        clearSearchModeForSelection(currentSelection);
         clearSearchStateForSelection(currentSelection);
         clearPendingChatRequestForSelection(currentSelection);
       }
@@ -121,6 +118,7 @@ export function useHomeChatSwitchLifecycle({
       clearComposerInputForSelection,
       clearPendingChatRequestForSelection,
       clearResponseStyleForSelection,
+      clearSearchModeForSelection,
       clearSearchStateForSelection,
       composerDraftInputsRef,
       endProgrammaticTranscriptNavigation,
@@ -136,8 +134,6 @@ export function useHomeChatSwitchLifecycle({
       setPersistentSelectedBranchIds,
       setPersistentThreadsMap,
       setUserHasScrolledState,
-      stopMic,
-      tts,
     ]
   );
 
@@ -151,6 +147,7 @@ export function useHomeChatSwitchLifecycle({
       const closedSelection: SelectedChat = { kind: 'temporary', tempChatId };
       clearComposerInputForSelection(closedSelection);
       clearResponseStyleForSelection(closedSelection);
+      clearSearchModeForSelection(closedSelection);
       clearSearchStateForSelection(closedSelection);
       clearPendingChatRequestForSelection(closedSelection);
     });
@@ -158,6 +155,7 @@ export function useHomeChatSwitchLifecycle({
     clearComposerInputForSelection,
     clearPendingChatRequestForSelection,
     clearResponseStyleForSelection,
+    clearSearchModeForSelection,
     clearSearchStateForSelection,
     cleanupTemporaryChatAttachments,
     registerCloseTempChatCleanup,

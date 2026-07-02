@@ -42,6 +42,7 @@ export interface SearchCandidate {
   publishedAt: string | null;
   authorityScoreHint: number;
   freshnessScoreHint: number;
+  originatingQuery?: string;
 }
 
 export interface SearchRoute {
@@ -72,14 +73,104 @@ export interface SearchPipelineOutput {
   status: SearchPipelineStatus;
   profile: SearchProfile;
   query: string;
+  queries?: string[];
+  resolvedIntent?: string;
+  topicEntities?: string[];
+  activity?: SearchActivitySummary;
   providers: SearchProvider[];
   results: Array<
     Pick<
       SearchCandidate,
       'title' | 'url' | 'domain' | 'snippet' | 'provider' | 'sourceType' | 'publishedAt'
     >
+    & { originatingQuery?: string; origin?: 'prior' | 'fresh' }
   >;
   error?: string;
+}
+
+export type SearchSourceStrategy = 'news' | 'official' | 'research' | 'social' | 'mixed';
+export type SearchRunAction = 'searched' | 'not_attempted' | 'failed';
+export type SearchPlannerSource = 'deterministic' | 'model' | 'fallback';
+export type SearchFreshnessRisk = 'none' | 'low' | 'medium' | 'high';
+
+export interface SearchActionPlan {
+  resolvedIntent: string;
+  queries: string[];
+  topicEntities: string[];
+  sourceStrategy: SearchSourceStrategy;
+  freshnessNeeded: boolean;
+  reusePriorSources: boolean;
+  plannerSource: SearchPlannerSource;
+  plannerModelId?: string;
+}
+
+export type SearchActivityEvent =
+  | {
+      type: 'planning_started';
+      label: string;
+    }
+  | {
+      type: 'search_decision_started';
+      mode: 'auto';
+      label: string;
+    }
+  | {
+      type: 'search_decision_completed';
+      mode: 'auto';
+      shouldSearch: boolean;
+      reason: string;
+      confidence: number;
+      freshnessRisk: SearchFreshnessRisk;
+      provider?: string;
+      providerModelId?: string;
+    }
+  | {
+      type: 'search_skipped';
+      mode: 'auto' | 'off';
+      reason: 'auto_decision' | 'mode_off';
+      label: string;
+    }
+  | {
+      type: 'plan_selected';
+      resolvedIntent: string;
+      queries: string[];
+      reusePriorSources: boolean;
+      plannerSource: SearchPlannerSource;
+      plannerModelId?: string;
+    }
+  | {
+      type: 'prior_sources_checked';
+      sourceCount: number;
+      reusedCount: number;
+    }
+  | {
+      type: 'search_started';
+      query: string;
+      attempt: number;
+    }
+  | {
+      type: 'relevance_checked';
+      result: 'accepted' | 'retrying' | 'rejected';
+      reason: string;
+    }
+  | {
+      type: 'search_completed';
+      sourceCount: number;
+      collapsedLabel: string;
+    };
+
+export interface SearchActivitySummary {
+  events: SearchActivityEvent[];
+  collapsedLabel: string;
+}
+
+export interface SearchAttempt {
+  query: string;
+  attempt: number;
+  status: SearchPipelineStatus;
+  sourceCount: number;
+  accepted: boolean;
+  reason: string;
 }
 
 export function isSearchProfile(value: unknown): value is SearchProfile {

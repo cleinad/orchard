@@ -48,9 +48,7 @@ interface UseHomeFixtureRuntimeParams {
   setSelectedChat: Dispatch<SetStateAction<SelectedChat | null>>;
   setTemporaryChats: Dispatch<SetStateAction<TemporaryChatSession[]>>;
   setUserHasScrolledState: (nextValue: boolean) => void;
-  stopMic: () => void;
   tempChatTitle: string;
-  tts: { stop: () => void };
 }
 
 export function useHomeFixtureRuntime({
@@ -70,9 +68,7 @@ export function useHomeFixtureRuntime({
   setSelectedChat,
   setTemporaryChats,
   setUserHasScrolledState,
-  stopMic,
   tempChatTitle,
-  tts,
 }: UseHomeFixtureRuntimeParams) {
   const appliedHomeE2eFixtureRef = useRef<string | null>(null);
 
@@ -82,8 +78,6 @@ export function useHomeFixtureRuntime({
     }
 
     appliedHomeE2eFixtureRef.current = fixture.key;
-    tts.stop();
-    stopMic();
     resetThreadUi();
     setPendingBranch(null);
     window.sessionStorage.removeItem(composerDraftInputsStorageKey);
@@ -154,8 +148,6 @@ export function useHomeFixtureRuntime({
     setSelectedChat,
     setTemporaryChats,
     setUserHasScrolledState,
-    stopMic,
     tempChatTitle,
-    tts,
   ]);
 }

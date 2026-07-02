@@ -53,6 +53,72 @@ async function ensureConversationsOpen(page) {
   return sidePanel;
 }
 
+const TINY_PNG_BASE64 =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=';
+
+async function pasteFilesIntoComposer(page, files, options = {}) {
+  await page.locator('textarea[placeholder^="Message"]').evaluate((textarea, payload) => {
+    const makeFile = (spec) => {
+      const binary = atob(spec.base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let index = 0; index < binary.length; index += 1) {
+        bytes[index] = binary.charCodeAt(index);
+      }
+      return new File([bytes], spec.name, { type: spec.mimeType });
+    };
+    const pastedFiles = payload.files.map(makeFile);
+    const itemFiles = payload.files.map(makeFile);
+    const event = new Event('paste', { bubbles: true, cancelable: true });
+
+    Object.defineProperty(event, 'clipboardData', {
+      value: {
+        files: payload.exposeFiles ? pastedFiles : [],
+        items: itemFiles.map((file) => ({
+          kind: 'file',
+          type: file.type,
+          getAsFile: () => file,
+        })),
+      },
+    });
+
+    textarea.dispatchEvent(event);
+  }, { files, exposeFiles: options.exposeFiles ?? false });
+}
+
+async function dropFilesIntoComposer(page, files, options = {}) {
+  await page.locator('textarea[placeholder^="Message"]').evaluate((textarea, payload) => {
+    const form = textarea.closest('form');
+    if (!form) {
+      throw new Error('Composer form not found');
+    }
+
+    const makeFile = (spec) => {
+      const binary = atob(spec.base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let index = 0; index < binary.length; index += 1) {
+        bytes[index] = binary.charCodeAt(index);
+      }
+      return new File([bytes], spec.name, { type: spec.mimeType });
+    };
+    const droppedFiles = payload.files.map(makeFile);
+    const itemFiles = payload.files.map(makeFile);
+    const event = new Event('drop', { bubbles: true, cancelable: true });
+
+    Object.defineProperty(event, 'dataTransfer', {
+      value: {
+        files: payload.exposeFiles ? droppedFiles : [],
+        items: itemFiles.map((file) => ({
+          kind: 'file',
+          type: file.type,
+          getAsFile: () => file,
+        })),
+      },
+    });
+
+    form.dispatchEvent(event);
+  }, { files, exposeFiles: options.exposeFiles ?? false });
+}
+
 test('workspace view shows sessions, sidebar workspace grouping, memory, and editable context', async ({ page }) => {
   const workspaceId = 'workspace-health';
   const sessionTitle = 'Zone 2 training plan';
@@ -302,6 +368,347 @@ test('workspace new chat preserves workspace selection after navigating home', a
     chatMode: 'persistent',
   });
   await expect(page).toHaveURL(/\/home\/conversation-e2e-created-1\?e2e=workspace-draft$/);
+});
+
+test('workspace sidebar draft stays visible as a chat while the first response is pending', async ({ page }) => {
+  const workspaceId = 'workspace-health';
+  const conversationId = 'conversation-workspace-sidebar-visible';
+  const chatStarted = deferred();
+  const finishResponse = deferred();
+
+  await mockHomeDataRoutes(page, {
+    workspaces: [
+      createWorkspace({
+        id: workspaceId,
+        name: 'Health',
+        description: 'Training, recovery, and bloodwork',
+        context: 'Use running and cycling training context.',
+        icon: 'H',
+      }),
+    ],
+    conversations: [],
+    createdConversations: [
+      createConversation({
+        id: conversationId,
+        title: 'Workspace Sidebar Send',
+        workspaceId,
+        updatedAt: '2026-06-25T12:30:01.000Z',
+      }),
+    ],
+  });
+
+  await mockChatRoute(page, async (body) => {
+    chatStarted.resolve(body);
+    await finishResponse.promise;
+    return {
+      message: 'Workspace sidebar answer',
+      conversationId,
+      workspaceId,
+      assistantMessageId: 'assistant-workspace-sidebar-visible',
+      userMessageId: 'user-workspace-sidebar-visible',
+    };
+  });
+
+  await page.goto(`/workspaces/${workspaceId}?e2e=workspace-sidebar-visible`);
+
+  const sidePanel = await ensureConversationsOpen(page);
+  await sidePanel.getByRole('button', { name: 'New chat in Health' }).click();
+
+  const composer = page.locator('textarea[placeholder^="Message"]').first();
+  await composer.fill('workspace sidebar send');
+  await page.keyboard.press('Enter');
+
+  await expect(page).toHaveURL(
+    new RegExp(`/home/${conversationId}\\?e2e=workspace-sidebar-visible$`)
+  );
+  await expect.poll(async () => (await chatStarted.promise).workspaceId).toBe(workspaceId);
+  await expect(sidePanel.getByTestId(`conversation-row-${conversationId}`)).toBeVisible();
+
+  finishResponse.resolve();
+  await expect(page.getByText('Workspace sidebar answer')).toBeVisible();
+});
+
+test('workspace composer persists model changes and enables image attachments for vision models', async ({ page }) => {
+  const workspaceId = 'workspace-health';
+
+  await mockHomeDataRoutes(page, {
+    workspaces: [
+      createWorkspace({
+        id: workspaceId,
+        name: 'Health',
+        description: 'Training, recovery, and bloodwork',
+        icon: 'H',
+      }),
+    ],
+    conversations: [],
+    chatModels: [
+      {
+        id: 'auto',
+        label: 'Auto',
+        provider: 'auto',
+        providerLabel: 'Auto',
+        iconKey: 'auto',
+        description: 'Routes automatically.',
+        available: true,
+        isDefault: true,
+        supportsImages: false,
+      },
+      {
+        id: 'gemini-3-flash-preview',
+        label: 'Gemini 3 Flash',
+        provider: 'google',
+        providerLabel: 'Google',
+        iconKey: 'google',
+        description: 'Fast Gemini 3 model with image support.',
+        available: true,
+        isDefault: false,
+        supportsImages: true,
+        effort: {
+          levels: ['minimal', 'low', 'medium', 'high'],
+          defaultLevel: 'medium',
+          supportsThinkingToggle: false,
+          defaultThinkingEnabled: true,
+        },
+      },
+    ],
+  });
+
+  await page.goto(`/workspaces/${workspaceId}?e2e=workspace-images`);
+
+  await expect(page.getByRole('button', { name: 'Attach image' })).toBeDisabled();
+  await page.locator('[aria-label^="Attach image disabled"]').hover();
+  await expect(
+    page.getByRole('tooltip', {
+      name: 'The selected model cannot read images. Choose a vision-capable model.',
+    })
+  ).toBeVisible();
+  await pasteFilesIntoComposer(page, [
+    {
+      name: 'blocked.png',
+      mimeType: 'image/png',
+      base64: TINY_PNG_BASE64,
+    },
+  ]);
+  await expect(
+    page.getByTestId('composer-image-warning')
+  ).toHaveText('The selected model cannot read images. Choose a vision-capable model.');
+
+  await page.getByRole('button', { name: /Chat model: Auto/ }).click();
+  await page.getByRole('menuitemradio', { name: /Gemini 3 Flash/ }).click();
+
+  await expect(page.getByRole('button', { name: /Chat model: Gemini 3 Flash/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Attach image' })).toBeEnabled();
+  await expect
+    .poll(() => page.evaluate(() => window.localStorage.getItem('keen-chat-model')))
+    .toBe('gemini-3-flash-preview');
+
+  await page.reload();
+  await expect(page.getByRole('button', { name: /Chat model: Gemini 3 Flash/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Attach image' })).toBeEnabled();
+
+  await page.locator('input[type="file"]').setInputFiles({
+    name: 'workspace.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from(TINY_PNG_BASE64, 'base64'),
+  });
+
+  await expect(page.getByAltText('workspace.png')).toBeVisible();
+
+  await page.getByRole('button', { name: /Chat model: Gemini 3 Flash/ }).click();
+  await page.getByRole('menuitemradio', { name: /Auto/ }).click();
+  await expect(page.getByAltText('workspace.png')).toHaveCount(0);
+  await expect(page.getByTestId('composer-image-warning')).toHaveText(
+    'Removed attached images because the selected model cannot read images.'
+  );
+  await expect(page.getByRole('button', { name: 'Attach image' })).toBeDisabled();
+});
+
+test('workspace composer shows inline warnings for unsupported pasted files', async ({ page }) => {
+  const workspaceId = 'workspace-health';
+
+  await mockHomeDataRoutes(page, {
+    workspaces: [
+      createWorkspace({
+        id: workspaceId,
+        name: 'Health',
+        icon: 'H',
+      }),
+    ],
+    conversations: [],
+    chatModels: [
+      {
+        id: 'gemini-3-flash-preview',
+        label: 'Gemini 3 Flash',
+        provider: 'google',
+        providerLabel: 'Google',
+        iconKey: 'google',
+        description: 'Fast Gemini 3 model with image support.',
+        available: true,
+        isDefault: true,
+        supportsImages: true,
+        effort: {
+          levels: ['minimal', 'low', 'medium', 'high'],
+          defaultLevel: 'medium',
+          supportsThinkingToggle: false,
+          defaultThinkingEnabled: true,
+        },
+      },
+    ],
+  });
+
+  await page.goto(`/workspaces/${workspaceId}?e2e=workspace-image-warnings`);
+
+  await pasteFilesIntoComposer(page, [
+    {
+      name: 'notes.pdf',
+      mimeType: 'application/pdf',
+      base64: 'JVBERi0xLjQK',
+    },
+  ]);
+  await expect(page.getByTestId('composer-image-warning')).toHaveText(
+    'Only image uploads are supported here.'
+  );
+
+  await pasteFilesIntoComposer(page, [
+    {
+      name: 'vector.svg',
+      mimeType: 'image/svg+xml',
+      base64: 'PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciLz4=',
+    },
+  ]);
+  await expect(page.getByTestId('composer-image-warning')).toHaveText(
+    'Only PNG, JPEG, WebP, and GIF images are supported.'
+  );
+
+  await pasteFilesIntoComposer(page, [
+    {
+      name: 'animation.gif',
+      mimeType: 'image/gif',
+      base64: 'R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==',
+    },
+  ]);
+  await expect(page.getByTestId('composer-image-warning')).toHaveText(
+    'Google models do not support GIF images here. Use PNG, JPEG, or WebP.'
+  );
+
+  await pasteFilesIntoComposer(page, [
+    {
+      name: 'items-path.png',
+      mimeType: 'image/png',
+      base64: TINY_PNG_BASE64,
+    },
+  ]);
+  await expect(page.getByAltText('items-path.png')).toBeVisible();
+});
+
+test('workspace composer does not duplicate images exposed as files and items', async ({ page }) => {
+  const workspaceId = 'workspace-health';
+
+  await mockHomeDataRoutes(page, {
+    workspaces: [
+      createWorkspace({
+        id: workspaceId,
+        name: 'Health',
+        icon: 'H',
+      }),
+    ],
+    conversations: [],
+    chatModels: [
+      {
+        id: 'gemini-3-flash-preview',
+        label: 'Gemini 3 Flash',
+        provider: 'google',
+        providerLabel: 'Google',
+        iconKey: 'google',
+        description: 'Fast Gemini 3 model with image support.',
+        available: true,
+        isDefault: true,
+        supportsImages: true,
+      },
+    ],
+  });
+
+  await page.goto(`/workspaces/${workspaceId}?e2e=workspace-image-duplicates`);
+
+  await pasteFilesIntoComposer(
+    page,
+    [
+      {
+        name: 'duplicate-paste.png',
+        mimeType: 'image/png',
+        base64: TINY_PNG_BASE64,
+      },
+    ],
+    { exposeFiles: true }
+  );
+  await expect(page.getByAltText('duplicate-paste.png')).toHaveCount(1);
+
+  await dropFilesIntoComposer(
+    page,
+    [
+      {
+        name: 'duplicate-drop.png',
+        mimeType: 'image/png',
+        base64: TINY_PNG_BASE64,
+      },
+    ],
+    { exposeFiles: true }
+  );
+  await expect(page.getByAltText('duplicate-drop.png')).toHaveCount(1);
+});
+
+test('workspace composer warns when image attachment limit is reached', async ({ page }) => {
+  const workspaceId = 'workspace-health';
+
+  await mockHomeDataRoutes(page, {
+    workspaces: [
+      createWorkspace({
+        id: workspaceId,
+        name: 'Health',
+        icon: 'H',
+      }),
+    ],
+    conversations: [],
+    chatModels: [
+      {
+        id: 'gemini-3-flash-preview',
+        label: 'Gemini 3 Flash',
+        provider: 'google',
+        providerLabel: 'Google',
+        iconKey: 'google',
+        description: 'Fast Gemini 3 model with image support.',
+        available: true,
+        isDefault: true,
+        supportsImages: true,
+      },
+    ],
+  });
+
+  await page.goto(`/workspaces/${workspaceId}?e2e=workspace-image-limit`);
+
+  await page.locator('input[type="file"]').setInputFiles(
+    Array.from({ length: 5 }, (_, index) => ({
+      name: `limit-${index + 1}.png`,
+      mimeType: 'image/png',
+      buffer: Buffer.from(TINY_PNG_BASE64, 'base64'),
+    }))
+  );
+  await expect(page.getByAltText('limit-5.png')).toBeVisible();
+
+  await page.locator('[aria-label^="Attach image disabled"]').hover();
+  await expect(
+    page.getByRole('tooltip', { name: 'Attach up to 5 images at a time.' })
+  ).toBeVisible();
+  await pasteFilesIntoComposer(page, [
+    {
+      name: 'too-many.png',
+      mimeType: 'image/png',
+      base64: TINY_PNG_BASE64,
+    },
+  ]);
+  await expect(page.getByTestId('composer-image-warning')).toHaveText(
+    'Attach up to 5 images at a time.'
+  );
 });
 
 test('dragging a default chat into a workspace moves the chat and single-source global memory', async ({ page }) => {

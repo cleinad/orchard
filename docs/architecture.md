@@ -7,18 +7,17 @@
 | App + API | Next.js | Shared TypeScript surface for UI, route handlers, auth, and AI orchestration |
 | Database | Supabase (Postgres) | Auth, persistence, RLS, and pgvector-backed memory |
 | Chat Models | AI SDK providers | Common streaming interface across Google, Anthropic, and OpenAI models |
-| Search | Brave / Exa | Optional live retrieval behind explicit search mode |
-| STT | Deepgram | Browser microphone audio streams directly to Deepgram with short-lived tokens |
-| TTS | ElevenLabs | Optional spoken assistant responses |
+| Search | Brave / Exa | Optional live retrieval behind auto, required, or off search modes |
+| STT (dormant) | Deepgram | Hidden token route retained for a future voice redesign |
+| TTS (dormant) | ElevenLabs | Hidden spoken-response route retained for a future voice redesign |
 
 ## Runtime Shape
 
 ```
 Browser (Next.js UI)
   |-- chat/search/memory/mentors --> Next.js API routes
-  |-- text-to-speech -----------> Next.js /api/tts --> ElevenLabs
-  |-- speech-to-text token -----> Next.js /api/deepgram/token
-  |-- speech-to-text audio -----> Deepgram WebSocket
+  |-- dormant text-to-speech route --> Next.js /api/tts --> ElevenLabs
+  |-- dormant STT token route ------> Next.js /api/deepgram/token
 
 Next.js API routes
   |-- auth/session -------------> Supabase Auth
@@ -28,19 +27,20 @@ Next.js API routes
 
 ## Voice Pipeline
 
+Voice controls are intentionally hidden in the current composer. There is no visible UI path for microphone capture, transcription auto-send, or spoken assistant playback. The old home-screen voice orchestration hooks were removed; the remaining dormant pieces are server routes and data fields that can be reused or replaced by a future voice redesign.
+
 ### Input
 
 ```
-Mic capture (browser MediaRecorder)
+Future mic capture
   -> POST /api/deepgram/token
-  -> Deepgram /v1/listen WebSocket using Sec-WebSocket-Protocol
-  -> transcript state in the chat composer
+  -> future STT client integration
   -> submitted text sent to /api/chat
 ```
 
-The Deepgram API key stays server-side in `frontend/.env.local`. The browser receives only a short-lived token and opens the realtime WebSocket directly.
+The Deepgram API key stays server-side in `frontend/.env.local`. The current route mints a short-lived token, but no composer UI calls it.
 
-Note: this direct Deepgram STT path has unit coverage for token minting only. The real browser microphone/WebSocket flow has not been manually validated and should be treated as experimental.
+Note: the Deepgram path has unit coverage for token minting only. Browser microphone capture and realtime transcription need to be redesigned before being exposed again.
 
 ### Output
 
@@ -48,7 +48,7 @@ Note: this direct Deepgram STT path has unit coverage for token minting only. Th
 Assistant text
   -> POST /api/tts
   -> ElevenLabs audio stream
-  -> browser playback with visualization
+  -> future playback client
 ```
 
 ## Persistence

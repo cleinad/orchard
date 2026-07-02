@@ -2,7 +2,7 @@
 
 ## Overview
 
-Mentors are specialized AI personas available in Keen that carry deep domain knowledge and tailored behavior. Each mentor acts like having a knowledgeable person in your network — someone you can talk to naturally (including by voice) and get real, domain-specific advice without crafting a single prompt.
+Mentors are specialized AI personas available in Keen that carry deep domain knowledge and tailored behavior. Each mentor acts like having a knowledgeable person in your network — someone you can talk to naturally and get real, domain-specific advice without crafting a single prompt.
 
 Keen itself is the default — your personal assistant, the mentor on *you*. When you need specialized help, you open your contacts and reach out to a mentor who knows that domain deeply.
 
@@ -43,7 +43,7 @@ Keen is **not** a row in the `mentors` table — when `mentor_id` is null on a c
 
 ## Roadmap
 
-- **v1 (current)**: Built-in mentors, custom mentor creation with AI-assisted generation, multi-chat mentor conversations, voice-enabled, per-mentor accent colors and avatar upload
+- **v1 (current)**: Built-in mentors, custom mentor creation with AI-assisted generation, multi-chat mentor conversations, per-mentor accent colors and avatar upload. Voice fields and routes remain dormant while composer voice controls are hidden.
 - **v2**: Attach knowledge bases and reference documents to mentors, AI-generated mentor photos
 - **v3**: User-controlled context sharing between Keen and mentors, Keen can brief a mentor before you talk to them
 - **v4**: Cross-mentor conversations, Keen can route questions to or consult other mentors mid-conversation
@@ -67,7 +67,7 @@ Keen is **not** a row in the `mentors` table — when `mentor_id` is null on a c
 | `is_builtin` | `true` for seeded defaults |
 | `accent_color` | Hex color for UI accent |
 | `avatar_url` | Optional avatar image URL |
-| `voice_id` | TTS voice identifier (nullable, unused in v1) |
+| `voice_id` | Dormant TTS voice identifier (nullable, not exposed while voice controls are hidden) |
 | `model_id` | LLM model override fallback (nullable, not yet exposed in mentor UI) |
 
 RLS: users can only access their own mentors. Built-in mentors cannot be deleted.

@@ -13,9 +13,27 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Tooltip from '@/app/components/Tooltip';
 import ChatComposer from '@/app/home/components/ChatComposer';
 import { persistInitialSendHandoff } from '@/app/home/components/initialSendHandoff';
+import {
+  uploadChatImageAttachments,
+  type UploadedChatImageAttachment,
+} from '@/app/home/components/chatImageUploads';
+import {
+  CHAT_MODEL_EFFORT_OVERRIDES_STORAGE_KEY,
+  CHAT_MODEL_STORAGE_KEY,
+  CHAT_MODEL_THINKING_OVERRIDES_STORAGE_KEY,
+  isChatModelEffortOverrides,
+  isChatModelThinkingOverrides,
+} from '@/app/home/components/chatPreferencePersistence';
 import { useChatModelCatalog } from '@/app/home/components/useChatModelCatalog';
 import { useHomeDataContext } from '@/app/home/components/HomeDataContext';
+import { usePersistedJson } from '@/app/home/components/usePersistedJson';
+import { usePersistedString } from '@/app/home/components/usePersistedString';
 import { useSidePanel } from '@/app/home/components/SidePanelContext';
+import {
+  GOOGLE_GIF_UNSUPPORTED_MESSAGE,
+  IMAGE_MODEL_UNSUPPORTED_MESSAGE,
+  useChatImageComposerState,
+} from '@/app/home/components/useChatImageComposerState';
 import MemoryEntry from '@/app/home/components/MemoryEntry';
 import { useMemory } from '@/app/home/components/useMemory';
 import {
@@ -27,7 +45,10 @@ import {
   type ChatModelThinkingOverrides,
 } from '@/lib/chat-models';
 import { DEFAULT_RESPONSE_STYLE, type ResponseStyle } from '@/lib/response-style';
+import type { SearchMode } from '@/lib/chat-search';
 import type { WorkspaceListItem } from '@/lib/workspaces';
+import { CHAT_IMAGE_BUCKET } from '@/lib/chat-attachments';
+import { supabase } from '@/lib/supabase';
 
 type TabKey = 'sessions' | 'memory';
 
@@ -129,13 +150,24 @@ export default function WorkspacePage() {
   const [deletingWorkspace, setDeletingWorkspace] = useState(false);
   const [composerInput, setComposerInput] = useState('');
   const [composerLoading, setComposerLoading] = useState(false);
-  const [searchEnabled, setSearchEnabled] = useState(false);
-  const [selectedModelId, setSelectedModelId] =
-    useState<ChatModelId>(DEFAULT_CHAT_MODEL_ID);
+  const [searchMode, setSearchMode] = useState<SearchMode>('auto');
+  const [selectedModelId, setSelectedModelId] = usePersistedString<ChatModelId>(
+    CHAT_MODEL_STORAGE_KEY,
+    DEFAULT_CHAT_MODEL_ID,
+    isChatModelId
+  );
   const [modelEffortOverrides, setModelEffortOverrides] =
-    useState<ChatModelEffortOverrides>({});
+    usePersistedJson<ChatModelEffortOverrides>(
+      CHAT_MODEL_EFFORT_OVERRIDES_STORAGE_KEY,
+      {},
+      isChatModelEffortOverrides
+    );
   const [thinkingEnabledOverrides, setThinkingEnabledOverrides] =
-    useState<ChatModelThinkingOverrides>({});
+    usePersistedJson<ChatModelThinkingOverrides>(
+      CHAT_MODEL_THINKING_OVERRIDES_STORAGE_KEY,
+      {},
+      isChatModelThinkingOverrides
+    );
   const [responseStyle, setResponseStyle] =
     useState<ResponseStyle>(DEFAULT_RESPONSE_STYLE);
   const [composerWarning, setComposerWarning] = useState<string | null>(null);
@@ -144,9 +176,6 @@ export default function WorkspacePage() {
   const contextTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const nameInputRef = useRef<HTMLInputElement | null>(null);
   const savingWorkspaceNameRef = useRef(false);
-  const waveformRef = useRef<SVGPolylineElement | null>(null);
-  const waveformGlowRef = useRef<SVGPolylineElement | null>(null);
-  const waveformContainerRef = useRef<HTMLDivElement | null>(null);
 
   const chatModels = useChatModelCatalog(selectedModelId, setSelectedModelId);
   const selectedChatModel = chatModels.find((model) => model.id === selectedModelId) ?? null;
@@ -164,6 +193,24 @@ export default function WorkspacePage() {
   const thinkingEnabledOverride = hasThinkingEnabledOverride
     ? thinkingEnabledOverrides[selectedModelId] ?? null
     : null;
+  const {
+    imageInputDisabledReason,
+    imageWarning,
+    isUploadingImages,
+    pendingImageAttachments,
+    selectedModelRejectsGifImages,
+    selectedModelSupportsImages,
+    handleAttachImages,
+    handleModelChange,
+    handleRemoveImageAttachment,
+    setImageWarning,
+    setIsUploadingImages,
+    setPendingImageAttachments,
+  } = useChatImageComposerState({
+    chatModels,
+    selectedChatModel,
+    setSelectedModelId,
+  });
 
   const updateSelectedModelEffort = useCallback(
     (modelId: ChatModelId, effort: ChatModelEffortLevel) => {
@@ -172,7 +219,7 @@ export default function WorkspacePage() {
         [modelId]: effort,
       }));
     },
-    []
+    [setModelEffortOverrides]
   );
 
   const updateThinkingEnabled = useCallback((modelId: ChatModelId, enabled: boolean) => {
@@ -180,7 +227,7 @@ export default function WorkspacePage() {
       ...current,
       [modelId]: enabled,
     }));
-  }, []);
+  }, [setThinkingEnabledOverrides]);
 
   useEffect(() => {
     let cancelled = false;
@@ -423,20 +470,45 @@ export default function WorkspacePage() {
   const handleComposerSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const message = composerInput.trim();
-    if (!message || composerLoading) {
+    const imagesToSend = pendingImageAttachments;
+    let uploadedAttachments: UploadedChatImageAttachment[] = [];
+    let shouldRevokeLocalImageUrls = false;
+
+    if ((!message && imagesToSend.length === 0) || composerLoading || isUploadingImages) {
+      return;
+    }
+
+    if (imagesToSend.length > 0 && !selectedModelSupportsImages) {
+      setImageWarning(IMAGE_MODEL_UNSUPPORTED_MESSAGE);
+      return;
+    }
+
+    if (
+      selectedModelRejectsGifImages
+      && imagesToSend.some((attachment) => attachment.mimeType === 'image/gif')
+    ) {
+      setImageWarning(GOOGLE_GIF_UNSUPPORTED_MESSAGE);
       return;
     }
 
     setComposerLoading(true);
+    if (imagesToSend.length > 0) {
+      setIsUploadingImages(true);
+    }
     setComposerWarning(null);
+    setImageWarning(null);
     setError(null);
 
     try {
+      if (imagesToSend.length > 0) {
+        uploadedAttachments = await uploadChatImageAttachments(imagesToSend);
+      }
+
       const response = await fetch('/api/conversations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          initialMessage: message,
+          initialMessage: message || 'Image question',
           workspaceId,
         }),
       });
@@ -456,14 +528,33 @@ export default function WorkspacePage() {
         modelEffort: selectedModelEffort,
         thinkingEnabled: thinkingEnabledOverride,
         responseStyle,
-        searchEnabled,
+        searchMode,
+        uploadedAttachments,
       });
       setComposerInput('');
+      setPendingImageAttachments([]);
+      shouldRevokeLocalImageUrls = imagesToSend.length > 0;
       openPersistentConversation(conversationId);
       void refreshSidebarData();
     } catch (err) {
-      setComposerWarning(err instanceof Error ? err.message : 'Failed to start workspace chat.');
+      if (uploadedAttachments.length > 0) {
+        await supabase.storage
+          .from(CHAT_IMAGE_BUCKET)
+          .remove(uploadedAttachments.map((attachment) => attachment.storagePath));
+      }
+
+      setComposerWarning(
+        err instanceof Error ? err.message : 'Failed to start workspace chat.'
+      );
     } finally {
+      if (shouldRevokeLocalImageUrls) {
+        for (const attachment of imagesToSend) {
+          URL.revokeObjectURL(attachment.url);
+        }
+      }
+      if (imagesToSend.length > 0) {
+        setIsUploadingImages(false);
+      }
       setComposerLoading(false);
     }
   };
@@ -691,42 +782,29 @@ export default function WorkspacePage() {
                 chatModels={chatModels}
                 input={composerInput}
                 isLoading={composerLoading}
-                imageInputDisabled
-                isUploadingImages={false}
-                micActive={false}
-                pendingImageAttachments={[]}
+                imageInputDisabledReason={imageInputDisabledReason}
+                isUploadingImages={isUploadingImages}
+                pendingImageAttachments={pendingImageAttachments}
                 responseStyle={responseStyle}
                 selectedModelId={selectedModelId}
                 modelEffortOverrides={modelEffortOverrides}
                 thinkingEnabledOverrides={thinkingEnabledOverrides}
-                ttsEnabled={false}
-                searchEnabled={searchEnabled}
+                searchMode={searchMode}
                 temporaryChatEnabled={false}
                 showTemporaryIntro={false}
                 temporaryMemoryMode="off"
-                finalTranscript=""
-                interimTranscript=""
-                transcriptionStatus="idle"
-                microphoneStatus="idle"
-                microphoneErrorMessage={null}
                 searchWarning={composerWarning}
-                imageWarning={null}
-                isTtsLoading={false}
-                isTtsPlaying={false}
+                imageWarning={imageWarning}
                 textareaRef={textareaRef}
-                waveformRef={waveformRef}
-                waveformGlowRef={waveformGlowRef}
-                waveformContainerRef={waveformContainerRef}
                 onInputChange={setComposerInput}
-                onAttachImages={() => {}}
-                onRemoveImageAttachment={() => {}}
-                onModelChange={setSelectedModelId}
+                onAttachImages={handleAttachImages}
+                onImageWarning={setImageWarning}
+                onRemoveImageAttachment={handleRemoveImageAttachment}
+                onModelChange={handleModelChange}
                 onModelEffortChange={updateSelectedModelEffort}
                 onThinkingEnabledChange={updateThinkingEnabled}
                 onResponseStyleChange={setResponseStyle}
-                onToggleMic={() => {}}
-                onToggleTts={() => {}}
-                onToggleSearch={() => setSearchEnabled((value) => !value)}
+                onSearchModeChange={setSearchMode}
                 onTemporaryMemoryModeChange={() => {}}
                 onSubmit={handleComposerSubmit}
                 onKeyDown={handleComposerKeyDown}

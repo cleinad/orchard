@@ -54,7 +54,90 @@ function buildSearchMetadata(sourceCount = 10) {
   };
 }
 
-test('search mode sends explicit search requests and renders a scalable source tray', async ({ page }) => {
+async function selectSearchMode(page, label) {
+  await page.getByRole('button', { name: /^Search mode / }).click();
+  await page.getByRole('menuitemradio', { name: label }).click();
+}
+
+async function ensureConversationsOpen(page) {
+  const rail = page.locator('nav[aria-hidden]').first();
+  const sidePanel = page.locator('[role="region"][aria-label="Conversations and sections"]').first();
+
+  if ((await rail.getAttribute('aria-hidden')) !== 'true') {
+    await page.getByRole('button', { name: 'Open conversations' }).first().click();
+    await expect(rail).toHaveAttribute('aria-hidden', 'true');
+  }
+
+  return sidePanel;
+}
+
+test('default composer sends auto search mode', async ({ page }) => {
+  const conversationId = 'conversation-search-auto';
+  const userMessage = 'Help me brainstorm names';
+  const state = await mockHomeDataRoutes(page, {
+    conversations: [],
+    messagesByConversationId: {},
+    createdConversations: [
+      createConversation({
+        id: conversationId,
+        title: 'Name Brainstorm',
+      }),
+    ],
+  });
+
+  await mockChatRoute(page, async (body) => {
+    expect(body.searchMode).toBe('auto');
+
+    state.messagesByConversationId[conversationId] = [
+      createMessage({
+        id: 'message-user-auto',
+        role: 'user',
+        content: userMessage,
+        createdAt: '2026-04-17T12:00:01.000Z',
+      }),
+      createMessage({
+        id: 'message-assistant-auto',
+        role: 'assistant',
+        content: 'Here are a few name directions.',
+        createdAt: '2026-04-17T12:00:02.000Z',
+      }),
+    ];
+
+    return {
+      conversationId,
+      conversationTitle: 'Name Brainstorm',
+      userMessageId: 'message-user-auto',
+      assistantMessageId: 'message-assistant-auto',
+      message: 'Here are a few name directions.',
+      search: {
+        mode: 'auto',
+        attempted: false,
+        status: 'not_attempted',
+        resultCount: 0,
+        warning: null,
+        metadata: null,
+        decision: {
+          shouldSearch: false,
+          reason: 'Stable brainstorming request.',
+          confidence: 0.9,
+          freshnessRisk: 'none',
+        },
+        skippedReason: 'auto_decision',
+      },
+    };
+  });
+
+  await page.goto('/home?e2e=search-mode-auto');
+  await expect(page.getByRole('button', { name: 'Search mode auto' })).toBeVisible();
+
+  const composer = page.getByPlaceholder('Message Keen...');
+  await composer.fill(userMessage);
+  await composer.press('Enter');
+
+  await expect(page).toHaveURL(new RegExp(`/home/${conversationId}\\?e2e=search-mode-auto$`));
+});
+
+test('always search sends required search mode and renders a scalable source tray', async ({ page }) => {
   const conversationId = 'conversation-search-mode';
   const userMessage = 'What changed with OpenAI pricing this week?';
   const assistantMessage = 'OpenAI updated pricing details [1] [2].';
@@ -71,7 +154,7 @@ test('search mode sends explicit search requests and renders a scalable source t
   });
 
   await mockChatRoute(page, async (body) => {
-    expect(body.searchEnabled).toBe(true);
+    expect(body.searchMode).toBe('required');
 
     state.messagesByConversationId[conversationId] = [
       createMessage({
@@ -108,21 +191,132 @@ test('search mode sends explicit search requests and renders a scalable source t
 
   await page.goto('/home?e2e=search-mode');
 
-  const searchToggle = page.getByRole('button', { name: 'Search mode off' });
-  await searchToggle.click();
-  await expect(page.getByRole('button', { name: 'Search mode on' })).toBeVisible();
+  await selectSearchMode(page, 'Always search');
+  await expect(page.getByRole('button', { name: 'Search mode always search' })).toBeVisible();
 
   const composer = page.getByPlaceholder('Message Keen...');
   await composer.fill(userMessage);
   await composer.press('Enter');
 
   await expect(page).toHaveURL(new RegExp(`/home/${conversationId}\\?e2e=search-mode$`));
+  const inlineCitations = page.getByTestId('search-citation');
+  await expect(inlineCitations).toHaveCount(2);
+  await expect(inlineCitations.nth(0)).toHaveText('1');
+  await expect(inlineCitations.nth(1)).toHaveText('2');
+  await expect(inlineCitations.nth(0).locator('img')).toHaveCount(0);
+  await expect(inlineCitations.nth(0)).not.toHaveAttribute('data-selection-exclude', /.+/);
+  await expect(inlineCitations.nth(0)).toHaveAttribute('data-selection-text', '[1]');
+  await expect(inlineCitations.nth(0)).not.toHaveAttribute('title', /.+/);
+  const citationPreviews = page.getByTestId('search-citation-preview');
+  await expect(citationPreviews).toHaveCount(2);
+  await expect(citationPreviews.nth(0)).toContainText('Source 1');
+  await expect(citationPreviews.nth(0)).toContainText('Snippet 1');
+  await expect(citationPreviews.nth(0)).toBeHidden();
+  await expect(citationPreviews.nth(0)).toHaveAttribute('href', 'https://example.com/source-1');
+  await expect(citationPreviews.nth(0)).toHaveCSS('text-decoration-line', 'none');
+  await inlineCitations.nth(0).hover();
+  await expect(citationPreviews.nth(0)).toBeVisible();
+  await citationPreviews.nth(0).hover();
+  await expect(citationPreviews.nth(0)).toBeVisible();
+  const [citationPopup] = await Promise.all([
+    page.waitForEvent('popup'),
+    citationPreviews.nth(0).click(),
+  ]);
+  await expect(citationPopup).toHaveURL('https://example.com/source-1');
+  await citationPopup.close();
   await expect(page.getByRole('button', { name: 'Sources 10' })).toBeVisible();
 
   await page.getByRole('button', { name: 'Sources 10' }).click();
   await expect(page.getByTestId('search-source-tab')).toHaveCount(10);
-  await expect(page.getByText('Snippet 1')).toBeVisible();
+  await expect(page.getByText('Snippet 1')).toBeHidden();
 
-  await page.getByTestId('search-source-tab').nth(7).click();
-  await expect(page.getByText('Snippet 8')).toBeVisible();
+  const eighthSource = page.getByTestId('search-source-tab').nth(7);
+  await eighthSource.hover();
+  await expect(page.getByText('Snippet 8')).toBeHidden();
+
+  const [popup] = await Promise.all([
+    page.waitForEvent('popup'),
+    eighthSource.click(),
+  ]);
+  await expect(popup).toHaveURL('https://example.com/source-8');
+  await popup.close();
+});
+
+test('off mode sends off and search mode is restored per composer session', async ({ page }) => {
+  const conversations = [
+    createConversation({
+      id: 'conversation-search-a',
+      title: 'First Search Chat',
+      updatedAt: '2026-04-17T12:10:00.000Z',
+    }),
+    createConversation({
+      id: 'conversation-search-b',
+      title: 'Second Search Chat',
+      updatedAt: '2026-04-17T12:09:00.000Z',
+    }),
+  ];
+
+  await mockHomeDataRoutes(page, {
+    conversations,
+    messagesByConversationId: {
+      'conversation-search-a': [
+        createMessage({
+          id: 'message-a',
+          role: 'assistant',
+          content: 'First chat ready.',
+          createdAt: '2026-04-17T12:00:00.000Z',
+        }),
+      ],
+      'conversation-search-b': [
+        createMessage({
+          id: 'message-b',
+          role: 'assistant',
+          content: 'Second chat ready.',
+          createdAt: '2026-04-17T12:00:00.000Z',
+        }),
+      ],
+    },
+  });
+
+  await mockChatRoute(page, async (body) => {
+    expect(body.searchMode).toBe('off');
+    return {
+      conversationId: 'conversation-search-b',
+      conversationTitle: 'Second Search Chat',
+      message: 'Answered without search.',
+      search: {
+        mode: 'off',
+        attempted: false,
+        status: 'not_attempted',
+        resultCount: 0,
+        warning: null,
+        metadata: null,
+        skippedReason: 'mode_off',
+      },
+    };
+  });
+
+  await page.goto('/home/conversation-search-a?e2e=search-mode-session');
+  await expect(page.getByText('First chat ready.')).toBeVisible();
+  await selectSearchMode(page, 'Always search');
+  await expect(page.getByRole('button', { name: 'Search mode always search' })).toBeVisible();
+
+  const sidePanel = await ensureConversationsOpen(page);
+  await sidePanel.getByRole('button', { name: /Second Search Chat/ }).click();
+  await expect(page.getByText('Second chat ready.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Search mode auto' })).toBeVisible();
+  await selectSearchMode(page, 'Off');
+  await expect(page.getByRole('button', { name: 'Search mode off' })).toBeVisible();
+
+  const reopenedSidePanel = await ensureConversationsOpen(page);
+  await reopenedSidePanel.getByRole('button', { name: /First Search Chat/ }).click();
+  await expect(page.getByRole('button', { name: 'Search mode always search' })).toBeVisible();
+
+  const reopenedSidePanelAgain = await ensureConversationsOpen(page);
+  await reopenedSidePanelAgain.getByRole('button', { name: /Second Search Chat/ }).click();
+  await expect(page.getByRole('button', { name: 'Search mode off' })).toBeVisible();
+
+  const composer = page.getByPlaceholder('Message Keen...');
+  await composer.fill('Answer from memory');
+  await composer.press('Enter');
 });

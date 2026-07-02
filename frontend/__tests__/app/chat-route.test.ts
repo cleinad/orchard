@@ -147,6 +147,13 @@ vi.mock('@/lib/memory-agent', () => ({
 
 vi.mock('@/lib/models', () => ({
   getChatModel: vi.fn(() => 'mock-chat-model'),
+  getSearchPlannerModel: vi.fn(() => null),
+  getSearchDecisionModelConfig: vi.fn(() => ({
+    primary: null,
+    fallback: null,
+  })),
+  SEARCH_PLANNER_MODEL_ID: 'qwen/qwen-2.5-7b-instruct',
+  SEARCH_PLANNER_PROVIDER: 'openrouter',
   getChatModelProviderOptions: vi.fn(() => ({
     openai: {
       reasoningEffort: 'high',

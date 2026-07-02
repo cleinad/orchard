@@ -1,4 +1,10 @@
-import type { SearchPipelineOutput, SearchProfile, SearchProvider, SearchSourceType } from '@/lib/search/types';
+import type {
+  SearchActivitySummary,
+  SearchPipelineOutput,
+  SearchProfile,
+  SearchProvider,
+  SearchSourceType,
+} from '@/lib/search/types';
 import {
   isSearchPipelineStatus,
   isSearchProfile,
@@ -22,6 +28,7 @@ export interface SearchSource {
   provider: SearchProvider | null;
   sourceType: SearchSourceType | null;
   publishedAt: string | null;
+  origin?: 'prior' | 'fresh';
 }
 
 export interface PersistedSearchMetadataV1 {
@@ -38,6 +45,10 @@ export interface PersistedSearchMetadataV2 {
   profile: SearchProfile;
   status: SearchAttemptStatus;
   query: string | null;
+  queries?: string[];
+  resolvedIntent?: string;
+  topicEntities?: string[];
+  activity?: SearchActivitySummary;
   providers: SearchProvider[];
   sources: SearchSource[];
 }
@@ -51,7 +62,9 @@ export type CitationPart =
   | { type: 'citation'; text: string; sourceId: number };
 
 const MAX_PERSISTED_SNIPPET_LENGTH = 220;
-const CITATION_PATTERN = /(^|[\s(])\[(\d+)\](?=$|[\s).,;:!?])/g;
+const CITATION_PATTERN = /\[(\d+)\]/g;
+const CITATION_BEFORE_BOUNDARY = /[\s([{,;:]/;
+const CITATION_AFTER_BOUNDARY = /[\s)\].,;:!?\[]/;
 
 interface LegacyPersistedSearchSource {
   id: number;
@@ -73,6 +86,24 @@ interface LegacyWebSearchToolOutput {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+function normalizeSearchActivitySummary(value: unknown): SearchActivitySummary | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const { collapsedLabel, events } = value;
+  if (typeof collapsedLabel !== 'string' || !Array.isArray(events)) {
+    return null;
+  }
+
+  return {
+    collapsedLabel,
+    events: events.filter((event): event is SearchActivitySummary['events'][number] =>
+      isRecord(event) && typeof event.type === 'string'
+    ),
+  };
 }
 
 function truncateText(value: string, maxLength: number) {
@@ -139,6 +170,12 @@ function normalizeSource(source: unknown): SearchSource | null {
           ? source.publishedAt
           : null
       : null;
+  const origin =
+    'origin' in source && source.origin !== undefined
+      ? source.origin === 'prior' || source.origin === 'fresh'
+        ? source.origin
+        : null
+      : undefined;
 
   if (
     ('provider' in source && source.provider !== null && source.provider !== undefined && !provider)
@@ -154,6 +191,7 @@ function normalizeSource(source: unknown): SearchSource | null {
       && source.publishedAt !== undefined
       && publishedAt === null
     )
+    || ('origin' in source && source.origin !== undefined && origin === null)
   ) {
     return null;
   }
@@ -167,36 +205,52 @@ function normalizeSource(source: unknown): SearchSource | null {
     provider,
     sourceType,
     publishedAt,
+    ...(origin ? { origin } : {}),
   };
 }
 
 function withCitationMatches(
   text: string,
   iteratee: (match: {
-    prefix: string;
     sourceId: number;
     citationStart: number;
     citationEnd: number;
     citationText: string;
-  }) => void
+  }) => boolean
 ) {
   CITATION_PATTERN.lastIndex = 0;
+  let lastAcceptedCitationEnd: number | null = null;
 
   for (const match of text.matchAll(CITATION_PATTERN)) {
-    const prefix = match[1] ?? '';
-    const sourceId = Number(match[2]);
-    const matchStart = match.index ?? 0;
-    const citationStart = matchStart + prefix.length;
+    const sourceId = Number(match[1]);
+    const citationStart = match.index ?? 0;
     const citationText = `[${sourceId}]`;
     const citationEnd = citationStart + citationText.length;
+    const previousChar = citationStart > 0 ? text[citationStart - 1] : '';
+    const nextChar = citationEnd < text.length ? text[citationEnd] : '';
+    const isAdjacentToAcceptedCitation = lastAcceptedCitationEnd === citationStart;
+    const hasValidStart =
+      citationStart === 0
+      || isAdjacentToAcceptedCitation
+      || CITATION_BEFORE_BOUNDARY.test(previousChar);
+    const hasValidEnd =
+      citationEnd === text.length
+      || nextChar === '['
+      || CITATION_AFTER_BOUNDARY.test(nextChar);
 
-    iteratee({
-      prefix,
+    if (!hasValidStart || !hasValidEnd) {
+      continue;
+    }
+
+    const wasAccepted = iteratee({
       sourceId,
       citationStart,
       citationEnd,
       citationText,
     });
+    if (wasAccepted) {
+      lastAcceptedCitationEnd = citationEnd;
+    }
   }
 }
 
@@ -313,6 +367,7 @@ export function createPersistedSearchMetadataV2(
       provider: result.provider,
       sourceType: result.sourceType,
       publishedAt: result.publishedAt,
+      ...(result.origin ? { origin: result.origin } : {}),
     });
   }
 
@@ -322,6 +377,10 @@ export function createPersistedSearchMetadataV2(
     profile: output.profile,
     status: output.status,
     query: output.query || null,
+    ...(output.queries ? { queries: output.queries } : {}),
+    ...(output.resolvedIntent ? { resolvedIntent: output.resolvedIntent } : {}),
+    ...(output.topicEntities ? { topicEntities: output.topicEntities } : {}),
+    ...(output.activity ? { activity: output.activity } : {}),
     providers: output.providers,
     sources,
   };
@@ -371,6 +430,32 @@ export function parsePersistedSearchMetadata(
       || !isSearchProfile(profile)
       || !isSearchPipelineStatus(status)
       || (query !== null && typeof query !== 'string')
+      || ('queries' in value && value.queries !== undefined && !Array.isArray(value.queries))
+      || (
+        'queries' in value
+        && Array.isArray(value.queries)
+        && value.queries.some((item) => typeof item !== 'string')
+      )
+      || (
+        'resolvedIntent' in value
+        && value.resolvedIntent !== undefined
+        && typeof value.resolvedIntent !== 'string'
+      )
+      || (
+        'topicEntities' in value
+        && value.topicEntities !== undefined
+        && !Array.isArray(value.topicEntities)
+      )
+      || (
+        'topicEntities' in value
+        && Array.isArray(value.topicEntities)
+        && value.topicEntities.some((item) => typeof item !== 'string')
+      )
+      || (
+        'activity' in value
+        && value.activity !== undefined
+        && normalizeSearchActivitySummary(value.activity) === null
+      )
       || !Array.isArray(providers)
       || providers.some((provider) => !isSearchProvider(provider))
       || !Array.isArray(sources)
@@ -392,6 +477,16 @@ export function parsePersistedSearchMetadata(
       profile,
       status,
       query,
+      ...('queries' in value && Array.isArray(value.queries) ? { queries: value.queries } : {}),
+      ...('resolvedIntent' in value && typeof value.resolvedIntent === 'string'
+        ? { resolvedIntent: value.resolvedIntent }
+        : {}),
+      ...('topicEntities' in value && Array.isArray(value.topicEntities)
+        ? { topicEntities: value.topicEntities }
+        : {}),
+      ...('activity' in value
+        ? { activity: normalizeSearchActivitySummary(value.activity) ?? undefined }
+        : {}),
       providers,
       sources: normalizedSources,
     };
@@ -413,7 +508,7 @@ export function splitTextWithCitations(
 
   withCitationMatches(text, ({ citationStart, citationEnd, citationText, sourceId }) => {
     if (!validSourceIds.has(sourceId)) {
-      return;
+      return false;
     }
 
     if (citationStart > lastIndex) {
@@ -429,6 +524,7 @@ export function splitTextWithCitations(
       sourceId,
     });
     lastIndex = citationEnd;
+    return true;
   });
 
   if (lastIndex < text.length) {
@@ -455,11 +551,12 @@ export function stripCitationMarkers(
 
   withCitationMatches(text, ({ citationStart, citationEnd, sourceId }) => {
     if (!validSourceIds.has(sourceId)) {
-      return;
+      return false;
     }
 
     nextText += text.slice(lastIndex, citationStart);
     lastIndex = citationEnd;
+    return true;
   });
 
   nextText += text.slice(lastIndex);
@@ -480,11 +577,12 @@ export function stripInvalidCitationMarkers(
 
   withCitationMatches(text, ({ citationStart, citationEnd, sourceId }) => {
     if (validSourceIds.has(sourceId)) {
-      return;
+      return true;
     }
 
     nextText += text.slice(lastIndex, citationStart);
     lastIndex = citationEnd;
+    return true;
   });
 
   nextText += text.slice(lastIndex);

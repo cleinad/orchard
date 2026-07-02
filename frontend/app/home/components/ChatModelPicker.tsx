@@ -339,12 +339,13 @@ export default function ChatModelPicker({
       return;
     }
 
+    onChange(model.id);
+
     if (effortPresentation === 'drilldown' && model.effort) {
       setActiveEffortModelId(model.id);
       return;
     }
 
-    onChange(model.id);
     setActiveEffortModelId(model.effort ? model.id : null);
   };
 
@@ -451,7 +452,7 @@ export default function ChatModelPicker({
         aria-haspopup="menu"
         onClick={togglePopover}
         disabled={disabledState}
-        className={`inline-flex h-8 min-w-[8rem] items-center justify-between gap-2 rounded-full border px-3 text-left font-sans font-medium transition sm:min-w-[9.25rem] ${
+        className={`inline-flex h-8 min-w-[8rem] items-center justify-between gap-2 rounded-lg border px-3 text-left font-sans font-medium transition sm:min-w-[9.25rem] ${
           isOpen
             ? 'border-foreground/[0.08] bg-foreground/[0.055] text-foreground'
             : 'border-transparent bg-background text-foreground/88 hover:bg-foreground/[0.035] hover:text-foreground'

@@ -203,6 +203,14 @@ interface HomeDataContextValue {
   listError: string | null;
   setListError: (err: string | null) => void;
   refreshSidebarData: () => Promise<void>;
+  upsertSidebarConversation: (conversation: {
+    id: string;
+    title?: string | null;
+    mentorId?: string | null;
+    workspaceId?: string | null;
+    updatedAt?: string | null;
+    createdAt?: string | null;
+  }) => void;
 
   // Draft + temporary chat state
   draftChats: PersistentDraftChat[];
@@ -235,7 +243,7 @@ interface HomeDataContextValue {
     threadsMap: Map<string, import('@/app/home/components/threadTypes').ThreadMeta[]>;
   }>;
 
-  // Page registers its side-effect hook here (TTS stop, mic stop, thread reset, etc.)
+  // Page registers its chat-switch side effects here (thread reset, timers, etc.)
   registerPrepareForChatSwitch: (fn: (next: SelectedChat | null) => void) => void;
   /** Stable indirection so async route code does not hold a stale `prepareForChatSwitch` closure */
   invokePrepareForChatSwitch: (next: SelectedChat | null) => void;
@@ -291,6 +299,7 @@ export function HomeDataProvider({
     listError,
     setListError,
     refreshSidebarData,
+    upsertSidebarConversation,
     loadConversationById,
     loadConversationMessages,
   } = useHomeData();
@@ -309,7 +318,7 @@ export function HomeDataProvider({
     setClientRouteConversationId(routeConversationId);
   }, [routeConversationId]);
 
-  // Page registers its side-effect callback here (TTS, mic, thread UI reset, etc.)
+  // Page registers its chat-switch side-effect callback here.
   const prepareForChatSwitchRef = useRef<(next: SelectedChat | null) => void>(() => {});
   const registerPrepareForChatSwitch = useCallback(
     (fn: (next: SelectedChat | null) => void) => {
@@ -643,6 +652,7 @@ export function HomeDataProvider({
     listError,
     setListError,
     refreshSidebarData,
+    upsertSidebarConversation,
     loadConversationById,
     loadConversationMessages,
     draftChats,

@@ -1,7 +1,7 @@
 const { defineConfig, devices } = require('@playwright/test');
 
-const PORT = 3005;
-const HOST = '127.0.0.1';
+const PORT = Number(process.env.PLAYWRIGHT_PORT || 3005);
+const HOST = process.env.PLAYWRIGHT_HOST || '127.0.0.1';
 const BASE_URL = `http://${HOST}:${PORT}`;
 
 module.exports = defineConfig({
@@ -21,7 +21,7 @@ module.exports = defineConfig({
       },
     },
   ],
-  webServer: {
+  webServer: process.env.PLAYWRIGHT_NO_WEB_SERVER ? undefined : {
     command: `npm run dev -- --hostname ${HOST} --port ${PORT}`,
     url: `${BASE_URL}/home`,
     reuseExistingServer: !process.env.CI,

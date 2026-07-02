@@ -58,7 +58,7 @@ Notes:
 ### Vitest App, Route, And Server Coverage
 
 - `frontend/__tests__/app/chat-route.test.ts`: `/api/chat` contract coverage, including memory loading, memory writes, and route-level orchestration
-- `frontend/__tests__/app/chat-route-search.test.ts`: explicit search-mode orchestration, v2 `search_metadata` persistence, invalid citation stripping, and clean memory handoff
+- `frontend/__tests__/app/chat-route-search.test.ts`: search-mode orchestration, v2 `search_metadata` persistence, invalid citation stripping, and clean memory handoff
 - `frontend/__tests__/app/conversations-route.test.ts`: conversation creation, mentor ownership validation, request validation, and empty-conversation cleanup
 - `frontend/__tests__/app/deepgram-token-route.test.ts`: `/api/deepgram/token` auth, env validation, and Deepgram token response handling
 - `frontend/__tests__/app/home/conversation-map-model.test.ts`: pure conversation-map projection, route patching, active-path positioning, and zoom-stable node presence
@@ -84,7 +84,7 @@ Notes:
 - `frontend/e2e/home-routing.spec.js`: direct `/home/[conversationId]` hydration, sidebar route changes, draft promotion, and URL-less temporary-chat transitions
 - `frontend/e2e/inline-threads.spec.js`: inline-thread creation, selection, popover behavior, and keyboard handoff flow
 - `frontend/e2e/persistent-inline-threads.spec.js`: persisted inline-thread reopen behavior and durable offset-based rendering cases
-- `frontend/e2e/search-mode.spec.js`: explicit search toggle requests and scalable reply-attached source tray behavior
+- `frontend/e2e/search-mode.spec.js`: search selector requests and scalable reply-attached source tray behavior
 - `frontend/e2e/workspaces.spec.js`: workspace page rendering, workspace context, and workspace draft handoff into `/home`
 
 ## Focused Canaries

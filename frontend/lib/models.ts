@@ -3,7 +3,7 @@ import { anthropic } from '@ai-sdk/anthropic';
 import { deepseek } from '@ai-sdk/deepseek';
 import { google } from '@ai-sdk/google';
 import { moonshotai } from '@ai-sdk/moonshotai';
-import { openai } from '@ai-sdk/openai';
+import { createOpenAI, openai } from '@ai-sdk/openai';
 import type { SharedV3ProviderOptions } from '@ai-sdk/provider';
 import {
   CHAT_MODEL_OPTIONS,
@@ -20,6 +20,54 @@ import {
 } from '@/lib/chat-models';
 
 export const MEMORY_MODEL = anthropic('claude-haiku-4-5-20251001');
+export const SEARCH_PLANNER_MODEL_ID =
+  process.env.SEARCH_PLANNER_MODEL || 'qwen/qwen-2.5-7b-instruct';
+export const SEARCH_PLANNER_PROVIDER = 'openrouter';
+
+type OpenAIProvider = ReturnType<typeof createOpenAI>;
+type OpenAIChatModel = ReturnType<OpenAIProvider['chat']>;
+
+export type SearchDecisionProvider = typeof SEARCH_PLANNER_PROVIDER;
+
+export interface SearchDecisionModelConfig {
+  model: OpenAIChatModel;
+  provider: SearchDecisionProvider;
+  modelId: string;
+}
+
+export function getSearchPlannerModel() {
+  const baseURL = process.env.SEARCH_PLANNER_BASE_URL;
+  const apiKey = process.env.SEARCH_PLANNER_API_KEY;
+
+  if (!baseURL || !apiKey) {
+    return null;
+  }
+
+  return createOpenAI({ baseURL, apiKey }).chat(SEARCH_PLANNER_MODEL_ID);
+}
+
+function getOpenRouterSearchDecisionModel(): SearchDecisionModelConfig | null {
+  const model = getSearchPlannerModel();
+  return model
+    ? {
+        model,
+        provider: SEARCH_PLANNER_PROVIDER,
+        modelId: SEARCH_PLANNER_MODEL_ID,
+      }
+    : null;
+}
+
+export function getSearchDecisionModelConfig(): {
+  primary: SearchDecisionModelConfig | null;
+  fallback: SearchDecisionModelConfig | null;
+} {
+  const openRouter = getOpenRouterSearchDecisionModel();
+
+  return {
+    primary: openRouter,
+    fallback: null,
+  };
+}
 
 type ProviderOptions = SharedV3ProviderOptions;
 

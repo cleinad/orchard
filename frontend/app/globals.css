@@ -421,6 +421,32 @@ body {
   outline: none !important;
 }
 
+.markdown-content [data-testid="inline-thread-link"][data-thread-status="loading"],
+.markdown-content[data-range-thread-highlights="true"] [data-testid="inline-thread-link"][data-thread-status="loading"] {
+  background-color: color-mix(in srgb, #bae6fd 48%, transparent) !important;
+  color: #082f49 !important;
+}
+
+.markdown-content [data-testid="inline-thread-link"][data-thread-status="loading"]:hover,
+.markdown-content [data-testid="inline-thread-link"][data-thread-status="loading"]:focus-visible,
+.markdown-content[data-range-thread-highlights="true"] [data-testid="inline-thread-link"][data-thread-status="loading"]:hover,
+.markdown-content[data-range-thread-highlights="true"] [data-testid="inline-thread-link"][data-thread-status="loading"]:focus-visible {
+  background-color: color-mix(in srgb, #bae6fd 64%, transparent) !important;
+}
+
+.dark .markdown-content [data-testid="inline-thread-link"][data-thread-status="loading"],
+.dark .markdown-content[data-range-thread-highlights="true"] [data-testid="inline-thread-link"][data-thread-status="loading"] {
+  background-color: color-mix(in srgb, #7dd3fc 18%, transparent) !important;
+  color: #e0f2fe !important;
+}
+
+.dark .markdown-content [data-testid="inline-thread-link"][data-thread-status="loading"]:hover,
+.dark .markdown-content [data-testid="inline-thread-link"][data-thread-status="loading"]:focus-visible,
+.dark .markdown-content[data-range-thread-highlights="true"] [data-testid="inline-thread-link"][data-thread-status="loading"]:hover,
+.dark .markdown-content[data-range-thread-highlights="true"] [data-testid="inline-thread-link"][data-thread-status="loading"]:focus-visible {
+  background-color: color-mix(in srgb, #7dd3fc 28%, transparent) !important;
+}
+
 .markdown-content code {
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
 }
@@ -655,11 +681,11 @@ body {
 }
 
 .markdown-content .katex-html [data-testid="inline-thread-link"][data-thread-status="loading"] {
-  background-color: transparent !important;
+  background-color: color-mix(in srgb, #bae6fd 48%, transparent) !important;
 }
 
 .markdown-content .katex-html [data-testid="inline-thread-link"][data-thread-status="loading"]:hover {
-  background-color: transparent !important;
+  background-color: color-mix(in srgb, #bae6fd 64%, transparent) !important;
 }
 
 .markdown-content .katex-html [data-testid="inline-thread-link"][data-thread-status="error"] {
@@ -679,11 +705,11 @@ body {
 }
 
 .dark .markdown-content .katex-html [data-testid="inline-thread-link"][data-thread-status="loading"] {
-  background-color: transparent !important;
+  background-color: color-mix(in srgb, #7dd3fc 18%, transparent) !important;
 }
 
 .dark .markdown-content .katex-html [data-testid="inline-thread-link"][data-thread-status="loading"]:hover {
-  background-color: transparent !important;
+  background-color: color-mix(in srgb, #7dd3fc 28%, transparent) !important;
 }
 
 .dark .markdown-content .katex-html [data-testid="inline-thread-link"][data-thread-status="error"] {
@@ -707,6 +733,24 @@ body {
   border: 0 !important;
   box-shadow: none !important;
   outline: none !important;
+}
+
+.markdown-content[data-range-thread-highlights="true"] .katex-html [data-testid="inline-thread-link"][data-thread-status="loading"] {
+  background-color: color-mix(in srgb, #bae6fd 48%, transparent) !important;
+}
+
+.markdown-content[data-range-thread-highlights="true"] .katex-html [data-testid="inline-thread-link"][data-thread-status="loading"]:hover,
+.markdown-content[data-range-thread-highlights="true"] .katex-html [data-testid="inline-thread-link"][data-thread-status="loading"]:focus-visible {
+  background-color: color-mix(in srgb, #bae6fd 64%, transparent) !important;
+}
+
+.dark .markdown-content[data-range-thread-highlights="true"] .katex-html [data-testid="inline-thread-link"][data-thread-status="loading"] {
+  background-color: color-mix(in srgb, #7dd3fc 18%, transparent) !important;
+}
+
+.dark .markdown-content[data-range-thread-highlights="true"] .katex-html [data-testid="inline-thread-link"][data-thread-status="loading"]:hover,
+.dark .markdown-content[data-range-thread-highlights="true"] .katex-html [data-testid="inline-thread-link"][data-thread-status="loading"]:focus-visible {
+  background-color: color-mix(in srgb, #7dd3fc 28%, transparent) !important;
 }
 
 .font-heading {
@@ -764,6 +808,7 @@ body {
   position: absolute;
   inset: auto;
   margin: 0;
+  z-index: 70;
   /* Match TextSelectionPopover width utility — compact inline toolbar, not a wide card */
   max-inline-size: min(18rem, calc(100vw - 1rem));
 }

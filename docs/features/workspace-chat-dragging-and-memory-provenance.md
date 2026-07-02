@@ -473,4 +473,3 @@ E2E tests:
 - Restoring old memory scope after a move
 
 These can come later once the basic context move is reliable.
-

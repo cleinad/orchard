@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { MentorListItem } from '@/lib/mentors/types';
 import { parsePersistedSearchMetadata } from '@/lib/search-citations';
@@ -27,6 +27,15 @@ interface ConversationRow {
   updated_at: string;
   created_at: string;
 }
+
+type SidebarConversationInput = {
+  id: string;
+  title?: string | null;
+  mentorId?: string | null;
+  workspaceId?: string | null;
+  updatedAt?: string | null;
+  createdAt?: string | null;
+};
 
 
 function buildThreadsMap(
@@ -199,6 +208,15 @@ function mapConversationRowToListItem(
   };
 }
 
+function sortConversationsByUpdatedAtDesc(
+  conversationSource: ConversationListItem[]
+): ConversationListItem[] {
+  return [...conversationSource].sort(
+    (a, b) =>
+      new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+  );
+}
+
 export function useHomeData() {
   const [mentors, setMentors] = useState<MentorListItem[]>([]);
   const [workspaces, setWorkspaces] = useState<WorkspaceListItem[]>([]);
@@ -207,6 +225,7 @@ export function useHomeData() {
   const [mentorGroups, setMentorGroups] = useState<SidebarMentorGroup[]>([]);
   const [loadingLists, setLoadingLists] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
+  const conversationsRef = useRef<ConversationListItem[]>([]);
 
   const loadMentors = useCallback(async (): Promise<MentorListItem[]> => {
     const response = await fetch('/api/mentors', { cache: 'no-store' });
@@ -249,6 +268,7 @@ export function useHomeData() {
       mapConversationRowToListItem(row, mentorSource, workspaceSource)
     );
 
+    conversationsRef.current = nextConversations;
     setConversations(nextConversations);
     setWorkspaceGroups(buildWorkspaceGroups(workspaceSource, nextConversations));
     setMentorGroups(buildSidebarGroups(mentorSource, nextConversations));
@@ -277,6 +297,28 @@ export function useHomeData() {
     }
   }, [loadConversations, loadMentors, loadWorkspaces]);
 
+  const upsertSidebarConversation = useCallback((conversation: SidebarConversationInput) => {
+    const now = new Date().toISOString();
+    const row: ConversationRow = {
+      id: conversation.id,
+      title: conversation.title ?? null,
+      mentor_id: conversation.mentorId ?? null,
+      workspace_id: conversation.workspaceId ?? null,
+      updated_at: conversation.updatedAt ?? now,
+      created_at: conversation.createdAt ?? conversation.updatedAt ?? now,
+    };
+    const nextConversation = mapConversationRowToListItem(row, mentors, workspaces);
+    const nextConversations = sortConversationsByUpdatedAtDesc([
+      nextConversation,
+      ...conversationsRef.current.filter((entry) => entry.id !== nextConversation.id),
+    ]);
+
+    conversationsRef.current = nextConversations;
+    setConversations(nextConversations);
+    setWorkspaceGroups(buildWorkspaceGroups(workspaces, nextConversations));
+    setMentorGroups(buildSidebarGroups(mentors, nextConversations));
+  }, [mentors, workspaces]);
+
   const loadConversationMessages = useCallback(async (nextConversationId: string) => {
     const { data, error } = await supabase
       .from('messages')
@@ -297,14 +339,19 @@ export function useHomeData() {
       created_at: string;
       search_metadata?: unknown;
       previous_message_id: string | null;
-    }>).map((message) => ({
-      id: message.id,
-      role: message.role,
-      content: message.content,
-      timestamp: new Date(message.created_at),
-      searchMetadata: parsePersistedSearchMetadata(message.search_metadata),
-      previousMessageId: message.previous_message_id ?? null,
-    }));
+    }>).map((message) => {
+      const searchMetadata = parsePersistedSearchMetadata(message.search_metadata);
+
+      return {
+        id: message.id,
+        role: message.role,
+        content: message.content,
+        timestamp: new Date(message.created_at),
+        searchMetadata,
+        searchActivity: searchMetadata?.version === 2 ? searchMetadata.activity ?? null : null,
+        previousMessageId: message.previous_message_id ?? null,
+      };
+    });
 
     const messageIds = nextMessages.map((message) => message.id);
     if (messageIds.length > 0) {
@@ -432,6 +479,7 @@ export function useHomeData() {
     listError,
     setListError,
     refreshSidebarData,
+    upsertSidebarConversation,
     loadConversationById,
     loadConversationMessages,
   };

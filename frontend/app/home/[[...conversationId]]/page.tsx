@@ -13,9 +13,7 @@ import HomeBackground from '@/app/home/components/HomeBackground';
 import HomeHeader from '@/app/home/components/HomeHeader';
 import ChatComposer from '@/app/home/components/ChatComposer';
 import {
-  createPendingChatImageAttachments,
   uploadChatImageAttachments,
-  type PendingChatImageAttachment,
 } from '@/app/home/components/chatImageUploads';
 import ConversationMap from '@/app/home/components/ConversationMap';
 import ConversationView from '@/app/home/components/ConversationView';
@@ -39,7 +37,13 @@ import { getTemporaryChatAttachmentStoragePaths } from '@/app/home/components/te
 import { useConversationMapState } from '@/app/home/components/useConversationMapState';
 import { useConversationMapRuntime } from '@/app/home/components/useConversationMapRuntime';
 import { useChatModelCatalog } from '@/app/home/components/useChatModelCatalog';
-import { useHomeVoice } from '@/app/home/components/useHomeVoice';
+import {
+  CHAT_MODEL_EFFORT_OVERRIDES_STORAGE_KEY,
+  CHAT_MODEL_STORAGE_KEY,
+  CHAT_MODEL_THINKING_OVERRIDES_STORAGE_KEY,
+  isChatModelEffortOverrides,
+  isChatModelThinkingOverrides,
+} from '@/app/home/components/chatPreferencePersistence';
 import { useActiveConversationModel } from '@/app/home/components/useActiveConversationModel';
 import { usePendingChatRequests } from '@/app/home/components/usePendingChatRequests';
 import { usePerChatComposerState } from '@/app/home/components/usePerChatComposerState';
@@ -47,7 +51,11 @@ import { usePersistedJson } from '@/app/home/components/usePersistedJson';
 import { usePersistedString } from '@/app/home/components/usePersistedString';
 import { useRouteConversationHydration } from '@/app/home/components/useRouteConversationHydration';
 import { useTranscriptNavigation } from '@/app/home/components/useTranscriptNavigation';
-import { useVoiceAutoSend } from '@/app/home/components/useVoiceAutoSend';
+import {
+  GOOGLE_GIF_UNSUPPORTED_MESSAGE,
+  IMAGE_MODEL_UNSUPPORTED_MESSAGE,
+  useChatImageComposerState,
+} from '@/app/home/components/useChatImageComposerState';
 import type {
   ThreadMeta,
   ThreadSession,
@@ -55,7 +63,6 @@ import type {
 import {
   DEFAULT_CHAT_MODEL_ID,
   isChatModelId,
-  isChatModelEffortLevel,
   type ChatModelEffortOverrides,
   type ChatModelEffortLevel,
   type ChatModelId,
@@ -75,42 +82,10 @@ import { CHAT_IMAGE_BUCKET, type ChatImageAttachment } from '@/lib/chat-attachme
 import type { TemporaryMemoryMode } from '@/lib/chat-session';
 import { supabase } from '@/lib/supabase';
 
-const TTS_STORAGE_KEY = 'keen-tts-enabled';
-const CHAT_MODEL_STORAGE_KEY = 'keen-chat-model';
-const CHAT_MODEL_EFFORT_OVERRIDES_STORAGE_KEY = 'keen-chat-model-effort-overrides-v1';
-const CHAT_MODEL_THINKING_OVERRIDES_STORAGE_KEY = 'keen-chat-thinking-overrides-v1';
 const COMPOSER_DRAFT_INPUTS_STORAGE_KEY = 'keen-home-composer-draft-inputs-v1';
 const RESPONSE_STYLE_STORAGE_KEY = 'keen-home-response-styles-v1';
 const PERSISTENT_THREAD_RUNTIME_STORAGE_KEY = 'keen-persistent-thread-runtime-v1';
 const TEMP_CHAT_TITLE = 'Temporary chat';
-
-function isPlainRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function isChatModelEffortOverrides(value: unknown): value is ChatModelEffortOverrides {
-  if (!isPlainRecord(value)) {
-    return false;
-  }
-
-  return Object.entries(value).every(
-    ([modelId, effort]) =>
-      isChatModelId(modelId)
-      && typeof effort === 'string'
-      && isChatModelEffortLevel(effort)
-  );
-}
-
-function isChatModelThinkingOverrides(value: unknown): value is ChatModelThinkingOverrides {
-  if (!isPlainRecord(value)) {
-    return false;
-  }
-
-  return Object.entries(value).every(
-    ([modelId, enabled]) =>
-      isChatModelId(modelId) && typeof enabled === 'boolean'
-  );
-}
 
 function findLatestConversationForMentor(
   mentorId: string | null,
@@ -123,7 +98,7 @@ function findLatestConversationForMentor(
 }
 
 /**
- * Home page - editorial voice + text conversation interface
+ * Home page - editorial tone and text conversation interface
  */
 export default function HomePage() {
   return (
@@ -136,7 +111,6 @@ export default function HomePage() {
 }
 
 function HomePageInner() {
-  const [searchEnabled, setSearchEnabled] = useState(false);
   const [selectedModelId, setSelectedModelId] = usePersistedString<ChatModelId>(
     CHAT_MODEL_STORAGE_KEY,
     DEFAULT_CHAT_MODEL_ID,
@@ -187,8 +161,25 @@ function HomePageInner() {
     },
     [setThinkingEnabledOverrides]
   );
-  const selectedModelSupportsImages = selectedChatModel?.supportsImages ?? true;
-  const selectedModelRejectsGifImages = selectedChatModel?.provider === 'google';
+  const {
+    imageInputDisabledReason,
+    imageWarning,
+    isUploadingImages,
+    pendingImageAttachments,
+    selectedModelRejectsGifImages,
+    selectedModelSupportsImages,
+    clearPendingImageAttachments,
+    handleAttachImages,
+    handleModelChange,
+    handleRemoveImageAttachment,
+    setImageWarning,
+    setIsUploadingImages,
+    setPendingImageAttachments,
+  } = useChatImageComposerState({
+    chatModels,
+    selectedChatModel,
+    setSelectedModelId,
+  });
   const [persistentMessages, setPersistentMessages] = useState<Message[]>([]);
   const [persistentBranches, setPersistentBranches] = useState<ConversationBranch[]>([]);
   const [persistentSelectedBranchIds, setPersistentSelectedBranchIds] =
@@ -199,11 +190,6 @@ function HomePageInner() {
   const [persistentThreadRuntimes, setPersistentThreadRuntimes] =
     useState<PersistentThreadRuntimeRecord>({});
   const [pendingBranch, setPendingBranch] = useState<PendingBranchTarget | null>(null);
-  const [pendingImageAttachments, setPendingImageAttachments] = useState<
-    PendingChatImageAttachment[]
-  >([]);
-  const [isUploadingImages, setIsUploadingImages] = useState(false);
-  const [imageWarning, setImageWarning] = useState<string | null>(null);
   const [currentMapMessageId, setCurrentMapMessageId] = useState<string | null>(null);
   const [isDesktopViewport, setIsDesktopViewport] = useState(false);
 
@@ -229,6 +215,7 @@ function HomePageInner() {
     listError,
     setListError,
     refreshSidebarData,
+    upsertSidebarConversation,
     loadConversationById,
     loadConversationMessages,
     getOrCreateDraft,
@@ -261,20 +248,6 @@ function HomePageInner() {
   const homeE2eFixture = getHomeE2eFixture(searchParams.get('e2e'));
   const isHomeE2eFixture = homeE2eFixture !== null;
 
-  const {
-    micActive,
-    ttsEnabled,
-    tts,
-    microphone,
-    transcription,
-    visualization,
-    startMic,
-    stopMic: stopVoiceCapture,
-    toggleTtsEnabled,
-  } = useHomeVoice(TTS_STORAGE_KEY);
-  // Voice controls are hidden for now; keep the underlying wiring dormant until the feature is revisited.
-  const voiceControlsEnabled = false;
-  const voiceOutputEnabled = voiceControlsEnabled && ttsEnabled;
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -318,15 +291,19 @@ function HomePageInner() {
   const {
     activeResponseStyle,
     activeSearchState,
+    activeSearchMode,
     composerDraftInputsRef,
     input,
     clearInputForSelection: clearComposerInputForSelection,
     clearResponseStyleForSelection,
+    clearSearchModeForSelection,
     clearSearchStateForSelection,
     moveResponseStyleBetweenSelections,
+    moveSearchModeBetweenSelections,
     resetAllComposerState,
     setInputForSelection: setComposerInputForSelection,
     setResponseStyleForSelection,
+    setSearchModeForSelection,
     setSearchStateForSelection,
   } = usePerChatComposerState({
     responseStyleStorageKey: RESPONSE_STYLE_STORAGE_KEY,
@@ -392,13 +369,11 @@ function HomePageInner() {
     setCurrentMapMessageId,
   });
 
-  const autoSendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mentorSlugHandledRef = useRef(false);
   const selectedDraftChatRef = useRef<PersistentDraftChat | null>(null);
   const persistentSelectedBranchIdsRef = useRef<BranchSelectionMap>({});
   const persistentThreadRuntimesRef = useRef<PersistentThreadRuntimeRecord>({});
   const temporaryChatsRef = useRef<TemporaryChatSession[]>([]);
-  const pendingImageAttachmentsRef = useRef<PendingChatImageAttachment[]>([]);
   const threadSessionsRef = useRef<Record<string, ThreadSession>>({});
 
   useEffect(() => {
@@ -406,10 +381,8 @@ function HomePageInner() {
     persistentSelectedBranchIdsRef.current = persistentSelectedBranchIds;
     persistentThreadRuntimesRef.current = persistentThreadRuntimes;
     temporaryChatsRef.current = temporaryChats;
-    pendingImageAttachmentsRef.current = pendingImageAttachments;
     threadSessionsRef.current = threadSessionsById;
   }, [
-    pendingImageAttachments,
     persistentSelectedBranchIds,
     persistentThreadRuntimes,
     temporaryChats,
@@ -500,33 +473,6 @@ function HomePageInner() {
     isHomeE2eFixture,
   ]);
 
-  const stopMic = useCallback(() => {
-    if (autoSendTimerRef.current) {
-      clearTimeout(autoSendTimerRef.current);
-      autoSendTimerRef.current = null;
-    }
-    stopVoiceCapture();
-  }, [stopVoiceCapture]);
-
-  const toggleMic = useCallback(() => {
-    if (micActive) {
-      stopMic();
-    } else {
-      void startMic();
-    }
-  }, [micActive, startMic, stopMic]);
-
-  const clearPendingImageAttachments = useCallback(() => {
-    setPendingImageAttachments((current) => {
-      for (const attachment of current) {
-        URL.revokeObjectURL(attachment.url);
-      }
-
-      return [];
-    });
-    setImageWarning(null);
-  }, []);
-
   const cleanupTemporaryChatAttachments = useCallback((tempChatId: string) => {
     const storagePaths = getTemporaryChatAttachmentStoragePaths(
       temporaryChatsRef.current,
@@ -538,14 +484,6 @@ function HomePageInner() {
     }
   }, []);
 
-  useEffect(() => {
-    return () => {
-      for (const attachment of pendingImageAttachmentsRef.current) {
-        URL.revokeObjectURL(attachment.url);
-      }
-    };
-  }, []);
-
   const previousSelectedChatKeyRef = useRef<string | null>(selectedChatKey);
   useEffect(() => {
     if (previousSelectedChatKeyRef.current === selectedChatKey) {
@@ -555,58 +493,6 @@ function HomePageInner() {
     previousSelectedChatKeyRef.current = selectedChatKey;
     clearPendingImageAttachments();
   }, [clearPendingImageAttachments, selectedChatKey]);
-
-  const handleAttachImages = useCallback(async (files: File[]) => {
-    if (files.length === 0) {
-      return;
-    }
-
-    if (!selectedModelSupportsImages) {
-      setImageWarning('The selected model cannot read images. Choose a vision-capable model.');
-      return;
-    }
-
-    if (
-      selectedModelRejectsGifImages
-      && files.some((file) => file.type === 'image/gif' || file.name.toLowerCase().endsWith('.gif'))
-    ) {
-      setImageWarning('Google models do not support GIF images here. Use PNG, JPEG, or WebP.');
-      return;
-    }
-
-    if (isUploadingImages) {
-      setImageWarning('Wait for the current image upload to finish.');
-      return;
-    }
-
-    const result = await createPendingChatImageAttachments(
-      files,
-      pendingImageAttachments.length
-    );
-
-    if (result.attachments.length > 0) {
-      setPendingImageAttachments((current) => [...current, ...result.attachments]);
-    }
-
-    setImageWarning(result.error);
-  }, [
-    isUploadingImages,
-    pendingImageAttachments.length,
-    selectedModelRejectsGifImages,
-    selectedModelSupportsImages,
-  ]);
-
-  const handleRemoveImageAttachment = useCallback((id: string) => {
-    setPendingImageAttachments((current) => {
-      const attachment = current.find((item) => item.id === id);
-      if (attachment) {
-        URL.revokeObjectURL(attachment.url);
-      }
-
-      return current.filter((item) => item.id !== id);
-    });
-    setImageWarning(null);
-  }, []);
 
   useHomeFixtureRuntime({
     composerDraftInputsStorageKey: COMPOSER_DRAFT_INPUTS_STORAGE_KEY,
@@ -625,15 +511,14 @@ function HomePageInner() {
     setSelectedChat,
     setTemporaryChats,
     setUserHasScrolledState,
-    stopMic,
     tempChatTitle: TEMP_CHAT_TITLE,
-    tts,
   });
 
   useHomeChatSwitchLifecycle({
     clearComposerInputForSelection,
     clearPendingChatRequestForSelection,
     clearResponseStyleForSelection,
+    clearSearchModeForSelection,
     clearSearchStateForSelection,
     cleanupTemporaryChatAttachments,
     composerDraftInputsRef,
@@ -653,8 +538,6 @@ function HomePageInner() {
     setPersistentSelectedBranchIds,
     setPersistentThreadsMap,
     setUserHasScrolledState,
-    stopMic,
-    tts,
   });
 
   const {
@@ -733,7 +616,6 @@ function HomePageInner() {
 
   const sendMessage = useMainChatRuntime({
     activeMessages,
-    autoSendTimerRef,
     clearComposerInputForSelection,
     clearPendingChatRequestForSelection,
     clearSearchStateForSelection,
@@ -743,6 +625,7 @@ function HomePageInner() {
     loadConversationMessages,
     movePendingChatRequestBetweenSelections,
     moveResponseStyleBetweenSelections,
+    moveSearchModeBetweenSelections,
     pendingBranch,
     pendingChatRequestsRef,
     persistentBranches,
@@ -750,8 +633,9 @@ function HomePageInner() {
     persistentSelectedBranchIds,
     persistentSelectedBranchIdsRef,
     refreshSidebarData,
+    upsertSidebarConversation,
     responseStyle: activeResponseStyle,
-    searchEnabled,
+    searchMode: activeSearchMode,
     selectedChat,
     selectedChatRef,
     selectedDraftChat,
@@ -774,20 +658,8 @@ function HomePageInner() {
     setUserHasScrolledState,
     temporaryChatsRef,
     tempChatTitle: TEMP_CHAT_TITLE,
-    transcription,
-    tts,
-    ttsEnabled: voiceOutputEnabled,
     updateDraftChat,
     updateTemporaryChat,
-  });
-
-  useVoiceAutoSend({
-    autoSendTimerRef,
-    finalTranscript: transcription.finalTranscript,
-    interimTranscript: transcription.interimTranscript,
-    isLoading,
-    micActive,
-    sendMessage,
   });
 
   const consumedInitialSendConversationIdsRef = useRef<Set<string>>(new Set());
@@ -834,25 +706,37 @@ function HomePageInner() {
       delete next[handoff.modelId];
       return next;
     });
-    setSearchEnabled(handoff.searchEnabled);
     setResponseStyleForSelection(selectedChat, handoff.responseStyle);
+    setSearchModeForSelection(selectedChat, handoff.searchMode);
 
     void sendMessage(handoff.message, {
       modelId: handoff.modelId,
       modelEffort: handoff.modelEffort,
       thinkingEnabled: handoff.thinkingEnabled,
       responseStyle: handoff.responseStyle,
-      searchEnabled: handoff.searchEnabled,
+      searchMode: handoff.searchMode,
+      uploadedAttachments: handoff.uploadedAttachments,
     }).then((result) => {
       if (!result.accepted && result.error) {
         setImageWarning(result.error);
+      }
+      if (
+        !result.accepted
+        && result.cleanupUploadedAttachments
+        && result.cleanupUploadedAttachments.length > 0
+      ) {
+        void supabase.storage
+          .from(CHAT_IMAGE_BUCKET)
+          .remove(result.cleanupUploadedAttachments.map((attachment) => attachment.storagePath));
       }
     });
   }, [
     selectedChat,
     sendMessage,
+    setImageWarning,
     setModelEffortOverrides,
     setResponseStyleForSelection,
+    setSearchModeForSelection,
     setSelectedModelId,
     setThinkingEnabledOverrides,
     shouldShowRouteConversationLoading,
@@ -869,7 +753,7 @@ function HomePageInner() {
     }
 
     if (imagesToSend.length > 0 && !selectedModelSupportsImages) {
-      setImageWarning('The selected model cannot read images. Choose a vision-capable model.');
+      setImageWarning(IMAGE_MODEL_UNSUPPORTED_MESSAGE);
       return;
     }
 
@@ -877,7 +761,7 @@ function HomePageInner() {
       selectedModelRejectsGifImages
       && imagesToSend.some((attachment) => attachment.mimeType === 'image/gif')
     ) {
-      setImageWarning('Google models do not support GIF images here. Use PNG, JPEG, or WebP.');
+      setImageWarning(GOOGLE_GIF_UNSUPPORTED_MESSAGE);
       return;
     }
 
@@ -1064,44 +948,31 @@ function HomePageInner() {
           chatModels={chatModels}
           input={input}
           isLoading={isLoading}
-          imageInputDisabled={!selectedModelSupportsImages}
+          imageInputDisabledReason={imageInputDisabledReason}
           isUploadingImages={isUploadingImages}
-          micActive={micActive}
           pendingImageAttachments={pendingImageAttachments}
           responseStyle={activeResponseStyle}
           selectedModelId={selectedModelId}
           modelEffortOverrides={modelEffortOverrides}
           thinkingEnabledOverrides={thinkingEnabledOverrides}
-          ttsEnabled={voiceOutputEnabled}
-          searchEnabled={searchEnabled}
+          searchMode={activeSearchMode}
           temporaryChatEnabled={isTemporaryChat}
           showTemporaryIntro={isTemporaryChat && activeMessages.length === 0}
           temporaryMemoryMode={activeTemporaryMemoryMode}
-          finalTranscript={transcription.finalTranscript}
-          interimTranscript={transcription.interimTranscript}
-          transcriptionStatus={transcription.status}
-          microphoneStatus={microphone.status}
-          microphoneErrorMessage={microphone.errorMessage}
           searchWarning={activeSearchState?.warning ?? null}
           imageWarning={imageWarning}
-          isTtsLoading={tts.isLoading}
-          isTtsPlaying={tts.isPlaying}
           textareaRef={textareaRef}
-          waveformRef={visualization.lineRef}
-          waveformGlowRef={visualization.glowRef}
-          waveformContainerRef={visualization.visualRef}
           onInputChange={(value) => setComposerInputForSelection(composerStateSelection, value)}
           onAttachImages={handleAttachImages}
+          onImageWarning={setImageWarning}
           onRemoveImageAttachment={handleRemoveImageAttachment}
-          onModelChange={setSelectedModelId}
+          onModelChange={handleModelChange}
           onModelEffortChange={updateSelectedModelEffort}
           onThinkingEnabledChange={updateThinkingEnabled}
           onResponseStyleChange={(value) =>
             setResponseStyleForSelection(composerStateSelection, value)
           }
-          onToggleMic={toggleMic}
-          onToggleTts={toggleTtsEnabled}
-          onToggleSearch={() => setSearchEnabled((prev) => !prev)}
+          onSearchModeChange={(mode) => setSearchModeForSelection(composerStateSelection, mode)}
           onTemporaryMemoryModeChange={updateSelectedTemporaryMemoryMode}
           onSubmit={handleSubmit}
           onKeyDown={handleKeyDown}

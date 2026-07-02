@@ -44,6 +44,9 @@ async function ensureConversationsOpen(page) {
   return sidePanel;
 }
 
+const TINY_PNG_BASE64 =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=';
+
 test('hydrates a persistent conversation on direct /home/[conversationId] entry', async ({ page }) => {
   const conversationId = 'conversation-direct-route';
   const question = 'How did early delivery logistics work?';
@@ -251,6 +254,57 @@ test('the first draft send replaces /home with the new persistent conversation r
   await expect(page).toHaveURL(
     new RegExp(`/home/${conversationId}\\?e2e=home-routing-draft$`)
   );
+  await expect(page.getByText(answer)).toBeVisible();
+});
+
+test('promoted draft stays visible in the sidebar while the first response is pending', async ({ page }) => {
+  const message = 'Sketch a launch plan for a new marketplace.';
+  const conversationId = 'conversation-promoted-sidebar-visible';
+  const answer = 'Start with one dense segment, then widen supply after repeat usage appears.';
+  const chatStarted = deferred();
+  const finishResponse = deferred();
+
+  await mockHomeDataRoutes(page, {
+    conversations: [],
+    messagesByConversationId: {},
+    createdConversations: [
+      createConversation({
+        id: conversationId,
+        title: 'Launch Plan',
+        updatedAt: '2026-04-12T12:30:01.000Z',
+        createdAt: '2026-04-12T12:30:01.000Z',
+      }),
+    ],
+  });
+
+  await mockChatRoute(page, async (body) => {
+    chatStarted.resolve(body);
+    await finishResponse.promise;
+    return {
+      conversationId,
+      conversationTitle: 'Launch Plan',
+      userMessageId: 'message-sidebar-user-1',
+      assistantMessageId: 'message-sidebar-assistant-1',
+      message: answer,
+    };
+  });
+
+  await page.goto('/home?e2e=home-routing-sidebar-visible');
+
+  const sidePanel = await ensureConversationsOpen(page);
+  await sidePanel.locator('#side-panel-section-new').getByRole('button', { name: 'New chat with Keen' }).click();
+
+  const composer = page.getByPlaceholder('Message Keen...');
+  await composer.fill(message);
+  await composer.press('Enter');
+
+  await expect(page).toHaveURL(
+    new RegExp(`/home/${conversationId}\\?e2e=home-routing-sidebar-visible$`)
+  );
+  await expect.poll(async () => (await chatStarted.promise).conversationId).toBe(conversationId);
+  await expect(sidePanel.getByTestId(`conversation-row-${conversationId}`)).toBeVisible();
+
+  finishResponse.resolve();
   await expect(page.getByText(answer)).toBeVisible();
 });
 
@@ -650,27 +704,122 @@ test('model effort controls use a drill-in panel on narrow viewports', async ({ 
   await mockHomeDataRoutes(page, {
     conversations: [],
     messagesByConversationId: {},
+    chatModels: [
+      {
+        id: 'gpt-5.5',
+        label: 'GPT-5.5',
+        provider: 'openai',
+        providerLabel: 'OpenAI',
+        iconKey: 'openai',
+        description: 'Best OpenAI model for complex reasoning and coding.',
+        badge: 'Max',
+        available: true,
+        isDefault: true,
+        supportsImages: true,
+        effort: {
+          levels: ['low', 'medium', 'high', 'max'],
+          defaultLevel: 'medium',
+          supportsThinkingToggle: true,
+          defaultThinkingEnabled: true,
+        },
+      },
+      {
+        id: 'gemini-3-flash-preview',
+        label: 'Gemini 3 Flash',
+        provider: 'google',
+        providerLabel: 'Google',
+        iconKey: 'google',
+        description: 'Fast Gemini 3 model with broad thinking-level support.',
+        available: true,
+        isDefault: false,
+        supportsImages: true,
+        effort: {
+          levels: ['minimal', 'low', 'medium', 'high'],
+          defaultLevel: 'medium',
+          supportsThinkingToggle: false,
+          defaultThinkingEnabled: true,
+        },
+      },
+    ],
   });
 
   await page.goto('/home?e2e=home-routing-effort-drilldown');
 
   await page.getByRole('button', { name: /Chat model: GPT-5\.5/ }).click();
-  await page.getByRole('menuitemradio', { name: /GPT-5\.5/ }).click();
+  await page.getByRole('menuitemradio', { name: /Gemini 3 Flash/ }).click();
 
   const popover = page.locator('.chat-model-picker-popover');
   const panels = page.locator('.chat-model-picker-panels');
   const panelsBox = await panels.boundingBox();
 
   await expect(popover).toHaveAttribute('data-effort-mode', 'drilldown');
+  await expect(page.getByRole('button', { name: /Chat model: Gemini 3 Flash/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Attach image' })).toBeEnabled();
   await expect(page.getByRole('button', { name: /^Models$/ })).toBeVisible();
-  await expect(page.getByText('GPT-5.5 effort')).toBeVisible();
+  await expect(page.getByText('Gemini 3 Flash effort')).toBeVisible();
   await expect(page.getByRole('menu', { name: 'Model effort' })).toBeVisible();
   await expect(page.locator('.chat-model-effort-panel')).toHaveCount(0);
+  await expect
+    .poll(() => page.evaluate(() => window.localStorage.getItem('keen-chat-model')))
+    .toBe('gemini-3-flash-preview');
 
   expect(panelsBox).not.toBeNull();
   expect(panelsBox.width).toBeGreaterThan(220);
   expect(panelsBox.x).toBeGreaterThanOrEqual(0);
   expect(panelsBox.x + panelsBox.width).toBeLessThanOrEqual(390);
+});
+
+test('home composer removes attached images when switching to a non-vision model', async ({ page }) => {
+  await mockHomeDataRoutes(page, {
+    conversations: [],
+    messagesByConversationId: {},
+    chatModels: [
+      {
+        id: 'gemini-3-flash-preview',
+        label: 'Gemini 3 Flash',
+        provider: 'google',
+        providerLabel: 'Google',
+        iconKey: 'google',
+        description: 'Fast Gemini 3 model with image support.',
+        available: true,
+        isDefault: true,
+        supportsImages: true,
+      },
+      {
+        id: 'auto',
+        label: 'Auto',
+        provider: 'auto',
+        providerLabel: 'Auto',
+        iconKey: 'auto',
+        description: 'Routes automatically.',
+        available: true,
+        isDefault: false,
+        supportsImages: false,
+      },
+    ],
+  });
+  await page.addInitScript(() => {
+    window.localStorage.setItem('keen-chat-model', 'gemini-3-flash-preview');
+  });
+
+  await page.goto('/home?e2e=home-routing-image-model-switch');
+
+  await expect(page.getByRole('button', { name: /Chat model: Gemini 3 Flash/ })).toBeVisible();
+  await page.locator('input[type="file"]').setInputFiles({
+    name: 'home-switch.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from(TINY_PNG_BASE64, 'base64'),
+  });
+  await expect(page.getByAltText('home-switch.png')).toBeVisible();
+
+  await page.getByRole('button', { name: /Chat model: Gemini 3 Flash/ }).click();
+  await page.getByRole('menuitemradio', { name: /Auto/ }).click();
+
+  await expect(page.getByAltText('home-switch.png')).toHaveCount(0);
+  await expect(page.getByTestId('composer-image-warning')).toHaveText(
+    'Removed attached images because the selected model cannot read images.'
+  );
+  await expect(page.getByRole('button', { name: 'Attach image' })).toBeDisabled();
 });
 
 test('a second chat can send while another chat is still in flight', async ({ page }) => {
