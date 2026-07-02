@@ -900,14 +900,14 @@ export default function SidePanel({
                       </svg>
                     </button>
                   </div>
-                  <div className="pl-14 pr-2">
+                  <div className="pl-9 pr-0">
                     {workspaceList}
                   </div>
                 </div>
 
                 {moveError && (
                   <p
-                    className="ml-14 mr-5 rounded-md border border-amber-300/70 bg-amber-50 px-3 py-2 font-sans text-xs text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100"
+                    className="ml-11 mr-5 rounded-md border border-amber-300/70 bg-amber-50 px-3 py-2 font-sans text-xs text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100"
                     role="alert"
                   >
                     {moveError}
@@ -924,7 +924,7 @@ export default function SidePanel({
                     </div>
                     <span className="font-sans text-sm font-medium text-foreground">Temporary</span>
                   </div>
-                  <div className="pl-14 pr-2">
+                  <div className="pl-11 pr-2">
                     {temporaryChats.length > 0 ? (
                       <div className="space-y-1">
                         {temporaryChats.map((chat) => {
@@ -974,7 +974,7 @@ export default function SidePanel({
                         })}
                       </div>
                     ) : (
-                      <p className="font-sans text-xs text-muted">No temporary chats.</p>
+                      <p className="px-3 font-sans text-xs text-muted">No temporary chats.</p>
                     )}
                   </div>
                 </div>
@@ -1008,7 +1008,7 @@ export default function SidePanel({
                       </svg>
                     </button>
                   </div>
-                  <div className="pl-14 pb-6 pr-2">
+                  <div className="pl-11 pb-6 pr-2">
                     {chatList}
                   </div>
                 </div>
