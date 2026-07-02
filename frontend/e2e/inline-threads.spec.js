@@ -484,7 +484,7 @@ test('code-block copy button still copies only code text', async ({ context, pag
   );
 });
 
-test('renders inline markers for code and math selections from offsets', async ({ page }) => {
+test('renders inline markers for inline code, code blocks, and math selections from offsets', async ({ page }) => {
   await mockChatRoute(page, async (body) => {
     return {
       message: `Answer for ${body.message}`,
@@ -494,12 +494,57 @@ test('renders inline markers for code and math selections from offsets', async (
   });
 
   const { messageId } = await gotoHomeFixture(page, 'inline-threads-rich-selection');
+  const messageContent = page.locator(`[data-message-id="${messageId}"] [data-message-content]`);
+
+  await selectTextInMessage(page, messageId, 'queueMicrotask()');
+  await page.getByTestId('selection-popover-input').fill('inline-code-marker');
+  await page.getByTestId('selection-popover-input').press('Enter');
+
+  await expect(messageContent).toHaveAttribute('data-range-thread-highlights', 'true');
+  const inlineCodeMarker = messageContent.locator('p code [data-testid="inline-thread-link"]');
+  await expect(inlineCodeMarker).toContainText('queueMicrotask()');
+  const inlineCodeMarkerId = await inlineCodeMarker.getAttribute('data-thread-marker-id');
+  const inlineCodeOverlayRects = messageContent.locator(
+    `[data-testid="thread-highlight-rect"][data-highlight-context="inline-code"][data-highlight-source-id="${inlineCodeMarkerId}"]`
+  );
+  await expect.poll(() => inlineCodeOverlayRects.count()).toBeGreaterThan(0);
+  const inlineCodeOverlay = messageContent.locator(
+    `p code [data-testid="thread-highlight-inline-code-overlay"]:has([data-highlight-source-id="${inlineCodeMarkerId}"])`
+  );
+  await expect(inlineCodeOverlay).toHaveCount(1);
+  await expect
+    .poll(() =>
+      inlineCodeOverlay.evaluate((overlay) => {
+        const code = overlay.closest('code');
+        if (!code) return false;
+
+        const overlayRect = overlay.getBoundingClientRect();
+        const codeRect = code.getBoundingClientRect();
+        return (
+          overlayRect.left >= codeRect.left - 1
+          && overlayRect.top >= codeRect.top - 1
+          && overlayRect.right <= codeRect.right + 1
+          && overlayRect.bottom <= codeRect.bottom + 1
+        );
+      })
+    )
+    .toBe(true);
+  const inlineCodeMarkerStyles = await inlineCodeMarker.evaluate((node) => {
+    const style = window.getComputedStyle(node);
+    return {
+      backgroundColor: style.backgroundColor,
+      boxShadow: style.boxShadow,
+    };
+  });
+  expect(inlineCodeMarkerStyles).toEqual({
+    backgroundColor: 'rgba(0, 0, 0, 0)',
+    boxShadow: 'none',
+  });
 
   await selectTextInMessage(page, messageId, 'const paint = await nextFrame();');
   await page.getByTestId('selection-popover-input').fill('code-marker');
   await page.getByTestId('selection-popover-input').press('Enter');
 
-  const messageContent = page.locator(`[data-message-id="${messageId}"] [data-message-content]`);
   await expect(messageContent).toHaveAttribute('data-range-thread-highlights', 'true');
 
   const codeMarkerFragments = page.locator('pre code [data-testid="inline-thread-link"]');
