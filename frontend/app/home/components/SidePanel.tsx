@@ -1,6 +1,14 @@
 'use client';
 
-import { useEffect, useCallback, useState, type DragEvent } from 'react';
+import {
+  useEffect,
+  useCallback,
+  useState,
+  type CSSProperties,
+  type DragEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 import { useRouter } from 'next/navigation';
 import SidebarPanelIcon from '@/app/components/SidebarPanelIcon';
 import Tooltip from '@/app/components/Tooltip';
@@ -10,6 +18,12 @@ import {
   RailIconTemporary,
   RailIconWorkspace,
 } from '@/app/home/components/home-rail-icons';
+import {
+  SIDE_PANEL_COLLAPSED_WIDTH_PX,
+  SIDE_PANEL_MAX_WIDTH_PX,
+  SIDE_PANEL_MIN_WIDTH_PX,
+  clampSidePanelWidthPx,
+} from '@/app/home/components/SidePanelContext';
 import { useViewerIdentity } from '@/app/components/useViewerIdentity';
 import { initialsFor } from '@/lib/mentors/ui-helpers';
 import type {
@@ -33,8 +47,10 @@ interface TemporaryChatListItem {
 
 interface Props {
   isOpen: boolean;
+  sidePanelWidthPx: number;
   onClose: () => void;
   onToggleSidePanel: () => void;
+  onSidePanelWidthChange: (widthPx: number) => void;
   onNewChatKeen: () => void;
   onOpenWorkspacesSection: () => void;
   onOpenTemporarySection: () => void;
@@ -82,8 +98,10 @@ const GLOBAL_DROP_TARGET_KEY = 'global';
 
 export default function SidePanel({
   isOpen,
+  sidePanelWidthPx,
   onClose,
   onToggleSidePanel,
+  onSidePanelWidthChange,
   onNewChatKeen,
   onOpenWorkspacesSection,
   onOpenTemporarySection,
@@ -120,6 +138,9 @@ export default function SidePanel({
   const { viewer } = useViewerIdentity();
   const profileName = viewer?.fullName || viewer?.email || 'Your profile';
   const profileInitials = initialsFor(profileName);
+  const panelStyle = {
+    '--side-panel-width': `${sidePanelWidthPx}px`,
+  } as CSSProperties;
 
   const handleEscape = useCallback(
     (event: KeyboardEvent) => {
@@ -266,6 +287,67 @@ export default function SidePanel({
       }
     },
     [onMoveConversation]
+  );
+
+  const handleStartResize = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (!isOpen || !window.matchMedia('(min-width: 1024px)').matches) {
+        return;
+      }
+
+      const previousBodyCursor = document.body.style.cursor;
+      const previousBodyUserSelect = document.body.style.userSelect;
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+
+      const handlePointerMove = (moveEvent: globalThis.PointerEvent) => {
+        onSidePanelWidthChange(clampSidePanelWidthPx(moveEvent.clientX));
+      };
+
+      const handlePointerUp = () => {
+        document.body.style.cursor = previousBodyCursor;
+        document.body.style.userSelect = previousBodyUserSelect;
+        window.removeEventListener('pointermove', handlePointerMove);
+        window.removeEventListener('pointerup', handlePointerUp);
+        window.removeEventListener('pointercancel', handlePointerUp);
+      };
+
+      window.addEventListener('pointermove', handlePointerMove);
+      window.addEventListener('pointerup', handlePointerUp);
+      window.addEventListener('pointercancel', handlePointerUp);
+      event.preventDefault();
+    },
+    [isOpen, onSidePanelWidthChange]
+  );
+
+  const handleResizeKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLDivElement>) => {
+      if (!isOpen) {
+        return;
+      }
+
+      if (event.key === 'Home') {
+        onSidePanelWidthChange(SIDE_PANEL_MIN_WIDTH_PX);
+        event.preventDefault();
+        return;
+      }
+
+      if (event.key === 'End') {
+        onSidePanelWidthChange(SIDE_PANEL_MAX_WIDTH_PX);
+        event.preventDefault();
+        return;
+      }
+
+      const direction = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
+      if (direction === 0) {
+        return;
+      }
+
+      const step = event.shiftKey ? 24 : 12;
+      onSidePanelWidthChange(sidePanelWidthPx + direction * step);
+      event.preventDefault();
+    },
+    [isOpen, onSidePanelWidthChange, sidePanelWidthPx]
   );
 
   const handleConversationDrop = (
@@ -733,11 +815,9 @@ export default function SidePanel({
       />
 
       <div
-        className={`fixed left-0 top-0 z-50 flex h-dvh overflow-hidden border-r border-foreground/[0.06] bg-background transition-[width] duration-300 ease-out dark:border-foreground/[0.08] ${
-          isOpen
-            ? 'w-[min(21.8rem,100vw)]'
-            : 'w-14'
-        }`}
+        data-open={isOpen}
+        className="side-panel-shell fixed left-0 top-0 z-50 flex h-dvh overflow-hidden border-r border-foreground/[0.06] bg-background transition-[width] duration-300 ease-out dark:border-foreground/[0.08]"
+        style={panelStyle}
       >
         {/* Rail icons — always mounted, faded out when panel is open so the width transition has no DOM swap */}
         <nav
@@ -981,9 +1061,41 @@ export default function SidePanel({
               </div>
             </div>
         </div>
+
+        <div
+          role="separator"
+          aria-label="Resize conversations sidebar"
+          aria-orientation="vertical"
+          aria-valuemin={SIDE_PANEL_MIN_WIDTH_PX}
+          aria-valuemax={SIDE_PANEL_MAX_WIDTH_PX}
+          aria-valuenow={sidePanelWidthPx}
+          tabIndex={isOpen ? 0 : -1}
+          data-testid="side-panel-resize-handle"
+          onPointerDown={handleStartResize}
+          onKeyDown={handleResizeKeyDown}
+          className={`group absolute inset-y-0 right-[-3px] z-20 hidden w-2 cursor-col-resize items-stretch justify-center outline-none lg:flex ${
+            isOpen ? 'pointer-events-auto' : 'pointer-events-none'
+          }`}
+        >
+          <span className="my-4 w-px rounded-full bg-transparent transition-colors group-hover:bg-foreground/20 group-focus-visible:bg-foreground/30" />
+        </div>
       </div>
 
       <style jsx>{`
+        .side-panel-shell {
+          width: ${SIDE_PANEL_COLLAPSED_WIDTH_PX}px;
+        }
+
+        .side-panel-shell[data-open='true'] {
+          width: min(21.8rem, 100vw);
+        }
+
+        @media (min-width: 1024px) {
+          .side-panel-shell[data-open='true'] {
+            width: min(var(--side-panel-width), calc(100vw - 5rem));
+          }
+        }
+
         .side-panel-scroll {
           scrollbar-width: none;
         }

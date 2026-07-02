@@ -308,6 +308,48 @@ test('promoted draft stays visible in the sidebar while the first response is pe
   await expect(page.getByText(answer)).toBeVisible();
 });
 
+test('desktop conversations sidebar resizes by dragging and persists width', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await mockHomeDataRoutes(page, {
+    conversations: [
+      createConversation({
+        id: 'conversation-sidebar-resize',
+        title: 'Resizable Sidebar',
+      }),
+    ],
+    messagesByConversationId: {},
+  });
+
+  await page.goto('/home?e2e=sidebar-resize');
+
+  const sidePanel = await ensureConversationsOpen(page);
+  const resizeHandle = page.getByTestId('side-panel-resize-handle');
+  const before = await sidePanel.boundingBox();
+  const handleBox = await resizeHandle.boundingBox();
+
+  if (!before || !handleBox) {
+    throw new Error('Sidebar or resize handle is missing a bounding box');
+  }
+
+  await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(handleBox.x + 120, handleBox.y + handleBox.height / 2, {
+    steps: 6,
+  });
+  await page.mouse.up();
+
+  await expect
+    .poll(async () => (await sidePanel.boundingBox())?.width ?? 0)
+    .toBeGreaterThan(before.width + 80);
+
+  const storedWidth = await page.evaluate(() =>
+    Number(window.localStorage.getItem('keen-side-panel-width-v1'))
+  );
+
+  expect(storedWidth).toBeGreaterThan(before.width + 80);
+  expect(storedWidth).toBeLessThanOrEqual(600);
+});
+
 test('unsent composer text is preserved per persistent chat', async ({ page }) => {
   const firstConversationId = 'conversation-chat-scoped-input-1';
   const secondConversationId = 'conversation-chat-scoped-input-2';

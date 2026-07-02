@@ -157,6 +157,8 @@ function CreateWorkspaceModal({
 function HomeShell({ children }: { children: ReactNode }) {
   const {
     isOpen: sidePanelOpen,
+    widthPx: sidePanelWidthPx,
+    setWidthPx: setSidePanelWidthPx,
     toggle: handleToggleSidePanel,
     close: handleCloseSidePanel,
     openWithScroll,
@@ -312,8 +314,10 @@ function HomeShell({ children }: { children: ReactNode }) {
 
       <SidePanel
         isOpen={sidePanelOpen}
+        sidePanelWidthPx={sidePanelWidthPx}
         onClose={handleCloseSidePanel}
         onToggleSidePanel={handleToggleSidePanel}
+        onSidePanelWidthChange={setSidePanelWidthPx}
         onNewChatKeen={handleRailNewChatKeen}
         onOpenWorkspacesSection={() => openWithScroll('workspaces')}
         onOpenTemporarySection={() => openWithScroll('temporary')}

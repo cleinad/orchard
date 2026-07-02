@@ -1,8 +1,18 @@
 "use client";
 
-import { Suspense, useState, useCallback, useRef, useEffect } from 'react';
+import {
+  Suspense,
+  useState,
+  useCallback,
+  useRef,
+  useEffect,
+  type CSSProperties,
+} from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { useSidePanel } from '@/app/home/components/SidePanelContext';
+import {
+  SIDE_PANEL_COLLAPSED_WIDTH_PX,
+  useSidePanel,
+} from '@/app/home/components/SidePanelContext';
 import {
   useHomeDataContext,
   type SelectedChat,
@@ -194,7 +204,10 @@ function HomePageInner() {
   const [isDesktopViewport, setIsDesktopViewport] = useState(false);
 
   const { learningMode } = useLearningMode();
-  const { isOpen: sidePanelOpen } = useSidePanel();
+  const { isOpen: sidePanelOpen, widthPx: sidePanelWidthPx } = useSidePanel();
+  const mainStyle = {
+    '--side-panel-width': `${sidePanelWidthPx}px`,
+  } as CSSProperties;
 
   useEffect(() => {
     const mediaQuery = window.matchMedia('(min-width: 1024px)');
@@ -846,9 +859,11 @@ function HomePageInner() {
       <HomeBackground />
 
       <main
-        className={`relative flex min-h-0 flex-1 flex-col transition-[padding] duration-300 ease-out ${
-          sidePanelOpen ? 'pl-[min(21.8rem,100vw)]' : 'pl-14'
-        } ${threadPanelOpen ? 'lg:pr-[460px]' : ''}`}
+        data-side-panel-open={sidePanelOpen}
+        className={`home-main-shell relative flex min-h-0 flex-1 flex-col transition-[padding] duration-300 ease-out ${
+          threadPanelOpen ? 'lg:pr-[460px]' : ''
+        }`}
+        style={mainStyle}
       >
         <div className="w-full shrink-0 px-6">
           <HomeHeader
@@ -1005,6 +1020,22 @@ function HomePageInner() {
         onSend={handleSendThreadMessage}
         onClose={closeThreadPanel}
       />
+
+      <style jsx>{`
+        .home-main-shell {
+          padding-left: ${SIDE_PANEL_COLLAPSED_WIDTH_PX}px;
+        }
+
+        .home-main-shell[data-side-panel-open='true'] {
+          padding-left: min(21.8rem, 100vw);
+        }
+
+        @media (min-width: 1024px) {
+          .home-main-shell[data-side-panel-open='true'] {
+            padding-left: min(var(--side-panel-width), calc(100vw - 5rem));
+          }
+        }
+      `}</style>
     </>
   );
 }
