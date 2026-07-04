@@ -197,6 +197,44 @@ test('promotes an unsent popover draft into the thread panel', async ({ page }) 
   await expect.poll(() => hasPersistentSelectionHighlight(page)).toBe(true);
 });
 
+test('desktop thread panel resizes by dragging and persists width', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const { messageId, selectedText } = await gotoHomeFixture(page);
+
+  await selectTextInMessage(page, messageId, selectedText);
+  await page.getByTestId('selection-popover-input').fill('Why does that happen?');
+  await page.keyboard.press('Control+L');
+
+  const threadPanel = page.getByTestId('thread-panel');
+  await expect(threadPanel).toHaveAttribute('data-state', 'open');
+
+  const resizeHandle = page.getByTestId('thread-panel-resize-handle');
+  const before = await threadPanel.boundingBox();
+  const handleBox = await resizeHandle.boundingBox();
+
+  if (!before || !handleBox) {
+    throw new Error('Thread panel or resize handle is missing a bounding box');
+  }
+
+  await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(handleBox.x - 160, handleBox.y + handleBox.height / 2, {
+    steps: 8,
+  });
+  await page.mouse.up();
+
+  await expect
+    .poll(async () => (await threadPanel.boundingBox())?.width ?? 0)
+    .toBeGreaterThan(before.width + 80);
+
+  const storedWidth = await page.evaluate(() =>
+    Number(window.localStorage.getItem('keen-thread-panel-width-v1'))
+  );
+
+  expect(storedWidth).toBeGreaterThan(before.width + 80);
+  expect(storedWidth).toBeLessThanOrEqual(720);
+});
+
 test('submitting a selection question opens the thread panel immediately and shows a loading inline marker', async ({ page }) => {
   const response = deferred();
   const question = 'Why does that happen?';

@@ -80,7 +80,10 @@ import {
 } from '@/lib/chat-models';
 import { LearningModeProvider, useLearningMode } from '@/app/home/components/LearningModeContext';
 import TextSelectionPopover from '@/app/home/components/TextSelectionPopover';
-import ThreadPanel from '@/app/home/components/ThreadPanel';
+import ThreadPanel, {
+  THREAD_PANEL_DEFAULT_WIDTH_PX,
+  clampThreadPanelWidthPx,
+} from '@/app/home/components/ThreadPanel';
 import type {
   BranchSelectionMap,
   ConversationBranch,
@@ -95,6 +98,7 @@ import { supabase } from '@/lib/supabase';
 const COMPOSER_DRAFT_INPUTS_STORAGE_KEY = 'keen-home-composer-draft-inputs-v1';
 const RESPONSE_STYLE_STORAGE_KEY = 'keen-home-response-styles-v1';
 const PERSISTENT_THREAD_RUNTIME_STORAGE_KEY = 'keen-persistent-thread-runtime-v1';
+const THREAD_PANEL_WIDTH_STORAGE_KEY = 'keen-thread-panel-width-v1';
 const TEMP_CHAT_TITLE = 'Temporary chat';
 
 function findLatestConversationForMentor(
@@ -202,12 +206,39 @@ function HomePageInner() {
   const [pendingBranch, setPendingBranch] = useState<PendingBranchTarget | null>(null);
   const [currentMapMessageId, setCurrentMapMessageId] = useState<string | null>(null);
   const [isDesktopViewport, setIsDesktopViewport] = useState(false);
+  const [threadPanelWidthPx, setThreadPanelWidthPxState] = useState(
+    THREAD_PANEL_DEFAULT_WIDTH_PX
+  );
+  const [hasLoadedThreadPanelWidth, setHasLoadedThreadPanelWidth] = useState(false);
 
   const { learningMode } = useLearningMode();
   const { isOpen: sidePanelOpen, widthPx: sidePanelWidthPx } = useSidePanel();
   const mainStyle = {
     '--side-panel-width': `${sidePanelWidthPx}px`,
+    '--thread-panel-width': `${threadPanelWidthPx}px`,
   } as CSSProperties;
+  const setThreadPanelWidthPx = useCallback((nextWidthPx: number) => {
+    setThreadPanelWidthPxState(clampThreadPanelWidthPx(nextWidthPx));
+  }, []);
+
+  useEffect(() => {
+    const stored = window.localStorage.getItem(THREAD_PANEL_WIDTH_STORAGE_KEY);
+    const parsed = stored === null ? Number.NaN : Number(stored);
+
+    if (stored !== null) {
+      setThreadPanelWidthPxState(clampThreadPanelWidthPx(parsed));
+    }
+
+    setHasLoadedThreadPanelWidth(true);
+  }, []);
+
+  useEffect(() => {
+    if (!hasLoadedThreadPanelWidth) {
+      return;
+    }
+
+    window.localStorage.setItem(THREAD_PANEL_WIDTH_STORAGE_KEY, String(threadPanelWidthPx));
+  }, [hasLoadedThreadPanelWidth, threadPanelWidthPx]);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia('(min-width: 1024px)');
@@ -860,9 +891,8 @@ function HomePageInner() {
 
       <main
         data-side-panel-open={sidePanelOpen}
-        className={`home-main-shell relative flex min-h-0 flex-1 flex-col transition-[padding] duration-300 ease-out ${
-          threadPanelOpen ? 'lg:pr-[460px]' : ''
-        }`}
+        data-thread-panel-open={threadPanelOpen}
+        className="home-main-shell relative flex min-h-0 flex-1 flex-col transition-[padding] duration-300 ease-out"
         style={mainStyle}
       >
         <div className="w-full shrink-0 px-6">
@@ -1013,9 +1043,11 @@ function HomePageInner() {
 
       <ThreadPanel
         isOpen={threadPanelOpen}
+        widthPx={threadPanelWidthPx}
         session={activeSession}
         temporaryChatEnabled={isTemporaryChat}
         suspendCloseShortcut={Boolean(popoverState)}
+        onWidthChange={setThreadPanelWidthPx}
         onInputChange={handleThreadPanelInputChange}
         onSend={handleSendThreadMessage}
         onClose={closeThreadPanel}
@@ -1033,6 +1065,10 @@ function HomePageInner() {
         @media (min-width: 768px) {
           .home-main-shell[data-side-panel-open='true'] {
             padding-left: min(var(--side-panel-width), calc(100vw - 5rem));
+          }
+
+          .home-main-shell[data-thread-panel-open='true'] {
+            padding-right: min(var(--thread-panel-width), calc(100vw - 5rem));
           }
         }
       `}</style>

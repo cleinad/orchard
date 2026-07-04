@@ -5,8 +5,10 @@ import {
   useRef,
   useCallback,
   useState,
+  type CSSProperties,
   type FormEvent as ReactFormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
 } from "react";
 import MarkdownWithThreads from "@/app/home/components/MarkdownWithThreads";
 import SearchSourcesTray from "@/app/home/components/SearchSourcesTray";
@@ -16,12 +18,27 @@ import { hasUsableSearchSources } from "@/lib/search-citations";
 
 interface ThreadPanelProps {
   isOpen: boolean;
+  widthPx: number;
   session: ThreadSession | null;
   temporaryChatEnabled: boolean;
   suspendCloseShortcut?: boolean;
+  onWidthChange: (widthPx: number) => void;
   onInputChange: (sessionId: string, value: string) => void;
   onSend: (sessionId: string, overrideContent?: string) => void;
   onClose: () => void;
+}
+
+const THREAD_PANEL_DESKTOP_MEDIA_QUERY = "(min-width: 768px)";
+export const THREAD_PANEL_MIN_WIDTH_PX = 200;
+export const THREAD_PANEL_DEFAULT_WIDTH_PX = 460;
+export const THREAD_PANEL_MAX_WIDTH_PX = 720;
+
+export function clampThreadPanelWidthPx(value: number) {
+  if (!Number.isFinite(value)) {
+    return THREAD_PANEL_DEFAULT_WIDTH_PX;
+  }
+
+  return Math.min(THREAD_PANEL_MAX_WIDTH_PX, Math.max(THREAD_PANEL_MIN_WIDTH_PX, Math.round(value)));
 }
 
 function toSnippet(text: string, maxLength = 88): string {
@@ -32,9 +49,11 @@ function toSnippet(text: string, maxLength = 88): string {
 
 export default function ThreadPanel({
   isOpen,
+  widthPx,
   session,
   temporaryChatEnabled,
   suspendCloseShortcut = false,
+  onWidthChange,
   onInputChange,
   onSend,
   onClose,
@@ -51,6 +70,9 @@ export default function ThreadPanel({
     : null;
   const headerTitle = activeQuestion ? toSnippet(activeQuestion) : session?.highlightedText ?? null;
   const canSend = Boolean(session && !isBusy && session.draftInput.trim().length > 0);
+  const panelStyle = {
+    "--thread-panel-width": `${widthPx}px`,
+  } as CSSProperties;
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -145,10 +167,71 @@ export default function ThreadPanel({
     );
   }, []);
 
+  const handleStartResize = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (!isOpen || !window.matchMedia(THREAD_PANEL_DESKTOP_MEDIA_QUERY).matches) {
+        return;
+      }
+
+      const previousBodyCursor = document.body.style.cursor;
+      const previousBodyUserSelect = document.body.style.userSelect;
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+
+      const handlePointerMove = (moveEvent: globalThis.PointerEvent) => {
+        onWidthChange(clampThreadPanelWidthPx(window.innerWidth - moveEvent.clientX));
+      };
+
+      const handlePointerUp = () => {
+        document.body.style.cursor = previousBodyCursor;
+        document.body.style.userSelect = previousBodyUserSelect;
+        window.removeEventListener("pointermove", handlePointerMove);
+        window.removeEventListener("pointerup", handlePointerUp);
+        window.removeEventListener("pointercancel", handlePointerUp);
+      };
+
+      window.addEventListener("pointermove", handlePointerMove);
+      window.addEventListener("pointerup", handlePointerUp);
+      window.addEventListener("pointercancel", handlePointerUp);
+      event.preventDefault();
+    },
+    [isOpen, onWidthChange]
+  );
+
+  const handleResizeKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLDivElement>) => {
+      if (!isOpen) {
+        return;
+      }
+
+      if (event.key === "Home") {
+        onWidthChange(THREAD_PANEL_MIN_WIDTH_PX);
+        event.preventDefault();
+        return;
+      }
+
+      if (event.key === "End") {
+        onWidthChange(THREAD_PANEL_MAX_WIDTH_PX);
+        event.preventDefault();
+        return;
+      }
+
+      const direction = event.key === "ArrowLeft" ? 1 : event.key === "ArrowRight" ? -1 : 0;
+      if (direction === 0) {
+        return;
+      }
+
+      const step = event.shiftKey ? 24 : 12;
+      onWidthChange(widthPx + direction * step);
+      event.preventDefault();
+    },
+    [isOpen, onWidthChange, widthPx]
+  );
+
   return (
     <div className="pointer-events-none fixed inset-0 z-50 flex justify-end transition-all duration-300">
       <div
-        className={`absolute inset-0 bg-foreground/[0.06] transition-opacity duration-300 lg:hidden ${
+        className={`thread-panel-backdrop absolute inset-0 bg-foreground/[0.06] transition-opacity duration-300 ${
           isOpen ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
         }`}
         onClick={onClose}
@@ -158,10 +241,29 @@ export default function ThreadPanel({
         data-testid="thread-panel"
         data-state={isOpen ? "open" : "closed"}
         aria-hidden={!isOpen}
-        className={`pointer-events-auto relative flex h-full w-full max-w-[460px] flex-col bg-background font-sans shadow-xl transition-transform duration-300 ease-out ${
+        className={`thread-panel-surface pointer-events-auto relative flex h-full flex-col bg-background font-sans shadow-xl transition-[transform,width] duration-300 ease-out ${
           isOpen ? "translate-x-0" : "translate-x-full"
         }`}
+        style={panelStyle}
       >
+        <div
+          role="separator"
+          aria-label="Resize thread panel"
+          aria-orientation="vertical"
+          aria-valuemin={THREAD_PANEL_MIN_WIDTH_PX}
+          aria-valuemax={THREAD_PANEL_MAX_WIDTH_PX}
+          aria-valuenow={widthPx}
+          tabIndex={isOpen ? 0 : -1}
+          data-testid="thread-panel-resize-handle"
+          onPointerDown={handleStartResize}
+          onKeyDown={handleResizeKeyDown}
+          className={`thread-panel-resize-handle group absolute inset-y-0 left-[-3px] z-20 hidden w-2 cursor-col-resize items-stretch justify-center outline-none ${
+            isOpen ? "pointer-events-auto" : "pointer-events-none"
+          }`}
+        >
+          <span className="my-4 w-px rounded-full bg-transparent transition-colors group-hover:bg-foreground/20 group-focus-visible:bg-foreground/30" />
+        </div>
+
         <div className="flex items-start justify-between border-b border-border-subtle px-6 py-4">
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -338,6 +440,26 @@ export default function ThreadPanel({
           </p>
         </div>
       </aside>
+
+      <style jsx>{`
+        .thread-panel-surface {
+          width: 100vw;
+        }
+
+        @media ${THREAD_PANEL_DESKTOP_MEDIA_QUERY} {
+          .thread-panel-backdrop {
+            display: none;
+          }
+
+          .thread-panel-surface {
+            width: min(var(--thread-panel-width), calc(100vw - 5rem));
+          }
+
+          .thread-panel-resize-handle {
+            display: flex;
+          }
+        }
+      `}</style>
     </div>
   );
 }
