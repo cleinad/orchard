@@ -11,6 +11,7 @@ import {
   type MouseEvent,
   type PointerEvent,
 } from 'react';
+import AssistantCopyControl from '@/app/home/components/AssistantCopyControl';
 import MarkdownWithThreads from '@/app/home/components/MarkdownWithThreads';
 import SearchSourcesTray from '@/app/home/components/SearchSourcesTray';
 import ThreadHighlightOverlay, {
@@ -446,15 +447,19 @@ function MessageRow({
 
         {!message.isStreaming && message.role === 'assistant' && (
           <div
-            className="mt-3 flex flex-wrap items-center gap-2"
+            className="mt-3 flex flex-wrap items-center gap-1.5"
             onPointerUp={(event) => event.stopPropagation()}
           >
+            <AssistantCopyControl
+              contentRootRef={messageContentRef}
+              message={message}
+            />
             {branchChips.map((chip) => (
               <button
                 key={chip.id}
                 type="button"
                 onClick={() => onSelectBranch(message.id, chip.branchId)}
-                className={`rounded-full px-3 py-1.5 font-sans text-xs font-medium transition ${
+                className={`inline-flex h-6 items-center rounded-md px-2 font-sans text-[11px] font-medium transition ${
                   chip.isActive
                     ? 'bg-foreground text-background'
                     : chip.kind === 'pending'
@@ -468,7 +473,7 @@ function MessageRow({
             <button
               type="button"
               onClick={() => onCreateBranch(message.id)}
-              className="rounded-full border border-border-subtle bg-surface px-3 py-1.5 font-sans text-xs font-medium text-muted transition hover:border-foreground/[0.10] hover:bg-foreground/[0.03] hover:text-foreground"
+              className="inline-flex h-6 items-center rounded-md border border-border-subtle bg-surface px-2 font-sans text-[11px] font-medium text-muted transition hover:border-foreground/[0.10] hover:bg-foreground/[0.03] hover:text-foreground"
             >
               + Branch
             </button>
