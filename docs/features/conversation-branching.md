@@ -77,11 +77,11 @@ Rules:
 
 ### Conversation map
 
-Longer conversations expose a `Map` control in the top-right of the chat pane.
+Conversations with at least one mapped turn expose a `Map` control in the top-right of the chat pane.
 
 Availability:
 
-- appears only when the selected conversation has at least one real branch point
+- appears when the selected conversation has at least one mapped turn, even if it is still linear
 - stays available while the transcript scrolls
 - keeps per-conversation camera position and pane width in local state
 

@@ -398,7 +398,7 @@ function HomePageInner() {
     threadSessionsById,
     tempChatTitle: TEMP_CHAT_TITLE,
   });
-  const hasConversationMap = conversationMapModel.branchPointIds.size > 0;
+  const hasConversationMap = conversationMapModel.nodes.length > 0;
   const {
     endProgrammaticTranscriptNavigation,
     handleScroll,
@@ -903,7 +903,7 @@ function HomePageInner() {
             temporaryMemoryMode={activeTemporaryMemoryMode}
             loadingLists={loadingLists}
             onCreateTemporaryChat={handleCreateTemporaryChat}
-            conversationMapBranchPointCount={conversationMapModel.branchPointIds.size}
+            conversationMapNodeCount={conversationMapModel.nodes.length}
             conversationMapOpen={conversationMapOpen}
             onToggleConversationMap={handleToggleConversationMap}
           />

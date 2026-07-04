@@ -5,6 +5,7 @@ const { selectTextInMessage } = require('./helpers/selectText');
 
 const conversationId = 'conversation-map-persistent';
 const crowdedConversationId = 'conversation-map-crowded';
+const linearConversationId = 'conversation-map-linear';
 const stableLayoutConversationId = 'conversation-map-stable-layout';
 const ROOT_QUESTION = 'Give me two ways to explain delayed browser paint.';
 const ROOT_REPLY =
@@ -195,6 +196,31 @@ function createConversationMapState() {
           position: 1,
         }),
       ],
+    },
+  };
+}
+
+function createLinearConversationMapState() {
+  return {
+    conversations: [
+      createConversation({
+        id: linearConversationId,
+        title: 'Conversation Map Linear Path',
+      }),
+    ],
+    messagesByConversationId: {
+      [linearConversationId]: [
+        createMessage({
+          id: 'linear-user-root',
+          role: 'user',
+          content: 'Sketch the smallest useful explanation of browser paint.',
+          createdAt: '2026-04-15T09:00:00.000Z',
+          previousMessageId: null,
+        }),
+      ],
+    },
+    branchesByConversationId: {
+      [linearConversationId]: [],
     },
   };
 }
@@ -487,6 +513,27 @@ test('desktop map opens in a split pane and activates a full branch route from o
   const anchorPosition = await getAnchorTopOffset();
   expect(anchorPosition.topOffset).toBeGreaterThanOrEqual(0);
   await expect.poll(async () => (await getAnchorTopOffset()).topOffset).toBeLessThan(180);
+});
+
+test('desktop map is available for a linear conversation with one turn', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 960 });
+  await mockHomeDataRoutes(page, createLinearConversationMapState());
+
+  await page.goto(`/home/${linearConversationId}?e2e=conversation-map-linear`);
+
+  await expect(page.getByTestId('conversation-map-toggle')).toBeVisible();
+
+  await page.getByTestId('conversation-map-toggle').click();
+  const mapPane = page.getByTestId('conversation-map-desktop');
+  await expect(mapPane).toBeVisible();
+  await expect(mapPane.getByText('1 turn')).toBeVisible();
+
+  const rootTurnNode = mapPane.locator('[data-map-node-id="linear-user-root"]');
+  await expect(rootTurnNode).toContainText(
+    'Sketch the smallest useful explanation of browser paint.'
+  );
+  await expect(rootTurnNode).toContainText('Response pending.');
+  await expect(mapPane.locator('[data-map-node="true"]')).toHaveCount(1);
 });
 
 test('desktop map navigation does not rebound the transcript back to the bottom', async ({
