@@ -77,6 +77,11 @@ async function getNativeSelectionText(page) {
   return page.evaluate(() => window.getSelection()?.toString() ?? '');
 }
 
+async function selectSearchMode(page, label) {
+  await page.getByRole('button', { name: /^Search mode / }).click();
+  await page.getByRole('menuitemradio', { name: label }).click();
+}
+
 function getUnionBounds(rects) {
   expect(rects.length).toBeGreaterThan(0);
 
@@ -242,10 +247,12 @@ test('submitting a selection question opens the thread panel immediately and sho
   await mockChatRoute(page, async (body) => {
     expect(body.concise).toBeUndefined();
     expect(body.message).toBe(question);
+    expect(body.searchMode).toBe('off');
     return response.promise;
   });
 
   const { messageId, selectedText } = await gotoHomeFixture(page);
+  await selectSearchMode(page, 'Off');
   await selectTextInMessage(page, messageId, selectedText);
   await page.getByTestId('selection-popover-input').fill(question);
   await page.getByTestId('selection-popover-input').press('Enter');

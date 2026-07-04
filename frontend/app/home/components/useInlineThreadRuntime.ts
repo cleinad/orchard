@@ -43,6 +43,7 @@ import {
 } from '@/lib/chat-session';
 import { getBrowserTimeZone } from '@/lib/browser-timezone';
 import type { ChatModelEffortLevel } from '@/lib/chat-models';
+import type { SearchMode } from '@/lib/chat-search';
 import type { ResponseStyle } from '@/lib/response-style';
 
 interface UseInlineThreadRuntimeParams {
@@ -63,6 +64,7 @@ interface UseInlineThreadRuntimeParams {
   selectedModelEffort: ChatModelEffortLevel | null;
   thinkingEnabled: boolean | null;
   responseStyle: ResponseStyle;
+  searchMode: SearchMode;
   selectedTemporaryChat: TemporaryChatSession | null;
   setPersistentThreadRuntimes: Dispatch<SetStateAction<PersistentThreadRuntimeRecord>>;
   setPersistentThreadsMap: Dispatch<SetStateAction<Map<string, ThreadMeta[]>>>;
@@ -93,6 +95,7 @@ export function useInlineThreadRuntime({
   selectedModelEffort,
   thinkingEnabled,
   responseStyle,
+  searchMode,
   selectedTemporaryChat,
   setPersistentThreadRuntimes,
   setPersistentThreadsMap,
@@ -403,6 +406,7 @@ export function useInlineThreadRuntime({
             ...(selectedModelEffort ? { modelEffort: selectedModelEffort } : {}),
             ...(thinkingEnabled !== null ? { thinkingEnabled } : {}),
             responseStyle,
+            searchMode,
             sourceMessageId: params.source.sourceMessageId,
             highlightedText: params.source.highlightedText,
             startOffset: params.source.startOffset,
@@ -486,6 +490,7 @@ export function useInlineThreadRuntime({
       persistThreadResult,
       selectedModelEffort,
       responseStyle,
+      searchMode,
       selectedModelId,
       thinkingEnabled,
       threadSessionsRef,

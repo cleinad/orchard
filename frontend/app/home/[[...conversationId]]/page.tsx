@@ -605,6 +605,7 @@ function HomePageInner() {
     selectedModelEffort: selectedModelEffortOverride,
     thinkingEnabled: thinkingEnabledOverride,
     responseStyle: activeResponseStyle,
+    searchMode: activeSearchMode,
     selectedTemporaryChat,
     setPersistentThreadRuntimes,
     setPersistentThreadsMap,
