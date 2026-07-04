@@ -10,6 +10,7 @@ import {
   type ReactElement,
   type RefObject,
 } from 'react';
+import IconTooltip from '@/app/components/IconTooltip';
 import Tooltip from '@/app/components/Tooltip';
 import ChatModelPicker from '@/app/home/components/ChatModelPicker';
 import ResponseStylePicker from '@/app/home/components/ResponseStylePicker';
@@ -323,13 +324,13 @@ export default function ChatComposer({
       <div className="shrink-0 pb-2 pt-2">
         {temporaryChatEnabled && showTemporaryIntro && (
           <div
-            className="mb-2 rounded-lg border border-border-subtle bg-foreground/[0.02] px-3 py-2 font-sans text-foreground"
+            className="mb-2 flex items-center gap-2 rounded-lg border border-border-subtle bg-foreground/[0.02] px-3 py-2 font-sans text-foreground"
             role="region"
             aria-label="Temporary chat settings"
           >
             {/* Segmented control: left off (default), right opt-in */}
             <div
-              className="flex min-h-9 w-full rounded-lg bg-foreground/[0.06] p-0.5 sm:min-w-[14rem]"
+              className="flex min-h-9 min-w-0 flex-1 rounded-lg bg-foreground/[0.06] p-0.5 sm:min-w-[14rem]"
               role="group"
               aria-label="Memory for this chat"
             >
@@ -362,31 +363,21 @@ export default function ChatComposer({
                 Use memories
               </button>
             </div>
-            {/* Both modes explained; selected row reads stronger (fixed layout — no height jump) */}
-            <div className="mt-1.5 space-y-0.5 text-[11px] leading-snug">
-              <p
-                className={
-                  temporaryMemoryMode === 'off'
-                    ? 'text-foreground'
-                    : 'text-muted'
-                }
-              >
-                <span className="font-medium">No memory</span>
-                {' — '}
-                Keen won&apos;t read or write memory for this session.
-              </p>
-              <p
-                className={
-                  temporaryMemoryMode === 'use_existing'
-                    ? 'text-foreground'
-                    : 'text-muted'
-                }
-              >
-                <span className="font-medium">Use memories</span>
-                {' — '}
-                Saved memories may inform replies; this chat isn&apos;t stored.
-              </p>
-            </div>
+            <IconTooltip
+              side="top"
+              ariaLabel="Temporary memory details"
+              content={(
+                <span>
+                  <span className="font-medium">No memory:</span>
+                  {' '}
+                  Keen won&apos;t read or write memory.
+                  <br />
+                  <span className="font-medium">Use memories:</span>
+                  {' '}
+                  Saved memories may inform replies; this chat isn&apos;t stored.
+                </span>
+              )}
+            />
           </div>
         )}
 
