@@ -25,6 +25,7 @@ import {
   type ChatModelThinkingOverrides,
 } from '@/lib/chat-models';
 import type { ResponseStyle } from '@/lib/response-style';
+import { buttonStyles, cx } from '@/app/components/buttonStyles';
 
 interface ChatComposerProps {
   activeName: string;
@@ -110,11 +111,6 @@ export default function ChatComposer({
     required: 'Always search: Keen will ground this reply with live sources',
     off: 'Search off: Keen will answer without live retrieval',
   };
-  const lowerControlShadow =
-    'shadow-[0_1px_2px_rgba(15,23,42,0.06)] dark:shadow-[0_1px_2px_rgba(0,0,0,0.22)]';
-  const lowerControlFocus =
-    'focus-visible:bg-foreground/[0.035] focus-visible:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-foreground/[0.10]';
-
   useEffect(() => {
     if (!searchMenuOpen) {
       return;
@@ -273,9 +269,14 @@ export default function ChatComposer({
       onClick={() => fileInputRef.current?.click()}
       disabled={attachDisabled}
       aria-label="Attach image"
-      className={`flex h-9 w-9 items-center justify-center rounded-md border border-transparent p-0 text-muted transition-colors hover:border-foreground/[0.08] hover:bg-foreground/[0.04] hover:text-foreground/70 disabled:cursor-not-allowed disabled:opacity-50 ${
-        attachDisabledReason ? 'pointer-events-none' : ''
-      }`}
+      className={cx(
+        'flex h-9 w-9 items-center justify-center rounded-md border border-transparent p-0 hover:border-foreground/[0.08]',
+        buttonStyles.transition,
+        buttonStyles.focus,
+        buttonStyles.ghost,
+        buttonStyles.disabled,
+        attachDisabledReason ? 'pointer-events-none' : null
+      )}
     >
       <svg
         className="h-5 w-5"
@@ -335,22 +336,28 @@ export default function ChatComposer({
               <button
                 type="button"
                 onClick={() => onTemporaryMemoryModeChange('off')}
-                className={`flex flex-1 cursor-pointer items-center justify-center rounded-md px-2 py-1.5 text-xs font-medium transition-colors duration-200 ${
+                className={cx(
+                  'flex flex-1 cursor-pointer items-center justify-center rounded-md px-2 py-1.5 text-xs font-medium',
+                  buttonStyles.transition,
+                  buttonStyles.focus,
                   temporaryMemoryMode === 'off'
-                    ? 'bg-surface text-foreground shadow-sm'
-                    : 'text-muted hover:text-foreground'
-                }`}
+                    ? buttonStyles.segmentSelected
+                    : buttonStyles.segmentInactive
+                )}
               >
                 No memory
               </button>
               <button
                 type="button"
                 onClick={() => onTemporaryMemoryModeChange('use_existing')}
-                className={`flex flex-1 cursor-pointer items-center justify-center rounded-md px-2 py-1.5 text-xs font-medium transition-colors duration-200 ${
+                className={cx(
+                  'flex flex-1 cursor-pointer items-center justify-center rounded-md px-2 py-1.5 text-xs font-medium',
+                  buttonStyles.transition,
+                  buttonStyles.focus,
                   temporaryMemoryMode === 'use_existing'
-                    ? 'bg-surface text-foreground shadow-sm'
-                    : 'text-muted hover:text-foreground'
-                }`}
+                    ? buttonStyles.segmentSelected
+                    : buttonStyles.segmentInactive
+                )}
               >
                 Use memories
               </button>
@@ -413,7 +420,13 @@ export default function ChatComposer({
                       onClick={() => onRemoveImageAttachment(attachment.id)}
                       disabled={isBusy}
                       aria-label={`Remove ${attachment.fileName}`}
-                      className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-background/90 text-muted shadow-sm transition hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                      className={cx(
+                        'absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-background/90 shadow-sm',
+                        buttonStyles.transition,
+                        buttonStyles.focus,
+                        buttonStyles.ghost,
+                        buttonStyles.disabled
+                      )}
                     >
                       <svg
                         className="h-3 w-3"
@@ -454,7 +467,11 @@ export default function ChatComposer({
               <button
                 type="submit"
                 disabled={!canSubmit || isBusy}
-                className="flex h-7 w-7 items-center justify-center rounded-md bg-foreground p-0 text-background transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-20"
+                className={cx(
+                  'flex h-7 w-7 items-center justify-center rounded-md p-0',
+                  buttonStyles.primary,
+                  buttonStyles.focus
+                )}
               >
                 <svg
                   className="h-3 w-3"
@@ -483,11 +500,15 @@ export default function ChatComposer({
                     aria-pressed={isWideLayout}
                     data-testid="chat-width-toggle"
                     onClick={onToggleWideLayout}
-                    className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border transition ${
+                    className={cx(
+                      'inline-flex h-8 w-8 items-center justify-center rounded-lg border',
+                      buttonStyles.transition,
                       isWideLayout
-                        ? 'border-foreground/[0.08] bg-foreground/[0.055] text-foreground'
-                        : 'border-transparent bg-background text-foreground/55 hover:bg-foreground/[0.035] hover:text-foreground/75'
-                    } ${lowerControlShadow} ${lowerControlFocus}`}
+                        ? buttonStyles.controlActive
+                        : buttonStyles.controlInactiveMuted,
+                      buttonStyles.controlShadow,
+                      buttonStyles.controlFocus
+                    )}
                   >
                     <svg
                       aria-hidden="true"
@@ -526,13 +547,17 @@ export default function ChatComposer({
                     aria-expanded={searchMenuOpen}
                     aria-label={`Search mode ${searchModeLabels[searchMode].toLowerCase()}`}
                     onClick={() => setSearchMenuOpen((open) => !open)}
-                    className={`inline-flex h-8 min-w-[6.4rem] items-center justify-between gap-2 rounded-lg border px-3 text-left font-sans font-medium transition ${
+                    className={cx(
+                      'inline-flex h-8 min-w-[6.4rem] items-center justify-between gap-2 rounded-lg border px-3 text-left font-sans font-medium',
+                      buttonStyles.transition,
                       searchMenuOpen || searchMode === 'required'
-                        ? 'border-foreground/[0.08] bg-foreground/[0.055] text-foreground'
+                        ? buttonStyles.controlActive
                         : searchMode === 'off'
-                          ? 'border-transparent bg-background text-foreground/55 hover:bg-foreground/[0.035] hover:text-foreground/75'
-                          : 'border-transparent bg-background text-foreground/88 hover:bg-foreground/[0.035] hover:text-foreground'
-                    } ${lowerControlShadow} ${lowerControlFocus}`}
+                          ? buttonStyles.controlInactiveMuted
+                          : buttonStyles.controlInactive,
+                      buttonStyles.controlShadow,
+                      buttonStyles.controlFocus
+                    )}
                   >
                     <span className="flex min-w-0 items-center gap-2">
                       <span
@@ -598,11 +623,14 @@ export default function ChatComposer({
                           onSearchModeChange(mode);
                           setSearchMenuOpen(false);
                         }}
-                        className={`grid h-9 w-full grid-cols-[1fr_0.875rem] items-center gap-3 whitespace-nowrap rounded-xl px-2.5 text-left transition-colors ${
+                        className={cx(
+                          'grid h-9 w-full grid-cols-[1fr_0.875rem] items-center gap-3 whitespace-nowrap rounded-xl px-2.5 text-left',
+                          buttonStyles.transition,
+                          buttonStyles.focus,
                           searchMode === mode
-                            ? 'bg-foreground/[0.055] text-foreground'
-                            : 'text-muted hover:bg-foreground/[0.035] hover:text-foreground'
-                        }`}
+                            ? buttonStyles.menuItemActive
+                            : buttonStyles.menuItemInactive
+                        )}
                       >
                         <span className="text-[13px] font-medium">{searchModeLabels[mode]}</span>
                         {searchMode === mode && (

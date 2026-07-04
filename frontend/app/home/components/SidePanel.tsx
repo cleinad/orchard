@@ -19,6 +19,7 @@ import {
   RailIconTemporary,
   RailIconWorkspace,
 } from '@/app/home/components/home-rail-icons';
+import { buttonStyles, cx } from '@/app/components/buttonStyles';
 import {
   SIDE_PANEL_COLLAPSED_WIDTH_PX,
   SIDE_PANEL_MAX_WIDTH_PX,
@@ -94,7 +95,12 @@ function formatDate(input: string): string {
 }
 
 const railIconButtonClass =
-  'relative z-10 inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-md text-foreground transition-colors hover:bg-foreground/[0.04]';
+  cx(
+    'relative z-10 inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-md text-foreground',
+    buttonStyles.transition,
+    buttonStyles.focus,
+    buttonStyles.navRowHover
+  );
 const CHAT_LIST_KEY = '__chats__';
 const GLOBAL_DROP_TARGET_KEY = 'global';
 const SIDE_PANEL_DESKTOP_MEDIA_QUERY = '(min-width: 768px)';
@@ -553,14 +559,20 @@ export default function SidePanel({
                 onDragLeave={(event) => handleDropTargetDragLeave(event, group.workspace_id)}
                 onDrop={(event) => handleConversationDrop(event, group.workspace_id)}
                 data-testid={`workspace-drop-target-${group.workspace_id}`}
-                className={`mr-2 flex items-center gap-2 rounded-xl px-3 py-1 transition-colors ${
-                  isSelectedWorkspace ? 'bg-foreground/[0.05]' : 'hover:bg-foreground/[0.03]'
-                } ${getDropTargetClass(group.workspace_id)}`}
+                className={cx(
+                  'mr-2 flex items-center gap-2 rounded-xl px-3 py-1',
+                  buttonStyles.transition,
+                  isSelectedWorkspace ? 'bg-foreground/[0.05]' : 'hover:bg-foreground/[0.03]',
+                  getDropTargetClass(group.workspace_id)
+                )}
               >
                 <button
                   type="button"
                   onClick={() => onOpenWorkspace(group.workspace_id)}
-                  className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                  className={cx(
+                    'flex min-w-0 flex-1 items-center gap-3 text-left',
+                    buttonStyles.focus
+                  )}
                 >
                   {renderWorkspaceIcon(group)}
                   <span className="min-w-0 flex-1 truncate font-sans text-[15px] text-foreground">
@@ -575,7 +587,12 @@ export default function SidePanel({
                       [workspaceKey]: !isExpanded,
                     }))
                   }
-                  className="inline-flex h-[1.625rem] w-[1.625rem] flex-shrink-0 items-center justify-center rounded-full text-muted transition-colors hover:bg-foreground/[0.05] hover:text-foreground"
+                  className={cx(
+                    'inline-flex h-[1.625rem] w-[1.625rem] flex-shrink-0 items-center justify-center rounded-full',
+                    buttonStyles.transition,
+                    buttonStyles.focus,
+                    buttonStyles.ghost
+                  )}
                   aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${group.workspace_name}`}
                 >
                   <svg
@@ -591,7 +608,12 @@ export default function SidePanel({
                 <button
                   type="button"
                   onClick={() => onCreateWorkspaceDraft(group.workspace_id)}
-                  className="inline-flex h-[1.625rem] w-[1.625rem] flex-shrink-0 items-center justify-center rounded-full text-muted transition-colors hover:bg-foreground/[0.05] hover:text-foreground"
+                  className={cx(
+                    'inline-flex h-[1.625rem] w-[1.625rem] flex-shrink-0 items-center justify-center rounded-full',
+                    buttonStyles.transition,
+                    buttonStyles.focus,
+                    buttonStyles.ghost
+                  )}
                   aria-label={`New chat in ${group.workspace_name}`}
                 >
                   <svg
@@ -612,11 +634,14 @@ export default function SidePanel({
                     <button
                       type="button"
                       onClick={() => onSelectDraft(draft.id)}
-                      className={`mr-2 flex w-[calc(100%-0.5rem)] items-center justify-between gap-3 rounded-xl px-3 py-1.5 text-left transition-colors ${
+                      className={cx(
+                        'mr-2 flex w-[calc(100%-0.5rem)] items-center justify-between gap-3 rounded-xl px-3 py-1.5 text-left',
+                        buttonStyles.transition,
+                        buttonStyles.focus,
                         selectedDraftId === draft.id
-                          ? 'bg-foreground/[0.06]'
-                          : 'hover:bg-foreground/[0.04]'
-                      }`}
+                          ? buttonStyles.listRowSelected
+                          : buttonStyles.listRowHover
+                      )}
                     >
                       <span className="truncate font-sans text-sm text-foreground">{draft.title}</span>
                       <span className="flex-shrink-0 font-sans text-[11px] text-muted">
@@ -631,11 +656,15 @@ export default function SidePanel({
                       type="button"
                       onClick={() => onSelectConversation(conversation)}
                       {...getConversationDragProps(conversation)}
-                      className={`mr-2 flex w-[calc(100%-0.5rem)] items-center justify-between gap-3 rounded-xl px-3 py-1.5 text-left transition-colors ${
+                      className={cx(
+                        'mr-2 flex w-[calc(100%-0.5rem)] items-center justify-between gap-3 rounded-xl px-3 py-1.5 text-left',
+                        buttonStyles.transition,
+                        buttonStyles.focus,
                         selectedConversationId === conversation.id
-                          ? 'bg-foreground/[0.06]'
-                          : 'hover:bg-foreground/[0.04]'
-                      } ${movingConversationId === conversation.id ? 'opacity-60' : ''}`}
+                          ? buttonStyles.listRowSelected
+                          : buttonStyles.listRowHover,
+                        movingConversationId === conversation.id ? 'opacity-60' : null
+                      )}
                     >
                       <span className="truncate font-sans text-sm text-foreground/88">
                         {conversation.title}
@@ -660,7 +689,12 @@ export default function SidePanel({
                                   : (prev[workspaceKey] ?? 3) + 10,
                             }))
                           }
-                          className="text-[11px] font-sans font-medium tracking-wide text-muted transition-colors hover:text-foreground"
+                          className={cx(
+                            'text-[11px] font-sans font-medium tracking-wide',
+                            buttonStyles.transition,
+                            buttonStyles.focus,
+                            buttonStyles.ghostQuiet
+                          )}
                         >
                           Show more
                         </button>
@@ -673,7 +707,12 @@ export default function SidePanel({
                               [workspaceKey]: 3,
                             }))
                           }
-                          className="text-[11px] font-medium tracking-wide text-muted transition-colors hover:text-foreground"
+                          className={cx(
+                            'text-[11px] font-medium tracking-wide',
+                            buttonStyles.transition,
+                            buttonStyles.focus,
+                            buttonStyles.ghostQuiet
+                          )}
                         >
                           Show less
                         </button>
@@ -699,11 +738,14 @@ export default function SidePanel({
             <button
               type="button"
               onClick={() => onSelectDraft(globalDraft.id)}
-              className={`mr-2 flex w-[calc(100%-0.5rem)] items-center justify-between gap-3 rounded-xl px-3 py-1.5 text-left transition-colors ${
+              className={cx(
+                'mr-2 flex w-[calc(100%-0.5rem)] items-center justify-between gap-3 rounded-xl px-3 py-1.5 text-left',
+                buttonStyles.transition,
+                buttonStyles.focus,
                 selectedDraftId === globalDraft.id
-                  ? 'bg-foreground/[0.06]'
-                  : 'hover:bg-foreground/[0.04]'
-              }`}
+                  ? buttonStyles.listRowSelected
+                  : buttonStyles.listRowHover
+              )}
             >
               <span className="truncate font-sans text-sm text-foreground">{globalDraft.title}</span>
               <span className="flex-shrink-0 font-sans text-[11px] text-muted">
@@ -718,11 +760,15 @@ export default function SidePanel({
               type="button"
               onClick={() => onSelectConversation(conversation)}
               {...getConversationDragProps(conversation)}
-              className={`mr-2 flex w-[calc(100%-0.5rem)] items-center justify-between gap-3 rounded-xl px-3 py-1.5 text-left transition-colors ${
+              className={cx(
+                'mr-2 flex w-[calc(100%-0.5rem)] items-center justify-between gap-3 rounded-xl px-3 py-1.5 text-left',
+                buttonStyles.transition,
+                buttonStyles.focus,
                 selectedConversationId === conversation.id
-                  ? 'bg-foreground/[0.06]'
-                  : 'hover:bg-foreground/[0.04]'
-              } ${movingConversationId === conversation.id ? 'opacity-60' : ''}`}
+                  ? buttonStyles.listRowSelected
+                  : buttonStyles.listRowHover,
+                movingConversationId === conversation.id ? 'opacity-60' : null
+              )}
             >
               <span className="truncate font-sans text-sm text-foreground/88">
                 {conversation.title}
@@ -745,7 +791,12 @@ export default function SidePanel({
                         (prev[CHAT_LIST_KEY] ?? 10) + 10,
                     }))
                   }
-                  className="text-[11px] font-sans font-medium tracking-wide text-muted transition-colors hover:text-foreground"
+                  className={cx(
+                    'text-[11px] font-sans font-medium tracking-wide',
+                    buttonStyles.transition,
+                    buttonStyles.focus,
+                    buttonStyles.ghostQuiet
+                  )}
                 >
                   Show more
                 </button>
@@ -758,7 +809,12 @@ export default function SidePanel({
                       [CHAT_LIST_KEY]: 10,
                     }))
                   }
-                  className="text-[11px] font-medium tracking-wide text-muted transition-colors hover:text-foreground"
+                  className={cx(
+                    'text-[11px] font-medium tracking-wide',
+                    buttonStyles.transition,
+                    buttonStyles.focus,
+                    buttonStyles.ghostQuiet
+                  )}
                 >
                   Show less
                 </button>
@@ -865,7 +921,13 @@ export default function SidePanel({
                 type="button"
                 onClick={() => setPendingMove(null)}
                 disabled={movingConversationId !== null}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted transition-colors hover:bg-foreground/[0.05] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                className={cx(
+                  'inline-flex h-8 w-8 items-center justify-center rounded-md',
+                  buttonStyles.transition,
+                  buttonStyles.focus,
+                  buttonStyles.ghost,
+                  buttonStyles.disabled
+                )}
                 aria-label="Close"
               >
                 <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.7" viewBox="0 0 24 24">
@@ -879,7 +941,13 @@ export default function SidePanel({
                 type="button"
                 onClick={() => setPendingMove(null)}
                 disabled={movingConversationId !== null}
-                className="rounded-lg border border-border-subtle bg-surface px-3 py-2 font-sans text-sm font-semibold text-foreground transition hover:bg-foreground/[0.04] disabled:cursor-not-allowed disabled:opacity-50"
+                className={cx(
+                  'rounded-lg border border-border-subtle bg-surface px-3 py-2 font-sans text-sm font-semibold text-foreground',
+                  buttonStyles.transition,
+                  buttonStyles.focus,
+                  buttonStyles.navRowHover,
+                  buttonStyles.disabled
+                )}
               >
                 Cancel
               </button>
@@ -892,7 +960,11 @@ export default function SidePanel({
                   )
                 }
                 disabled={movingConversationId !== null}
-                className="rounded-lg bg-foreground px-3 py-2 font-sans text-sm font-semibold text-background transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                className={cx(
+                  'rounded-lg px-3 py-2 font-sans text-sm font-semibold',
+                  buttonStyles.primaryText,
+                  buttonStyles.focus
+                )}
               >
                 {movingConversationId ? 'Moving...' : 'Move chat'}
               </button>
@@ -949,7 +1021,12 @@ export default function SidePanel({
                     onClick={onToggleSidePanel}
                     aria-pressed
                     aria-label="Close conversations"
-                    className="flex h-10 w-full items-center text-left transition-colors hover:bg-foreground/[0.04]"
+                    className={cx(
+                      'flex h-10 w-full items-center text-left',
+                      buttonStyles.transition,
+                      buttonStyles.focus,
+                      buttonStyles.navRowHover
+                    )}
                   >
                     <div className="flex w-14 flex-shrink-0 items-center justify-center">
                       <SidebarPanelIcon className="h-5 w-5 text-foreground" />
@@ -964,7 +1041,12 @@ export default function SidePanel({
                     type="button"
                     onClick={onNewChatKeen}
                     aria-label="New chat with Keen"
-                    className="flex h-10 w-full items-center text-left transition-colors hover:bg-foreground/[0.04]"
+                    className={cx(
+                      'flex h-10 w-full items-center text-left',
+                      buttonStyles.transition,
+                      buttonStyles.focus,
+                      buttonStyles.navRowHover
+                    )}
                   >
                     <div className="flex w-14 flex-shrink-0 items-center justify-center">
                       <RailIconNewChat className="h-5 w-5 text-foreground" />
@@ -978,7 +1060,12 @@ export default function SidePanel({
                     <button
                       type="button"
                       onClick={() => toggleSection('workspaces')}
-                      className="group flex min-w-0 flex-1 items-center self-stretch text-left transition-colors hover:bg-foreground/[0.04]"
+                      className={cx(
+                        'group flex min-w-0 flex-1 items-center self-stretch text-left',
+                        buttonStyles.transition,
+                        buttonStyles.focus,
+                        buttonStyles.navRowHover
+                      )}
                       aria-expanded={expandedSections.workspaces}
                       aria-controls="side-panel-workspaces-list"
                     >
@@ -993,7 +1080,12 @@ export default function SidePanel({
                     <button
                       type="button"
                       onClick={onCreateWorkspace}
-                      className="ml-auto mr-3 inline-flex h-7 w-7 items-center justify-center rounded-full text-muted transition-colors hover:bg-foreground/[0.05] hover:text-foreground"
+                      className={cx(
+                        'ml-auto mr-3 inline-flex h-7 w-7 items-center justify-center rounded-full',
+                        buttonStyles.transition,
+                        buttonStyles.focus,
+                        buttonStyles.ghost
+                      )}
                       aria-label="New workspace"
                     >
                       <svg
@@ -1031,7 +1123,12 @@ export default function SidePanel({
                     <button
                       type="button"
                       onClick={() => toggleSection('temporary')}
-                      className="group flex min-w-0 flex-1 items-center self-stretch text-left transition-colors hover:bg-foreground/[0.04]"
+                      className={cx(
+                        'group flex min-w-0 flex-1 items-center self-stretch text-left',
+                        buttonStyles.transition,
+                        buttonStyles.focus,
+                        buttonStyles.navRowHover
+                      )}
                       aria-expanded={expandedSections.temporary}
                       aria-controls="side-panel-temporary-list"
                     >
@@ -1053,15 +1150,20 @@ export default function SidePanel({
                             return (
                               <div
                                 key={chat.id}
-                                className={`group mr-2 flex items-center gap-3 rounded-xl px-3 py-1.5 transition-colors ${
-                                  isActive ? 'bg-foreground/[0.06]' : 'hover:bg-foreground/[0.04]'
-                                }`}
+                                className={cx(
+                                  'group mr-2 flex items-center gap-3 rounded-xl px-3 py-1.5',
+                                  buttonStyles.transition,
+                                  isActive ? buttonStyles.listRowSelected : buttonStyles.listRowHover
+                                )}
                               >
                                 <button
                                   type="button"
                                   onClick={() => onSelectTemporaryChat(chat.id)}
                                   aria-label={`Temp ${chat.title}`}
-                                  className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                                  className={cx(
+                                    'flex min-w-0 flex-1 items-center gap-3 text-left',
+                                    buttonStyles.focus
+                                  )}
                                 >
                                   <span className="min-w-0 flex-1 truncate font-sans text-sm text-foreground">
                                     {chat.title}
@@ -1073,7 +1175,12 @@ export default function SidePanel({
                                 <button
                                   type="button"
                                   onClick={() => onCloseTemporaryChat(chat.id)}
-                                  className="rounded-full p-1 text-muted/60 transition-colors hover:text-foreground"
+                                  className={cx(
+                                    'rounded-full p-1',
+                                    buttonStyles.transition,
+                                    buttonStyles.focus,
+                                    buttonStyles.ghost
+                                  )}
                                   aria-label={`Close ${chat.title}`}
                                 >
                                   <svg
@@ -1112,7 +1219,12 @@ export default function SidePanel({
                     <button
                       type="button"
                       onClick={() => toggleSection('chats')}
-                      className="group flex min-w-0 flex-1 items-center self-stretch text-left transition-colors hover:bg-foreground/[0.04]"
+                      className={cx(
+                        'group flex min-w-0 flex-1 items-center self-stretch text-left',
+                        buttonStyles.transition,
+                        buttonStyles.focus,
+                        buttonStyles.navRowHover
+                      )}
                       aria-expanded={expandedSections.chats}
                       aria-controls="side-panel-chats-list"
                     >
@@ -1127,7 +1239,12 @@ export default function SidePanel({
                     <button
                       type="button"
                       onClick={onNewChatKeen}
-                      className="ml-auto mr-3 inline-flex h-7 w-7 items-center justify-center rounded-full text-muted transition-colors hover:bg-foreground/[0.05] hover:text-foreground"
+                      className={cx(
+                        'ml-auto mr-3 inline-flex h-7 w-7 items-center justify-center rounded-full',
+                        buttonStyles.transition,
+                        buttonStyles.focus,
+                        buttonStyles.ghost
+                      )}
                       aria-label="New chat"
                     >
                       <svg
@@ -1169,7 +1286,12 @@ export default function SidePanel({
                     router.push('/settings');
                     onClose();
                   }}
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-muted transition-colors hover:bg-foreground/[0.05] hover:text-foreground"
+                  className={cx(
+                    'inline-flex h-10 w-10 items-center justify-center rounded-xl',
+                    buttonStyles.transition,
+                    buttonStyles.focus,
+                    buttonStyles.ghost
+                  )}
                   aria-label="Open settings"
                   title="Open settings"
                 >

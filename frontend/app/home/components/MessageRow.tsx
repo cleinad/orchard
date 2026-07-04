@@ -26,6 +26,7 @@ import { markdownContentClassName } from '@/lib/markdown';
 import { hasUsableSearchSources } from '@/lib/search-citations';
 import type { SearchActivityEvent } from '@/lib/search/types';
 import SourceFavicon from '@/app/home/components/SourceFavicon';
+import { buttonStyles, cx } from '@/app/components/buttonStyles';
 
 function getHighlightSourceIdAtPoint(root: HTMLElement, clientX: number, clientY: number) {
   const overlayRects = Array.from(
@@ -399,11 +400,15 @@ function MessageRow({
                 type="button"
                 onClick={handleSourcesClick}
                 onPointerUp={(event) => event.stopPropagation()}
-                className={`inline-flex h-7 items-center gap-1.5 rounded-md border px-2 transition-colors ${
+                className={cx(
+                  'inline-flex h-7 items-center gap-1.5 rounded-md border px-2',
+                  buttonStyles.transition,
+                  buttonStyles.focus,
                   isSourceTrayOpen
                     ? 'border-foreground/15 bg-foreground/[0.04] text-foreground'
-                    : 'border-transparent text-muted hover:border-border-subtle hover:bg-foreground/[0.025] hover:text-foreground'
-                }`}
+                    : 'border-transparent hover:border-border-subtle',
+                  isSourceTrayOpen ? null : buttonStyles.ghostSubtle
+                )}
               >
                 <span>Sources</span>
                 <span className="text-current/55">{replySearchMetadata.sources.length}</span>
@@ -413,7 +418,12 @@ function MessageRow({
                   <button
                     key={source.id}
                     type="button"
-                    className="inline-flex min-w-0 max-w-[9rem] items-center gap-1.5 rounded-md px-1 py-0.5 text-muted/80 transition-colors hover:bg-foreground/[0.025] hover:text-foreground"
+                    className={cx(
+                      'inline-flex min-w-0 max-w-[9rem] items-center gap-1.5 rounded-md px-1 py-0.5',
+                      buttonStyles.transition,
+                      buttonStyles.focus,
+                      buttonStyles.ghostSubtle
+                    )}
                     title={source.title}
                     onClick={(event) => handleFooterSourceClick(event, source.id)}
                     onPointerUp={(event) => event.stopPropagation()}
@@ -425,7 +435,12 @@ function MessageRow({
                 {replySearchMetadata.sources.length > 3 && (
                   <button
                     type="button"
-                    className="rounded-md px-1 py-0.5 text-muted/60 transition-colors hover:bg-foreground/[0.025] hover:text-foreground"
+                    className={cx(
+                      'rounded-md px-1 py-0.5',
+                      buttonStyles.transition,
+                      buttonStyles.focus,
+                      buttonStyles.ghostSubtle
+                    )}
                     onClick={handleSourcesClick}
                     onPointerUp={(event) => event.stopPropagation()}
                   >
@@ -459,13 +474,16 @@ function MessageRow({
                 key={chip.id}
                 type="button"
                 onClick={() => onSelectBranch(message.id, chip.branchId)}
-                className={`inline-flex h-6 items-center rounded-md px-2 font-sans text-[11px] font-medium transition ${
+                className={cx(
+                  'inline-flex h-6 items-center rounded-md px-2 font-sans text-[11px] font-medium',
+                  buttonStyles.transition,
+                  buttonStyles.focus,
                   chip.isActive
-                    ? 'bg-foreground text-background'
+                    ? buttonStyles.chipActive
                     : chip.kind === 'pending'
-                      ? 'border border-dashed border-foreground/[0.18] bg-surface text-foreground'
-                      : 'bg-foreground/[0.05] text-muted hover:bg-foreground/[0.08] hover:text-foreground'
-                }`}
+                      ? buttonStyles.chipPending
+                      : buttonStyles.chipInactive
+                )}
               >
                 {chip.label}
               </button>
@@ -473,7 +491,12 @@ function MessageRow({
             <button
               type="button"
               onClick={() => onCreateBranch(message.id)}
-              className="inline-flex h-6 items-center rounded-md border border-border-subtle bg-surface px-2 font-sans text-[11px] font-medium text-muted transition hover:border-foreground/[0.10] hover:bg-foreground/[0.03] hover:text-foreground"
+              className={cx(
+                'inline-flex h-6 items-center rounded-md px-2 font-sans text-[11px] font-medium',
+                buttonStyles.transition,
+                buttonStyles.focus,
+                buttonStyles.chipOutline
+              )}
             >
               + Branch
             </button>

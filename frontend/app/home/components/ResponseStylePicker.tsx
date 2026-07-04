@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from 'react';
 import Tooltip from '@/app/components/Tooltip';
+import { buttonStyles, cx } from '@/app/components/buttonStyles';
 import {
   DEFAULT_RESPONSE_STYLE,
   RESPONSE_STYLE_LENGTH_DESCRIPTIONS,
@@ -76,11 +77,14 @@ function SegmentGroup<T extends string>({
               type="button"
               aria-pressed={selected}
               onClick={() => onChange(option)}
-              className={`relative h-9 min-w-0 rounded-lg px-1.5 text-center text-[11px] font-semibold leading-none transition ${
+              className={cx(
+                'relative h-9 min-w-0 rounded-lg px-1.5 text-center text-[11px] font-semibold leading-none',
+                buttonStyles.transition,
+                buttonStyles.focus,
                 selected
                   ? 'bg-background text-foreground shadow-[0_1px_6px_rgba(15,23,42,0.10)] ring-1 ring-black/[0.04] dark:ring-white/[0.08]'
                   : 'text-foreground/52 hover:bg-background/70 hover:text-foreground'
-              }`}
+              )}
             >
               <span className="block truncate">{labels[option]}</span>
             </button>
@@ -109,10 +113,6 @@ export default function ResponseStylePicker({
   const active = !isDefaultResponseStyle(value);
   const summary = getResponseStyleSummary(value);
   const tooltipContent = active ? `Response style: ${summary}` : 'Response style';
-  const triggerShadow =
-    'shadow-[0_1px_2px_rgba(15,23,42,0.06)] dark:shadow-[0_1px_2px_rgba(0,0,0,0.22)]';
-  const triggerFocus =
-    'focus-visible:bg-foreground/[0.035] focus-visible:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-foreground/[0.10]';
 
   useEffect(() => {
     if (value.sessionNote.trim().length > 0) {
@@ -169,11 +169,14 @@ export default function ResponseStylePicker({
           aria-haspopup="dialog"
           onClick={togglePopover}
           disabled={disabled}
-          className={`inline-flex h-8 min-w-[6.75rem] max-w-[8.5rem] items-center justify-between gap-2 rounded-lg border px-3 text-left font-sans font-medium transition sm:min-w-[8.5rem] ${
-            isOpen
-              ? 'border-foreground/[0.08] bg-foreground/[0.055] text-foreground'
-              : 'border-transparent bg-background text-foreground/88 hover:bg-foreground/[0.035] hover:text-foreground'
-          } ${triggerShadow} ${triggerFocus} disabled:cursor-not-allowed disabled:opacity-50`}
+          className={cx(
+            'inline-flex h-8 min-w-[6.75rem] max-w-[8.5rem] items-center justify-between gap-2 rounded-lg border px-3 text-left font-sans font-medium sm:min-w-[8.5rem]',
+            buttonStyles.transition,
+            isOpen ? buttonStyles.controlActive : buttonStyles.controlInactive,
+            buttonStyles.controlShadow,
+            buttonStyles.controlFocus,
+            buttonStyles.disabled
+          )}
         >
           <span className="truncate text-[13px] text-foreground">
             {summary}
@@ -221,7 +224,12 @@ export default function ResponseStylePicker({
               <button
                 type="button"
                 onClick={resetStyle}
-                className="rounded-md px-2 py-1 text-[11px] font-medium text-muted transition hover:bg-foreground/[0.04] hover:text-foreground"
+                className={cx(
+                  'rounded-md px-2 py-1 text-[11px] font-medium',
+                  buttonStyles.transition,
+                  buttonStyles.focus,
+                  buttonStyles.ghost
+                )}
               >
                 Reset
               </button>
@@ -267,7 +275,12 @@ export default function ResponseStylePicker({
                 <button
                   type="button"
                   onClick={() => setShowSessionNote(true)}
-                  className="h-8 w-full rounded-lg px-2 text-left text-[12px] font-medium text-foreground/70 transition hover:bg-foreground/[0.035] hover:text-foreground"
+                  className={cx(
+                    'h-8 w-full rounded-lg px-2 text-left text-[12px] font-medium',
+                    buttonStyles.transition,
+                    buttonStyles.focus,
+                    buttonStyles.menuItemInactive
+                  )}
                 >
                   Add session note
                 </button>

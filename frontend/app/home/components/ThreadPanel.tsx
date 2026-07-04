@@ -15,6 +15,7 @@ import SearchSourcesTray from "@/app/home/components/SearchSourcesTray";
 import type { ThreadSession } from "@/app/home/components/threadTypes";
 import { markdownContentClassName } from "@/lib/markdown";
 import { hasUsableSearchSources } from "@/lib/search-citations";
+import { buttonStyles, cx } from "@/app/components/buttonStyles";
 
 interface ThreadPanelProps {
   isOpen: boolean;
@@ -294,7 +295,12 @@ export default function ThreadPanel({
             onClick={onClose}
             data-testid="thread-panel-close"
             aria-label="Close"
-            className="ml-4 inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-muted transition hover:text-foreground"
+            className={cx(
+              "ml-4 inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg",
+              buttonStyles.transition,
+              buttonStyles.focus,
+              buttonStyles.ghost
+            )}
           >
             <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -348,11 +354,17 @@ export default function ThreadPanel({
                           );
                         }}
                         onPointerUp={(event) => event.stopPropagation()}
-                        className={`inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-xs transition-colors ${
+                        className={cx(
+                          "inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-xs",
+                          buttonStyles.transition,
+                          buttonStyles.focus,
                           openSourceTray?.messageId === message.id
                             ? "border-foreground/15 bg-foreground/[0.04] text-foreground"
-                            : "border-transparent text-muted hover:border-border-subtle hover:bg-foreground/[0.025] hover:text-foreground"
-                        }`}
+                            : "border-transparent hover:border-border-subtle",
+                          openSourceTray?.messageId === message.id
+                            ? null
+                            : buttonStyles.ghostSubtle
+                        )}
                       >
                         <span>Sources</span>
                         <span className="text-current/55">{message.searchMetadata.sources.length}</span>
@@ -415,7 +427,11 @@ export default function ThreadPanel({
                   data-testid="thread-panel-send"
                   aria-label="Send"
                   disabled={!canSend}
-                  className="pointer-events-auto flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-foreground p-0 text-background transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-20"
+                  className={cx(
+                    "pointer-events-auto flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md p-0",
+                    buttonStyles.primary,
+                    buttonStyles.focus
+                  )}
                 >
                   <svg
                     className="h-3 w-3"

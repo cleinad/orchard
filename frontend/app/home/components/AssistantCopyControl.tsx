@@ -18,6 +18,7 @@ import {
   type AssistantCopyFormat,
 } from '@/app/home/components/messageCopy';
 import type { Message } from '@/app/home/types';
+import { buttonStyles, cx } from '@/app/components/buttonStyles';
 
 const ASSISTANT_COPY_FORMAT_EVENT = 'novus-assistant-copy-format-change';
 
@@ -277,7 +278,12 @@ export default function AssistantCopyControl({
         <button
           type="button"
           onClick={() => void copyAs(copyFormat)}
-          className="inline-flex h-full min-w-[4.35rem] items-center justify-center gap-1 px-2 transition-colors hover:bg-foreground/[0.035] hover:text-foreground"
+          className={cx(
+            'inline-flex h-full min-w-[4.35rem] items-center justify-center gap-1 px-2',
+            buttonStyles.transition,
+            buttonStyles.focus,
+            buttonStyles.menuItemInactive
+          )}
           aria-label={`Copy response as ${ASSISTANT_COPY_FORMAT_LABELS[copyFormat]}`}
         >
           <CopyIcon checked={copied} />
@@ -286,7 +292,12 @@ export default function AssistantCopyControl({
         <button
           type="button"
           onClick={() => setMenuOpen((current) => !current)}
-          className="flex h-full w-5 items-center justify-center border-l border-border-subtle transition-colors hover:bg-foreground/[0.035] hover:text-foreground"
+          className={cx(
+            'flex h-full w-5 items-center justify-center border-l border-border-subtle',
+            buttonStyles.transition,
+            buttonStyles.focus,
+            menuOpen ? buttonStyles.menuItemActive : buttonStyles.menuItemInactive
+          )}
           aria-haspopup="menu"
           aria-expanded={menuOpen}
           aria-label="Choose copy format"
@@ -313,11 +324,12 @@ export default function AssistantCopyControl({
                 role="menuitemradio"
                 aria-checked={active}
                 onClick={() => handleFormatSelect(format)}
-                className={`flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-[11px] transition-colors ${
-                  active
-                    ? 'bg-foreground/[0.06] text-foreground'
-                    : 'text-muted hover:bg-foreground/[0.035] hover:text-foreground'
-                }`}
+                className={cx(
+                  'flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-[11px]',
+                  buttonStyles.transition,
+                  buttonStyles.focus,
+                  active ? buttonStyles.menuItemActive : buttonStyles.menuItemInactive
+                )}
               >
                 <span className="flex h-3.5 w-3.5 items-center justify-center">
                   {active ? <SmallCheckIcon /> : null}
