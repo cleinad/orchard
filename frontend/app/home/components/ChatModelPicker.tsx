@@ -222,6 +222,10 @@ export default function ChatModelPicker({
     effortMenuModel ? getModelEffort(effortMenuModel) : 'medium';
   const effortMenuThinkingEnabled =
     effortMenuModel ? getModelThinkingEnabled(effortMenuModel) : true;
+  const triggerShadow =
+    'shadow-[0_1px_2px_rgba(15,23,42,0.06)] dark:shadow-[0_1px_2px_rgba(0,0,0,0.22)]';
+  const triggerFocus =
+    'focus-visible:bg-foreground/[0.035] focus-visible:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-foreground/[0.10]';
 
   useLayoutEffect(() => {
     const panels = panelsRef.current;
@@ -456,7 +460,7 @@ export default function ChatModelPicker({
           isOpen
             ? 'border-foreground/[0.08] bg-foreground/[0.055] text-foreground'
             : 'border-transparent bg-background text-foreground/88 hover:bg-foreground/[0.035] hover:text-foreground'
-        } disabled:cursor-not-allowed disabled:opacity-50`}
+        } ${triggerShadow} ${triggerFocus} disabled:cursor-not-allowed disabled:opacity-50`}
       >
         <span className="flex min-w-0 items-center gap-2">
           <span className="flex h-4 w-4 flex-shrink-0 items-center justify-center text-accent">

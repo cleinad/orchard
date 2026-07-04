@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from 'react';
+import Tooltip from '@/app/components/Tooltip';
 import {
   DEFAULT_RESPONSE_STYLE,
   RESPONSE_STYLE_LENGTH_DESCRIPTIONS,
@@ -107,6 +108,11 @@ export default function ResponseStylePicker({
 
   const active = !isDefaultResponseStyle(value);
   const summary = getResponseStyleSummary(value);
+  const tooltipContent = active ? `Response style: ${summary}` : 'Response style';
+  const triggerShadow =
+    'shadow-[0_1px_2px_rgba(15,23,42,0.06)] dark:shadow-[0_1px_2px_rgba(0,0,0,0.22)]';
+  const triggerFocus =
+    'focus-visible:bg-foreground/[0.035] focus-visible:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-foreground/[0.10]';
 
   useEffect(() => {
     if (value.sessionNote.trim().length > 0) {
@@ -153,41 +159,43 @@ export default function ResponseStylePicker({
 
   return (
     <>
-      <button
-        ref={triggerRef}
-        type="button"
-        aria-label={`Response style: ${summary}`}
-        aria-controls={popoverId}
-        aria-expanded={isOpen}
-        aria-haspopup="dialog"
-        onClick={togglePopover}
-        disabled={disabled}
-        className={`inline-flex h-8 min-w-[6.75rem] max-w-[8.5rem] items-center justify-between gap-2 rounded-lg border px-3 text-left font-sans font-medium transition sm:min-w-[8.5rem] ${
-          isOpen || active
-            ? 'border-foreground/[0.08] bg-foreground/[0.055] text-foreground'
-            : 'border-transparent bg-background text-foreground/88 hover:bg-foreground/[0.035] hover:text-foreground'
-        } disabled:cursor-not-allowed disabled:opacity-50`}
-      >
-        <span className="truncate text-[13px] text-foreground">
-          {summary}
-        </span>
-        <svg
-          aria-hidden="true"
-          className={`h-3.5 w-3.5 flex-shrink-0 text-muted transition-transform duration-150 ${
-            isOpen ? 'rotate-180' : ''
-          }`}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.8"
-          viewBox="0 0 20 20"
+      <Tooltip content={tooltipContent} side="bottom">
+        <button
+          ref={triggerRef}
+          type="button"
+          aria-label={`Response style: ${summary}`}
+          aria-controls={popoverId}
+          aria-expanded={isOpen}
+          aria-haspopup="dialog"
+          onClick={togglePopover}
+          disabled={disabled}
+          className={`inline-flex h-8 min-w-[6.75rem] max-w-[8.5rem] items-center justify-between gap-2 rounded-lg border px-3 text-left font-sans font-medium transition sm:min-w-[8.5rem] ${
+            isOpen
+              ? 'border-foreground/[0.08] bg-foreground/[0.055] text-foreground'
+              : 'border-transparent bg-background text-foreground/88 hover:bg-foreground/[0.035] hover:text-foreground'
+          } ${triggerShadow} ${triggerFocus} disabled:cursor-not-allowed disabled:opacity-50`}
         >
-          <path
-            d="M5.5 7.5L10 12l4.5-4.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      </button>
+          <span className="truncate text-[13px] text-foreground">
+            {summary}
+          </span>
+          <svg
+            aria-hidden="true"
+            className={`h-3.5 w-3.5 flex-shrink-0 text-muted transition-transform duration-150 ${
+              isOpen ? 'rotate-180' : ''
+            }`}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            viewBox="0 0 20 20"
+          >
+            <path
+              d="M5.5 7.5L10 12l4.5-4.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
+      </Tooltip>
 
       <div
         ref={popoverRef}

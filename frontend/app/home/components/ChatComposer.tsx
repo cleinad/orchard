@@ -110,6 +110,10 @@ export default function ChatComposer({
     required: 'Always search: Keen will ground this reply with live sources',
     off: 'Search off: Keen will answer without live retrieval',
   };
+  const lowerControlShadow =
+    'shadow-[0_1px_2px_rgba(15,23,42,0.06)] dark:shadow-[0_1px_2px_rgba(0,0,0,0.22)]';
+  const lowerControlFocus =
+    'focus-visible:bg-foreground/[0.035] focus-visible:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-foreground/[0.10]';
 
   useEffect(() => {
     if (!searchMenuOpen) {
@@ -472,10 +476,10 @@ export default function ChatComposer({
           <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2 px-1">
             <div className="flex items-center gap-1.5">
               {onToggleWideLayout && (
-                <Tooltip content={isWideLayout ? 'Use focused width' : 'Use max width'} side="bottom">
+                <Tooltip content={isWideLayout ? 'Use focused width' : 'Use wide width'} side="bottom">
                   <button
                     type="button"
-                    aria-label={isWideLayout ? 'Use focused chat width' : 'Use wide chat width'}
+                    aria-label={isWideLayout ? 'Use focused width' : 'Use wide width'}
                     aria-pressed={isWideLayout}
                     data-testid="chat-width-toggle"
                     onClick={onToggleWideLayout}
@@ -483,7 +487,7 @@ export default function ChatComposer({
                       isWideLayout
                         ? 'border-foreground/[0.08] bg-foreground/[0.055] text-foreground'
                         : 'border-transparent bg-background text-foreground/55 hover:bg-foreground/[0.035] hover:text-foreground/75'
-                    }`}
+                    } ${lowerControlShadow} ${lowerControlFocus}`}
                   >
                     <svg
                       aria-hidden="true"
@@ -528,7 +532,7 @@ export default function ChatComposer({
                         : searchMode === 'off'
                           ? 'border-transparent bg-background text-foreground/55 hover:bg-foreground/[0.035] hover:text-foreground/75'
                           : 'border-transparent bg-background text-foreground/88 hover:bg-foreground/[0.035] hover:text-foreground'
-                    }`}
+                    } ${lowerControlShadow} ${lowerControlFocus}`}
                   >
                     <span className="flex min-w-0 items-center gap-2">
                       <span
