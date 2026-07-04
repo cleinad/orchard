@@ -10,6 +10,8 @@ export const buttonStyles = {
     'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-foreground/[0.12]',
   disabled: 'disabled:cursor-not-allowed disabled:opacity-50',
   disabledStrong: 'disabled:cursor-not-allowed disabled:opacity-40',
+  iconBox: 'inline-flex h-4 w-4 shrink-0 items-center justify-center',
+  iconBoxSmall: 'inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center',
 
   ghost:
     'text-muted hover:bg-foreground/[0.04] hover:text-foreground',

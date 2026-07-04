@@ -92,29 +92,33 @@ async function writeClipboardText(text: string) {
 }
 
 function CopyIcon({ checked }: { checked: boolean }) {
-  return checked ? (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 18 18"
-      className="h-3 w-3 transition-transform duration-150"
-      fill="none"
-      stroke="currentColor"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth="1.8"
-    >
-      <path d="M4 9.25 7.15 12.25 14 5.5" />
-    </svg>
-  ) : (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 24 24"
-      className="h-3.5 w-3.5"
-      fill="currentColor"
-    >
-      <path d="M16 1H4C2.9 1 2 1.9 2 3v14h2V3h12V1Z" />
-      <path d="M8 5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2H8Zm0 2h11v14H8V7Z" />
-    </svg>
+  return (
+    <span className={buttonStyles.iconBoxSmall}>
+      {checked ? (
+        <svg
+          aria-hidden="true"
+          viewBox="0 0 18 18"
+          className="h-3 w-3 transition-transform duration-150"
+          fill="none"
+          stroke="currentColor"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth="1.8"
+        >
+          <path d="M4 9.25 7.15 12.25 14 5.5" />
+        </svg>
+      ) : (
+        <svg
+          aria-hidden="true"
+          viewBox="0 0 24 24"
+          className="h-3.5 w-3.5"
+          fill="currentColor"
+        >
+          <path d="M16 1H4C2.9 1 2 1.9 2 3v14h2V3h12V1Z" />
+          <path d="M8 5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2H8Zm0 2h11v14H8V7Z" />
+        </svg>
+      )}
+    </span>
   );
 }
 

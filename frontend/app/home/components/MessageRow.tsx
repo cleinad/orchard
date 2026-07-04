@@ -83,6 +83,25 @@ function searchActivityEventLabel(event: SearchActivityEvent) {
   }
 }
 
+function BranchPlusIcon() {
+  return (
+    <span className={buttonStyles.iconBox}>
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 16 16"
+        className="h-3.5 w-3.5"
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      >
+        <path d="M8 3.5v9M3.5 8h9" />
+      </svg>
+    </span>
+  );
+}
+
 function MessageRow({
   activeHighlightSource,
   activeName,
@@ -492,13 +511,14 @@ function MessageRow({
               type="button"
               onClick={() => onCreateBranch(message.id)}
               className={cx(
-                'inline-flex h-6 items-center rounded-md px-2 font-sans text-[11px] font-medium',
+                'inline-flex h-6 items-center gap-1 rounded-md px-2 font-sans text-[11px] font-medium',
                 buttonStyles.transition,
                 buttonStyles.focus,
                 buttonStyles.chipOutline
               )}
             >
-              + Branch
+              <BranchPlusIcon />
+              <span>Branch</span>
             </button>
           </div>
         )}
