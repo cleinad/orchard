@@ -180,6 +180,7 @@ function HomeShell({ children }: { children: ReactNode }) {
     handleSelectDraft,
     handleSelectTemporaryChat,
     handleCreateDraftSelection,
+    handleCreateTemporaryChat,
     handleCloseTemporaryChat,
     refreshSidebarData,
     openWorkspace,
@@ -325,6 +326,10 @@ function HomeShell({ children }: { children: ReactNode }) {
         onNewChatKeen={handleRailNewChatKeen}
         onOpenWorkspacesSection={() => openWithScroll('workspaces')}
         onOpenTemporarySection={() => openWithScroll('temporary')}
+        onCreateTemporaryChat={() => {
+          handleCreateTemporaryChat();
+          if (window.innerWidth < SIDE_PANEL_DRAWER_BREAKPOINT_PX) handleCloseSidePanel();
+        }}
         onOpenAllChats={() => openWithScroll('all')}
         workspaceGroups={workspaceGroups}
         conversations={conversations}

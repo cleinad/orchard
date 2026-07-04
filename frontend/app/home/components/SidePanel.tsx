@@ -57,6 +57,7 @@ interface Props {
   onNewChatKeen: () => void;
   onOpenWorkspacesSection: () => void;
   onOpenTemporarySection: () => void;
+  onCreateTemporaryChat: () => void;
   onOpenAllChats: () => void;
   workspaceGroups: SidebarWorkspaceGroup[];
   conversations: ConversationListItem[];
@@ -139,6 +140,7 @@ export default function SidePanel({
   onNewChatKeen,
   onOpenWorkspacesSection,
   onOpenTemporarySection,
+  onCreateTemporaryChat,
   onOpenAllChats,
   workspaceGroups,
   conversations,
@@ -440,6 +442,15 @@ export default function SidePanel({
       onOpenTemporarySection();
     },
     [expandSection, onOpenTemporarySection]
+  );
+
+  const handleCreateTemporaryFromSection = useCallback(
+    (event: ReactMouseEvent<HTMLButtonElement>) => {
+      event.stopPropagation();
+      expandSection('temporary');
+      onCreateTemporaryChat();
+    },
+    [expandSection, onCreateTemporaryChat]
   );
 
   const handleOpenChatsFromRail = useCallback(
@@ -1140,6 +1151,30 @@ export default function SidePanel({
                         <SectionCaret expanded={expandedSections.temporary} />
                       </span>
                     </button>
+                    <Tooltip content="New temporary chat">
+                      <button
+                        type="button"
+                        onClick={handleCreateTemporaryFromSection}
+                        className={cx(
+                          'mr-3 inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full',
+                          buttonStyles.transition,
+                          buttonStyles.focus,
+                          buttonStyles.ghost
+                        )}
+                        aria-label="New temporary chat"
+                      >
+                        <svg
+                          className="h-4 w-4"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.5"
+                          viewBox="0 0 24 24"
+                          aria-hidden="true"
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                        </svg>
+                      </button>
+                    </Tooltip>
                   </div>
                   {expandedSections.temporary && (
                     <div id="side-panel-temporary-list" className="pl-11 pr-2">
