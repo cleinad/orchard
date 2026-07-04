@@ -58,6 +58,7 @@ import { useActiveConversationModel } from '@/app/home/components/useActiveConve
 import { usePendingChatRequests } from '@/app/home/components/usePendingChatRequests';
 import { usePerChatComposerState } from '@/app/home/components/usePerChatComposerState';
 import { usePersistedJson } from '@/app/home/components/usePersistedJson';
+import { usePersistedBoolean } from '@/app/home/components/usePersistedBoolean';
 import { usePersistedString } from '@/app/home/components/usePersistedString';
 import { useRouteConversationHydration } from '@/app/home/components/useRouteConversationHydration';
 import { useTranscriptNavigation } from '@/app/home/components/useTranscriptNavigation';
@@ -99,6 +100,7 @@ const COMPOSER_DRAFT_INPUTS_STORAGE_KEY = 'keen-home-composer-draft-inputs-v1';
 const RESPONSE_STYLE_STORAGE_KEY = 'keen-home-response-styles-v1';
 const PERSISTENT_THREAD_RUNTIME_STORAGE_KEY = 'keen-persistent-thread-runtime-v1';
 const THREAD_PANEL_WIDTH_STORAGE_KEY = 'keen-thread-panel-width-v1';
+const CHAT_WIDE_LAYOUT_STORAGE_KEY = 'keen-home-chat-wide-layout-v1';
 const TEMP_CHAT_TITLE = 'Temporary chat';
 
 function findLatestConversationForMentor(
@@ -141,6 +143,10 @@ function HomePageInner() {
       CHAT_MODEL_THINKING_OVERRIDES_STORAGE_KEY,
       {},
       isChatModelThinkingOverrides
+    );
+  const [isChatWideLayout, setIsChatWideLayout] = usePersistedBoolean(
+    CHAT_WIDE_LAYOUT_STORAGE_KEY,
+    false
   );
   const chatModels = useChatModelCatalog(selectedModelId, setSelectedModelId);
   const selectedChatModel = chatModels.find((model) => model.id === selectedModelId) ?? null;
@@ -930,6 +936,7 @@ function HomePageInner() {
             >
               <ConversationView
                 activeHighlightSource={highlightSource}
+                isWideLayout={isChatWideLayout}
                 listError={shouldShowRouteConversationError ? null : listError}
                 routeConversationError={routeConversationError}
                 messages={activeMessages}
@@ -1002,6 +1009,7 @@ function HomePageInner() {
           modelEffortOverrides={modelEffortOverrides}
           thinkingEnabledOverrides={thinkingEnabledOverrides}
           searchMode={activeSearchMode}
+          isWideLayout={isChatWideLayout}
           temporaryChatEnabled={isTemporaryChat}
           showTemporaryIntro={isTemporaryChat && activeMessages.length === 0}
           temporaryMemoryMode={activeTemporaryMemoryMode}
@@ -1019,6 +1027,7 @@ function HomePageInner() {
             setResponseStyleForSelection(composerStateSelection, value)
           }
           onSearchModeChange={(mode) => setSearchModeForSelection(composerStateSelection, mode)}
+          onToggleWideLayout={() => setIsChatWideLayout((current) => !current)}
           onTemporaryMemoryModeChange={updateSelectedTemporaryMemoryMode}
           onSubmit={handleSubmit}
           onKeyDown={handleKeyDown}

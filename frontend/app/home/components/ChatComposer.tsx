@@ -39,6 +39,7 @@ interface ChatComposerProps {
   modelEffortOverrides: ChatModelEffortOverrides;
   thinkingEnabledOverrides: ChatModelThinkingOverrides;
   searchMode: SearchMode;
+  isWideLayout?: boolean;
   temporaryChatEnabled: boolean;
   showTemporaryIntro: boolean;
   temporaryMemoryMode: TemporaryMemoryMode;
@@ -54,6 +55,7 @@ interface ChatComposerProps {
   onThinkingEnabledChange: (modelId: ChatModelId, enabled: boolean) => void;
   onResponseStyleChange: (value: ResponseStyle) => void;
   onSearchModeChange: (mode: SearchMode) => void;
+  onToggleWideLayout?: () => void;
   onTemporaryMemoryModeChange: (mode: TemporaryMemoryMode) => void;
   onSubmit: FormEventHandler<HTMLFormElement>;
   onKeyDown: KeyboardEventHandler<HTMLTextAreaElement>;
@@ -72,6 +74,7 @@ export default function ChatComposer({
   modelEffortOverrides,
   thinkingEnabledOverrides,
   searchMode,
+  isWideLayout = false,
   temporaryChatEnabled,
   showTemporaryIntro,
   temporaryMemoryMode,
@@ -87,6 +90,7 @@ export default function ChatComposer({
   onThinkingEnabledChange,
   onResponseStyleChange,
   onSearchModeChange,
+  onToggleWideLayout,
   onTemporaryMemoryModeChange,
   onSubmit,
   onKeyDown,
@@ -467,6 +471,49 @@ export default function ChatComposer({
 
           <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2 px-1">
             <div className="flex items-center gap-1.5">
+              {onToggleWideLayout && (
+                <Tooltip content={isWideLayout ? 'Use focused width' : 'Use max width'} side="bottom">
+                  <button
+                    type="button"
+                    aria-label={isWideLayout ? 'Use focused chat width' : 'Use wide chat width'}
+                    aria-pressed={isWideLayout}
+                    data-testid="chat-width-toggle"
+                    onClick={onToggleWideLayout}
+                    className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border transition ${
+                      isWideLayout
+                        ? 'border-foreground/[0.08] bg-foreground/[0.055] text-foreground'
+                        : 'border-transparent bg-background text-foreground/55 hover:bg-foreground/[0.035] hover:text-foreground/75'
+                    }`}
+                  >
+                    <svg
+                      aria-hidden="true"
+                      className="h-4 w-4"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="1.8"
+                      viewBox="0 0 24 24"
+                    >
+                      {isWideLayout ? (
+                        <>
+                          <path d="M9 5H5v4" />
+                          <path d="M5 5l5.5 5.5" />
+                          <path d="M15 19h4v-4" />
+                          <path d="M19 19l-5.5-5.5" />
+                        </>
+                      ) : (
+                        <>
+                          <path d="M5 9V5h4" />
+                          <path d="M5 5l5.5 5.5" />
+                          <path d="M19 15v4h-4" />
+                          <path d="M19 19l-5.5-5.5" />
+                        </>
+                      )}
+                    </svg>
+                  </button>
+                </Tooltip>
+              )}
               <div ref={searchMenuRef} className="relative">
                 <Tooltip content={searchModeTooltip[searchMode]} side="bottom">
                   <button
