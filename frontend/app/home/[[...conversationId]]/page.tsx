@@ -285,6 +285,8 @@ function HomePageInner() {
     registerCloseTempChatCleanup,
     replacePersistentConversationUrl,
     routeConversationId,
+    pendingRouteConversationId,
+    clearPendingRouteConversationId,
   } = useHomeDataContext();
 
   const params = useParams<{ conversationId?: string[] }>();
@@ -294,9 +296,25 @@ function HomePageInner() {
     Array.isArray(params.conversationId) && params.conversationId.length > 0
       ? params.conversationId[0]
       : null;
-  const effectiveRouteConversationId = paramRouteConversationId ?? routeConversationId;
+  const effectiveRouteConversationId =
+    pendingRouteConversationId && paramRouteConversationId !== pendingRouteConversationId
+      ? pendingRouteConversationId
+      : paramRouteConversationId ?? routeConversationId;
   const homeE2eFixture = getHomeE2eFixture(searchParams.get('e2e'));
   const isHomeE2eFixture = homeE2eFixture !== null;
+
+  useEffect(() => {
+    if (
+      pendingRouteConversationId &&
+      paramRouteConversationId === pendingRouteConversationId
+    ) {
+      clearPendingRouteConversationId();
+    }
+  }, [
+    clearPendingRouteConversationId,
+    paramRouteConversationId,
+    pendingRouteConversationId,
+  ]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);

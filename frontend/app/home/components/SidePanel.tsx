@@ -3,6 +3,7 @@
 import {
   useEffect,
   useCallback,
+  useRef,
   useState,
   type CSSProperties,
   type DragEvent,
@@ -83,6 +84,16 @@ interface Props {
 
 function getWorkspaceKey(workspaceId: string) {
   return `workspace:${workspaceId}`;
+}
+
+function getWorkspaceSelectionKey(
+  workspaceKey: string,
+  selectedDraftId: string | null,
+  selectedConversationId: string | null
+) {
+  if (selectedDraftId) return `${workspaceKey}:draft:${selectedDraftId}`;
+  if (selectedConversationId) return `${workspaceKey}:conversation:${selectedConversationId}`;
+  return null;
 }
 
 function formatDate(input: string): string {
@@ -172,6 +183,8 @@ export default function SidePanel({
     conversation: ConversationListItem;
     targetWorkspaceId: string | null;
   } | null>(null);
+  const lastAutoExpandedWorkspaceSelectionRef = useRef<string | null>(null);
+  const manuallyCollapsedWorkspaceSelectionRef = useRef<Record<string, string>>({});
   const { viewer } = useViewerIdentity();
   const profileName = viewer?.fullName || viewer?.email || 'Your profile';
   const profileInitials = initialsFor(profileName);
@@ -208,8 +221,6 @@ export default function SidePanel({
       const group = workspaceGroups.find((entry) => entry.workspace_id === selectedWorkspaceId);
       if (!group) return;
 
-      setExpandedWorkspaces((prev) => ({ ...prev, [workspaceKey]: true }));
-
       const items = [
         ...(draftByWorkspaceKey.get(workspaceKey)
           ? [{ kind: 'draft' as const, id: draftByWorkspaceKey.get(workspaceKey)!.id }]
@@ -227,6 +238,17 @@ export default function SidePanel({
       );
 
       if (selectedIndex >= 0) {
+        const selectedItem = items[selectedIndex];
+        const autoExpandKey = `${workspaceKey}:${selectedItem.kind}:${selectedItem.id}`;
+        if (
+          lastAutoExpandedWorkspaceSelectionRef.current !== autoExpandKey &&
+          manuallyCollapsedWorkspaceSelectionRef.current[workspaceKey] !== autoExpandKey
+        ) {
+          lastAutoExpandedWorkspaceSelectionRef.current = autoExpandKey;
+          delete manuallyCollapsedWorkspaceSelectionRef.current[workspaceKey];
+          setExpandedWorkspaces((prev) => ({ ...prev, [workspaceKey]: true }));
+        }
+
         const minimumVisible = selectedIndex < 3 ? 3 : Math.max(10, selectedIndex + 1);
         setVisibleCounts((prev) => ({
           ...prev,
@@ -238,8 +260,11 @@ export default function SidePanel({
     }
 
     if (selectedMentorId) {
+      lastAutoExpandedWorkspaceSelectionRef.current = null;
       return;
     }
+
+    lastAutoExpandedWorkspaceSelectionRef.current = null;
 
     const globalDraft = draftChats.find((draft) => !draft.workspace_id && !draft.mentor_id);
     const globalConversations = conversations.filter(
@@ -592,12 +617,27 @@ export default function SidePanel({
                 </button>
                 <button
                   type="button"
-                  onClick={() =>
+                  onClick={() => {
+                    const nextExpanded = !isExpanded;
+                    const selectedWorkspaceKey =
+                      selectedWorkspaceId === group.workspace_id
+                        ? getWorkspaceSelectionKey(
+                            workspaceKey,
+                            selectedDraftId,
+                            selectedConversationId
+                          )
+                        : null;
+                    if (nextExpanded || !selectedWorkspaceKey) {
+                      delete manuallyCollapsedWorkspaceSelectionRef.current[workspaceKey];
+                    } else {
+                      manuallyCollapsedWorkspaceSelectionRef.current[workspaceKey] =
+                        selectedWorkspaceKey;
+                    }
                     setExpandedWorkspaces((prev) => ({
                       ...prev,
-                      [workspaceKey]: !isExpanded,
-                    }))
-                  }
+                      [workspaceKey]: nextExpanded,
+                    }));
+                  }}
                   className={cx(
                     'inline-flex h-[1.625rem] w-[1.625rem] flex-shrink-0 items-center justify-center rounded-full',
                     buttonStyles.transition,

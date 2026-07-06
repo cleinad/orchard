@@ -6,6 +6,7 @@ function createConversation({
   id,
   title,
   mentorId = null,
+  workspaceId = null,
   updatedAt = '2026-04-12T12:00:00.000Z',
   createdAt = '2026-04-12T11:00:00.000Z',
 }) {
@@ -13,8 +14,27 @@ function createConversation({
     id,
     title,
     mentor_id: mentorId,
+    workspace_id: workspaceId,
     updated_at: updatedAt,
     created_at: createdAt,
+  };
+}
+
+function createWorkspace({
+  id,
+  name,
+  icon = 'W',
+  accentColor = '#2563eb',
+}) {
+  return {
+    id,
+    name,
+    description: null,
+    context: null,
+    icon,
+    accent_color: accentColor,
+    created_at: '2026-04-12T11:00:00.000Z',
+    updated_at: '2026-04-12T11:00:00.000Z',
   };
 }
 
@@ -190,6 +210,144 @@ test('clicking a saved chat updates the URL and loads the persistent conversatio
     new RegExp(`/home/${conversationId}\\?e2e=home-routing-click$`)
   );
   await expect(page.getByText(answer)).toBeVisible();
+});
+
+test('clicking a workspace chat does not reopen another collapsed workspace', async ({ page }) => {
+  const firstWorkspaceId = 'workspace-alpha';
+  const secondWorkspaceId = 'workspace-beta';
+  const firstConversationId = 'conversation-alpha';
+  const secondConversationId = 'conversation-beta';
+
+  await mockHomeDataRoutes(page, {
+    workspaces: [
+      createWorkspace({
+        id: firstWorkspaceId,
+        name: 'Alpha',
+        icon: 'A',
+      }),
+      createWorkspace({
+        id: secondWorkspaceId,
+        name: 'Beta',
+        icon: 'B',
+      }),
+    ],
+    conversations: [
+      createConversation({
+        id: firstConversationId,
+        title: 'Alpha Chat',
+        workspaceId: firstWorkspaceId,
+        updatedAt: '2026-04-12T12:30:00.000Z',
+      }),
+      createConversation({
+        id: secondConversationId,
+        title: 'Beta Chat',
+        workspaceId: secondWorkspaceId,
+        updatedAt: '2026-04-12T12:00:00.000Z',
+      }),
+    ],
+    messagesByConversationId: {
+      [firstConversationId]: [
+        createMessage({
+          id: 'message-alpha-assistant-1',
+          role: 'assistant',
+          content: 'Alpha conversation loaded.',
+          createdAt: '2026-04-12T12:30:01.000Z',
+        }),
+      ],
+      [secondConversationId]: [
+        createMessage({
+          id: 'message-beta-assistant-1',
+          role: 'assistant',
+          content: 'Beta conversation loaded.',
+          createdAt: '2026-04-12T12:00:01.000Z',
+        }),
+      ],
+    },
+  });
+
+  await page.goto(`/home/${firstConversationId}?e2e=workspace-collapse-regression`);
+
+  const sidePanel = await ensureConversationsOpen(page);
+  await expect(sidePanel.getByRole('button', { name: 'Collapse Alpha' })).toBeVisible();
+
+  await sidePanel.getByRole('button', { name: 'Collapse Alpha' }).click();
+  await expect(sidePanel.getByRole('button', { name: 'Expand Alpha' })).toBeVisible();
+
+  await sidePanel.getByRole('button', { name: 'Expand Beta' }).click();
+  await expect(sidePanel.getByRole('button', { name: /Beta Chat/ })).toBeVisible();
+
+  await page.evaluate(({ firstWorkspaceId, secondWorkspaceId }) => {
+    const first = document.querySelector(
+      `[data-testid="workspace-drop-target-${firstWorkspaceId}"]`
+    );
+    const second = document.querySelector(
+      `[data-testid="workspace-drop-target-${secondWorkspaceId}"]`
+    );
+    if (!first || !second) {
+      throw new Error('Workspace rows were not found');
+    }
+
+    const snapshots = [];
+    const readSelection = () => {
+      snapshots.push({
+        firstSelected: first.className.includes('bg-foreground/[0.05]'),
+        secondSelected: second.className.includes('bg-foreground/[0.05]'),
+      });
+    };
+    const observer = new MutationObserver(readSelection);
+    readSelection();
+    observer.observe(first, { attributes: true, attributeFilter: ['class'] });
+    observer.observe(second, { attributes: true, attributeFilter: ['class'] });
+    window.__workspaceSelectionProbe = { snapshots, observer };
+  }, { firstWorkspaceId, secondWorkspaceId });
+
+  await sidePanel.getByRole('button', { name: /Beta Chat/ }).click();
+
+  await expect(page).toHaveURL(
+    new RegExp(`/home/${secondConversationId}\\?e2e=workspace-collapse-regression$`)
+  );
+  await expect(page.getByText('Beta conversation loaded.')).toBeVisible();
+  await expect(sidePanel.getByRole('button', { name: 'Expand Alpha' })).toBeVisible();
+  await expect(sidePanel.getByRole('button', { name: 'Collapse Alpha' })).toHaveCount(0);
+
+  const selectionSnapshots = await page.evaluate(async () => {
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const probe = window.__workspaceSelectionProbe;
+    probe.observer.disconnect();
+    delete window.__workspaceSelectionProbe;
+    return probe.snapshots;
+  });
+  const firstSecondSelectedIndex = selectionSnapshots.findIndex(
+    (snapshot) => snapshot.secondSelected
+  );
+  expect(firstSecondSelectedIndex).toBeGreaterThanOrEqual(0);
+  expect(
+    selectionSnapshots
+      .slice(firstSecondSelectedIndex)
+      .some((snapshot) => snapshot.firstSelected)
+  ).toBe(false);
+
+  await page.goBack();
+  await expect(page).toHaveURL(
+    new RegExp(`/home/${firstConversationId}\\?e2e=workspace-collapse-regression$`)
+  );
+  await expect.poll(async () =>
+    page.evaluate(({ firstWorkspaceId, secondWorkspaceId }) => {
+      const first = document.querySelector(
+        `[data-testid="workspace-drop-target-${firstWorkspaceId}"]`
+      );
+      const second = document.querySelector(
+        `[data-testid="workspace-drop-target-${secondWorkspaceId}"]`
+      );
+      return {
+        firstSelected: first?.className.includes('bg-foreground/[0.05]') ?? false,
+        secondSelected: second?.className.includes('bg-foreground/[0.05]') ?? false,
+      };
+    }, { firstWorkspaceId, secondWorkspaceId })
+  ).toEqual({
+    firstSelected: true,
+    secondSelected: false,
+  });
 });
 
 test('the first draft send replaces /home with the new persistent conversation route', async ({ page }) => {

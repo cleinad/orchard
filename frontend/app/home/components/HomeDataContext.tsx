@@ -9,6 +9,7 @@ import {
   useRef,
   type ReactNode,
 } from 'react';
+import { flushSync } from 'react-dom';
 import { usePathname, useRouter } from 'next/navigation';
 import { useHomeData } from '@/app/home/components/useHomeData';
 import {
@@ -257,6 +258,8 @@ interface HomeDataContextValue {
   openWorkspace: (workspaceId: string) => void;
   buildHomeHref: (pathname: string) => string;
   routeConversationId: string | null;
+  pendingRouteConversationId: string | null;
+  clearPendingRouteConversationId: () => void;
   e2eQueryParam: string | null;
 }
 
@@ -309,6 +312,8 @@ export function HomeDataProvider({
   const [selectedChat, setSelectedChat] = useState<SelectedChat | null>(null);
   const [clientRouteConversationId, setClientRouteConversationId] =
     useState<string | null>(routeConversationId);
+  const [pendingRouteConversationId, setPendingRouteConversationId] =
+    useState<string | null>(null);
 
   const selectedChatRef = useRef<SelectedChat | null>(null);
   // Keep ref aligned with state for async handlers (same pattern as page used before lift)
@@ -466,6 +471,7 @@ export function HomeDataProvider({
     }
 
     setClientRouteConversationId(null);
+    setPendingRouteConversationId(null);
     router.push(buildHomeHref('/home'), { scroll: false });
   }, [buildHomeHref, clientRouteConversationId, pathname, router]);
 
@@ -473,6 +479,7 @@ export function HomeDataProvider({
     (workspaceId: string) => {
       const href = buildHomeHref(`/workspaces/${encodeURIComponent(workspaceId)}`);
       setClientRouteConversationId(null);
+      setPendingRouteConversationId(null);
       router.push(href, { scroll: false });
     },
     [buildHomeHref, router]
@@ -481,7 +488,7 @@ export function HomeDataProvider({
   const openPersistentConversation = useCallback(
     (conversationId: string, options?: { replace?: boolean }) => {
       const href = buildHomeHref(`/home/${encodeURIComponent(conversationId)}`);
-      setClientRouteConversationId(conversationId);
+      setPendingRouteConversationId(conversationId);
       if (options?.replace) {
         router.replace(href, { scroll: false });
       } else {
@@ -495,10 +502,15 @@ export function HomeDataProvider({
     (conversationId: string) => {
       const href = buildHomeHref(`/home/${encodeURIComponent(conversationId)}`);
       setClientRouteConversationId(conversationId);
+      setPendingRouteConversationId(null);
       window.history.replaceState(window.history.state, '', href);
     },
     [buildHomeHref]
   );
+
+  const clearPendingRouteConversationId = useCallback(() => {
+    setPendingRouteConversationId(null);
+  }, []);
 
   // ------------------------------------------------------------------
   // Selection actions
@@ -506,9 +518,30 @@ export function HomeDataProvider({
 
   const handleSelectConversation = useCallback(
     (conversation: ConversationListItem) => {
+      const currentSelection = selectedChatRef.current;
+      const next: SelectedChat = {
+        kind: 'persistent',
+        conversationId: conversation.id,
+        mentorId: conversation.mentor_id,
+        workspaceId: conversation.workspace_id,
+      };
+
+      if (
+        currentSelection?.kind !== 'persistent' ||
+        currentSelection.conversationId !== conversation.id ||
+        currentSelection.mentorId !== next.mentorId ||
+        currentSelection.workspaceId !== next.workspaceId
+      ) {
+        flushSync(() => {
+          invokePrepareForChatSwitch(next);
+          selectedChatRef.current = next;
+          setSelectedChat(next);
+        });
+      }
+
       openPersistentConversation(conversation.id);
     },
-    [openPersistentConversation]
+    [invokePrepareForChatSwitch, openPersistentConversation, selectedChatRef]
   );
 
   const handleSelectDraft = useCallback(
@@ -680,6 +713,8 @@ export function HomeDataProvider({
     openWorkspace,
     buildHomeHref,
     routeConversationId: clientRouteConversationId,
+    pendingRouteConversationId,
+    clearPendingRouteConversationId,
     e2eQueryParam,
   };
 
