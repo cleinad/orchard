@@ -539,7 +539,7 @@ export default function ChatComposer({
                     aria-label={`Search mode ${searchModeLabels[searchMode].toLowerCase()}`}
                     onClick={() => setSearchMenuOpen((open) => !open)}
                     className={cx(
-                      'inline-flex h-8 min-w-[6.4rem] items-center justify-between gap-2 rounded-lg border px-3 text-left font-sans font-medium',
+                      'inline-flex h-8 min-w-[3.25rem] items-center justify-between gap-1.5 rounded-lg border px-2 text-left font-sans font-medium sm:min-w-[6.4rem] sm:gap-2 sm:px-3',
                       buttonStyles.transition,
                       searchMenuOpen || searchMode === 'required'
                         ? buttonStyles.controlActive
@@ -576,7 +576,7 @@ export default function ChatComposer({
                           />
                         </svg>
                       </span>
-                      <span className="truncate text-[13px]">Search</span>
+                      <span className="hidden truncate text-[13px] sm:inline">Search</span>
                     </span>
 
                     <svg

@@ -460,7 +460,7 @@ export default function ChatModelPicker({
         onClick={togglePopover}
         disabled={disabledState}
         className={cx(
-          'inline-flex h-8 min-w-[8rem] items-center justify-between gap-2 rounded-lg border px-3 text-left font-sans font-medium sm:min-w-[9.25rem]',
+          'inline-flex h-8 min-w-[3.25rem] items-center justify-between gap-1.5 rounded-lg border px-2 text-left font-sans font-medium sm:min-w-[9.25rem] sm:gap-2 sm:px-3',
           buttonStyles.transition,
           isOpen ? buttonStyles.controlActive : buttonStyles.controlInactive,
           buttonStyles.controlShadow,
@@ -472,7 +472,7 @@ export default function ChatModelPicker({
           <span className="flex h-4 w-4 flex-shrink-0 items-center justify-center text-accent">
             {selectedModel ? <ProviderIcon provider={selectedModel.iconKey} /> : null}
           </span>
-          <span className="truncate text-[13px] text-foreground">
+          <span className="hidden truncate text-[13px] text-foreground sm:inline">
             {selectedModel?.label ?? 'No models'}
           </span>
           {isUnavailable ? (
