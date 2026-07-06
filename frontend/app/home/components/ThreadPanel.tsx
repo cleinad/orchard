@@ -13,6 +13,7 @@ import {
 import MarkdownWithThreads from "@/app/home/components/MarkdownWithThreads";
 import SearchSourcesTray from "@/app/home/components/SearchSourcesTray";
 import type { ThreadSession } from "@/app/home/components/threadTypes";
+import { SIDE_PANEL_COLLAPSED_WIDTH_PX } from "@/app/home/components/SidePanelContext";
 import { markdownContentClassName } from "@/lib/markdown";
 import { hasUsableSearchSources } from "@/lib/search-citations";
 import { buttonStyles, cx } from "@/app/components/buttonStyles";
@@ -230,7 +231,7 @@ export default function ThreadPanel({
   );
 
   return (
-    <div className="pointer-events-none fixed inset-0 z-50 flex justify-end transition-all duration-300">
+    <div className="thread-panel-overlay pointer-events-none fixed bottom-0 right-0 top-0 z-50 flex justify-end transition-all duration-300">
       <div
         className={`thread-panel-backdrop absolute inset-0 bg-foreground/[0.06] transition-opacity duration-300 ${
           isOpen ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
@@ -265,8 +266,32 @@ export default function ThreadPanel({
           <span className="my-4 w-px rounded-full bg-transparent transition-colors group-hover:bg-foreground/20 group-focus-visible:bg-foreground/30" />
         </div>
 
-        <div className="flex items-start justify-between border-b border-border-subtle px-6 py-4">
+        <div className="flex items-start justify-between border-b border-border-subtle px-4 py-3 md:px-6 md:py-4">
           <div className="min-w-0 flex-1">
+            <button
+              type="button"
+              onClick={onClose}
+              data-testid="thread-panel-back-main"
+              aria-label="Back to main chat"
+              className={cx(
+                "mb-2 inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-sm font-medium text-muted md:hidden",
+                buttonStyles.transition,
+                buttonStyles.focus,
+                buttonStyles.ghost
+              )}
+            >
+              <svg
+                aria-hidden="true"
+                className="h-4 w-4"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                viewBox="0 0 20 20"
+              >
+                <path d="M12.5 5 7.5 10l5 5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              <span>Main</span>
+            </button>
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
               <p className="text-xs font-medium tracking-wider text-muted/60">
                 {activeQuestion ? "Follow-up" : "Thread"}
@@ -296,7 +321,7 @@ export default function ThreadPanel({
             data-testid="thread-panel-close"
             aria-label="Close"
             className={cx(
-              "ml-4 inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg",
+              "ml-4 hidden h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg md:inline-flex",
               buttonStyles.transition,
               buttonStyles.focus,
               buttonStyles.ghost
@@ -309,7 +334,7 @@ export default function ThreadPanel({
         </div>
 
         <div
-          className="flex-1 overflow-y-auto px-6 py-4"
+          className="flex-1 overflow-y-auto px-4 py-4 md:px-6"
           style={{
             scrollbarWidth: "thin",
             scrollbarColor:
@@ -401,7 +426,7 @@ export default function ThreadPanel({
           <div ref={messagesEndRef} />
         </div>
 
-        <div className="border-t border-border-subtle px-6 py-4">
+        <div className="border-t border-border-subtle px-4 py-3 md:px-6 md:py-4">
           <form onSubmit={handleComposerSubmit} className="relative">
             <div className="relative rounded-lg bg-surface shadow-sm ring-1 ring-border-subtle">
               <textarea
@@ -458,11 +483,22 @@ export default function ThreadPanel({
       </aside>
 
       <style jsx>{`
+        .thread-panel-overlay {
+          left: ${SIDE_PANEL_COLLAPSED_WIDTH_PX}px;
+          max-width: calc(100dvw - ${SIDE_PANEL_COLLAPSED_WIDTH_PX}px);
+        }
+
         .thread-panel-surface {
-          width: 100vw;
+          width: 100%;
+          max-width: 100%;
         }
 
         @media ${THREAD_PANEL_DESKTOP_MEDIA_QUERY} {
+          .thread-panel-overlay {
+            left: 0;
+            max-width: none;
+          }
+
           .thread-panel-backdrop {
             display: none;
           }
