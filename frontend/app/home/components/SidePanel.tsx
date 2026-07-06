@@ -1304,14 +1304,14 @@ export default function SidePanel({
 
             </div>
 
-            <div className="border-t border-border-subtle px-4 py-2">
-              <div className="flex items-center justify-between gap-3 px-3 py-0.5">
-                <div className="flex min-w-0 flex-1 items-center gap-3">
-                  <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-foreground/[0.05] text-[11px] font-semibold text-foreground">
+            <div className="border-t border-border-subtle px-2.5 py-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex min-w-0 flex-1 items-center gap-2">
+                  <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md bg-foreground/[0.05] text-[9px] font-semibold text-foreground">
                     {profileInitials}
                   </div>
                   <div className="min-w-0">
-                    <p className="truncate font-sans text-sm text-foreground">{profileName}</p>
+                    <p className="truncate font-sans text-xs text-foreground">{profileName}</p>
                   </div>
                 </div>
 
@@ -1322,7 +1322,7 @@ export default function SidePanel({
                     onClose();
                   }}
                   className={cx(
-                    'inline-flex h-10 w-10 items-center justify-center rounded-xl',
+                    'inline-flex h-8 w-8 items-center justify-center rounded-lg',
                     buttonStyles.transition,
                     buttonStyles.focus,
                     buttonStyles.ghost
@@ -1331,23 +1331,16 @@ export default function SidePanel({
                   title="Open settings"
                 >
                   <svg
-                    className="h-[26px] w-[26px] translate-x-[1px] text-muted"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.7"
+                    className="h-[18px] w-[18px] text-muted/80"
+                    fill="currentColor"
                     viewBox="0 0 24 24"
+                    aria-hidden="true"
                   >
                     <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M12 3.75v2.1M12 18.15v2.1M3.75 12h2.1M18.15 12h2.1M6.17 6.17l1.48 1.48M16.35 16.35l1.48 1.48M17.83 6.17l-1.48 1.48M7.65 16.35l-1.48 1.48"
+                      fillRule="evenodd"
+                      clipRule="evenodd"
+                      d="M19.43 12.98c.04-.32.07-.65.07-.98s-.02-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46a.5.5 0 00-.61-.22l-2.49 1a7.28 7.28 0 00-1.69-.98L14.5 2.42A.5.5 0 0014 2h-4a.5.5 0 00-.49.42L9.13 5.07c-.61.24-1.18.56-1.69.98l-2.49-1a.5.5 0 00-.61.22l-2 3.46a.5.5 0 00.12.64l2.11 1.65a7.93 7.93 0 000 1.96l-2.11 1.65a.5.5 0 00-.12.64l2 3.46c.13.22.39.31.61.22l2.49-1c.51.4 1.08.73 1.69.98l.38 2.65A.5.5 0 0010 22h4a.5.5 0 00.49-.42l.38-2.65c.61-.24 1.18-.56 1.69-.98l2.49 1c.23.08.48 0 .61-.22l2-3.46a.5.5 0 00-.12-.64l-2.11-1.65zM12 15.5a3.5 3.5 0 110-7 3.5 3.5 0 010 7z"
                     />
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M12 6.65a5.35 5.35 0 100 10.7 5.35 5.35 0 000-10.7z"
-                    />
-                    <circle cx="12" cy="12" r="2.2" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
                 </button>
               </div>
