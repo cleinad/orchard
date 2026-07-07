@@ -30,6 +30,7 @@ interface ChatModelPickerProps {
   selectedModelId: ChatModelId;
   modelEffortOverrides: ChatModelEffortOverrides;
   thinkingEnabledOverrides: ChatModelThinkingOverrides;
+  compact?: boolean;
   disabled?: boolean;
   onChange: (modelId: ChatModelId) => void;
   onEffortChange: (modelId: ChatModelId, effort: ChatModelEffortLevel) => void;
@@ -164,6 +165,7 @@ export default function ChatModelPicker({
   selectedModelId,
   modelEffortOverrides,
   thinkingEnabledOverrides,
+  compact = false,
   disabled = false,
   onChange,
   onEffortChange,
@@ -460,7 +462,10 @@ export default function ChatModelPicker({
         onClick={togglePopover}
         disabled={disabledState}
         className={cx(
-          'inline-flex h-8 min-w-[3.25rem] items-center justify-between gap-1.5 rounded-lg border px-2 text-left font-sans font-medium sm:min-w-[9.25rem] sm:gap-2 sm:px-3',
+          'inline-flex h-8 items-center justify-between rounded-lg border text-left font-sans font-medium',
+          compact
+            ? 'min-w-[3.25rem] gap-1.5 px-2'
+            : 'min-w-[9.25rem] gap-2 px-3',
           buttonStyles.transition,
           isOpen ? buttonStyles.controlActive : buttonStyles.controlInactive,
           buttonStyles.controlShadow,
@@ -472,11 +477,19 @@ export default function ChatModelPicker({
           <span className="flex h-4 w-4 flex-shrink-0 items-center justify-center text-accent">
             {selectedModel ? <ProviderIcon provider={selectedModel.iconKey} /> : null}
           </span>
-          <span className="hidden truncate text-[13px] text-foreground sm:inline">
+          <span className={cx(
+            'truncate text-[13px] text-foreground',
+            compact ? 'hidden' : 'inline'
+          )}
+          >
             {selectedModel?.label ?? 'No models'}
           </span>
           {isUnavailable ? (
-            <span className="hidden text-[10px] font-medium text-muted/80 sm:inline">
+            <span className={cx(
+              'text-[10px] font-medium text-muted/80',
+              compact ? 'hidden' : 'inline'
+            )}
+            >
               Unavailable
             </span>
           ) : null}

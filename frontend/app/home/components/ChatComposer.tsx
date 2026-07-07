@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type ChangeEventHandler,
@@ -25,7 +26,7 @@ import {
   type ChatModelListItem,
   type ChatModelThinkingOverrides,
 } from '@/lib/chat-models';
-import type { ResponseStyle } from '@/lib/response-style';
+import { getResponseStyleSummary, type ResponseStyle } from '@/lib/response-style';
 import { buttonStyles, cx } from '@/app/components/buttonStyles';
 
 interface ChatComposerProps {
@@ -100,7 +101,15 @@ export default function ChatComposer({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDraggingImage, setIsDraggingImage] = useState(false);
   const hasAvailableChatModels = chatModels.some((model) => model.available);
+  const selectedModel =
+    chatModels.find((model) => model.id === selectedModelId)
+    ?? chatModels.find((model) => model.available)
+    ?? chatModels[0]
+    ?? null;
   const [searchMenuOpen, setSearchMenuOpen] = useState(false);
+  const [compactControls, setCompactControls] = useState(false);
+  const controlsRowRef = useRef<HTMLDivElement | null>(null);
+  const controlsMeasureRef = useRef<HTMLDivElement | null>(null);
   const searchMenuRef = useRef<HTMLDivElement | null>(null);
   const searchModeLabels: Record<SearchMode, string> = {
     auto: 'Auto',
@@ -130,6 +139,48 @@ export default function ChatComposer({
     window.addEventListener('pointerdown', handlePointerDown);
     return () => window.removeEventListener('pointerdown', handlePointerDown);
   }, [searchMenuOpen]);
+
+  useLayoutEffect(() => {
+    const row = controlsRowRef.current;
+    const measure = controlsMeasureRef.current;
+
+    if (!row || !measure) {
+      return;
+    }
+
+    const updateCompactControls = () => {
+      const rowStyle = window.getComputedStyle(row);
+      const rowWidth =
+        row.clientWidth
+        - parseFloat(rowStyle.paddingLeft || '0')
+        - parseFloat(rowStyle.paddingRight || '0');
+      const expandedWidth = measure.getBoundingClientRect().width;
+
+      setCompactControls(Math.ceil(expandedWidth) > Math.floor(rowWidth));
+    };
+
+    updateCompactControls();
+
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', updateCompactControls);
+      return () => window.removeEventListener('resize', updateCompactControls);
+    }
+
+    const observer = new ResizeObserver(updateCompactControls);
+    observer.observe(row);
+    observer.observe(measure);
+    window.addEventListener('resize', updateCompactControls);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', updateCompactControls);
+    };
+  }, [
+    onToggleWideLayout,
+    responseStyle,
+    selectedModel?.available,
+    selectedModel?.label,
+  ]);
 
   const canSubmit = Boolean(input.trim() || pendingImageAttachments.length > 0);
   const isBusy = isLoading || isUploadingImages;
@@ -481,8 +532,53 @@ export default function ChatComposer({
             </div>
           </div>
 
-          <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2 px-1">
+          <div
+            ref={controlsMeasureRef}
+            aria-hidden="true"
+            className="pointer-events-none invisible fixed -left-[9999px] top-0 -z-10 flex w-max items-center gap-2 px-1"
+          >
             <div className="flex items-center gap-1.5">
+              {onToggleWideLayout ? (
+                <span className="inline-flex h-8 w-8 rounded-lg border" />
+              ) : null}
+              <span className="inline-flex h-8 min-w-[6.4rem] items-center justify-between gap-2 rounded-lg border px-3 font-sans font-medium">
+                <span className="flex min-w-0 items-center gap-2">
+                  <span className="h-4 w-4 flex-shrink-0" />
+                  <span className="truncate text-[13px]">Search</span>
+                </span>
+                <span className="h-3.5 w-3.5 flex-shrink-0" />
+              </span>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <span className="inline-flex h-8 min-w-[6.75rem] max-w-[8.5rem] items-center justify-between gap-2 rounded-lg border px-3 font-sans font-medium sm:min-w-[8.5rem]">
+                <span className="truncate text-[13px]">
+                  {getResponseStyleSummary(responseStyle)}
+                </span>
+                <span className="h-3.5 w-3.5 flex-shrink-0" />
+              </span>
+              <span className="inline-flex h-8 min-w-[9.25rem] items-center justify-between gap-2 rounded-lg border px-3 font-sans font-medium">
+                <span className="flex min-w-0 items-center gap-2">
+                  <span className="h-4 w-4 flex-shrink-0" />
+                  <span className="truncate text-[13px]">
+                    {selectedModel?.label ?? 'No models'}
+                  </span>
+                  {!selectedModel?.available ? (
+                    <span className="text-[10px] font-medium">
+                      Unavailable
+                    </span>
+                  ) : null}
+                </span>
+                <span className="h-3.5 w-3.5 flex-shrink-0" />
+              </span>
+            </div>
+          </div>
+
+          <div
+            ref={controlsRowRef}
+            className="mt-1.5 flex flex-nowrap items-center justify-between gap-2 px-1"
+          >
+            <div className="flex flex-shrink-0 items-center gap-1.5">
               {onToggleWideLayout && (
                 <Tooltip content={isWideLayout ? 'Use focused width' : 'Use wide width'} side="bottom">
                   <button
@@ -539,7 +635,10 @@ export default function ChatComposer({
                     aria-label={`Search mode ${searchModeLabels[searchMode].toLowerCase()}`}
                     onClick={() => setSearchMenuOpen((open) => !open)}
                     className={cx(
-                      'inline-flex h-8 min-w-[3.25rem] items-center justify-between gap-1.5 rounded-lg border px-2 text-left font-sans font-medium sm:min-w-[6.4rem] sm:gap-2 sm:px-3',
+                      'inline-flex h-8 items-center justify-between rounded-lg border text-left font-sans font-medium',
+                      compactControls
+                        ? 'min-w-[3.25rem] gap-1.5 px-2'
+                        : 'min-w-[6.4rem] gap-2 px-3',
                       buttonStyles.transition,
                       searchMenuOpen || searchMode === 'required'
                         ? buttonStyles.controlActive
@@ -576,7 +675,13 @@ export default function ChatComposer({
                           />
                         </svg>
                       </span>
-                      <span className="hidden truncate text-[13px] sm:inline">Search</span>
+                      <span className={cx(
+                        'truncate text-[13px]',
+                        compactControls ? 'hidden' : 'inline'
+                      )}
+                      >
+                        Search
+                      </span>
                     </span>
 
                     <svg
@@ -634,7 +739,7 @@ export default function ChatComposer({
               </div>
             </div>
 
-            <div className="ml-auto flex min-w-0 items-center gap-1.5">
+            <div className="ml-auto flex flex-shrink-0 items-center gap-1.5">
               <ResponseStylePicker
                 value={responseStyle}
                 onChange={onResponseStyleChange}
@@ -648,6 +753,7 @@ export default function ChatComposer({
                 onChange={onModelChange}
                 onEffortChange={onModelEffortChange}
                 onThinkingEnabledChange={onThinkingEnabledChange}
+                compact={compactControls}
               />
             </div>
           </div>
