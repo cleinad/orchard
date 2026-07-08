@@ -441,6 +441,351 @@ describe('chat route memory contract', () => {
     );
   });
 
+  it('anchors temporary thread questions to the selected text and source occurrence', async () => {
+    const sourceContent = '你好 means hello. Later 你好 is also a greeting.';
+    const secondOccurrenceStart = sourceContent.lastIndexOf('你好');
+
+    const { response } = await runChatRequest({
+      message: 'What is the pinyin for this?',
+      chatMode: 'temporary',
+      threadId: 'temp-thread-1',
+      sourceMessageId: 'msg-source',
+      highlightedText: '你好',
+      startOffset: secondOccurrenceStart,
+      endOffset: secondOccurrenceStart + '你好'.length,
+      history: [
+        {
+          id: 'msg-user-before',
+          role: 'user',
+          content: 'Teach me greetings.',
+        },
+        {
+          id: 'msg-source',
+          role: 'assistant',
+          content: sourceContent,
+        },
+        {
+          id: 'msg-after-source',
+          role: 'assistant',
+          content: 'This happened after the source message and should not guide the thread.',
+        },
+      ],
+    });
+
+    expect(response.status).toBe(200);
+    const streamArgs = mockStreamText.mock.calls.at(-1)?.[0] as {
+      messages: Array<{ role: string; content: string }>;
+    };
+    const modelText = streamArgs.messages
+      .map((message) => typeof message.content === 'string' ? message.content : '')
+      .join('\n\n');
+    const threadContext = streamArgs.messages.at(-2)?.content;
+
+    expect(threadContext).toContain('<thread_context>');
+    expect(threadContext).toContain('<thread_rules>');
+    expect(threadContext).toContain('<quoted_thread_data>');
+    expect(threadContext).toContain('Assume ambiguous references');
+    expect(threadContext).toContain('<selected_text truncated="false">\n你好\n</selected_text>');
+    expect(threadContext).toContain('source_role: assistant');
+    expect(threadContext).toContain('Later <selected_text>你好</selected_text> is also a greeting.');
+    expect(threadContext).toContain('<source_message role="assistant" id="msg-source" truncated="false">');
+    expect(streamArgs.messages.at(-1)).toMatchObject({
+      role: 'user',
+      content: 'What is the pinyin for this?',
+    });
+    expect(modelText).not.toContain('This happened after the source message');
+  });
+
+  it('passes the full highlighted text into thread context without the old 300 character cap', async () => {
+    const highlightedText = `start-${'语'.repeat(340)}-end`;
+    const sourceContent = `The selected passage is ${highlightedText}.`;
+    const startOffset = sourceContent.indexOf(highlightedText);
+
+    const { response } = await runChatRequest({
+      message: 'Explain this',
+      chatMode: 'temporary',
+      threadId: 'temp-thread-2',
+      sourceMessageId: 'msg-source-long',
+      highlightedText,
+      startOffset,
+      endOffset: startOffset + highlightedText.length,
+      history: [
+        {
+          id: 'msg-source-long',
+          role: 'assistant',
+          content: sourceContent,
+        },
+      ],
+    });
+
+    expect(response.status).toBe(200);
+    const streamArgs = mockStreamText.mock.calls.at(-1)?.[0] as {
+      messages: Array<{ role: string; content: string }>;
+    };
+    const threadContext = streamArgs.messages.at(-2)?.content;
+
+    expect(threadContext).toContain(`<selected_text truncated="false">\n${highlightedText}\n</selected_text>`);
+    expect(threadContext).toContain('-end');
+  });
+
+  it('marks oversized selected text truncation explicitly in thread context', async () => {
+    const highlightedText = `start-${'语'.repeat(20_050)}-end`;
+    const sourceContent = `The selected passage is ${highlightedText}.`;
+    const startOffset = sourceContent.indexOf(highlightedText);
+
+    const { response } = await runChatRequest({
+      message: 'Explain this',
+      chatMode: 'temporary',
+      threadId: 'temp-thread-oversized',
+      sourceMessageId: 'msg-source-oversized',
+      highlightedText,
+      startOffset,
+      endOffset: startOffset + highlightedText.length,
+      history: [
+        {
+          id: 'msg-source-oversized',
+          role: 'assistant',
+          content: sourceContent,
+        },
+      ],
+    });
+
+    expect(response.status).toBe(200);
+    const streamArgs = mockStreamText.mock.calls.at(-1)?.[0] as {
+      messages: Array<{ role: string; content: string }>;
+    };
+    const threadContext = streamArgs.messages.at(-2)?.content;
+
+    expect(threadContext).toContain('<selected_text truncated="true">');
+    expect(threadContext).toContain('[truncated after 20000 characters]');
+    expect(threadContext).not.toContain('-end\n</selected_text>');
+  });
+
+  it('reconstructs persisted thread source context from the stored thread row', async () => {
+    const conversationId = '11111111-1111-4111-8111-111111111111';
+    const threadId = '22222222-2222-4222-8222-222222222222';
+    const sourceMessageId = '33333333-3333-4333-8333-333333333333';
+
+    const { response, tracker } = await runChatRequest(
+      {
+        message: 'Pronounce this',
+        conversationId,
+        threadId,
+      },
+      {
+        conversations: {
+          rows: [{ id: conversationId, mentor_id: null }],
+        },
+        threads: {
+          rows: [
+            {
+              id: threadId,
+              highlighted_text: '行',
+              source_message_id: sourceMessageId,
+              start_offset: 1,
+              end_offset: 2,
+              selection_stream_version: 'markdown-structure-v2',
+            },
+          ],
+        },
+        messages: {
+          rows: [
+            {
+              id: sourceMessageId,
+              role: 'assistant',
+              content: '这个行字在这里读 xing。',
+              previous_message_id: null,
+              created_at: '2026-01-01T00:00:00.000Z',
+              thread_id: null,
+              search_metadata: null,
+            },
+          ],
+          returnOnMutate: [
+            { id: '44444444-4444-4444-8444-444444444444' },
+            { id: '55555555-5555-4555-8555-555555555555' },
+          ],
+        },
+      }
+    );
+
+    expect(response.status).toBe(200);
+    const streamArgs = mockStreamText.mock.calls.at(-1)?.[0] as {
+      messages: Array<{ role: string; content: string }>;
+    };
+    const threadContext = streamArgs.messages.at(-2)?.content;
+
+    expect(threadContext).toContain(`source_message_id: ${sourceMessageId}`);
+    expect(threadContext).toContain('source_role: assistant');
+    expect(threadContext).toContain('<selected_text truncated="false">\n行\n</selected_text>');
+    expect(tracker.inserts('messages')[0].args).toMatchObject({
+      thread_id: threadId,
+      parent_message_id: sourceMessageId,
+    });
+  });
+
+  it('uses persistent conversation history only through the thread source message', async () => {
+    const conversationId = '11111111-1111-4111-8111-111111111111';
+    const threadId = '22222222-2222-4222-8222-222222222222';
+    const sourceMessageId = '33333333-3333-4333-8333-333333333333';
+    const beforeMessageId = '66666666-6666-4666-8666-666666666666';
+
+    const { response } = await runChatRequest(
+      {
+        message: 'What does this mean?',
+        conversationId,
+        threadId,
+      },
+      {
+        conversations: {
+          rows: [{ id: conversationId, mentor_id: null }],
+        },
+        threads: {
+          rows: [
+            {
+              id: threadId,
+              highlighted_text: '光合作用',
+              source_message_id: sourceMessageId,
+              start_offset: 10,
+              end_offset: 14,
+              selection_stream_version: 'markdown-structure-v2',
+            },
+          ],
+        },
+        messages: {
+          rows: [
+            {
+              id: beforeMessageId,
+              role: 'user',
+              content: 'Explain biology terms.',
+              previous_message_id: null,
+              created_at: '2026-01-01T00:00:00.000Z',
+              thread_id: null,
+              search_metadata: null,
+            },
+            {
+              id: sourceMessageId,
+              role: 'assistant',
+              content: 'The term 光合作用 appears in this sentence.',
+              previous_message_id: beforeMessageId,
+              created_at: '2026-01-01T00:01:00.000Z',
+              thread_id: null,
+              search_metadata: null,
+            },
+            {
+              id: '77777777-7777-4777-8777-777777777777',
+              role: 'user',
+              content: 'Later unrelated main-chat turn.',
+              previous_message_id: sourceMessageId,
+              created_at: '2026-01-01T00:02:00.000Z',
+              thread_id: null,
+              search_metadata: null,
+            },
+            {
+              id: '88888888-8888-4888-8888-888888888888',
+              role: 'user',
+              content: 'Earlier thread follow-up.',
+              created_at: '2026-01-01T00:03:00.000Z',
+              thread_id: threadId,
+              search_metadata: null,
+            },
+          ],
+          returnOnMutate: [
+            { id: '44444444-4444-4444-8444-444444444444' },
+            { id: '55555555-5555-4555-8555-555555555555' },
+          ],
+        },
+      }
+    );
+
+    expect(response.status).toBe(200);
+    const streamArgs = mockStreamText.mock.calls.at(-1)?.[0] as {
+      messages: Array<{ role: string; content: string }>;
+    };
+    const modelText = streamArgs.messages
+      .map((message) => typeof message.content === 'string' ? message.content : '')
+      .join('\n\n');
+
+    expect(modelText).toContain('Explain biology terms.');
+    expect(modelText).toContain('The term 光合作用 appears in this sentence.');
+    expect(modelText).toContain('Earlier thread follow-up.');
+    expect(modelText).not.toContain('Later unrelated main-chat turn.');
+  });
+
+  it('walks the persistent source parent chain with a 50 message cap', async () => {
+    const conversationId = '11111111-1111-4111-8111-111111111111';
+    const threadId = '22222222-2222-4222-8222-222222222222';
+    const sourceMessageId = '33333333-3333-4333-8333-333333333333';
+    const chainMessages = Array.from({ length: 60 }, (_, index) => ({
+      id: `99999999-9999-4999-8999-${index.toString().padStart(12, '0')}`,
+      role: index % 2 === 0 ? 'user' : 'assistant',
+      content: `Anchor path message ${index}`,
+      previous_message_id: index === 0 ? null : `99999999-9999-4999-8999-${(index - 1).toString().padStart(12, '0')}`,
+      created_at: `2026-01-01T00:${String(index % 60).padStart(2, '0')}:00.000Z`,
+      thread_id: null,
+      search_metadata: null,
+    }));
+
+    const { response, tracker } = await runChatRequest(
+      {
+        message: 'Pronounce this',
+        conversationId,
+        threadId,
+      },
+      {
+        conversations: {
+          rows: [{ id: conversationId, mentor_id: null }],
+        },
+        threads: {
+          rows: [
+            {
+              id: threadId,
+              highlighted_text: '锚点',
+              source_message_id: sourceMessageId,
+              start_offset: 7,
+              end_offset: 9,
+              selection_stream_version: 'markdown-structure-v2',
+            },
+          ],
+        },
+        messages: {
+          rows: [
+            ...chainMessages,
+            {
+              id: sourceMessageId,
+              role: 'assistant',
+              content: 'Anchor source: 锚点 should still be visible.',
+              previous_message_id: chainMessages.at(-1)?.id ?? null,
+              created_at: '2026-01-01T04:00:00.000Z',
+              thread_id: null,
+              search_metadata: null,
+            },
+          ],
+          returnOnMutate: [
+            { id: '44444444-4444-4444-8444-444444444444' },
+            { id: '55555555-5555-4555-8555-555555555555' },
+          ],
+        },
+      }
+    );
+
+    expect(response.status).toBe(200);
+    const streamArgs = mockStreamText.mock.calls.at(-1)?.[0] as {
+      messages: Array<{ role: string; content: string }>;
+    };
+    const modelText = streamArgs.messages
+      .map((message) => typeof message.content === 'string' ? message.content : '')
+      .join('\n\n');
+
+    expect(modelText).toContain('Anchor source: 锚点 should still be visible.');
+    expect(modelText).toContain('Anchor path message 59');
+    expect(modelText).toContain('Anchor path message 11');
+    expect(modelText).not.toContain('Anchor path message 10');
+
+    const messageSelects = tracker.selects('messages');
+    expect(messageSelects.filter((query) => query.filters['eq:id'])).toHaveLength(1);
+    expect(messageSelects.some((query) => query.filters['lte:created_at'])).toBe(true);
+  });
+
   it('rejects invalid persistent thread source ids before creating a thread', async () => {
     const { response, body, tracker } = await runChatRequest(
       {
