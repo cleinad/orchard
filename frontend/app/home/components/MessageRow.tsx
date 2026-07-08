@@ -122,6 +122,7 @@ function MessageRow({
   const [selectedImage, setSelectedImage] = useState<ChatImageAttachment | null>(null);
   const [emphasizedThreadMarkerId, setEmphasizedThreadMarkerId] = useState<string | null>(null);
   const messageContentRef = useRef<HTMLDivElement | null>(null);
+  const [messageContentEl, setMessageContentEl] = useState<HTMLDivElement | null>(null);
   const replySearchMetadata =
     message.role === 'assistant' ? message.searchMetadata ?? null : null;
   const searchActivity =
@@ -137,6 +138,10 @@ function MessageRow({
     ?? [];
   const canExpandSearchActivity = searchActivitySteps.length > 0;
   const hasSources = hasUsableSearchSources(replySearchMetadata);
+  const setMessageContentNode = useCallback((node: HTMLDivElement | null) => {
+    messageContentRef.current = node;
+    setMessageContentEl((current) => (current === node ? current : node));
+  }, []);
   const handleCitationClick = useCallback(
     (sourceId: number) => onCitationClick(message.id, sourceId),
     [message.id, onCitationClick]
@@ -360,7 +365,7 @@ function MessageRow({
         )}
 
         <div
-          ref={messageContentRef}
+          ref={setMessageContentNode}
           data-message-content="true"
           className={`${markdownContentClassName} mt-2 text-base leading-relaxed text-foreground`}
           onBlur={handleThreadMarkerBlur}
@@ -368,8 +373,8 @@ function MessageRow({
           onPointerOut={handleThreadMarkerPointerOut}
           onPointerOver={handleThreadMarkerPointerOver}
         >
-          {overlaySources.length > 0 && (
-            <ThreadHighlightOverlay rootRef={messageContentRef} sources={overlaySources} />
+          {messageContentEl && overlaySources.length > 0 && (
+            <ThreadHighlightOverlay root={messageContentEl} sources={overlaySources} />
           )}
           <MarkdownWithThreads
             content={message.content}

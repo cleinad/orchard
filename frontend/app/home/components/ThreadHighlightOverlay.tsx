@@ -4,7 +4,6 @@ import {
   useCallback,
   useLayoutEffect,
   useState,
-  type RefObject,
 } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -42,7 +41,7 @@ interface MeasuredRect {
 }
 
 interface ThreadHighlightOverlayProps {
-  rootRef: RefObject<HTMLDivElement | null>;
+  root: HTMLDivElement;
   sources: ThreadHighlightOverlaySource[];
 }
 
@@ -567,25 +566,21 @@ function measureSources(root: HTMLElement, sources: ThreadHighlightOverlaySource
 }
 
 export default function ThreadHighlightOverlay({
-  rootRef,
+  root,
   sources,
 }: ThreadHighlightOverlayProps) {
   const [rects, setRects] = useState<MeasuredRect[]>([]);
 
   const measure = useCallback(() => {
-    const root = rootRef.current;
-    if (!root || sources.length === 0) {
+    if (sources.length === 0) {
       setRects([]);
       return;
     }
 
     setRects(measureSources(root, sources));
-  }, [rootRef, sources]);
+  }, [root, sources]);
 
   useLayoutEffect(() => {
-    const root = rootRef.current;
-    if (!root) return;
-
     let animationFrame = 0;
     const scheduleMeasure = () => {
       window.cancelAnimationFrame(animationFrame);
@@ -607,12 +602,9 @@ export default function ThreadHighlightOverlay({
       window.removeEventListener('resize', scheduleMeasure);
       window.removeEventListener('scroll', scheduleMeasure, true);
     };
-  }, [measure, rootRef]);
+  }, [measure, root]);
 
   useLayoutEffect(() => {
-    const root = rootRef.current;
-    if (!root) return;
-
     if (rects.length > 0) {
       root.setAttribute('data-range-thread-highlights', 'true');
       root.setAttribute('data-thread-highlight-overlay', 'true');
@@ -624,7 +616,7 @@ export default function ThreadHighlightOverlay({
 
     root.removeAttribute('data-range-thread-highlights');
     root.removeAttribute('data-thread-highlight-overlay');
-  }, [rects.length, rootRef]);
+  }, [rects.length, root]);
 
   const globalRects = rects.filter(
     (rect) => rect.context !== 'code' && rect.context !== 'inline-code'
