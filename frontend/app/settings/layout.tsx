@@ -11,6 +11,14 @@ export default function SettingsLayout({
   children: ReactNode;
 }) {
   const router = useRouter();
+  const handleBackToChat = () => {
+    if (window.history.length > 1) {
+      router.back();
+      return;
+    }
+
+    router.push('/home');
+  };
 
   return (
     <div className="relative min-h-screen bg-background text-foreground">
@@ -21,7 +29,7 @@ export default function SettingsLayout({
           <div className="flex min-w-0 items-center gap-3">
             <button
               type="button"
-              onClick={() => router.push('/home')}
+              onClick={handleBackToChat}
               aria-label="Back to chat"
               className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-muted transition hover:text-foreground"
             >
