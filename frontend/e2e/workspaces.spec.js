@@ -821,9 +821,6 @@ test('dragging a default chat into a workspace moves the chat and single-source 
   expect(state.memoryItems.find((item) => item.id === 'memory-shared-global').owner_type)
     .toBe('global');
 
-  if ((await sidePanel.getByRole('button', { name: 'Expand Health' }).count()) > 0) {
-    await sidePanel.getByRole('button', { name: 'Expand Health' }).click();
-  }
   await expect(sidePanel.getByTestId(`conversation-row-${conversationId}`)).toBeVisible();
 
   const composer = page.locator('textarea[placeholder^="Message"]').first();
@@ -898,9 +895,6 @@ test('dragging a workspace chat to another workspace moves the chat and single-s
   expect(state.memoryItems.find((item) => item.id === 'memory-workspace-transfer').owner_id)
     .toBe(targetWorkspaceId);
 
-  if ((await sidePanel.getByRole('button', { name: 'Expand Math' }).count()) > 0) {
-    await sidePanel.getByRole('button', { name: 'Expand Math' }).click();
-  }
   await expect(sidePanel.getByTestId(`conversation-row-${conversationId}`)).toBeVisible();
 });
 
