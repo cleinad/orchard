@@ -497,13 +497,17 @@ function HomePageInner() {
     endProgrammaticTranscriptNavigation,
     handleScroll,
     jumpToMessage,
+    saveCurrentScrollPosition,
     scrollInstantRef,
     setUserHasScrolledState,
   } = useTranscriptNavigation({
     activeMessages,
     containerRef,
     currentMapMessageId,
+    getSavedScrollPosition: getTranscriptScrollPosition,
     messagesEndRef,
+    scrollRestorationKey: selectedChatKey,
+    setSavedScrollPosition: setTranscriptScrollPosition,
     setCurrentMapMessageId,
   });
 
@@ -658,6 +662,7 @@ function HomePageInner() {
     registerCloseTempChatCleanup,
     registerPrepareForChatSwitch,
     resetThreadUi,
+    saveCurrentScrollPosition,
     scrollInstantRef,
     selectedChatRef,
     selectedDraftChat,

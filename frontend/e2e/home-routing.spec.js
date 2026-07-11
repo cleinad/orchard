@@ -52,6 +52,21 @@ function createMessage({
   };
 }
 
+function createScrollableMessages(prefix, uniqueMarker) {
+  return Array.from({ length: 24 }, (_, index) =>
+    createMessage({
+      id: `${prefix}-message-${index}`,
+      role: index % 2 === 0 ? 'user' : 'assistant',
+      content: [
+        index === 3 ? uniqueMarker : `${prefix} turn ${index + 1}`,
+        'This paragraph gives the transcript enough height to make scroll restoration observable.',
+        'The exact words are less important than keeping each message visually substantial.',
+      ].join('\n\n'),
+      createdAt: `2026-04-12T12:${String(index).padStart(2, '0')}:00.000Z`,
+    })
+  );
+}
+
 async function ensureConversationsOpen(page) {
   const rail = page.locator('nav[aria-hidden]').first();
   const sidePanel = page.locator('[role="region"][aria-label="Conversations and sections"]').first();
@@ -523,9 +538,9 @@ test('collapsed rail section icons reopen only their matching sidebar section', 
   await page.goto('/home?e2e=rail-section-state');
 
   const sidePanel = await ensureConversationsOpen(page);
-  const workspacesHeader = sidePanel.getByRole('button', { name: 'Workspaces' });
-  const temporaryHeader = sidePanel.getByRole('button', { name: 'Temporary' });
-  const chatsHeader = sidePanel.getByRole('button', { name: 'Chats' });
+  const workspacesHeader = sidePanel.getByRole('button', { name: 'Workspaces', exact: true });
+  const temporaryHeader = sidePanel.getByRole('button', { name: 'Temporary', exact: true });
+  const chatsHeader = sidePanel.getByRole('button', { name: 'Chats', exact: true });
 
   await expect(workspacesHeader).toHaveAttribute('aria-expanded', 'true');
   await temporaryHeader.click();
@@ -594,6 +609,161 @@ test('unsent composer text is preserved per persistent chat', async ({ page }) =
   const reopenedSidePanelAgain = await ensureConversationsOpen(page);
   await reopenedSidePanelAgain.getByRole('button', { name: /Chat Two/ }).click();
   await expect(page.getByPlaceholder('Message Keen...')).toHaveValue('Draft for chat two');
+});
+
+test('persistent chat switches reuse cached transcripts and restore scroll cleanly', async ({ page }) => {
+  const firstConversationId = 'conversation-cache-switch-1';
+  const secondConversationId = 'conversation-cache-switch-2';
+  const firstOnlyMessage = 'Only chat one contains this cached scroll marker.';
+  const secondOnlyMessage = 'Only chat two contains this clean switch marker.';
+  const messageRequests = {};
+
+  await page.setViewportSize({ width: 1280, height: 720 });
+
+  await mockHomeDataRoutes(page, {
+    conversations: [
+      createConversation({
+        id: firstConversationId,
+        title: 'Cache Switch One',
+        updatedAt: '2026-04-12T12:42:00.000Z',
+      }),
+      createConversation({
+        id: secondConversationId,
+        title: 'Cache Switch Two',
+        updatedAt: '2026-04-12T12:41:00.000Z',
+      }),
+    ],
+    messagesByConversationId: {
+      [firstConversationId]: createScrollableMessages('cache-switch-one', firstOnlyMessage),
+      [secondConversationId]: createScrollableMessages('cache-switch-two', secondOnlyMessage),
+    },
+    onMessagesRequest: async ({ conversationId, select }) => {
+      if (conversationId && select !== 'content') {
+        messageRequests[conversationId] = (messageRequests[conversationId] || 0) + 1;
+      }
+
+      return false;
+    },
+  });
+
+  await page.goto(`/home/${firstConversationId}?e2e=home-routing-cache-switch`);
+
+  const transcript = page.getByTestId('home-scroll-container');
+  await expect(transcript.getByText(firstOnlyMessage)).toBeVisible();
+  await expect.poll(() =>
+    transcript.evaluate((element) => element.scrollHeight > element.clientHeight)
+  ).toBe(true);
+
+  const savedScrollTop = await transcript.evaluate((element) => {
+    element.scrollTop = Math.min(420, element.scrollHeight - element.clientHeight);
+    element.dispatchEvent(new Event('scroll', { bubbles: true }));
+    return element.scrollTop;
+  });
+  expect(savedScrollTop).toBeGreaterThan(100);
+  await expect.poll(() =>
+    transcript.evaluate((element) => Math.round(element.scrollTop))
+  ).toBe(Math.round(savedScrollTop));
+
+  const sidePanel = await ensureConversationsOpen(page);
+  await expect.poll(() =>
+    transcript.evaluate((element) => Math.round(element.scrollTop))
+  ).toBe(Math.round(savedScrollTop));
+  await sidePanel.getByRole('button', { name: /Cache Switch Two/ }).click();
+
+  await expect(page).toHaveURL(
+    new RegExp(`/home/${secondConversationId}\\?e2e=home-routing-cache-switch$`)
+  );
+  await expect(transcript.getByText(secondOnlyMessage)).toBeVisible();
+  await expect(transcript.getByText(firstOnlyMessage)).toHaveCount(0);
+  expect(messageRequests[firstConversationId]).toBe(1);
+  expect(messageRequests[secondConversationId]).toBe(1);
+
+  const reopenedSidePanel = await ensureConversationsOpen(page);
+  await reopenedSidePanel.getByRole('button', { name: /Cache Switch One/ }).click();
+
+  await expect(page).toHaveURL(
+    new RegExp(`/home/${firstConversationId}\\?e2e=home-routing-cache-switch$`)
+  );
+  await expect(transcript.getByText(firstOnlyMessage)).toBeVisible();
+  await expect(transcript.getByText(secondOnlyMessage)).toHaveCount(0);
+  expect(messageRequests[firstConversationId]).toBe(1);
+
+  await expect.poll(() =>
+    transcript.evaluate((element) => element.scrollTop)
+  ).toBeGreaterThan(savedScrollTop - 120);
+  await expect.poll(() =>
+    transcript.evaluate((element) => element.scrollTop)
+  ).toBeLessThan(savedScrollTop + 180);
+});
+
+test('a superseded chat load cannot replace the cached chat returned to', async ({ page }) => {
+  const firstConversationId = 'conversation-stale-load-1';
+  const secondConversationId = 'conversation-stale-load-2';
+  const firstAnswer = 'The cached conversation stays selected.';
+  const secondLoadGate = deferred();
+  const secondFailureFulfilled = deferred();
+
+  await mockHomeDataRoutes(page, {
+    conversations: [
+      createConversation({ id: firstConversationId, title: 'Cached Route One' }),
+      createConversation({ id: secondConversationId, title: 'Delayed Route Two' }),
+    ],
+    messagesByConversationId: {
+      [firstConversationId]: [
+        createMessage({
+          id: 'message-stale-load-first-assistant-1',
+          role: 'assistant',
+          content: firstAnswer,
+          createdAt: '2026-04-12T12:50:00.000Z',
+        }),
+      ],
+      [secondConversationId]: [],
+    },
+    onMessagesRequest: async ({
+      route,
+      conversationId,
+      select,
+      fulfillJson,
+    }) => {
+      if (conversationId !== secondConversationId || select === 'content') {
+        return false;
+      }
+
+      await secondLoadGate.promise;
+      await fulfillJson(route, { message: 'Delayed load failed' }, 500);
+      secondFailureFulfilled.resolve();
+      return true;
+    },
+  });
+
+  await page.goto(`/home/${firstConversationId}?e2e=home-routing-stale-load`);
+  await expect(page.getByText(firstAnswer)).toBeVisible();
+
+  const sidePanel = await ensureConversationsOpen(page);
+  await sidePanel.getByRole('button', { name: /Delayed Route Two/ }).click();
+  await expect(page).toHaveURL(
+    new RegExp(`/home/${secondConversationId}\\?e2e=home-routing-stale-load$`)
+  );
+
+  await sidePanel.getByRole('button', { name: /Cached Route One/ }).click();
+  await expect(page).toHaveURL(
+    new RegExp(`/home/${firstConversationId}\\?e2e=home-routing-stale-load$`)
+  );
+  await expect(page.getByText(firstAnswer)).toBeVisible();
+
+  const staleErrorAppeared = page
+    .getByText('Could not load this conversation')
+    .waitFor({ state: 'visible', timeout: 750 })
+    .then(() => true, () => false);
+
+  secondLoadGate.resolve();
+  await secondFailureFulfilled.promise;
+
+  expect(await staleErrorAppeared).toBe(false);
+  await expect(page.getByText(firstAnswer)).toBeVisible();
+  await expect(page).toHaveURL(
+    new RegExp(`/home/${firstConversationId}\\?e2e=home-routing-stale-load$`)
+  );
 });
 
 test('the same chat stays editable while its response is in flight', async ({ page }) => {
@@ -730,7 +900,7 @@ test('model effort and thinking controls are included in chat requests', async (
   await modelPicker.evaluate((element) => {
     element.style.position = 'fixed';
     element.style.right = '12px';
-    element.style.bottom = '32px';
+    element.style.bottom = '96px';
     element.style.zIndex = '20';
   });
   await modelPicker.click();
@@ -981,7 +1151,15 @@ test('model effort controls use a drill-in panel on narrow viewports', async ({ 
 
   await page.goto('/home?e2e=home-routing-effort-drilldown');
 
-  await page.getByRole('button', { name: /Chat model: GPT-5\.5/ }).click();
+  const modelPicker = page.getByRole('button', { name: /Chat model: GPT-5\.5/ });
+  await modelPicker.evaluate((element) => {
+    element.style.position = 'fixed';
+    element.style.right = '12px';
+    element.style.bottom = '96px';
+    element.style.zIndex = '20';
+  });
+
+  await modelPicker.click();
   await page.getByRole('menuitemradio', { name: /Gemini 3 Flash/ }).click();
 
   const popover = page.locator('.chat-model-picker-popover');
@@ -1303,7 +1481,7 @@ test('temporary chats stay on /home when switching away from a persistent route'
   await page.goto('/home/' + conversationId + '?e2e=home-routing-temporary');
 
   await expect(page.getByText(answer)).toBeVisible();
-  await page.getByLabel('New temporary chat').click();
+  await page.getByRole('main').getByLabel('New temporary chat').click();
 
   await expect(page).toHaveURL(new RegExp('/home\\?e2e=home-routing-temporary$'));
   await expect(page.getByRole('heading', { name: 'Temporary chat' })).toBeVisible();

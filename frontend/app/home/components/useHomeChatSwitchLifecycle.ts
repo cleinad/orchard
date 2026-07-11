@@ -20,6 +20,7 @@ interface UseHomeChatSwitchLifecycleParams {
   registerCloseTempChatCleanup: (fn: (tempChatId: string) => void) => void;
   registerPrepareForChatSwitch: (fn: (next: SelectedChat | null) => void) => void;
   resetThreadUi: () => void;
+  saveCurrentScrollPosition: () => void;
   scrollInstantRef: MutableRefObject<boolean>;
   selectedChatRef: MutableRefObject<SelectedChat | null>;
   selectedDraftChat: PersistentDraftChat | null;
@@ -42,6 +43,7 @@ export function useHomeChatSwitchLifecycle({
   registerCloseTempChatCleanup,
   registerPrepareForChatSwitch,
   resetThreadUi,
+  saveCurrentScrollPosition,
   scrollInstantRef,
   selectedChatRef,
   selectedDraftChat,
@@ -57,6 +59,7 @@ export function useHomeChatSwitchLifecycle({
 
   const prepareForChatSwitch = useCallback(
     (nextSelection: SelectedChat | null) => {
+      saveCurrentScrollPosition();
       resetThreadUi();
       setPendingBranch(null);
       setConversationMapOpen(false);
@@ -99,6 +102,7 @@ export function useHomeChatSwitchLifecycle({
       composerDraftInputsRef,
       endProgrammaticTranscriptNavigation,
       resetThreadUi,
+      saveCurrentScrollPosition,
       scrollInstantRef,
       selectedChatRef,
       selectedDraftChatRef,
