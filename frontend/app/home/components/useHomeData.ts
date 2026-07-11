@@ -320,13 +320,30 @@ export function useHomeData() {
   }, [mentors, workspaces]);
 
   const loadConversationMessages = useCallback(async (nextConversationId: string) => {
-    const { data, error } = await supabase
+    const messagesRequest = supabase
       .from('messages')
       .select('id, role, content, created_at, search_metadata, previous_message_id')
       .eq('conversation_id', nextConversationId)
       .is('thread_id', null)
       .order('created_at', { ascending: true })
       .limit(200);
+
+    const branchesRequest = supabase
+      .from('conversation_branches')
+      .select('id, source_message_id, entry_message_id, title, is_main, position')
+      .eq('conversation_id', nextConversationId)
+      .order('position', { ascending: true });
+
+    const threadsRequest = supabase
+      .from('threads')
+      .select('id, source_message_id, highlighted_text, start_offset, end_offset, selection_stream_version')
+      .eq('conversation_id', nextConversationId);
+
+    const [
+      { data, error },
+      { data: branchRows, error: branchesError },
+      { data: threadRows, error: threadsError },
+    ] = await Promise.all([messagesRequest, branchesRequest, threadsRequest]);
 
     if (error) {
       throw new Error(error.message);
@@ -398,12 +415,6 @@ export function useHomeData() {
       }
     }
 
-    const { data: branchRows, error: branchesError } = await supabase
-      .from('conversation_branches')
-      .select('id, source_message_id, entry_message_id, title, is_main, position')
-      .eq('conversation_id', nextConversationId)
-      .order('position', { ascending: true });
-
     const nextBranches: ConversationBranch[] = branchesError
       ? []
       : ((branchRows || []) as Array<{
@@ -421,11 +432,6 @@ export function useHomeData() {
           isMain: branch.is_main,
           position: branch.position,
         }));
-
-    const { data: threadRows, error: threadsError } = await supabase
-      .from('threads')
-      .select('id, source_message_id, highlighted_text, start_offset, end_offset, selection_stream_version')
-      .eq('conversation_id', nextConversationId);
 
     if (threadsError) {
       console.error('Failed to load threads:', threadsError);
@@ -462,11 +468,13 @@ export function useHomeData() {
       .eq('id', nextConversationId)
       .single();
 
-    if (error || !data) {
+    const row = data as ConversationRow | null;
+
+    if (error || !row || row.id !== nextConversationId) {
       throw new Error(error?.message || 'Conversation not found');
     }
 
-    return mapConversationRowToListItem(data as ConversationRow, mentors, workspaces);
+    return mapConversationRowToListItem(row, mentors, workspaces);
   }, [mentors, workspaces]);
 
   return {

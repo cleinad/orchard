@@ -5,12 +5,6 @@ import type {
   PersistentDraftChat,
   SelectedChat,
 } from '@/app/home/components/HomeDataContext';
-import type { ThreadMeta } from '@/app/home/components/threadTypes';
-import type {
-  BranchSelectionMap,
-  ConversationBranch,
-  Message,
-} from '@/app/home/types';
 import { getComposerStateKey } from '@/app/home/components/homeSelection';
 import type { PendingBranchTarget } from '@/app/home/components/conversationTree';
 
@@ -33,10 +27,6 @@ interface UseHomeChatSwitchLifecycleParams {
   setConversationMapOpen: (open: boolean) => void;
   setDraftChats: Dispatch<SetStateAction<PersistentDraftChat[]>>;
   setPendingBranch: Dispatch<SetStateAction<PendingBranchTarget | null>>;
-  setPersistentBranches: Dispatch<SetStateAction<ConversationBranch[]>>;
-  setPersistentMessages: Dispatch<SetStateAction<Message[]>>;
-  setPersistentSelectedBranchIds: Dispatch<SetStateAction<BranchSelectionMap>>;
-  setPersistentThreadsMap: Dispatch<SetStateAction<Map<string, ThreadMeta[]>>>;
   setUserHasScrolledState: (nextValue: boolean) => void;
 }
 
@@ -59,10 +49,6 @@ export function useHomeChatSwitchLifecycle({
   setConversationMapOpen,
   setDraftChats,
   setPendingBranch,
-  setPersistentBranches,
-  setPersistentMessages,
-  setPersistentSelectedBranchIds,
-  setPersistentThreadsMap,
   setUserHasScrolledState,
 }: UseHomeChatSwitchLifecycleParams) {
   useEffect(() => {
@@ -83,16 +69,6 @@ export function useHomeChatSwitchLifecycle({
       const currentInput = currentSelection
         ? composerDraftInputsRef.current[getComposerStateKey(currentSelection)] ?? ''
         : '';
-
-      const shouldClearPersistentConversationState =
-        nextSelection === null || nextSelection.kind === 'persistent';
-
-      if (shouldClearPersistentConversationState) {
-        setPersistentMessages([]);
-        setPersistentBranches([]);
-        setPersistentSelectedBranchIds({});
-        setPersistentThreadsMap(new Map());
-      }
 
       if (
         currentSelection?.kind === 'draft' &&
@@ -129,10 +105,6 @@ export function useHomeChatSwitchLifecycle({
       setConversationMapOpen,
       setDraftChats,
       setPendingBranch,
-      setPersistentBranches,
-      setPersistentMessages,
-      setPersistentSelectedBranchIds,
-      setPersistentThreadsMap,
       setUserHasScrolledState,
     ]
   );

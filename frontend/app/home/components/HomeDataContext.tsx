@@ -8,6 +8,7 @@ import {
   useEffect,
   useRef,
   type ReactNode,
+  type SetStateAction,
 } from 'react';
 import { flushSync } from 'react-dom';
 import { usePathname, useRouter } from 'next/navigation';
@@ -25,6 +26,13 @@ import type {
 import type { MentorListItem } from '@/lib/mentors/types';
 import type { WorkspaceListItem } from '@/lib/workspaces';
 import type { ConversationBranch, BranchSelectionMap, Message } from '@/app/home/types';
+import {
+  createEmptyPersistentConversationTranscript,
+  normalizePersistentConversationTranscript,
+  type PersistentConversationTranscript,
+  type PersistentConversationTranscriptInput,
+  type PersistentConversationTranscriptRecord,
+} from '@/app/home/components/persistentConversationCache';
 import type {
   ThreadMessage,
   ThreadMeta,
@@ -155,6 +163,12 @@ function clearHomeSelectionHandoff() {
   window.sessionStorage.removeItem(HOME_SELECTION_HANDOFF_STORAGE_KEY);
 }
 
+function resolveStateAction<T>(action: SetStateAction<T>, current: T): T {
+  return typeof action === 'function'
+    ? (action as (previous: T) => T)(current)
+    : action;
+}
+
 function sortByUpdatedAtDesc<T extends { updatedAt: string }>(items: T[]): T[] {
   return [...items].sort(
     (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
@@ -226,6 +240,27 @@ interface HomeDataContextValue {
   selectedChat: SelectedChat | null;
   setSelectedChat: React.Dispatch<React.SetStateAction<SelectedChat | null>>;
   selectedChatRef: React.MutableRefObject<SelectedChat | null>;
+  persistentConversationCache: PersistentConversationTranscriptRecord;
+  clearPersistentConversationCache: () => void;
+  getPersistentConversationTranscript: (
+    conversationId: string
+  ) => PersistentConversationTranscript | null;
+  setPersistentConversationTranscript: (
+    conversationId: string,
+    transcript: PersistentConversationTranscriptInput
+  ) => void;
+  loadPersistentConversationTranscript: (
+    conversationId: string,
+    loader: () => Promise<PersistentConversationTranscriptInput>
+  ) => Promise<PersistentConversationTranscript>;
+  updatePersistentConversationTranscript: (
+    conversationId: string,
+    updater: (
+      transcript: PersistentConversationTranscript
+    ) => PersistentConversationTranscript
+  ) => void;
+  getTranscriptScrollPosition: (key: string) => number | null;
+  setTranscriptScrollPosition: (key: string, scrollTop: number) => void;
 
   // Selection actions (called from SidePanel in layout, need page side-effects too)
   handleSelectConversation: (conversation: ConversationListItem) => void;
@@ -314,10 +349,128 @@ export function HomeDataProvider({
     useState<string | null>(routeConversationId);
   const [pendingRouteConversationId, setPendingRouteConversationId] =
     useState<string | null>(null);
+  const [persistentConversationCache, setPersistentConversationCacheState] =
+    useState<PersistentConversationTranscriptRecord>({});
 
   const selectedChatRef = useRef<SelectedChat | null>(null);
+  const persistentConversationCacheRef = useRef<PersistentConversationTranscriptRecord>({});
+  const persistentConversationLoadsRef =
+    useRef<Record<string, Promise<PersistentConversationTranscript>>>({});
+  const transcriptScrollPositionsRef = useRef<Record<string, number>>({});
   // Keep ref aligned with state for async handlers (same pattern as page used before lift)
   selectedChatRef.current = selectedChat;
+
+  const setPersistentConversationCache = useCallback(
+    (updater: SetStateAction<PersistentConversationTranscriptRecord>) => {
+      setPersistentConversationCacheState((current) => {
+        const next = resolveStateAction(updater, current);
+        persistentConversationCacheRef.current = next;
+        return next;
+      });
+    },
+    []
+  );
+
+  const getPersistentConversationTranscript = useCallback(
+    (conversationId: string) =>
+      persistentConversationCacheRef.current[conversationId] ?? null,
+    []
+  );
+
+  const setPersistentConversationTranscript = useCallback(
+    (
+      conversationId: string,
+      transcript: PersistentConversationTranscriptInput
+    ) => {
+      setPersistentConversationCache((current) => ({
+        ...current,
+        [conversationId]: normalizePersistentConversationTranscript(transcript),
+      }));
+    },
+    [setPersistentConversationCache]
+  );
+
+  const loadPersistentConversationTranscript = useCallback(
+    (
+      conversationId: string,
+      loader: () => Promise<PersistentConversationTranscriptInput>
+    ) => {
+      const cached = persistentConversationCacheRef.current[conversationId];
+      if (cached) {
+        return Promise.resolve(cached);
+      }
+
+      const existingLoad = persistentConversationLoadsRef.current[conversationId];
+      if (existingLoad) {
+        return existingLoad;
+      }
+
+      const load = loader()
+        .then((transcriptInput) => {
+          const transcript = normalizePersistentConversationTranscript(transcriptInput);
+          setPersistentConversationCache((current) => ({
+            ...current,
+            [conversationId]: transcript,
+          }));
+          return transcript;
+        })
+        .finally(() => {
+          if (persistentConversationLoadsRef.current[conversationId] === load) {
+            const nextLoads = { ...persistentConversationLoadsRef.current };
+            delete nextLoads[conversationId];
+            persistentConversationLoadsRef.current = nextLoads;
+          }
+        });
+
+      persistentConversationLoadsRef.current = {
+        ...persistentConversationLoadsRef.current,
+        [conversationId]: load,
+      };
+
+      return load;
+    },
+    [setPersistentConversationCache]
+  );
+
+  const updatePersistentConversationTranscript = useCallback(
+    (
+      conversationId: string,
+      updater: (
+        transcript: PersistentConversationTranscript
+      ) => PersistentConversationTranscript
+    ) => {
+      setPersistentConversationCache((current) => {
+        const existing =
+          current[conversationId] ?? createEmptyPersistentConversationTranscript();
+        const nextTranscript = updater(existing);
+        if (nextTranscript === existing) {
+          return current;
+        }
+
+        return {
+          ...current,
+          [conversationId]: nextTranscript,
+        };
+      });
+    },
+    [setPersistentConversationCache]
+  );
+
+  const clearPersistentConversationCache = useCallback(() => {
+    persistentConversationLoadsRef.current = {};
+    setPersistentConversationCache({});
+  }, [setPersistentConversationCache]);
+
+  const getTranscriptScrollPosition = useCallback((key: string) => {
+    return transcriptScrollPositionsRef.current[key] ?? null;
+  }, []);
+
+  const setTranscriptScrollPosition = useCallback((key: string, scrollTop: number) => {
+    transcriptScrollPositionsRef.current = {
+      ...transcriptScrollPositionsRef.current,
+      [key]: scrollTop,
+    };
+  }, []);
 
   useEffect(() => {
     setClientRouteConversationId(routeConversationId);
@@ -698,6 +851,14 @@ export function HomeDataProvider({
     selectedChat,
     setSelectedChat,
     selectedChatRef,
+    persistentConversationCache,
+    clearPersistentConversationCache,
+    getPersistentConversationTranscript,
+    setPersistentConversationTranscript,
+    loadPersistentConversationTranscript,
+    updatePersistentConversationTranscript,
+    getTranscriptScrollPosition,
+    setTranscriptScrollPosition,
     handleSelectConversation,
     handleSelectDraft,
     handleSelectTemporaryChat,

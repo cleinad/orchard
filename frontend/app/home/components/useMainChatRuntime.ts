@@ -14,6 +14,10 @@ import {
   type PersistentDraftChat,
   type TemporaryChatSession,
 } from '@/app/home/components/HomeDataContext';
+import type {
+  PersistentConversationTranscript,
+  PersistentConversationTranscriptInput,
+} from '@/app/home/components/persistentConversationCache';
 import {
   applyUserMessageToTree,
   type PendingBranchTarget,
@@ -331,6 +335,12 @@ function scheduleDeferredRenderWork(callback: () => void) {
   globalThis.setTimeout(run, 350);
 }
 
+function resolveStateAction<T>(action: SetStateAction<T>, current: T): T {
+  return typeof action === 'function'
+    ? (action as (previous: T) => T)(current)
+    : action;
+}
+
 interface LoadedConversationMessages {
   messages: Message[];
   branches: ConversationBranch[];
@@ -364,7 +374,6 @@ interface MainChatRuntimeParams {
   persistentBranches: ConversationBranch[];
   persistentMessages: Message[];
   persistentSelectedBranchIds: BranchSelectionMap;
-  persistentSelectedBranchIdsRef: MutableRefObject<BranchSelectionMap>;
   refreshSidebarData: () => Promise<void>;
   upsertSidebarConversation: (conversation: {
     id: string;
@@ -394,10 +403,16 @@ interface MainChatRuntimeParams {
     selection: SelectedChat,
     phase: PendingChatRequest['phase']
   ) => void;
-  setPersistentBranches: Dispatch<SetStateAction<ConversationBranch[]>>;
-  setPersistentMessages: Dispatch<SetStateAction<Message[]>>;
-  setPersistentSelectedBranchIds: Dispatch<SetStateAction<BranchSelectionMap>>;
-  setPersistentThreadsMap: Dispatch<SetStateAction<Map<string, ThreadMeta[]>>>;
+  setPersistentConversationTranscript: (
+    conversationId: string,
+    transcript: PersistentConversationTranscriptInput
+  ) => void;
+  updatePersistentConversationTranscript: (
+    conversationId: string,
+    updater: (
+      transcript: PersistentConversationTranscript
+    ) => PersistentConversationTranscript
+  ) => void;
   replacePersistentConversationUrl: (id: string) => void;
   setSearchStateForSelection: (selection: SelectedChat | null, state: SearchMetadata | null) => void;
   setSelectedChat: Dispatch<SetStateAction<SelectedChat | null>>;
@@ -567,6 +582,29 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
       };
     };
 
+    const updatePersistentTranscriptForSelection = (
+      selection: SelectedChat,
+      updater: (
+        transcript: PersistentConversationTranscript
+      ) => PersistentConversationTranscript
+    ) => {
+      if (selection.kind !== 'persistent') {
+        return;
+      }
+
+      params.updatePersistentConversationTranscript(selection.conversationId, updater);
+    };
+
+    const updatePersistentMessagesForSelection = (
+      selection: SelectedChat,
+      action: SetStateAction<Message[]>
+    ) => {
+      updatePersistentTranscriptForSelection(selection, (transcript) => ({
+        ...transcript,
+        messages: resolveStateAction(action, transcript.messages),
+      }));
+    };
+
     const patchOptimisticUserAttachments = (
       attachments: NonNullable<Message['attachments']>
     ) => {
@@ -581,11 +619,9 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
           messages: replaceUserAttachments(chat.messages, attachments),
         }));
       } else if (optimisticSelection.kind === 'persistent') {
-        if (isSameSelectedChat(params.selectedChatRef.current, optimisticSelection)) {
-          params.setPersistentMessages((messages) =>
-            replaceUserAttachments(messages, attachments)
-          );
-        }
+        updatePersistentMessagesForSelection(optimisticSelection, (messages) =>
+          replaceUserAttachments(messages, attachments)
+        );
       } else if (optimisticDraft) {
         params.updateDraftChat(optimisticDraft.id, (draft) => ({
           ...draft,
@@ -598,11 +634,12 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
       if (optimisticSelection.kind === 'temporary' && optimisticTempChat) {
         params.updateTemporaryChat(optimisticSelection.tempChatId, () => optimisticTempChat);
       } else if (optimisticSelection.kind === 'persistent') {
-        if (isSameSelectedChat(params.selectedChatRef.current, optimisticSelection)) {
-          params.setPersistentMessages(params.persistentMessages);
-          params.setPersistentBranches(params.persistentBranches);
-          params.setPersistentSelectedBranchIds(params.persistentSelectedBranchIds);
-        }
+        updatePersistentTranscriptForSelection(optimisticSelection, (transcript) => ({
+          ...transcript,
+          messages: params.persistentMessages,
+          branches: params.persistentBranches,
+          selectedBranchIds: params.persistentSelectedBranchIds,
+        }));
       } else if (optimisticDraft) {
         params.updateDraftChat(optimisticDraft.id, () => optimisticDraft);
       }
@@ -630,9 +667,12 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
       if (!nextTree) {
         return { accepted: false, completed: false, uploadedAttachments };
       }
-      params.setPersistentMessages(nextTree.messages);
-      params.setPersistentBranches(nextTree.branches);
-      params.setPersistentSelectedBranchIds(nextTree.selectedBranchIds);
+      updatePersistentTranscriptForSelection(effectiveSelection, (transcript) => ({
+        ...transcript,
+        messages: nextTree.messages,
+        branches: nextTree.branches,
+        selectedBranchIds: nextTree.selectedBranchIds,
+      }));
     } else {
       const draft = effectiveDraft || params.getOrCreateDraft(
         effectiveSelection.mentorId,
@@ -717,13 +757,15 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
         params.moveResponseStyleBetweenSelections(draftSelection, promotedSelection);
         params.clearSearchStateForSelection(draftSelection);
 
+        params.setPersistentConversationTranscript(promotedSelection.conversationId, {
+          messages: draftNextTree?.messages ?? effectiveDraft.messages,
+          branches: draftNextTree?.branches ?? effectiveDraft.branches,
+          selectedBranchIds:
+            draftNextTree?.selectedBranchIds ?? effectiveDraft.selectedBranchIds,
+          threadsMap: new Map(),
+        });
+
         if (shouldFocusPromotedDraft) {
-          params.setPersistentMessages(draftNextTree?.messages ?? effectiveDraft.messages);
-          params.setPersistentBranches(draftNextTree?.branches ?? effectiveDraft.branches);
-          params.setPersistentSelectedBranchIds(
-            draftNextTree?.selectedBranchIds ?? effectiveDraft.selectedBranchIds
-          );
-          params.setPersistentThreadsMap(new Map());
           params.hydratedRouteConversationIdRef.current = promotedSelection.conversationId;
           params.selectedChatRef.current = promotedSelection;
           params.setSelectedChat(promotedSelection);
@@ -784,9 +826,10 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
         updatedAt: new Date().toISOString(),
       }));
     } else if (effectiveSelection.kind === 'persistent') {
-      if (isSameSelectedChat(params.selectedChatRef.current, effectiveSelection)) {
-        params.setPersistentMessages((prev) => [...prev, streamingMessage]);
-      }
+      updatePersistentMessagesForSelection(effectiveSelection, (prev) => [
+        ...prev,
+        streamingMessage,
+      ]);
     } else if (effectiveDraft) {
       params.updateDraftChat(effectiveDraft.id, (draft) => addStreamingMessage(draft));
     }
@@ -808,13 +851,11 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
           ),
         }));
       } else if (effectiveSelection.kind === 'persistent') {
-        if (isSameSelectedChat(params.selectedChatRef.current, effectiveSelection)) {
-          params.setPersistentMessages((prev) =>
-            prev.map((m) =>
-              m.id === streamingMessageId ? { ...m, content: m.content + delta } : m
-            )
-          );
-        }
+        updatePersistentMessagesForSelection(effectiveSelection, (prev) =>
+          prev.map((m) =>
+            m.id === streamingMessageId ? { ...m, content: m.content + delta } : m
+          )
+        );
       } else if (effectiveDraft) {
         params.updateDraftChat(effectiveDraft.id, (draft) => ({
           ...draft,
@@ -841,9 +882,9 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
           messages: applyActivity(chat.messages),
         }));
       } else if (effectiveSelection.kind === 'persistent') {
-        if (isSameSelectedChat(params.selectedChatRef.current, effectiveSelection)) {
-          params.setPersistentMessages((prev) => applyActivity(prev));
-        }
+        updatePersistentMessagesForSelection(effectiveSelection, (prev) =>
+          applyActivity(prev)
+        );
       } else if (effectiveDraft) {
         params.updateDraftChat(effectiveDraft.id, (draft) => ({
           ...draft,
@@ -861,13 +902,11 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
           ),
         }));
       } else if (effectiveSelection.kind === 'persistent') {
-        if (isSameSelectedChat(params.selectedChatRef.current, effectiveSelection)) {
-          params.setPersistentMessages((prev) =>
-            prev.map((m) =>
-              m.id === streamingMessageId || m.renderId === streamingMessageId ? finalMessage : m
-            )
-          );
-        }
+        updatePersistentMessagesForSelection(effectiveSelection, (prev) =>
+          prev.map((m) =>
+            m.id === streamingMessageId || m.renderId === streamingMessageId ? finalMessage : m
+          )
+        );
       } else if (effectiveDraft) {
         params.updateDraftChat(effectiveDraft.id, (draft) => ({
           ...draft,
@@ -909,11 +948,9 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
           messages: chat.messages.filter((m) => m.id !== streamingMessageId),
         }));
       } else if (effectiveSelection.kind === 'persistent') {
-        if (isSameSelectedChat(params.selectedChatRef.current, effectiveSelection)) {
-          params.setPersistentMessages((prev) =>
-            prev.filter((m) => m.id !== streamingMessageId)
-          );
-        }
+        updatePersistentMessagesForSelection(effectiveSelection, (prev) =>
+          prev.filter((m) => m.id !== streamingMessageId)
+        );
       } else if (effectiveDraft) {
         params.updateDraftChat(effectiveDraft.id, (draft) => ({
           ...draft,
@@ -954,9 +991,10 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
           updatedAt: new Date().toISOString(),
         }));
       } else if (effectiveSelection.kind === 'persistent') {
-        if (isSameSelectedChat(params.selectedChatRef.current, effectiveSelection)) {
-          params.setPersistentMessages((prev) => [...prev, errorMessage]);
-        }
+        updatePersistentMessagesForSelection(effectiveSelection, (prev) => [
+          ...prev,
+          errorMessage,
+        ]);
       } else if (effectiveDraft) {
         params.updateDraftChat(effectiveDraft.id, (draft) => ({
           ...draft,
@@ -1000,9 +1038,9 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
           return;
         }
 
-        if (isSameSelectedChat(params.selectedChatRef.current, selection)) {
-          params.setPersistentMessages((messages) => applyMetadata(messages));
-        }
+        updatePersistentMessagesForSelection(selection, (messages) =>
+          applyMetadata(messages)
+        );
       });
     };
 
@@ -1173,13 +1211,15 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
         params.moveSearchModeBetweenSelections(draftSelection, promotedSelection);
         params.clearSearchStateForSelection(draftSelection);
 
+        params.setPersistentConversationTranscript(promotedSelection.conversationId, {
+          messages: optimisticMessages,
+          branches: draftNextTree?.branches ?? effectiveDraft.branches,
+          selectedBranchIds:
+            draftNextTree?.selectedBranchIds ?? effectiveDraft.selectedBranchIds,
+          threadsMap: new Map(),
+        });
+
         if (shouldFocusPromotedDraft) {
-          params.setPersistentMessages(optimisticMessages);
-          params.setPersistentBranches(draftNextTree?.branches ?? effectiveDraft.branches);
-          params.setPersistentSelectedBranchIds(
-            draftNextTree?.selectedBranchIds ?? effectiveDraft.selectedBranchIds
-          );
-          params.setPersistentThreadsMap(new Map());
           params.hydratedRouteConversationIdRef.current = promotedSelection.conversationId;
           params.selectedChatRef.current = promotedSelection;
           params.setSelectedChat(promotedSelection);
@@ -1228,31 +1268,33 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
         scheduleDeferredRenderWork(() => {
           void (async () => {
             try {
-              if (isSameSelectedChat(params.selectedChatRef.current, persistentSelection)) {
-                const loadedConversation = await params.loadConversationMessages(
-                  persistentSelection.conversationId
-                );
+              const loadedConversation = await params.loadConversationMessages(
+                persistentSelection.conversationId
+              );
 
-                if (isSameSelectedChat(params.selectedChatRef.current, persistentSelection)) {
+              params.updatePersistentConversationTranscript(
+                persistentSelection.conversationId,
+                (transcript) => {
                   const mergedSelections = mergeReloadedBranchSelections({
                     loadedSelectedBranchIds: loadedConversation.selectedBranchIds,
-                    latestSelectedBranchIds: params.persistentSelectedBranchIdsRef.current,
+                    latestSelectedBranchIds: transcript.selectedBranchIds,
                     loadedBranches: loadedConversation.branches,
                     branchSourceMessageId,
                     pendingBranchSelectionId,
                   });
 
-                  params.setPersistentMessages((currentMessages) =>
-                    mergeReloadedMessagesForRender({
+                  return {
+                    ...transcript,
+                    messages: mergeReloadedMessagesForRender({
                       loadedMessages: loadedConversation.messages,
-                      currentMessages,
-                    })
-                  );
-                  params.setPersistentBranches(loadedConversation.branches);
-                  params.setPersistentSelectedBranchIds(mergedSelections);
-                  params.setPersistentThreadsMap(loadedConversation.threadsMap);
+                      currentMessages: transcript.messages,
+                    }),
+                    branches: loadedConversation.branches,
+                    selectedBranchIds: mergedSelections,
+                    threadsMap: loadedConversation.threadsMap,
+                  };
                 }
-              }
+              );
             } catch (error) {
               if (isSameSelectedChat(params.selectedChatRef.current, persistentSelection)) {
                 params.setListError(

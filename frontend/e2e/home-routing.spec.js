@@ -1126,7 +1126,7 @@ test('a second chat can send while another chat is still in flight', async ({ pa
   await firstComposer.fill(firstQuestion);
   await firstComposer.press('Enter');
 
-  await page.getByLabel('New temporary chat').click();
+  await page.getByRole('main').getByLabel('New temporary chat').click();
   await expect(page).toHaveURL(new RegExp('/home\\?e2e=home-routing-concurrent-send$'));
 
   const temporaryComposer = page.getByPlaceholder('Message Keen...');
@@ -1143,6 +1143,15 @@ test('a second chat can send while another chat is still in flight', async ({ pa
   });
 
   await expect(page).toHaveURL(new RegExp('/home\\?e2e=home-routing-concurrent-send$'));
+
+  const sidePanel = await ensureConversationsOpen(page);
+  await sidePanel.getByRole('button', { name: /Last-Mile Efficiency/ }).click();
+
+  await expect(page).toHaveURL(
+    new RegExp('/home/' + firstConversationId + '\\?e2e=home-routing-concurrent-send$')
+  );
+  await expect(page.getByText(firstAnswer)).toBeVisible({ timeout: 10000 });
+  await expect(page.getByText(secondAnswer)).toHaveCount(0);
 });
 
 test('background draft promotion does not steal focus from the chat you switched to', async ({ page }) => {
@@ -1150,7 +1159,16 @@ test('background draft promotion does not steal focus from the chat you switched
   const promotedConversationId = 'conversation-promoted-in-background';
   const firstQuestion = 'Start a new investigation for me.';
   const promotedAnswer = 'The draft can finish in the background.';
+  const createStarted = deferred();
+  const createResponse = deferred();
+  const chatStarted = deferred();
   const response = deferred();
+  const promotedConversation = createConversation({
+    id: promotedConversationId,
+    title: 'Background Draft',
+    updatedAt: '2026-04-12T15:00:01.000Z',
+    createdAt: '2026-04-12T15:00:01.000Z',
+  });
   const state = await mockHomeDataRoutes(page, {
     conversations: [
       createConversation({
@@ -1168,26 +1186,35 @@ test('background draft promotion does not steal focus from the chat you switched
         }),
       ],
     },
-    createdConversations: [
-      createConversation({
-        id: promotedConversationId,
-        title: 'Background Draft',
-        updatedAt: '2026-04-12T15:00:01.000Z',
-        createdAt: '2026-04-12T15:00:01.000Z',
+  });
+
+  await page.route('**/api/conversations', async (route) => {
+    if (route.request().method() !== 'POST') {
+      await route.fallback();
+      return;
+    }
+
+    createStarted.resolve();
+    await createResponse.promise;
+    state.conversations.unshift(promotedConversation);
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        conversation: {
+          id: promotedConversation.id,
+          title: promotedConversation.title,
+          mentorId: promotedConversation.mentor_id,
+          workspaceId: promotedConversation.workspace_id,
+          createdAt: promotedConversation.created_at,
+          updatedAt: promotedConversation.updated_at,
+        },
       }),
-    ],
+    });
   });
 
   await mockChatRoute(page, async (body) => {
     expect(body.message).toBe(firstQuestion);
-    state.conversations.unshift(
-      createConversation({
-        id: promotedConversationId,
-        title: 'Background Draft',
-        updatedAt: '2026-04-12T13:10:02.000Z',
-        createdAt: '2026-04-12T13:10:01.000Z',
-      })
-    );
     state.messagesByConversationId[promotedConversationId] = [
       createMessage({
         id: 'message-background-draft-user-1',
@@ -1203,6 +1230,7 @@ test('background draft promotion does not steal focus from the chat you switched
       }),
     ];
 
+    chatStarted.resolve();
     return response.promise;
   });
 
@@ -1211,12 +1239,28 @@ test('background draft promotion does not steal focus from the chat you switched
   const composer = page.getByPlaceholder('Message Keen...');
   await composer.fill(firstQuestion);
   await composer.press('Enter');
+  await createStarted.promise;
 
   const sidePanel = await ensureConversationsOpen(page);
   await sidePanel.getByRole('button', { name: /Saved Conversation/ }).click();
   await expect(page).toHaveURL(
     new RegExp('/home/' + savedConversationId + '\\?e2e=home-routing-background-draft$')
   );
+  await expect(page.getByText('Stay focused on this conversation.')).toBeVisible();
+
+  createResponse.resolve();
+  await chatStarted.promise;
+
+  await expect(page).toHaveURL(
+    new RegExp('/home/' + savedConversationId + '\\?e2e=home-routing-background-draft$')
+  );
+  await sidePanel.getByRole('button', { name: /Background Draft/ }).click();
+  await expect(page).toHaveURL(
+    new RegExp('/home/' + promotedConversationId + '\\?e2e=home-routing-background-draft$')
+  );
+  await expect(page.getByText(firstQuestion)).toBeVisible();
+
+  await sidePanel.getByRole('button', { name: /Saved Conversation/ }).click();
   await expect(page.getByText('Stay focused on this conversation.')).toBeVisible();
 
   response.resolve({
