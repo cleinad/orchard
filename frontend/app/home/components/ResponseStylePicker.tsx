@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from 'react';
+import Tooltip from '@/app/components/Tooltip';
+import { buttonStyles, cx } from '@/app/components/buttonStyles';
 import {
   DEFAULT_RESPONSE_STYLE,
   RESPONSE_STYLE_LENGTH_DESCRIPTIONS,
@@ -75,11 +77,14 @@ function SegmentGroup<T extends string>({
               type="button"
               aria-pressed={selected}
               onClick={() => onChange(option)}
-              className={`relative h-9 min-w-0 rounded-lg px-1.5 text-center text-[11px] font-semibold leading-none transition ${
+              className={cx(
+                'relative h-9 min-w-0 rounded-lg px-1.5 text-center text-[11px] font-semibold leading-none',
+                buttonStyles.transition,
+                buttonStyles.focus,
                 selected
                   ? 'bg-background text-foreground shadow-[0_1px_6px_rgba(15,23,42,0.10)] ring-1 ring-black/[0.04] dark:ring-white/[0.08]'
                   : 'text-foreground/52 hover:bg-background/70 hover:text-foreground'
-              }`}
+              )}
             >
               <span className="block truncate">{labels[option]}</span>
             </button>
@@ -107,6 +112,7 @@ export default function ResponseStylePicker({
 
   const active = !isDefaultResponseStyle(value);
   const summary = getResponseStyleSummary(value);
+  const tooltipContent = active ? `Response style: ${summary}` : 'Response style';
 
   useEffect(() => {
     if (value.sessionNote.trim().length > 0) {
@@ -153,41 +159,46 @@ export default function ResponseStylePicker({
 
   return (
     <>
-      <button
-        ref={triggerRef}
-        type="button"
-        aria-label={`Response style: ${summary}`}
-        aria-controls={popoverId}
-        aria-expanded={isOpen}
-        aria-haspopup="dialog"
-        onClick={togglePopover}
-        disabled={disabled}
-        className={`inline-flex h-8 min-w-[6.75rem] max-w-[8.5rem] items-center justify-between gap-2 rounded-lg border px-3 text-left font-sans font-medium transition sm:min-w-[8.5rem] ${
-          isOpen || active
-            ? 'border-foreground/[0.08] bg-foreground/[0.055] text-foreground'
-            : 'border-transparent bg-background text-foreground/88 hover:bg-foreground/[0.035] hover:text-foreground'
-        } disabled:cursor-not-allowed disabled:opacity-50`}
-      >
-        <span className="truncate text-[13px] text-foreground">
-          {summary}
-        </span>
-        <svg
-          aria-hidden="true"
-          className={`h-3.5 w-3.5 flex-shrink-0 text-muted transition-transform duration-150 ${
-            isOpen ? 'rotate-180' : ''
-          }`}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.8"
-          viewBox="0 0 20 20"
+      <Tooltip content={tooltipContent} side="bottom">
+        <button
+          ref={triggerRef}
+          type="button"
+          aria-label={`Response style: ${summary}`}
+          aria-controls={popoverId}
+          aria-expanded={isOpen}
+          aria-haspopup="dialog"
+          onClick={togglePopover}
+          disabled={disabled}
+          className={cx(
+            'inline-flex h-8 min-w-[6.75rem] max-w-[8.5rem] items-center justify-between gap-2 rounded-lg border px-3 text-left font-sans font-medium sm:min-w-[8.5rem]',
+            buttonStyles.transition,
+            isOpen ? buttonStyles.controlActive : buttonStyles.controlInactive,
+            buttonStyles.controlShadow,
+            buttonStyles.controlFocus,
+            buttonStyles.disabled
+          )}
         >
-          <path
-            d="M5.5 7.5L10 12l4.5-4.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      </button>
+          <span className="truncate text-[13px] text-foreground">
+            {summary}
+          </span>
+          <svg
+            aria-hidden="true"
+            className={`h-3.5 w-3.5 flex-shrink-0 text-muted transition-transform duration-150 ${
+              isOpen ? 'rotate-180' : ''
+            }`}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            viewBox="0 0 20 20"
+          >
+            <path
+              d="M5.5 7.5L10 12l4.5-4.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
+      </Tooltip>
 
       <div
         ref={popoverRef}
@@ -213,7 +224,12 @@ export default function ResponseStylePicker({
               <button
                 type="button"
                 onClick={resetStyle}
-                className="rounded-md px-2 py-1 text-[11px] font-medium text-muted transition hover:bg-foreground/[0.04] hover:text-foreground"
+                className={cx(
+                  'rounded-md px-2 py-1 text-[11px] font-medium',
+                  buttonStyles.transition,
+                  buttonStyles.focus,
+                  buttonStyles.ghost
+                )}
               >
                 Reset
               </button>
@@ -259,7 +275,12 @@ export default function ResponseStylePicker({
                 <button
                   type="button"
                   onClick={() => setShowSessionNote(true)}
-                  className="h-8 w-full rounded-lg px-2 text-left text-[12px] font-medium text-foreground/70 transition hover:bg-foreground/[0.035] hover:text-foreground"
+                  className={cx(
+                    'h-8 w-full rounded-lg px-2 text-left text-[12px] font-medium',
+                    buttonStyles.transition,
+                    buttonStyles.focus,
+                    buttonStyles.menuItemInactive
+                  )}
                 >
                   Add session note
                 </button>

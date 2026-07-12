@@ -12,6 +12,7 @@ export type TemporaryMemoryMode = (typeof TEMPORARY_MEMORY_MODES)[number];
 export const DEFAULT_TEMPORARY_MEMORY_MODE: TemporaryMemoryMode = 'off';
 
 export interface ChatHistoryMessage {
+  id?: string | null;
   role: 'user' | 'assistant';
   content: string;
   attachments?: ChatImageAttachmentRequest[];
@@ -47,6 +48,7 @@ export function toChatHistory(
       message.role === 'user' ? toAttachmentRequests(message.attachments) : [];
 
     return {
+      id: 'id' in message && typeof message.id === 'string' ? message.id : null,
       role: message.role,
       content:
         message.role === 'assistant'

@@ -10,11 +10,7 @@ import type {
 import type { PendingBranchTarget } from '@/app/home/components/conversationTree';
 import type { ThreadMeta } from '@/app/home/components/threadTypes';
 import type { ThreadMetaRecord } from '@/app/home/components/persistentThreadRuntime';
-import type {
-  BranchSelectionMap,
-  ConversationBranch,
-  Message,
-} from '@/app/home/types';
+import type { PersistentConversationTranscriptInput } from '@/app/home/components/persistentConversationCache';
 import {
   DEFAULT_TEMPORARY_MEMORY_MODE,
 } from '@/lib/chat-session';
@@ -38,13 +34,14 @@ interface UseHomeFixtureRuntimeParams {
   resetAllComposerState: () => void;
   resetPendingRequests: () => void;
   resetThreadUi: () => void;
+  clearPersistentConversationCache: () => void;
   setDraftChats: Dispatch<SetStateAction<PersistentDraftChat[]>>;
   setListError: (error: string | null) => void;
   setPendingBranch: Dispatch<SetStateAction<PendingBranchTarget | null>>;
-  setPersistentBranches: Dispatch<SetStateAction<ConversationBranch[]>>;
-  setPersistentMessages: Dispatch<SetStateAction<Message[]>>;
-  setPersistentSelectedBranchIds: Dispatch<SetStateAction<BranchSelectionMap>>;
-  setPersistentThreadsMap: Dispatch<SetStateAction<Map<string, ThreadMeta[]>>>;
+  setPersistentConversationTranscript: (
+    conversationId: string,
+    transcript: PersistentConversationTranscriptInput
+  ) => void;
   setSelectedChat: Dispatch<SetStateAction<SelectedChat | null>>;
   setTemporaryChats: Dispatch<SetStateAction<TemporaryChatSession[]>>;
   setUserHasScrolledState: (nextValue: boolean) => void;
@@ -58,13 +55,11 @@ export function useHomeFixtureRuntime({
   resetAllComposerState,
   resetPendingRequests,
   resetThreadUi,
+  clearPersistentConversationCache,
   setDraftChats,
   setListError,
   setPendingBranch,
-  setPersistentBranches,
-  setPersistentMessages,
-  setPersistentSelectedBranchIds,
-  setPersistentThreadsMap,
+  setPersistentConversationTranscript,
   setSelectedChat,
   setTemporaryChats,
   setUserHasScrolledState,
@@ -93,10 +88,7 @@ export function useHomeFixtureRuntime({
       const fixtureChatId = `fixture-temp-${fixture.key}`;
       const now = new Date().toISOString();
 
-      setPersistentMessages([]);
-      setPersistentBranches([]);
-      setPersistentSelectedBranchIds({});
-      setPersistentThreadsMap(new Map());
+      clearPersistentConversationCache();
       setTemporaryChats([
         {
           id: fixtureChatId,
@@ -120,14 +112,16 @@ export function useHomeFixtureRuntime({
     }
 
     setTemporaryChats([]);
-    setPersistentMessages(fixture.messages);
-    setPersistentBranches(fixture.branches || []);
-    setPersistentSelectedBranchIds(fixture.selectedBranchIds || {});
-    setPersistentThreadsMap(buildFixtureThreadsMap(fixture.threads || []));
+    const conversationId = fixture.conversationId ?? `fixture-${fixture.key}`;
+    setPersistentConversationTranscript(conversationId, {
+      messages: fixture.messages,
+      branches: fixture.branches || [],
+      selectedBranchIds: fixture.selectedBranchIds || {},
+      threadsMap: buildFixtureThreadsMap(fixture.threads || []),
+    });
     setSelectedChat({
       kind: 'persistent',
-      conversationId:
-        fixture.conversationId ?? `fixture-${fixture.key}`,
+      conversationId,
       mentorId: null,
       workspaceId: null,
     });
@@ -138,13 +132,11 @@ export function useHomeFixtureRuntime({
     resetAllComposerState,
     resetPendingRequests,
     resetThreadUi,
+    clearPersistentConversationCache,
     setDraftChats,
     setListError,
     setPendingBranch,
-    setPersistentBranches,
-    setPersistentMessages,
-    setPersistentSelectedBranchIds,
-    setPersistentThreadsMap,
+    setPersistentConversationTranscript,
     setSelectedChat,
     setTemporaryChats,
     setUserHasScrolledState,

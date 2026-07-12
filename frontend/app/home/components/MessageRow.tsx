@@ -11,6 +11,7 @@ import {
   type MouseEvent,
   type PointerEvent,
 } from 'react';
+import AssistantCopyControl from '@/app/home/components/AssistantCopyControl';
 import MarkdownWithThreads from '@/app/home/components/MarkdownWithThreads';
 import SearchSourcesTray from '@/app/home/components/SearchSourcesTray';
 import ThreadHighlightOverlay, {
@@ -25,6 +26,7 @@ import { markdownContentClassName } from '@/lib/markdown';
 import { hasUsableSearchSources } from '@/lib/search-citations';
 import type { SearchActivityEvent } from '@/lib/search/types';
 import SourceFavicon from '@/app/home/components/SourceFavicon';
+import { buttonStyles, cx } from '@/app/components/buttonStyles';
 
 function getHighlightSourceIdAtPoint(root: HTMLElement, clientX: number, clientY: number) {
   const overlayRects = Array.from(
@@ -81,6 +83,25 @@ function searchActivityEventLabel(event: SearchActivityEvent) {
   }
 }
 
+function BranchPlusIcon() {
+  return (
+    <span className={buttonStyles.iconBox}>
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 16 16"
+        className="h-3.5 w-3.5"
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      >
+        <path d="M8 3.5v9M3.5 8h9" />
+      </svg>
+    </span>
+  );
+}
+
 function MessageRow({
   activeHighlightSource,
   activeName,
@@ -101,6 +122,7 @@ function MessageRow({
   const [selectedImage, setSelectedImage] = useState<ChatImageAttachment | null>(null);
   const [emphasizedThreadMarkerId, setEmphasizedThreadMarkerId] = useState<string | null>(null);
   const messageContentRef = useRef<HTMLDivElement | null>(null);
+  const [messageContentEl, setMessageContentEl] = useState<HTMLDivElement | null>(null);
   const replySearchMetadata =
     message.role === 'assistant' ? message.searchMetadata ?? null : null;
   const searchActivity =
@@ -116,6 +138,10 @@ function MessageRow({
     ?? [];
   const canExpandSearchActivity = searchActivitySteps.length > 0;
   const hasSources = hasUsableSearchSources(replySearchMetadata);
+  const setMessageContentNode = useCallback((node: HTMLDivElement | null) => {
+    messageContentRef.current = node;
+    setMessageContentEl((current) => (current === node ? current : node));
+  }, []);
   const handleCitationClick = useCallback(
     (sourceId: number) => onCitationClick(message.id, sourceId),
     [message.id, onCitationClick]
@@ -339,7 +365,7 @@ function MessageRow({
         )}
 
         <div
-          ref={messageContentRef}
+          ref={setMessageContentNode}
           data-message-content="true"
           className={`${markdownContentClassName} mt-2 text-base leading-relaxed text-foreground`}
           onBlur={handleThreadMarkerBlur}
@@ -347,8 +373,8 @@ function MessageRow({
           onPointerOut={handleThreadMarkerPointerOut}
           onPointerOver={handleThreadMarkerPointerOver}
         >
-          {overlaySources.length > 0 && (
-            <ThreadHighlightOverlay rootRef={messageContentRef} sources={overlaySources} />
+          {messageContentEl && overlaySources.length > 0 && (
+            <ThreadHighlightOverlay root={messageContentEl} sources={overlaySources} />
           )}
           <MarkdownWithThreads
             content={message.content}
@@ -398,11 +424,15 @@ function MessageRow({
                 type="button"
                 onClick={handleSourcesClick}
                 onPointerUp={(event) => event.stopPropagation()}
-                className={`inline-flex h-7 items-center gap-1.5 rounded-md border px-2 transition-colors ${
+                className={cx(
+                  'inline-flex h-7 items-center gap-1.5 rounded-md border px-2',
+                  buttonStyles.transition,
+                  buttonStyles.focus,
                   isSourceTrayOpen
                     ? 'border-foreground/15 bg-foreground/[0.04] text-foreground'
-                    : 'border-transparent text-muted hover:border-border-subtle hover:bg-foreground/[0.025] hover:text-foreground'
-                }`}
+                    : 'border-transparent hover:border-border-subtle',
+                  isSourceTrayOpen ? null : buttonStyles.ghostSubtle
+                )}
               >
                 <span>Sources</span>
                 <span className="text-current/55">{replySearchMetadata.sources.length}</span>
@@ -412,7 +442,12 @@ function MessageRow({
                   <button
                     key={source.id}
                     type="button"
-                    className="inline-flex min-w-0 max-w-[9rem] items-center gap-1.5 rounded-md px-1 py-0.5 text-muted/80 transition-colors hover:bg-foreground/[0.025] hover:text-foreground"
+                    className={cx(
+                      'inline-flex min-w-0 max-w-[9rem] items-center gap-1.5 rounded-md px-1 py-0.5',
+                      buttonStyles.transition,
+                      buttonStyles.focus,
+                      buttonStyles.ghostSubtle
+                    )}
                     title={source.title}
                     onClick={(event) => handleFooterSourceClick(event, source.id)}
                     onPointerUp={(event) => event.stopPropagation()}
@@ -424,7 +459,12 @@ function MessageRow({
                 {replySearchMetadata.sources.length > 3 && (
                   <button
                     type="button"
-                    className="rounded-md px-1 py-0.5 text-muted/60 transition-colors hover:bg-foreground/[0.025] hover:text-foreground"
+                    className={cx(
+                      'rounded-md px-1 py-0.5',
+                      buttonStyles.transition,
+                      buttonStyles.focus,
+                      buttonStyles.ghostSubtle
+                    )}
                     onClick={handleSourcesClick}
                     onPointerUp={(event) => event.stopPropagation()}
                   >
@@ -446,21 +486,28 @@ function MessageRow({
 
         {!message.isStreaming && message.role === 'assistant' && (
           <div
-            className="mt-3 flex flex-wrap items-center gap-2"
+            className="mt-3 flex flex-wrap items-center gap-1.5"
             onPointerUp={(event) => event.stopPropagation()}
           >
+            <AssistantCopyControl
+              contentRootRef={messageContentRef}
+              message={message}
+            />
             {branchChips.map((chip) => (
               <button
                 key={chip.id}
                 type="button"
                 onClick={() => onSelectBranch(message.id, chip.branchId)}
-                className={`rounded-full px-3 py-1.5 font-sans text-xs font-medium transition ${
+                className={cx(
+                  'inline-flex h-6 items-center rounded-md px-2 font-sans text-[11px] font-medium',
+                  buttonStyles.transition,
+                  buttonStyles.focus,
                   chip.isActive
-                    ? 'bg-foreground text-background'
+                    ? buttonStyles.chipActive
                     : chip.kind === 'pending'
-                      ? 'border border-dashed border-foreground/[0.18] bg-surface text-foreground'
-                      : 'bg-foreground/[0.05] text-muted hover:bg-foreground/[0.08] hover:text-foreground'
-                }`}
+                      ? buttonStyles.chipPending
+                      : buttonStyles.chipInactive
+                )}
               >
                 {chip.label}
               </button>
@@ -468,9 +515,15 @@ function MessageRow({
             <button
               type="button"
               onClick={() => onCreateBranch(message.id)}
-              className="rounded-full border border-border-subtle bg-surface px-3 py-1.5 font-sans text-xs font-medium text-muted transition hover:border-foreground/[0.10] hover:bg-foreground/[0.03] hover:text-foreground"
+              className={cx(
+                'inline-flex h-6 items-center gap-1 rounded-md px-2 font-sans text-[11px] font-medium',
+                buttonStyles.transition,
+                buttonStyles.focus,
+                buttonStyles.chipOutline
+              )}
             >
-              + Branch
+              <BranchPlusIcon />
+              <span>Branch</span>
             </button>
           </div>
         )}

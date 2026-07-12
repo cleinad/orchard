@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, useLayoutEffect, useRef, useState } from 'react';
+import { buttonStyles, cx } from '@/app/components/buttonStyles';
 import type {
   ChatModelEffortOverrides,
   ChatModelEffortLevel,
@@ -29,6 +30,7 @@ interface ChatModelPickerProps {
   selectedModelId: ChatModelId;
   modelEffortOverrides: ChatModelEffortOverrides;
   thinkingEnabledOverrides: ChatModelThinkingOverrides;
+  compact?: boolean;
   disabled?: boolean;
   onChange: (modelId: ChatModelId) => void;
   onEffortChange: (modelId: ChatModelId, effort: ChatModelEffortLevel) => void;
@@ -163,6 +165,7 @@ export default function ChatModelPicker({
   selectedModelId,
   modelEffortOverrides,
   thinkingEnabledOverrides,
+  compact = false,
   disabled = false,
   onChange,
   onEffortChange,
@@ -384,11 +387,12 @@ export default function ChatModelPicker({
               role="menuitemradio"
               aria-checked={active}
               onClick={() => selectEffort(effort, effortMenuModel)}
-              className={`flex h-9 w-full items-center justify-between rounded-xl px-2.5 text-left transition ${
-                active
-                  ? 'bg-foreground/[0.055]'
-                  : 'hover:bg-foreground/[0.035] focus-visible:bg-foreground/[0.035]'
-              }`}
+              className={cx(
+                'flex h-9 w-full items-center justify-between rounded-xl px-2.5 text-left',
+                buttonStyles.transition,
+                buttonStyles.focus,
+                active ? buttonStyles.menuItemActive : buttonStyles.menuItemInactive
+              )}
             >
               <span className="flex items-center gap-2 text-[13px] font-medium">
                 {EFFORT_LABELS[effort]}
@@ -414,7 +418,12 @@ export default function ChatModelPicker({
               effortMenuModel.id,
               !effortMenuThinkingEnabled
             )}
-            className="flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-left transition hover:bg-foreground/[0.035] focus-visible:bg-foreground/[0.035]"
+            className={cx(
+              'flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-left',
+              buttonStyles.transition,
+              buttonStyles.focus,
+              buttonStyles.menuItemInactive
+            )}
           >
             <span>
               <span className="block text-[13px] font-medium text-foreground">
@@ -452,21 +461,35 @@ export default function ChatModelPicker({
         aria-haspopup="menu"
         onClick={togglePopover}
         disabled={disabledState}
-        className={`inline-flex h-8 min-w-[8rem] items-center justify-between gap-2 rounded-lg border px-3 text-left font-sans font-medium transition sm:min-w-[9.25rem] ${
-          isOpen
-            ? 'border-foreground/[0.08] bg-foreground/[0.055] text-foreground'
-            : 'border-transparent bg-background text-foreground/88 hover:bg-foreground/[0.035] hover:text-foreground'
-        } disabled:cursor-not-allowed disabled:opacity-50`}
+        className={cx(
+          'inline-flex h-8 items-center justify-between rounded-lg border text-left font-sans font-medium',
+          compact
+            ? 'min-w-[3.25rem] gap-1.5 px-2'
+            : 'min-w-[9.25rem] gap-2 px-3',
+          buttonStyles.transition,
+          isOpen ? buttonStyles.controlActive : buttonStyles.controlInactive,
+          buttonStyles.controlShadow,
+          buttonStyles.controlFocus,
+          buttonStyles.disabled
+        )}
       >
         <span className="flex min-w-0 items-center gap-2">
           <span className="flex h-4 w-4 flex-shrink-0 items-center justify-center text-accent">
             {selectedModel ? <ProviderIcon provider={selectedModel.iconKey} /> : null}
           </span>
-          <span className="truncate text-[13px] text-foreground">
+          <span className={cx(
+            'truncate text-[13px] text-foreground',
+            compact ? 'hidden' : 'inline'
+          )}
+          >
             {selectedModel?.label ?? 'No models'}
           </span>
           {isUnavailable ? (
-            <span className="hidden text-[10px] font-medium text-muted/80 sm:inline">
+            <span className={cx(
+              'text-[10px] font-medium text-muted/80',
+              compact ? 'hidden' : 'inline'
+            )}
+            >
               Unavailable
             </span>
           ) : null}
@@ -516,7 +539,12 @@ export default function ChatModelPicker({
                   <button
                     type="button"
                     onClick={() => setActiveEffortModelId(null)}
-                    className="flex h-8 w-full items-center gap-1 rounded-xl px-1.5 text-left text-[12px] font-medium text-muted transition hover:bg-foreground/[0.035] focus-visible:bg-foreground/[0.035]"
+                    className={cx(
+                      'flex h-8 w-full items-center gap-1 rounded-xl px-1.5 text-left text-[12px] font-medium',
+                      buttonStyles.transition,
+                      buttonStyles.focus,
+                      buttonStyles.menuItemInactive
+                    )}
                   >
                     <ChevronLeftIcon />
                     Models
@@ -562,11 +590,13 @@ export default function ChatModelPicker({
                           }
                         }}
                         onClick={() => selectModel(model)}
-                        className={`flex min-h-10 w-full items-center justify-between rounded-xl px-2.5 py-1.5 text-left transition outline-none ${
-                          active
-                            ? 'bg-foreground/[0.055]'
-                            : 'hover:bg-foreground/[0.035] focus-visible:bg-foreground/[0.035]'
-                        } disabled:cursor-not-allowed disabled:opacity-45`}
+                        className={cx(
+                          'flex min-h-10 w-full items-center justify-between rounded-xl px-2.5 py-1.5 text-left',
+                          buttonStyles.transition,
+                          buttonStyles.focus,
+                          active ? buttonStyles.menuItemActive : buttonStyles.menuItemInactive,
+                          'disabled:cursor-not-allowed disabled:opacity-45'
+                        )}
                       >
                         <span className="flex min-w-0 items-center gap-2.5">
                           <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center text-foreground">

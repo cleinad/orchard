@@ -4,7 +4,6 @@ import {
   useCallback,
   useLayoutEffect,
   useState,
-  type RefObject,
 } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -15,7 +14,7 @@ import {
 import { restoreRangeFromOffsets } from '@/app/home/components/selectableTextIndex';
 
 type HighlightKind = 'active' | 'persisted';
-type HighlightContext = 'text' | 'code' | 'math' | 'table';
+type HighlightContext = 'text' | 'code' | 'inline-code' | 'math' | 'table';
 
 export interface ThreadHighlightOverlaySource {
   id: string;
@@ -42,7 +41,7 @@ interface MeasuredRect {
 }
 
 interface ThreadHighlightOverlayProps {
-  rootRef: RefObject<HTMLDivElement | null>;
+  root: HTMLDivElement;
   sources: ThreadHighlightOverlaySource[];
 }
 
@@ -55,7 +54,8 @@ function getElementFromNode(node: Node) {
 
 function getElementContext(element: Element | null): HighlightContext | null {
   if (element?.closest('.katex-html')) return 'math';
-  if (element?.closest('pre, code, .code-block')) return 'code';
+  if (element?.closest('pre, .code-block')) return 'code';
+  if (element?.closest('code')) return 'inline-code';
   if (element?.closest('table')) return 'table';
 
   return null;
@@ -63,6 +63,17 @@ function getElementContext(element: Element | null): HighlightContext | null {
 
 function getCodeHost(element: Element | null) {
   return element?.closest<HTMLElement>('pre') ?? null;
+}
+
+function getInlineCodeHost(element: Element | null) {
+  const code = element?.closest<HTMLElement>('code') ?? null;
+  return code && !code.closest('pre') ? code : null;
+}
+
+function getHighlightHost(element: Element | null, context: HighlightContext) {
+  if (context === 'code') return getCodeHost(element);
+  if (context === 'inline-code') return getInlineCodeHost(element);
+  return null;
 }
 
 function getRangeContext(range: Range): HighlightContext {
@@ -94,6 +105,16 @@ function getCodeGroupKey(host: HTMLElement | null, root: HTMLElement) {
   const hosts = Array.from(root.querySelectorAll<HTMLElement>('pre'));
   const hostIndex = hosts.indexOf(host);
   return hostIndex >= 0 ? `code:${hostIndex}` : 'code';
+}
+
+function getInlineCodeGroupKey(host: HTMLElement | null, root: HTMLElement) {
+  if (!host) return 'inline-code';
+
+  const hosts = Array.from(root.querySelectorAll<HTMLElement>('code')).filter(
+    (code) => !code.closest('pre')
+  );
+  const hostIndex = hosts.indexOf(host);
+  return hostIndex >= 0 ? `inline-code:${hostIndex}` : 'inline-code';
 }
 
 function getTableCellGroupKey(rect: DOMRect, root: HTMLElement) {
@@ -152,7 +173,7 @@ function getMergeOptions(context: HighlightContext) {
     };
   }
 
-  if (context === 'code') {
+  if (context === 'code' || context === 'inline-code') {
     return {
       gap: 4,
       minHeightSimilarity: 0.35,
@@ -311,21 +332,47 @@ function measureDomRects(
     }
 
     const context = getContext(rect);
-    const host = context === 'code' ? getHost?.(rect, context) ?? null : null;
+    const host =
+      context === 'code' || context === 'inline-code'
+        ? getHost?.(rect, context) ?? null
+        : null;
     const rectRoot = host ?? root;
     const rectRootBounds = rectRoot === root ? rootRect : rectRoot.getBoundingClientRect();
+    let left = rect.left - rectRootBounds.left + (host?.scrollLeft ?? 0);
+    let top = rect.top - rectRootBounds.top + (host?.scrollTop ?? 0);
+    let width = rect.width;
+    let height = rect.height;
+
+    if (context === 'inline-code' && host) {
+      const horizontalSlop = Math.max(2, rectRootBounds.width * 0.05);
+      const right = Math.min(left + width, rectRootBounds.width);
+      const coversHostHorizontally =
+        left <= horizontalSlop && right >= rectRootBounds.width - horizontalSlop;
+
+      left = coversHostHorizontally ? 0 : Math.max(left, 0);
+      top = 0;
+      width = right - left;
+      if (coversHostHorizontally) {
+        width = rectRootBounds.width;
+      }
+      height = rectRootBounds.height;
+      if (width <= MIN_RECT_SIZE || height <= MIN_RECT_SIZE) {
+        continue;
+      }
+    }
+
     measuredRects.push({
       context,
       emphasized: Boolean(source.emphasized),
       groupKey: getGroupKey(rect, context, host),
-      height: rect.height,
+      height,
       host: host ?? undefined,
       kind: source.kind,
-      left: rect.left - rectRootBounds.left + (host?.scrollLeft ?? 0),
+      left,
       sourceId: source.id,
       status: source.status,
-      top: rect.top - rectRootBounds.top + (host?.scrollTop ?? 0),
-      width: rect.width,
+      top,
+      width,
     });
   }
 
@@ -361,11 +408,15 @@ function measureRenderedThreadMarkers(
       (_rect, context, host) => {
         if (context === 'table') return getTableCellGroupKeyFromElement(element, root);
         if (context === 'code') return getCodeGroupKey(host, root);
+        if (context === 'inline-code') return getInlineCodeGroupKey(host, root);
         return context;
       },
       (rect, context) => {
-        if (context !== 'code') return null;
-        return getCodeHost(element) ?? getCodeHost(getElementAtRect(rect, root));
+        if (context !== 'code' && context !== 'inline-code') return null;
+        return (
+          getHighlightHost(element, context)
+          ?? getHighlightHost(getElementAtRect(rect, root), context)
+        );
       }
     );
   });
@@ -388,7 +439,7 @@ function measureRestoredRange(
   }
 
   const rangeContext = getRangeContext(range);
-  const rangeHost = getCodeHost(getElementFromNode(range.commonAncestorContainer));
+  const rangeHost = getHighlightHost(getElementFromNode(range.commonAncestorContainer), rangeContext);
   const rects = Array.from(range.getClientRects());
   const measuredRects = measureDomRects(
     rootRect,
@@ -399,11 +450,12 @@ function measureRestoredRange(
     (rect, context, host) => {
       if (context === 'table') return getTableCellGroupKey(rect, root);
       if (context === 'code') return getCodeGroupKey(host, root);
+      if (context === 'inline-code') return getInlineCodeGroupKey(host, root);
       return context;
     },
     (rect, context) => {
-      if (context !== 'code') return null;
-      return getCodeHost(getElementAtRect(rect, root)) ?? rangeHost;
+      if (context !== 'code' && context !== 'inline-code') return null;
+      return getHighlightHost(getElementAtRect(rect, root), context) ?? rangeHost;
     }
   );
 
@@ -436,7 +488,7 @@ function groupCodeRectsByHost(rects: MeasuredRect[]) {
   const groups = new Map<HTMLElement, MeasuredRect[]>();
 
   for (const rect of rects) {
-    if (rect.context !== 'code' || !rect.host) continue;
+    if ((rect.context !== 'code' && rect.context !== 'inline-code') || !rect.host) continue;
     groups.set(rect.host, [...(groups.get(rect.host) ?? []), rect]);
   }
 
@@ -514,25 +566,21 @@ function measureSources(root: HTMLElement, sources: ThreadHighlightOverlaySource
 }
 
 export default function ThreadHighlightOverlay({
-  rootRef,
+  root,
   sources,
 }: ThreadHighlightOverlayProps) {
   const [rects, setRects] = useState<MeasuredRect[]>([]);
 
   const measure = useCallback(() => {
-    const root = rootRef.current;
-    if (!root || sources.length === 0) {
+    if (sources.length === 0) {
       setRects([]);
       return;
     }
 
     setRects(measureSources(root, sources));
-  }, [rootRef, sources]);
+  }, [root, sources]);
 
   useLayoutEffect(() => {
-    const root = rootRef.current;
-    if (!root) return;
-
     let animationFrame = 0;
     const scheduleMeasure = () => {
       window.cancelAnimationFrame(animationFrame);
@@ -554,12 +602,9 @@ export default function ThreadHighlightOverlay({
       window.removeEventListener('resize', scheduleMeasure);
       window.removeEventListener('scroll', scheduleMeasure, true);
     };
-  }, [measure, rootRef]);
+  }, [measure, root]);
 
   useLayoutEffect(() => {
-    const root = rootRef.current;
-    if (!root) return;
-
     if (rects.length > 0) {
       root.setAttribute('data-range-thread-highlights', 'true');
       root.setAttribute('data-thread-highlight-overlay', 'true');
@@ -571,12 +616,17 @@ export default function ThreadHighlightOverlay({
 
     root.removeAttribute('data-range-thread-highlights');
     root.removeAttribute('data-thread-highlight-overlay');
-  }, [rects.length, rootRef]);
+  }, [rects.length, root]);
 
-  const globalRects = rects.filter((rect) => rect.context !== 'code');
-  const codeRectGroups = groupCodeRectsByHost(rects);
+  const globalRects = rects.filter(
+    (rect) => rect.context !== 'code' && rect.context !== 'inline-code'
+  );
+  const codeRectGroups = groupCodeRectsByHost(rects.filter((rect) => rect.context === 'code'));
+  const inlineCodeRectGroups = groupCodeRectsByHost(
+    rects.filter((rect) => rect.context === 'inline-code')
+  );
 
-  if (globalRects.length === 0 && codeRectGroups.length === 0) {
+  if (globalRects.length === 0 && codeRectGroups.length === 0 && inlineCodeRectGroups.length === 0) {
     return null;
   }
 
@@ -604,6 +654,20 @@ export default function ThreadHighlightOverlay({
           </span>,
           host,
           hostRects[0]?.groupKey ?? 'code'
+        )
+      )}
+      {inlineCodeRectGroups.map(([host, hostRects]) =>
+        createPortal(
+          <span
+            aria-hidden="true"
+            className="thread-highlight-inline-code-overlay"
+            data-selection-exclude="true"
+            data-testid="thread-highlight-inline-code-overlay"
+          >
+            {hostRects.map(renderHighlightRect)}
+          </span>,
+          host,
+          hostRects[0]?.groupKey ?? 'inline-code'
         )
       )}
     </>

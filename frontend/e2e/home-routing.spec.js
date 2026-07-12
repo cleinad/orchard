@@ -6,6 +6,7 @@ function createConversation({
   id,
   title,
   mentorId = null,
+  workspaceId = null,
   updatedAt = '2026-04-12T12:00:00.000Z',
   createdAt = '2026-04-12T11:00:00.000Z',
 }) {
@@ -13,8 +14,27 @@ function createConversation({
     id,
     title,
     mentor_id: mentorId,
+    workspace_id: workspaceId,
     updated_at: updatedAt,
     created_at: createdAt,
+  };
+}
+
+function createWorkspace({
+  id,
+  name,
+  icon = 'W',
+  accentColor = '#2563eb',
+}) {
+  return {
+    id,
+    name,
+    description: null,
+    context: null,
+    icon,
+    accent_color: accentColor,
+    created_at: '2026-04-12T11:00:00.000Z',
+    updated_at: '2026-04-12T11:00:00.000Z',
   };
 }
 
@@ -30,6 +50,21 @@ function createMessage({
     content,
     created_at: createdAt,
   };
+}
+
+function createScrollableMessages(prefix, uniqueMarker) {
+  return Array.from({ length: 24 }, (_, index) =>
+    createMessage({
+      id: `${prefix}-message-${index}`,
+      role: index % 2 === 0 ? 'user' : 'assistant',
+      content: [
+        index === 3 ? uniqueMarker : `${prefix} turn ${index + 1}`,
+        'This paragraph gives the transcript enough height to make scroll restoration observable.',
+        'The exact words are less important than keeping each message visually substantial.',
+      ].join('\n\n'),
+      createdAt: `2026-04-12T12:${String(index).padStart(2, '0')}:00.000Z`,
+    })
+  );
 }
 
 async function ensureConversationsOpen(page) {
@@ -192,6 +227,144 @@ test('clicking a saved chat updates the URL and loads the persistent conversatio
   await expect(page.getByText(answer)).toBeVisible();
 });
 
+test('clicking a workspace chat does not reopen another collapsed workspace', async ({ page }) => {
+  const firstWorkspaceId = 'workspace-alpha';
+  const secondWorkspaceId = 'workspace-beta';
+  const firstConversationId = 'conversation-alpha';
+  const secondConversationId = 'conversation-beta';
+
+  await mockHomeDataRoutes(page, {
+    workspaces: [
+      createWorkspace({
+        id: firstWorkspaceId,
+        name: 'Alpha',
+        icon: 'A',
+      }),
+      createWorkspace({
+        id: secondWorkspaceId,
+        name: 'Beta',
+        icon: 'B',
+      }),
+    ],
+    conversations: [
+      createConversation({
+        id: firstConversationId,
+        title: 'Alpha Chat',
+        workspaceId: firstWorkspaceId,
+        updatedAt: '2026-04-12T12:30:00.000Z',
+      }),
+      createConversation({
+        id: secondConversationId,
+        title: 'Beta Chat',
+        workspaceId: secondWorkspaceId,
+        updatedAt: '2026-04-12T12:00:00.000Z',
+      }),
+    ],
+    messagesByConversationId: {
+      [firstConversationId]: [
+        createMessage({
+          id: 'message-alpha-assistant-1',
+          role: 'assistant',
+          content: 'Alpha conversation loaded.',
+          createdAt: '2026-04-12T12:30:01.000Z',
+        }),
+      ],
+      [secondConversationId]: [
+        createMessage({
+          id: 'message-beta-assistant-1',
+          role: 'assistant',
+          content: 'Beta conversation loaded.',
+          createdAt: '2026-04-12T12:00:01.000Z',
+        }),
+      ],
+    },
+  });
+
+  await page.goto(`/home/${firstConversationId}?e2e=workspace-collapse-regression`);
+
+  const sidePanel = await ensureConversationsOpen(page);
+  await expect(sidePanel.getByRole('button', { name: 'Collapse Alpha' })).toBeVisible();
+
+  await sidePanel.getByRole('button', { name: 'Collapse Alpha' }).click();
+  await expect(sidePanel.getByRole('button', { name: 'Expand Alpha' })).toBeVisible();
+
+  await sidePanel.getByRole('button', { name: 'Expand Beta' }).click();
+  await expect(sidePanel.getByRole('button', { name: /Beta Chat/ })).toBeVisible();
+
+  await page.evaluate(({ firstWorkspaceId, secondWorkspaceId }) => {
+    const first = document.querySelector(
+      `[data-testid="workspace-drop-target-${firstWorkspaceId}"]`
+    );
+    const second = document.querySelector(
+      `[data-testid="workspace-drop-target-${secondWorkspaceId}"]`
+    );
+    if (!first || !second) {
+      throw new Error('Workspace rows were not found');
+    }
+
+    const snapshots = [];
+    const readSelection = () => {
+      snapshots.push({
+        firstSelected: first.className.includes('bg-foreground/[0.05]'),
+        secondSelected: second.className.includes('bg-foreground/[0.05]'),
+      });
+    };
+    const observer = new MutationObserver(readSelection);
+    readSelection();
+    observer.observe(first, { attributes: true, attributeFilter: ['class'] });
+    observer.observe(second, { attributes: true, attributeFilter: ['class'] });
+    window.__workspaceSelectionProbe = { snapshots, observer };
+  }, { firstWorkspaceId, secondWorkspaceId });
+
+  await sidePanel.getByRole('button', { name: /Beta Chat/ }).click();
+
+  await expect(page).toHaveURL(
+    new RegExp(`/home/${secondConversationId}\\?e2e=workspace-collapse-regression$`)
+  );
+  await expect(page.getByText('Beta conversation loaded.')).toBeVisible();
+  await expect(sidePanel.getByRole('button', { name: 'Expand Alpha' })).toBeVisible();
+  await expect(sidePanel.getByRole('button', { name: 'Collapse Alpha' })).toHaveCount(0);
+
+  const selectionSnapshots = await page.evaluate(async () => {
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const probe = window.__workspaceSelectionProbe;
+    probe.observer.disconnect();
+    delete window.__workspaceSelectionProbe;
+    return probe.snapshots;
+  });
+  const firstSecondSelectedIndex = selectionSnapshots.findIndex(
+    (snapshot) => snapshot.secondSelected
+  );
+  expect(firstSecondSelectedIndex).toBeGreaterThanOrEqual(0);
+  expect(
+    selectionSnapshots
+      .slice(firstSecondSelectedIndex)
+      .some((snapshot) => snapshot.firstSelected)
+  ).toBe(false);
+
+  await page.goBack();
+  await expect(page).toHaveURL(
+    new RegExp(`/home/${firstConversationId}\\?e2e=workspace-collapse-regression$`)
+  );
+  await expect.poll(async () =>
+    page.evaluate(({ firstWorkspaceId, secondWorkspaceId }) => {
+      const first = document.querySelector(
+        `[data-testid="workspace-drop-target-${firstWorkspaceId}"]`
+      );
+      const second = document.querySelector(
+        `[data-testid="workspace-drop-target-${secondWorkspaceId}"]`
+      );
+      return {
+        firstSelected: first?.className.includes('bg-foreground/[0.05]') ?? false,
+        secondSelected: second?.className.includes('bg-foreground/[0.05]') ?? false,
+      };
+    }, { firstWorkspaceId, secondWorkspaceId })
+  ).toEqual({
+    firstSelected: true,
+    secondSelected: false,
+  });
+});
+
 test('the first draft send replaces /home with the new persistent conversation route', async ({ page }) => {
   const message = 'Walk me through how delivery marketplaces scaled.';
   const conversationId = 'conversation-promoted-from-draft';
@@ -308,6 +481,84 @@ test('promoted draft stays visible in the sidebar while the first response is pe
   await expect(page.getByText(answer)).toBeVisible();
 });
 
+test('desktop conversations sidebar resizes by dragging and persists width', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await mockHomeDataRoutes(page, {
+    conversations: [
+      createConversation({
+        id: 'conversation-sidebar-resize',
+        title: 'Resizable Sidebar',
+      }),
+    ],
+    messagesByConversationId: {},
+  });
+
+  await page.goto('/home?e2e=sidebar-resize');
+
+  const sidePanel = await ensureConversationsOpen(page);
+  const resizeHandle = page.getByTestId('side-panel-resize-handle');
+  const before = await sidePanel.boundingBox();
+  const handleBox = await resizeHandle.boundingBox();
+
+  if (!before || !handleBox) {
+    throw new Error('Sidebar or resize handle is missing a bounding box');
+  }
+
+  await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(handleBox.x + 120, handleBox.y + handleBox.height / 2, {
+    steps: 6,
+  });
+  await page.mouse.up();
+
+  await expect
+    .poll(async () => (await sidePanel.boundingBox())?.width ?? 0)
+    .toBeGreaterThan(before.width + 80);
+
+  const storedWidth = await page.evaluate(() =>
+    Number(window.localStorage.getItem('keen-side-panel-width-v1'))
+  );
+
+  expect(storedWidth).toBeGreaterThan(before.width + 80);
+  expect(storedWidth).toBeLessThanOrEqual(600);
+});
+
+test('collapsed rail section icons reopen only their matching sidebar section', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await mockHomeDataRoutes(page, {
+    conversations: [
+      createConversation({
+        id: 'conversation-rail-section-state',
+        title: 'Rail Section State',
+      }),
+    ],
+    messagesByConversationId: {},
+  });
+
+  await page.goto('/home?e2e=rail-section-state');
+
+  const sidePanel = await ensureConversationsOpen(page);
+  const workspacesHeader = sidePanel.getByRole('button', { name: 'Workspaces', exact: true });
+  const temporaryHeader = sidePanel.getByRole('button', { name: 'Temporary', exact: true });
+  const chatsHeader = sidePanel.getByRole('button', { name: 'Chats', exact: true });
+
+  await expect(workspacesHeader).toHaveAttribute('aria-expanded', 'true');
+  await temporaryHeader.click();
+  await chatsHeader.click();
+  await expect(workspacesHeader).toHaveAttribute('aria-expanded', 'true');
+  await expect(temporaryHeader).toHaveAttribute('aria-expanded', 'false');
+  await expect(chatsHeader).toHaveAttribute('aria-expanded', 'false');
+
+  await page.keyboard.press('Escape');
+  await expect(page.locator('nav[aria-hidden]').first()).toHaveAttribute('aria-hidden', 'false');
+
+  await page.getByRole('button', { name: 'Temporary chats' }).click();
+  await expect(page.locator('nav[aria-hidden]').first()).toHaveAttribute('aria-hidden', 'true');
+  await expect(workspacesHeader).toHaveAttribute('aria-expanded', 'true');
+  await expect(temporaryHeader).toHaveAttribute('aria-expanded', 'true');
+  await expect(chatsHeader).toHaveAttribute('aria-expanded', 'false');
+});
+
 test('unsent composer text is preserved per persistent chat', async ({ page }) => {
   const firstConversationId = 'conversation-chat-scoped-input-1';
   const secondConversationId = 'conversation-chat-scoped-input-2';
@@ -358,6 +609,161 @@ test('unsent composer text is preserved per persistent chat', async ({ page }) =
   const reopenedSidePanelAgain = await ensureConversationsOpen(page);
   await reopenedSidePanelAgain.getByRole('button', { name: /Chat Two/ }).click();
   await expect(page.getByPlaceholder('Message Keen...')).toHaveValue('Draft for chat two');
+});
+
+test('persistent chat switches reuse cached transcripts and restore scroll cleanly', async ({ page }) => {
+  const firstConversationId = 'conversation-cache-switch-1';
+  const secondConversationId = 'conversation-cache-switch-2';
+  const firstOnlyMessage = 'Only chat one contains this cached scroll marker.';
+  const secondOnlyMessage = 'Only chat two contains this clean switch marker.';
+  const messageRequests = {};
+
+  await page.setViewportSize({ width: 1280, height: 720 });
+
+  await mockHomeDataRoutes(page, {
+    conversations: [
+      createConversation({
+        id: firstConversationId,
+        title: 'Cache Switch One',
+        updatedAt: '2026-04-12T12:42:00.000Z',
+      }),
+      createConversation({
+        id: secondConversationId,
+        title: 'Cache Switch Two',
+        updatedAt: '2026-04-12T12:41:00.000Z',
+      }),
+    ],
+    messagesByConversationId: {
+      [firstConversationId]: createScrollableMessages('cache-switch-one', firstOnlyMessage),
+      [secondConversationId]: createScrollableMessages('cache-switch-two', secondOnlyMessage),
+    },
+    onMessagesRequest: async ({ conversationId, select }) => {
+      if (conversationId && select !== 'content') {
+        messageRequests[conversationId] = (messageRequests[conversationId] || 0) + 1;
+      }
+
+      return false;
+    },
+  });
+
+  await page.goto(`/home/${firstConversationId}?e2e=home-routing-cache-switch`);
+
+  const transcript = page.getByTestId('home-scroll-container');
+  await expect(transcript.getByText(firstOnlyMessage)).toBeVisible();
+  await expect.poll(() =>
+    transcript.evaluate((element) => element.scrollHeight > element.clientHeight)
+  ).toBe(true);
+
+  const savedScrollTop = await transcript.evaluate((element) => {
+    element.scrollTop = Math.min(420, element.scrollHeight - element.clientHeight);
+    element.dispatchEvent(new Event('scroll', { bubbles: true }));
+    return element.scrollTop;
+  });
+  expect(savedScrollTop).toBeGreaterThan(100);
+  await expect.poll(() =>
+    transcript.evaluate((element) => Math.round(element.scrollTop))
+  ).toBe(Math.round(savedScrollTop));
+
+  const sidePanel = await ensureConversationsOpen(page);
+  await expect.poll(() =>
+    transcript.evaluate((element) => Math.round(element.scrollTop))
+  ).toBe(Math.round(savedScrollTop));
+  await sidePanel.getByRole('button', { name: /Cache Switch Two/ }).click();
+
+  await expect(page).toHaveURL(
+    new RegExp(`/home/${secondConversationId}\\?e2e=home-routing-cache-switch$`)
+  );
+  await expect(transcript.getByText(secondOnlyMessage)).toBeVisible();
+  await expect(transcript.getByText(firstOnlyMessage)).toHaveCount(0);
+  expect(messageRequests[firstConversationId]).toBe(1);
+  expect(messageRequests[secondConversationId]).toBe(1);
+
+  const reopenedSidePanel = await ensureConversationsOpen(page);
+  await reopenedSidePanel.getByRole('button', { name: /Cache Switch One/ }).click();
+
+  await expect(page).toHaveURL(
+    new RegExp(`/home/${firstConversationId}\\?e2e=home-routing-cache-switch$`)
+  );
+  await expect(transcript.getByText(firstOnlyMessage)).toBeVisible();
+  await expect(transcript.getByText(secondOnlyMessage)).toHaveCount(0);
+  expect(messageRequests[firstConversationId]).toBe(1);
+
+  await expect.poll(() =>
+    transcript.evaluate((element) => element.scrollTop)
+  ).toBeGreaterThan(savedScrollTop - 120);
+  await expect.poll(() =>
+    transcript.evaluate((element) => element.scrollTop)
+  ).toBeLessThan(savedScrollTop + 180);
+});
+
+test('a superseded chat load cannot replace the cached chat returned to', async ({ page }) => {
+  const firstConversationId = 'conversation-stale-load-1';
+  const secondConversationId = 'conversation-stale-load-2';
+  const firstAnswer = 'The cached conversation stays selected.';
+  const secondLoadGate = deferred();
+  const secondFailureFulfilled = deferred();
+
+  await mockHomeDataRoutes(page, {
+    conversations: [
+      createConversation({ id: firstConversationId, title: 'Cached Route One' }),
+      createConversation({ id: secondConversationId, title: 'Delayed Route Two' }),
+    ],
+    messagesByConversationId: {
+      [firstConversationId]: [
+        createMessage({
+          id: 'message-stale-load-first-assistant-1',
+          role: 'assistant',
+          content: firstAnswer,
+          createdAt: '2026-04-12T12:50:00.000Z',
+        }),
+      ],
+      [secondConversationId]: [],
+    },
+    onMessagesRequest: async ({
+      route,
+      conversationId,
+      select,
+      fulfillJson,
+    }) => {
+      if (conversationId !== secondConversationId || select === 'content') {
+        return false;
+      }
+
+      await secondLoadGate.promise;
+      await fulfillJson(route, { message: 'Delayed load failed' }, 500);
+      secondFailureFulfilled.resolve();
+      return true;
+    },
+  });
+
+  await page.goto(`/home/${firstConversationId}?e2e=home-routing-stale-load`);
+  await expect(page.getByText(firstAnswer)).toBeVisible();
+
+  const sidePanel = await ensureConversationsOpen(page);
+  await sidePanel.getByRole('button', { name: /Delayed Route Two/ }).click();
+  await expect(page).toHaveURL(
+    new RegExp(`/home/${secondConversationId}\\?e2e=home-routing-stale-load$`)
+  );
+
+  await sidePanel.getByRole('button', { name: /Cached Route One/ }).click();
+  await expect(page).toHaveURL(
+    new RegExp(`/home/${firstConversationId}\\?e2e=home-routing-stale-load$`)
+  );
+  await expect(page.getByText(firstAnswer)).toBeVisible();
+
+  const staleErrorAppeared = page
+    .getByText('Could not load this conversation')
+    .waitFor({ state: 'visible', timeout: 750 })
+    .then(() => true, () => false);
+
+  secondLoadGate.resolve();
+  await secondFailureFulfilled.promise;
+
+  expect(await staleErrorAppeared).toBe(false);
+  await expect(page.getByText(firstAnswer)).toBeVisible();
+  await expect(page).toHaveURL(
+    new RegExp(`/home/${firstConversationId}\\?e2e=home-routing-stale-load$`)
+  );
 });
 
 test('the same chat stays editable while its response is in flight', async ({ page }) => {
@@ -494,7 +900,7 @@ test('model effort and thinking controls are included in chat requests', async (
   await modelPicker.evaluate((element) => {
     element.style.position = 'fixed';
     element.style.right = '12px';
-    element.style.bottom = '32px';
+    element.style.bottom = '96px';
     element.style.zIndex = '20';
   });
   await modelPicker.click();
@@ -745,7 +1151,15 @@ test('model effort controls use a drill-in panel on narrow viewports', async ({ 
 
   await page.goto('/home?e2e=home-routing-effort-drilldown');
 
-  await page.getByRole('button', { name: /Chat model: GPT-5\.5/ }).click();
+  const modelPicker = page.getByRole('button', { name: /Chat model: GPT-5\.5/ });
+  await modelPicker.evaluate((element) => {
+    element.style.position = 'fixed';
+    element.style.right = '12px';
+    element.style.bottom = '96px';
+    element.style.zIndex = '20';
+  });
+
+  await modelPicker.click();
   await page.getByRole('menuitemradio', { name: /Gemini 3 Flash/ }).click();
 
   const popover = page.locator('.chat-model-picker-popover');
@@ -890,7 +1304,7 @@ test('a second chat can send while another chat is still in flight', async ({ pa
   await firstComposer.fill(firstQuestion);
   await firstComposer.press('Enter');
 
-  await page.getByLabel('New temporary chat').click();
+  await page.getByRole('main').getByLabel('New temporary chat').click();
   await expect(page).toHaveURL(new RegExp('/home\\?e2e=home-routing-concurrent-send$'));
 
   const temporaryComposer = page.getByPlaceholder('Message Keen...');
@@ -907,6 +1321,15 @@ test('a second chat can send while another chat is still in flight', async ({ pa
   });
 
   await expect(page).toHaveURL(new RegExp('/home\\?e2e=home-routing-concurrent-send$'));
+
+  const sidePanel = await ensureConversationsOpen(page);
+  await sidePanel.getByRole('button', { name: /Last-Mile Efficiency/ }).click();
+
+  await expect(page).toHaveURL(
+    new RegExp('/home/' + firstConversationId + '\\?e2e=home-routing-concurrent-send$')
+  );
+  await expect(page.getByText(firstAnswer)).toBeVisible({ timeout: 10000 });
+  await expect(page.getByText(secondAnswer)).toHaveCount(0);
 });
 
 test('background draft promotion does not steal focus from the chat you switched to', async ({ page }) => {
@@ -914,7 +1337,16 @@ test('background draft promotion does not steal focus from the chat you switched
   const promotedConversationId = 'conversation-promoted-in-background';
   const firstQuestion = 'Start a new investigation for me.';
   const promotedAnswer = 'The draft can finish in the background.';
+  const createStarted = deferred();
+  const createResponse = deferred();
+  const chatStarted = deferred();
   const response = deferred();
+  const promotedConversation = createConversation({
+    id: promotedConversationId,
+    title: 'Background Draft',
+    updatedAt: '2026-04-12T15:00:01.000Z',
+    createdAt: '2026-04-12T15:00:01.000Z',
+  });
   const state = await mockHomeDataRoutes(page, {
     conversations: [
       createConversation({
@@ -932,26 +1364,35 @@ test('background draft promotion does not steal focus from the chat you switched
         }),
       ],
     },
-    createdConversations: [
-      createConversation({
-        id: promotedConversationId,
-        title: 'Background Draft',
-        updatedAt: '2026-04-12T15:00:01.000Z',
-        createdAt: '2026-04-12T15:00:01.000Z',
+  });
+
+  await page.route('**/api/conversations', async (route) => {
+    if (route.request().method() !== 'POST') {
+      await route.fallback();
+      return;
+    }
+
+    createStarted.resolve();
+    await createResponse.promise;
+    state.conversations.unshift(promotedConversation);
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        conversation: {
+          id: promotedConversation.id,
+          title: promotedConversation.title,
+          mentorId: promotedConversation.mentor_id,
+          workspaceId: promotedConversation.workspace_id,
+          createdAt: promotedConversation.created_at,
+          updatedAt: promotedConversation.updated_at,
+        },
       }),
-    ],
+    });
   });
 
   await mockChatRoute(page, async (body) => {
     expect(body.message).toBe(firstQuestion);
-    state.conversations.unshift(
-      createConversation({
-        id: promotedConversationId,
-        title: 'Background Draft',
-        updatedAt: '2026-04-12T13:10:02.000Z',
-        createdAt: '2026-04-12T13:10:01.000Z',
-      })
-    );
     state.messagesByConversationId[promotedConversationId] = [
       createMessage({
         id: 'message-background-draft-user-1',
@@ -967,6 +1408,7 @@ test('background draft promotion does not steal focus from the chat you switched
       }),
     ];
 
+    chatStarted.resolve();
     return response.promise;
   });
 
@@ -975,12 +1417,28 @@ test('background draft promotion does not steal focus from the chat you switched
   const composer = page.getByPlaceholder('Message Keen...');
   await composer.fill(firstQuestion);
   await composer.press('Enter');
+  await createStarted.promise;
 
   const sidePanel = await ensureConversationsOpen(page);
   await sidePanel.getByRole('button', { name: /Saved Conversation/ }).click();
   await expect(page).toHaveURL(
     new RegExp('/home/' + savedConversationId + '\\?e2e=home-routing-background-draft$')
   );
+  await expect(page.getByText('Stay focused on this conversation.')).toBeVisible();
+
+  createResponse.resolve();
+  await chatStarted.promise;
+
+  await expect(page).toHaveURL(
+    new RegExp('/home/' + savedConversationId + '\\?e2e=home-routing-background-draft$')
+  );
+  await sidePanel.getByRole('button', { name: /Background Draft/ }).click();
+  await expect(page).toHaveURL(
+    new RegExp('/home/' + promotedConversationId + '\\?e2e=home-routing-background-draft$')
+  );
+  await expect(page.getByText(firstQuestion)).toBeVisible();
+
+  await sidePanel.getByRole('button', { name: /Saved Conversation/ }).click();
   await expect(page.getByText('Stay focused on this conversation.')).toBeVisible();
 
   response.resolve({
@@ -1023,7 +1481,7 @@ test('temporary chats stay on /home when switching away from a persistent route'
   await page.goto('/home/' + conversationId + '?e2e=home-routing-temporary');
 
   await expect(page.getByText(answer)).toBeVisible();
-  await page.getByLabel('New temporary chat').click();
+  await page.getByRole('main').getByLabel('New temporary chat').click();
 
   await expect(page).toHaveURL(new RegExp('/home\\?e2e=home-routing-temporary$'));
   await expect(page.getByRole('heading', { name: 'Temporary chat' })).toBeVisible();

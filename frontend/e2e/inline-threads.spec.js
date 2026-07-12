@@ -77,6 +77,11 @@ async function getNativeSelectionText(page) {
   return page.evaluate(() => window.getSelection()?.toString() ?? '');
 }
 
+async function selectSearchMode(page, label) {
+  await page.getByRole('button', { name: /^Search mode / }).click();
+  await page.getByRole('menuitemradio', { name: label }).click();
+}
+
 function getUnionBounds(rects) {
   expect(rects.length).toBeGreaterThan(0);
 
@@ -197,6 +202,44 @@ test('promotes an unsent popover draft into the thread panel', async ({ page }) 
   await expect.poll(() => hasPersistentSelectionHighlight(page)).toBe(true);
 });
 
+test('desktop thread panel resizes by dragging and persists width', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const { messageId, selectedText } = await gotoHomeFixture(page);
+
+  await selectTextInMessage(page, messageId, selectedText);
+  await page.getByTestId('selection-popover-input').fill('Why does that happen?');
+  await page.keyboard.press('Control+L');
+
+  const threadPanel = page.getByTestId('thread-panel');
+  await expect(threadPanel).toHaveAttribute('data-state', 'open');
+
+  const resizeHandle = page.getByTestId('thread-panel-resize-handle');
+  const before = await threadPanel.boundingBox();
+  const handleBox = await resizeHandle.boundingBox();
+
+  if (!before || !handleBox) {
+    throw new Error('Thread panel or resize handle is missing a bounding box');
+  }
+
+  await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(handleBox.x - 160, handleBox.y + handleBox.height / 2, {
+    steps: 8,
+  });
+  await page.mouse.up();
+
+  await expect
+    .poll(async () => (await threadPanel.boundingBox())?.width ?? 0)
+    .toBeGreaterThan(before.width + 80);
+
+  const storedWidth = await page.evaluate(() =>
+    Number(window.localStorage.getItem('keen-thread-panel-width-v1'))
+  );
+
+  expect(storedWidth).toBeGreaterThan(before.width + 80);
+  expect(storedWidth).toBeLessThanOrEqual(720);
+});
+
 test('submitting a selection question opens the thread panel immediately and shows a loading inline marker', async ({ page }) => {
   const response = deferred();
   const question = 'Why does that happen?';
@@ -204,10 +247,12 @@ test('submitting a selection question opens the thread panel immediately and sho
   await mockChatRoute(page, async (body) => {
     expect(body.concise).toBeUndefined();
     expect(body.message).toBe(question);
+    expect(body.searchMode).toBe('off');
     return response.promise;
   });
 
   const { messageId, selectedText } = await gotoHomeFixture(page);
+  await selectSearchMode(page, 'Off');
   await selectTextInMessage(page, messageId, selectedText);
   await page.getByTestId('selection-popover-input').fill(question);
   await page.getByTestId('selection-popover-input').press('Enter');
@@ -322,7 +367,7 @@ test('temporary thread results persist if you switch chats before the answer res
   await expect(loadingMarker).toContainText(PRIMARY_SELECTION_TEXT);
   await expect(loadingMarker).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
 
-  await page.getByLabel('New temporary chat').click();
+  await page.getByRole('main').getByLabel('New temporary chat').click();
   await expect(page.getByRole('heading', { name: 'Temporary chat' })).toBeVisible();
 
   response.resolve({
@@ -484,7 +529,7 @@ test('code-block copy button still copies only code text', async ({ context, pag
   );
 });
 
-test('renders inline markers for code and math selections from offsets', async ({ page }) => {
+test('renders inline markers for inline code, code blocks, and math selections from offsets', async ({ page }) => {
   await mockChatRoute(page, async (body) => {
     return {
       message: `Answer for ${body.message}`,
@@ -494,12 +539,57 @@ test('renders inline markers for code and math selections from offsets', async (
   });
 
   const { messageId } = await gotoHomeFixture(page, 'inline-threads-rich-selection');
+  const messageContent = page.locator(`[data-message-id="${messageId}"] [data-message-content]`);
+
+  await selectTextInMessage(page, messageId, 'queueMicrotask()');
+  await page.getByTestId('selection-popover-input').fill('inline-code-marker');
+  await page.getByTestId('selection-popover-input').press('Enter');
+
+  await expect(messageContent).toHaveAttribute('data-range-thread-highlights', 'true');
+  const inlineCodeMarker = messageContent.locator('p code [data-testid="inline-thread-link"]');
+  await expect(inlineCodeMarker).toContainText('queueMicrotask()');
+  const inlineCodeMarkerId = await inlineCodeMarker.getAttribute('data-thread-marker-id');
+  const inlineCodeOverlayRects = messageContent.locator(
+    `[data-testid="thread-highlight-rect"][data-highlight-context="inline-code"][data-highlight-source-id="${inlineCodeMarkerId}"]`
+  );
+  await expect.poll(() => inlineCodeOverlayRects.count()).toBeGreaterThan(0);
+  const inlineCodeOverlay = messageContent.locator(
+    `p code [data-testid="thread-highlight-inline-code-overlay"]:has([data-highlight-source-id="${inlineCodeMarkerId}"])`
+  );
+  await expect(inlineCodeOverlay).toHaveCount(1);
+  await expect
+    .poll(() =>
+      inlineCodeOverlay.evaluate((overlay) => {
+        const code = overlay.closest('code');
+        if (!code) return false;
+
+        const overlayRect = overlay.getBoundingClientRect();
+        const codeRect = code.getBoundingClientRect();
+        return (
+          overlayRect.left >= codeRect.left - 1
+          && overlayRect.top >= codeRect.top - 1
+          && overlayRect.right <= codeRect.right + 1
+          && overlayRect.bottom <= codeRect.bottom + 1
+        );
+      })
+    )
+    .toBe(true);
+  const inlineCodeMarkerStyles = await inlineCodeMarker.evaluate((node) => {
+    const style = window.getComputedStyle(node);
+    return {
+      backgroundColor: style.backgroundColor,
+      boxShadow: style.boxShadow,
+    };
+  });
+  expect(inlineCodeMarkerStyles).toEqual({
+    backgroundColor: 'rgba(0, 0, 0, 0)',
+    boxShadow: 'none',
+  });
 
   await selectTextInMessage(page, messageId, 'const paint = await nextFrame();');
   await page.getByTestId('selection-popover-input').fill('code-marker');
   await page.getByTestId('selection-popover-input').press('Enter');
 
-  const messageContent = page.locator(`[data-message-id="${messageId}"] [data-message-content]`);
   await expect(messageContent).toHaveAttribute('data-range-thread-highlights', 'true');
 
   const codeMarkerFragments = page.locator('pre code [data-testid="inline-thread-link"]');

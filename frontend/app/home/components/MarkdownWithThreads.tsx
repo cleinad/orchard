@@ -47,6 +47,7 @@ type ButtonProps = ComponentPropsWithoutRef<"button"> & {
   node?: unknown;
   "data-citation-source-id"?: string;
 };
+type CodeProps = ComponentPropsWithoutRef<"code"> & { node?: unknown };
 
 interface TextMatch {
   start: number;
@@ -713,6 +714,11 @@ export default function MarkdownWithThreads({
   const components = useMemo<NonNullable<Options["components"]>>(
     () => ({
       pre: CodeBlock,
+      code: ({ children, ...props }: CodeProps) => (
+        <code {...props}>
+          <span className="inline-code__content">{children}</span>
+        </code>
+      ),
       span: ({ children, ...props }: SpanProps) => {
         const threadId = props["data-inline-thread-id"];
         if (typeof threadId === "string") {

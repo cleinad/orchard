@@ -346,6 +346,10 @@ body {
   border-radius: 3px;
 }
 
+.thread-highlight-overlay__rect[data-highlight-context="inline-code"] {
+  border-radius: inherit;
+}
+
 .thread-highlight-overlay__rect[data-highlight-context="table"] {
   border-radius: 2px;
 }
@@ -452,13 +456,23 @@ body {
 }
 
 .markdown-content :not(pre) > code {
+  --inline-code-highlight-radius: calc(0.5rem - 1px);
   border: 1px solid var(--markdown-inline-code-border);
   border-radius: 0.5rem;
   background: var(--markdown-inline-code-bg);
   color: var(--markdown-code-text);
+  display: inline-block;
+  isolation: isolate;
   padding: 0.14rem 0.42rem;
+  position: relative;
   font-size: 0.9em;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  vertical-align: baseline;
+}
+
+.markdown-content :not(pre) > code > .inline-code__content {
+  position: relative;
+  z-index: 1;
 }
 
 .markdown-content pre {
@@ -583,6 +597,15 @@ body {
 .thread-highlight-code-overlay {
   inset: 0;
   overflow: visible;
+  pointer-events: none;
+  position: absolute;
+  z-index: 0;
+}
+
+.thread-highlight-inline-code-overlay {
+  border-radius: var(--inline-code-highlight-radius);
+  inset: 0;
+  overflow: hidden;
   pointer-events: none;
   position: absolute;
   z-index: 0;

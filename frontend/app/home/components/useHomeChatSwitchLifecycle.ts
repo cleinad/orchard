@@ -5,12 +5,6 @@ import type {
   PersistentDraftChat,
   SelectedChat,
 } from '@/app/home/components/HomeDataContext';
-import type { ThreadMeta } from '@/app/home/components/threadTypes';
-import type {
-  BranchSelectionMap,
-  ConversationBranch,
-  Message,
-} from '@/app/home/types';
 import { getComposerStateKey } from '@/app/home/components/homeSelection';
 import type { PendingBranchTarget } from '@/app/home/components/conversationTree';
 
@@ -26,6 +20,7 @@ interface UseHomeChatSwitchLifecycleParams {
   registerCloseTempChatCleanup: (fn: (tempChatId: string) => void) => void;
   registerPrepareForChatSwitch: (fn: (next: SelectedChat | null) => void) => void;
   resetThreadUi: () => void;
+  saveCurrentScrollPosition: () => void;
   scrollInstantRef: MutableRefObject<boolean>;
   selectedChatRef: MutableRefObject<SelectedChat | null>;
   selectedDraftChat: PersistentDraftChat | null;
@@ -33,10 +28,6 @@ interface UseHomeChatSwitchLifecycleParams {
   setConversationMapOpen: (open: boolean) => void;
   setDraftChats: Dispatch<SetStateAction<PersistentDraftChat[]>>;
   setPendingBranch: Dispatch<SetStateAction<PendingBranchTarget | null>>;
-  setPersistentBranches: Dispatch<SetStateAction<ConversationBranch[]>>;
-  setPersistentMessages: Dispatch<SetStateAction<Message[]>>;
-  setPersistentSelectedBranchIds: Dispatch<SetStateAction<BranchSelectionMap>>;
-  setPersistentThreadsMap: Dispatch<SetStateAction<Map<string, ThreadMeta[]>>>;
   setUserHasScrolledState: (nextValue: boolean) => void;
 }
 
@@ -52,6 +43,7 @@ export function useHomeChatSwitchLifecycle({
   registerCloseTempChatCleanup,
   registerPrepareForChatSwitch,
   resetThreadUi,
+  saveCurrentScrollPosition,
   scrollInstantRef,
   selectedChatRef,
   selectedDraftChat,
@@ -59,10 +51,6 @@ export function useHomeChatSwitchLifecycle({
   setConversationMapOpen,
   setDraftChats,
   setPendingBranch,
-  setPersistentBranches,
-  setPersistentMessages,
-  setPersistentSelectedBranchIds,
-  setPersistentThreadsMap,
   setUserHasScrolledState,
 }: UseHomeChatSwitchLifecycleParams) {
   useEffect(() => {
@@ -71,6 +59,7 @@ export function useHomeChatSwitchLifecycle({
 
   const prepareForChatSwitch = useCallback(
     (nextSelection: SelectedChat | null) => {
+      saveCurrentScrollPosition();
       resetThreadUi();
       setPendingBranch(null);
       setConversationMapOpen(false);
@@ -83,16 +72,6 @@ export function useHomeChatSwitchLifecycle({
       const currentInput = currentSelection
         ? composerDraftInputsRef.current[getComposerStateKey(currentSelection)] ?? ''
         : '';
-
-      const shouldClearPersistentConversationState =
-        nextSelection === null || nextSelection.kind === 'persistent';
-
-      if (shouldClearPersistentConversationState) {
-        setPersistentMessages([]);
-        setPersistentBranches([]);
-        setPersistentSelectedBranchIds({});
-        setPersistentThreadsMap(new Map());
-      }
 
       if (
         currentSelection?.kind === 'draft' &&
@@ -123,16 +102,13 @@ export function useHomeChatSwitchLifecycle({
       composerDraftInputsRef,
       endProgrammaticTranscriptNavigation,
       resetThreadUi,
+      saveCurrentScrollPosition,
       scrollInstantRef,
       selectedChatRef,
       selectedDraftChatRef,
       setConversationMapOpen,
       setDraftChats,
       setPendingBranch,
-      setPersistentBranches,
-      setPersistentMessages,
-      setPersistentSelectedBranchIds,
-      setPersistentThreadsMap,
       setUserHasScrolledState,
     ]
   );

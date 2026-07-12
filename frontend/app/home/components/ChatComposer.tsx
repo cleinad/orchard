@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type ChangeEventHandler,
@@ -10,6 +11,7 @@ import {
   type ReactElement,
   type RefObject,
 } from 'react';
+import IconTooltip from '@/app/components/IconTooltip';
 import Tooltip from '@/app/components/Tooltip';
 import ChatModelPicker from '@/app/home/components/ChatModelPicker';
 import ResponseStylePicker from '@/app/home/components/ResponseStylePicker';
@@ -24,7 +26,8 @@ import {
   type ChatModelListItem,
   type ChatModelThinkingOverrides,
 } from '@/lib/chat-models';
-import type { ResponseStyle } from '@/lib/response-style';
+import { getResponseStyleSummary, type ResponseStyle } from '@/lib/response-style';
+import { buttonStyles, cx } from '@/app/components/buttonStyles';
 
 interface ChatComposerProps {
   activeName: string;
@@ -39,6 +42,7 @@ interface ChatComposerProps {
   modelEffortOverrides: ChatModelEffortOverrides;
   thinkingEnabledOverrides: ChatModelThinkingOverrides;
   searchMode: SearchMode;
+  isWideLayout?: boolean;
   temporaryChatEnabled: boolean;
   showTemporaryIntro: boolean;
   temporaryMemoryMode: TemporaryMemoryMode;
@@ -54,6 +58,7 @@ interface ChatComposerProps {
   onThinkingEnabledChange: (modelId: ChatModelId, enabled: boolean) => void;
   onResponseStyleChange: (value: ResponseStyle) => void;
   onSearchModeChange: (mode: SearchMode) => void;
+  onToggleWideLayout?: () => void;
   onTemporaryMemoryModeChange: (mode: TemporaryMemoryMode) => void;
   onSubmit: FormEventHandler<HTMLFormElement>;
   onKeyDown: KeyboardEventHandler<HTMLTextAreaElement>;
@@ -72,6 +77,7 @@ export default function ChatComposer({
   modelEffortOverrides,
   thinkingEnabledOverrides,
   searchMode,
+  isWideLayout = false,
   temporaryChatEnabled,
   showTemporaryIntro,
   temporaryMemoryMode,
@@ -87,6 +93,7 @@ export default function ChatComposer({
   onThinkingEnabledChange,
   onResponseStyleChange,
   onSearchModeChange,
+  onToggleWideLayout,
   onTemporaryMemoryModeChange,
   onSubmit,
   onKeyDown,
@@ -94,7 +101,15 @@ export default function ChatComposer({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDraggingImage, setIsDraggingImage] = useState(false);
   const hasAvailableChatModels = chatModels.some((model) => model.available);
+  const selectedModel =
+    chatModels.find((model) => model.id === selectedModelId)
+    ?? chatModels.find((model) => model.available)
+    ?? chatModels[0]
+    ?? null;
   const [searchMenuOpen, setSearchMenuOpen] = useState(false);
+  const [compactControls, setCompactControls] = useState(false);
+  const controlsRowRef = useRef<HTMLDivElement | null>(null);
+  const controlsMeasureRef = useRef<HTMLDivElement | null>(null);
   const searchMenuRef = useRef<HTMLDivElement | null>(null);
   const searchModeLabels: Record<SearchMode, string> = {
     auto: 'Auto',
@@ -106,7 +121,6 @@ export default function ChatComposer({
     required: 'Always search: Keen will ground this reply with live sources',
     off: 'Search off: Keen will answer without live retrieval',
   };
-
   useEffect(() => {
     if (!searchMenuOpen) {
       return;
@@ -125,6 +139,48 @@ export default function ChatComposer({
     window.addEventListener('pointerdown', handlePointerDown);
     return () => window.removeEventListener('pointerdown', handlePointerDown);
   }, [searchMenuOpen]);
+
+  useLayoutEffect(() => {
+    const row = controlsRowRef.current;
+    const measure = controlsMeasureRef.current;
+
+    if (!row || !measure) {
+      return;
+    }
+
+    const updateCompactControls = () => {
+      const rowStyle = window.getComputedStyle(row);
+      const rowWidth =
+        row.clientWidth
+        - parseFloat(rowStyle.paddingLeft || '0')
+        - parseFloat(rowStyle.paddingRight || '0');
+      const expandedWidth = measure.getBoundingClientRect().width;
+
+      setCompactControls(Math.ceil(expandedWidth) > Math.floor(rowWidth));
+    };
+
+    updateCompactControls();
+
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', updateCompactControls);
+      return () => window.removeEventListener('resize', updateCompactControls);
+    }
+
+    const observer = new ResizeObserver(updateCompactControls);
+    observer.observe(row);
+    observer.observe(measure);
+    window.addEventListener('resize', updateCompactControls);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', updateCompactControls);
+    };
+  }, [
+    onToggleWideLayout,
+    responseStyle,
+    selectedModel?.available,
+    selectedModel?.label,
+  ]);
 
   const canSubmit = Boolean(input.trim() || pendingImageAttachments.length > 0);
   const isBusy = isLoading || isUploadingImages;
@@ -265,9 +321,14 @@ export default function ChatComposer({
       onClick={() => fileInputRef.current?.click()}
       disabled={attachDisabled}
       aria-label="Attach image"
-      className={`flex h-9 w-9 items-center justify-center rounded-md border border-transparent p-0 text-muted transition-colors hover:border-foreground/[0.08] hover:bg-foreground/[0.04] hover:text-foreground/70 disabled:cursor-not-allowed disabled:opacity-50 ${
-        attachDisabledReason ? 'pointer-events-none' : ''
-      }`}
+      className={cx(
+        'flex h-9 w-9 items-center justify-center rounded-md border border-transparent p-0 hover:border-foreground/[0.08]',
+        buttonStyles.transition,
+        buttonStyles.focus,
+        buttonStyles.ghost,
+        buttonStyles.disabled,
+        attachDisabledReason ? 'pointer-events-none' : null
+      )}
     >
       <svg
         className="h-5 w-5"
@@ -314,64 +375,60 @@ export default function ChatComposer({
       <div className="shrink-0 pb-2 pt-2">
         {temporaryChatEnabled && showTemporaryIntro && (
           <div
-            className="mb-2 rounded-lg border border-border-subtle bg-foreground/[0.02] px-3 py-2 font-sans text-foreground"
+            className="mb-2 flex items-center gap-2 rounded-lg border border-border-subtle bg-foreground/[0.02] px-3 py-2 font-sans text-foreground"
             role="region"
             aria-label="Temporary chat settings"
           >
             {/* Segmented control: left off (default), right opt-in */}
             <div
-              className="flex min-h-9 w-full rounded-lg bg-foreground/[0.06] p-0.5 sm:min-w-[14rem]"
+              className="flex min-h-9 min-w-0 flex-1 rounded-lg bg-foreground/[0.06] p-0.5 sm:min-w-[14rem]"
               role="group"
               aria-label="Memory for this chat"
             >
               <button
                 type="button"
                 onClick={() => onTemporaryMemoryModeChange('off')}
-                className={`flex flex-1 cursor-pointer items-center justify-center rounded-md px-2 py-1.5 text-xs font-medium transition-colors duration-200 ${
+                className={cx(
+                  'flex flex-1 cursor-pointer items-center justify-center rounded-md px-2 py-1.5 text-xs font-medium',
+                  buttonStyles.transition,
+                  buttonStyles.focus,
                   temporaryMemoryMode === 'off'
-                    ? 'bg-surface text-foreground shadow-sm'
-                    : 'text-muted hover:text-foreground'
-                }`}
+                    ? buttonStyles.segmentSelected
+                    : buttonStyles.segmentInactive
+                )}
               >
                 No memory
               </button>
               <button
                 type="button"
                 onClick={() => onTemporaryMemoryModeChange('use_existing')}
-                className={`flex flex-1 cursor-pointer items-center justify-center rounded-md px-2 py-1.5 text-xs font-medium transition-colors duration-200 ${
+                className={cx(
+                  'flex flex-1 cursor-pointer items-center justify-center rounded-md px-2 py-1.5 text-xs font-medium',
+                  buttonStyles.transition,
+                  buttonStyles.focus,
                   temporaryMemoryMode === 'use_existing'
-                    ? 'bg-surface text-foreground shadow-sm'
-                    : 'text-muted hover:text-foreground'
-                }`}
+                    ? buttonStyles.segmentSelected
+                    : buttonStyles.segmentInactive
+                )}
               >
                 Use memories
               </button>
             </div>
-            {/* Both modes explained; selected row reads stronger (fixed layout — no height jump) */}
-            <div className="mt-1.5 space-y-0.5 text-[11px] leading-snug">
-              <p
-                className={
-                  temporaryMemoryMode === 'off'
-                    ? 'text-foreground'
-                    : 'text-muted'
-                }
-              >
-                <span className="font-medium">No memory</span>
-                {' — '}
-                Keen won&apos;t read or write memory for this session.
-              </p>
-              <p
-                className={
-                  temporaryMemoryMode === 'use_existing'
-                    ? 'text-foreground'
-                    : 'text-muted'
-                }
-              >
-                <span className="font-medium">Use memories</span>
-                {' — '}
-                Saved memories may inform replies; this chat isn&apos;t stored.
-              </p>
-            </div>
+            <IconTooltip
+              side="top"
+              ariaLabel="Temporary memory details"
+              content={(
+                <span>
+                  <span className="font-medium">No memory:</span>
+                  {' '}
+                  Keen won&apos;t read or write memory.
+                  <br />
+                  <span className="font-medium">Use memories:</span>
+                  {' '}
+                  Saved memories may inform replies; this chat isn&apos;t stored.
+                </span>
+              )}
+            />
           </div>
         )}
 
@@ -405,7 +462,13 @@ export default function ChatComposer({
                       onClick={() => onRemoveImageAttachment(attachment.id)}
                       disabled={isBusy}
                       aria-label={`Remove ${attachment.fileName}`}
-                      className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-background/90 text-muted shadow-sm transition hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                      className={cx(
+                        'absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-background/90 shadow-sm',
+                        buttonStyles.transition,
+                        buttonStyles.focus,
+                        buttonStyles.ghost,
+                        buttonStyles.disabled
+                      )}
                     >
                       <svg
                         className="h-3 w-3"
@@ -446,7 +509,11 @@ export default function ChatComposer({
               <button
                 type="submit"
                 disabled={!canSubmit || isBusy}
-                className="flex h-7 w-7 items-center justify-center rounded-md bg-foreground p-0 text-background transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-20"
+                className={cx(
+                  'flex h-7 w-7 items-center justify-center rounded-md p-0',
+                  buttonStyles.primary,
+                  buttonStyles.focus
+                )}
               >
                 <svg
                   className="h-3 w-3"
@@ -465,8 +532,100 @@ export default function ChatComposer({
             </div>
           </div>
 
-          <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2 px-1">
+          <div
+            ref={controlsMeasureRef}
+            aria-hidden="true"
+            className="pointer-events-none invisible fixed -left-[9999px] top-0 -z-10 flex w-max items-center gap-2 px-1"
+          >
             <div className="flex items-center gap-1.5">
+              {onToggleWideLayout ? (
+                <span className="inline-flex h-8 w-8 rounded-lg border" />
+              ) : null}
+              <span className="inline-flex h-8 min-w-[6.4rem] items-center justify-between gap-2 rounded-lg border px-3 font-sans font-medium">
+                <span className="flex min-w-0 items-center gap-2">
+                  <span className="h-4 w-4 flex-shrink-0" />
+                  <span className="truncate text-[13px]">Search</span>
+                </span>
+                <span className="h-3.5 w-3.5 flex-shrink-0" />
+              </span>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <span className="inline-flex h-8 min-w-[6.75rem] max-w-[8.5rem] items-center justify-between gap-2 rounded-lg border px-3 font-sans font-medium sm:min-w-[8.5rem]">
+                <span className="truncate text-[13px]">
+                  {getResponseStyleSummary(responseStyle)}
+                </span>
+                <span className="h-3.5 w-3.5 flex-shrink-0" />
+              </span>
+              <span className="inline-flex h-8 min-w-[9.25rem] items-center justify-between gap-2 rounded-lg border px-3 font-sans font-medium">
+                <span className="flex min-w-0 items-center gap-2">
+                  <span className="h-4 w-4 flex-shrink-0" />
+                  <span className="truncate text-[13px]">
+                    {selectedModel?.label ?? 'No models'}
+                  </span>
+                  {!selectedModel?.available ? (
+                    <span className="text-[10px] font-medium">
+                      Unavailable
+                    </span>
+                  ) : null}
+                </span>
+                <span className="h-3.5 w-3.5 flex-shrink-0" />
+              </span>
+            </div>
+          </div>
+
+          <div
+            ref={controlsRowRef}
+            className="mt-1.5 flex flex-nowrap items-center justify-between gap-2 px-1"
+          >
+            <div className="flex flex-shrink-0 items-center gap-1.5">
+              {onToggleWideLayout && (
+                <Tooltip content={isWideLayout ? 'Use focused width' : 'Use wide width'} side="bottom">
+                  <button
+                    type="button"
+                    aria-label={isWideLayout ? 'Use focused width' : 'Use wide width'}
+                    aria-pressed={isWideLayout}
+                    data-testid="chat-width-toggle"
+                    onClick={onToggleWideLayout}
+                    className={cx(
+                      'inline-flex h-8 w-8 items-center justify-center rounded-lg border',
+                      buttonStyles.transition,
+                      isWideLayout
+                        ? buttonStyles.controlActive
+                        : buttonStyles.controlInactiveMuted,
+                      buttonStyles.controlShadow,
+                      buttonStyles.controlFocus
+                    )}
+                  >
+                    <svg
+                      aria-hidden="true"
+                      className="h-4 w-4"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="1.8"
+                      viewBox="0 0 24 24"
+                    >
+                      {isWideLayout ? (
+                        <>
+                          <path d="M9 5H5v4" />
+                          <path d="M5 5l5.5 5.5" />
+                          <path d="M15 19h4v-4" />
+                          <path d="M19 19l-5.5-5.5" />
+                        </>
+                      ) : (
+                        <>
+                          <path d="M5 9V5h4" />
+                          <path d="M5 5l5.5 5.5" />
+                          <path d="M19 15v4h-4" />
+                          <path d="M19 19l-5.5-5.5" />
+                        </>
+                      )}
+                    </svg>
+                  </button>
+                </Tooltip>
+              )}
               <div ref={searchMenuRef} className="relative">
                 <Tooltip content={searchModeTooltip[searchMode]} side="bottom">
                   <button
@@ -475,13 +634,20 @@ export default function ChatComposer({
                     aria-expanded={searchMenuOpen}
                     aria-label={`Search mode ${searchModeLabels[searchMode].toLowerCase()}`}
                     onClick={() => setSearchMenuOpen((open) => !open)}
-                    className={`inline-flex h-8 min-w-[6.4rem] items-center justify-between gap-2 rounded-lg border px-3 text-left font-sans font-medium transition ${
+                    className={cx(
+                      'inline-flex h-8 items-center justify-between rounded-lg border text-left font-sans font-medium',
+                      compactControls
+                        ? 'min-w-[3.25rem] gap-1.5 px-2'
+                        : 'min-w-[6.4rem] gap-2 px-3',
+                      buttonStyles.transition,
                       searchMenuOpen || searchMode === 'required'
-                        ? 'border-foreground/[0.08] bg-foreground/[0.055] text-foreground'
+                        ? buttonStyles.controlActive
                         : searchMode === 'off'
-                          ? 'border-transparent bg-background text-foreground/55 hover:bg-foreground/[0.035] hover:text-foreground/75'
-                          : 'border-transparent bg-background text-foreground/88 hover:bg-foreground/[0.035] hover:text-foreground'
-                    }`}
+                          ? buttonStyles.controlInactiveMuted
+                          : buttonStyles.controlInactive,
+                      buttonStyles.controlShadow,
+                      buttonStyles.controlFocus
+                    )}
                   >
                     <span className="flex min-w-0 items-center gap-2">
                       <span
@@ -509,7 +675,13 @@ export default function ChatComposer({
                           />
                         </svg>
                       </span>
-                      <span className="truncate text-[13px]">Search</span>
+                      <span className={cx(
+                        'truncate text-[13px]',
+                        compactControls ? 'hidden' : 'inline'
+                      )}
+                      >
+                        Search
+                      </span>
                     </span>
 
                     <svg
@@ -547,11 +719,14 @@ export default function ChatComposer({
                           onSearchModeChange(mode);
                           setSearchMenuOpen(false);
                         }}
-                        className={`grid h-9 w-full grid-cols-[1fr_0.875rem] items-center gap-3 whitespace-nowrap rounded-xl px-2.5 text-left transition-colors ${
+                        className={cx(
+                          'grid h-9 w-full grid-cols-[1fr_0.875rem] items-center gap-3 whitespace-nowrap rounded-xl px-2.5 text-left',
+                          buttonStyles.transition,
+                          buttonStyles.focus,
                           searchMode === mode
-                            ? 'bg-foreground/[0.055] text-foreground'
-                            : 'text-muted hover:bg-foreground/[0.035] hover:text-foreground'
-                        }`}
+                            ? buttonStyles.menuItemActive
+                            : buttonStyles.menuItemInactive
+                        )}
                       >
                         <span className="text-[13px] font-medium">{searchModeLabels[mode]}</span>
                         {searchMode === mode && (
@@ -564,7 +739,7 @@ export default function ChatComposer({
               </div>
             </div>
 
-            <div className="ml-auto flex min-w-0 items-center gap-1.5">
+            <div className="ml-auto flex flex-shrink-0 items-center gap-1.5">
               <ResponseStylePicker
                 value={responseStyle}
                 onChange={onResponseStyleChange}
@@ -578,6 +753,7 @@ export default function ChatComposer({
                 onChange={onModelChange}
                 onEffortChange={onModelEffortChange}
                 onThinkingEnabledChange={onThinkingEnabledChange}
+                compact={compactControls}
               />
             </div>
           </div>

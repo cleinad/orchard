@@ -8,17 +8,17 @@ import {
 } from '@/app/home/components/homeHeaderToolbar';
 
 interface ConversationMapToggleProps {
-  branchPointCount: number;
+  nodeCount: number;
   isOpen: boolean;
   onToggle: () => void;
 }
 
 export default function ConversationMapToggle({
-  branchPointCount,
+  nodeCount,
   isOpen,
   onToggle,
 }: ConversationMapToggleProps) {
-  if (branchPointCount === 0) {
+  if (nodeCount === 0) {
     return null;
   }
 

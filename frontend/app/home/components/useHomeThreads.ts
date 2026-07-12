@@ -95,7 +95,7 @@ export function useHomeThreads(
     }
 
     const selectedText = resolvedOffsets.selectedText;
-    if (selectedText.length < 2 || selectedText.length > 500) {
+    if (selectedText.length < 2) {
       return;
     }
 

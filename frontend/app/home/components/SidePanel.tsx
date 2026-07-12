@@ -1,6 +1,16 @@
 'use client';
 
-import { useEffect, useCallback, useState, type DragEvent } from 'react';
+import {
+  useEffect,
+  useCallback,
+  useRef,
+  useState,
+  type CSSProperties,
+  type DragEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 import { useRouter } from 'next/navigation';
 import SidebarPanelIcon from '@/app/components/SidebarPanelIcon';
 import Tooltip from '@/app/components/Tooltip';
@@ -10,6 +20,13 @@ import {
   RailIconTemporary,
   RailIconWorkspace,
 } from '@/app/home/components/home-rail-icons';
+import { buttonStyles, cx } from '@/app/components/buttonStyles';
+import {
+  SIDE_PANEL_COLLAPSED_WIDTH_PX,
+  SIDE_PANEL_MAX_WIDTH_PX,
+  SIDE_PANEL_MIN_WIDTH_PX,
+  clampSidePanelWidthPx,
+} from '@/app/home/components/SidePanelContext';
 import { useViewerIdentity } from '@/app/components/useViewerIdentity';
 import { initialsFor } from '@/lib/mentors/ui-helpers';
 import type {
@@ -33,11 +50,15 @@ interface TemporaryChatListItem {
 
 interface Props {
   isOpen: boolean;
+  sidePanelWidthPx: number;
   onClose: () => void;
+  onOpen: () => void;
   onToggleSidePanel: () => void;
+  onSidePanelWidthChange: (widthPx: number) => void;
   onNewChatKeen: () => void;
   onOpenWorkspacesSection: () => void;
   onOpenTemporarySection: () => void;
+  onCreateTemporaryChat: () => void;
   onOpenAllChats: () => void;
   workspaceGroups: SidebarWorkspaceGroup[];
   conversations: ConversationListItem[];
@@ -65,6 +86,16 @@ function getWorkspaceKey(workspaceId: string) {
   return `workspace:${workspaceId}`;
 }
 
+function getWorkspaceSelectionKey(
+  workspaceKey: string,
+  selectedDraftId: string | null,
+  selectedConversationId: string | null
+) {
+  if (selectedDraftId) return `${workspaceKey}:draft:${selectedDraftId}`;
+  if (selectedConversationId) return `${workspaceKey}:conversation:${selectedConversationId}`;
+  return null;
+}
+
 function formatDate(input: string): string {
   const date = new Date(input);
   const now = new Date();
@@ -76,17 +107,51 @@ function formatDate(input: string): string {
 }
 
 const railIconButtonClass =
-  'relative z-10 inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-md text-foreground transition-colors hover:bg-foreground/[0.04]';
+  cx(
+    'relative z-10 inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-md text-foreground',
+    buttonStyles.transition,
+    buttonStyles.focus,
+    buttonStyles.navRowHover
+  );
 const CHAT_LIST_KEY = '__chats__';
 const GLOBAL_DROP_TARGET_KEY = 'global';
+const SIDE_PANEL_DESKTOP_MEDIA_QUERY = '(min-width: 768px)';
+type ExpandedSectionKey = 'workspaces' | 'temporary' | 'chats';
+
+const DEFAULT_EXPANDED_SECTIONS: Record<ExpandedSectionKey, boolean> = {
+  workspaces: true,
+  temporary: true,
+  chats: true,
+};
+
+function SectionCaret({ expanded }: { expanded: boolean }) {
+  return (
+    <span className="inline-flex h-[1.625rem] w-[1.625rem] flex-shrink-0 items-center justify-center rounded-full text-muted transition-colors group-hover:bg-foreground/[0.05] group-hover:text-foreground">
+      <svg
+        className={`h-3.5 w-3.5 transition-transform ${expanded ? 'rotate-90' : ''}`}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        viewBox="0 0 24 24"
+        aria-hidden
+      >
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5.25L15 12l-6 6.75" />
+      </svg>
+    </span>
+  );
+}
 
 export default function SidePanel({
   isOpen,
+  sidePanelWidthPx,
   onClose,
+  onOpen,
   onToggleSidePanel,
+  onSidePanelWidthChange,
   onNewChatKeen,
   onOpenWorkspacesSection,
   onOpenTemporarySection,
+  onCreateTemporaryChat,
   onOpenAllChats,
   workspaceGroups,
   conversations,
@@ -113,13 +178,19 @@ export default function SidePanel({
   const [activeDropTarget, setActiveDropTarget] = useState<string | null>(null);
   const [movingConversationId, setMovingConversationId] = useState<string | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
+  const [expandedSections, setExpandedSections] = useState(DEFAULT_EXPANDED_SECTIONS);
   const [pendingMove, setPendingMove] = useState<{
     conversation: ConversationListItem;
     targetWorkspaceId: string | null;
   } | null>(null);
+  const lastAutoExpandedWorkspaceSelectionRef = useRef<string | null>(null);
+  const manuallyCollapsedWorkspaceSelectionRef = useRef<Record<string, string>>({});
   const { viewer } = useViewerIdentity();
   const profileName = viewer?.fullName || viewer?.email || 'Your profile';
   const profileInitials = initialsFor(profileName);
+  const panelStyle = {
+    '--side-panel-width': `${sidePanelWidthPx}px`,
+  } as CSSProperties;
 
   const handleEscape = useCallback(
     (event: KeyboardEvent) => {
@@ -150,8 +221,6 @@ export default function SidePanel({
       const group = workspaceGroups.find((entry) => entry.workspace_id === selectedWorkspaceId);
       if (!group) return;
 
-      setExpandedWorkspaces((prev) => ({ ...prev, [workspaceKey]: true }));
-
       const items = [
         ...(draftByWorkspaceKey.get(workspaceKey)
           ? [{ kind: 'draft' as const, id: draftByWorkspaceKey.get(workspaceKey)!.id }]
@@ -169,6 +238,17 @@ export default function SidePanel({
       );
 
       if (selectedIndex >= 0) {
+        const selectedItem = items[selectedIndex];
+        const autoExpandKey = `${workspaceKey}:${selectedItem.kind}:${selectedItem.id}`;
+        if (
+          lastAutoExpandedWorkspaceSelectionRef.current !== autoExpandKey &&
+          manuallyCollapsedWorkspaceSelectionRef.current[workspaceKey] !== autoExpandKey
+        ) {
+          lastAutoExpandedWorkspaceSelectionRef.current = autoExpandKey;
+          delete manuallyCollapsedWorkspaceSelectionRef.current[workspaceKey];
+          setExpandedWorkspaces((prev) => ({ ...prev, [workspaceKey]: true }));
+        }
+
         const minimumVisible = selectedIndex < 3 ? 3 : Math.max(10, selectedIndex + 1);
         setVisibleCounts((prev) => ({
           ...prev,
@@ -180,8 +260,11 @@ export default function SidePanel({
     }
 
     if (selectedMentorId) {
+      lastAutoExpandedWorkspaceSelectionRef.current = null;
       return;
     }
+
+    lastAutoExpandedWorkspaceSelectionRef.current = null;
 
     const globalDraft = draftChats.find((draft) => !draft.workspace_id && !draft.mentor_id);
     const globalConversations = conversations.filter(
@@ -266,6 +349,142 @@ export default function SidePanel({
       }
     },
     [onMoveConversation]
+  );
+
+  const handleStartResize = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (!isOpen || !window.matchMedia(SIDE_PANEL_DESKTOP_MEDIA_QUERY).matches) {
+        return;
+      }
+
+      const previousBodyCursor = document.body.style.cursor;
+      const previousBodyUserSelect = document.body.style.userSelect;
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+
+      const handlePointerMove = (moveEvent: globalThis.PointerEvent) => {
+        onSidePanelWidthChange(clampSidePanelWidthPx(moveEvent.clientX));
+      };
+
+      const handlePointerUp = () => {
+        document.body.style.cursor = previousBodyCursor;
+        document.body.style.userSelect = previousBodyUserSelect;
+        window.removeEventListener('pointermove', handlePointerMove);
+        window.removeEventListener('pointerup', handlePointerUp);
+        window.removeEventListener('pointercancel', handlePointerUp);
+      };
+
+      window.addEventListener('pointermove', handlePointerMove);
+      window.addEventListener('pointerup', handlePointerUp);
+      window.addEventListener('pointercancel', handlePointerUp);
+      event.preventDefault();
+    },
+    [isOpen, onSidePanelWidthChange]
+  );
+
+  const handleResizeKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLDivElement>) => {
+      if (!isOpen) {
+        return;
+      }
+
+      if (event.key === 'Home') {
+        onSidePanelWidthChange(SIDE_PANEL_MIN_WIDTH_PX);
+        event.preventDefault();
+        return;
+      }
+
+      if (event.key === 'End') {
+        onSidePanelWidthChange(SIDE_PANEL_MAX_WIDTH_PX);
+        event.preventDefault();
+        return;
+      }
+
+      const direction = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
+      if (direction === 0) {
+        return;
+      }
+
+      const step = event.shiftKey ? 24 : 12;
+      onSidePanelWidthChange(sidePanelWidthPx + direction * step);
+      event.preventDefault();
+    },
+    [isOpen, onSidePanelWidthChange, sidePanelWidthPx]
+  );
+
+  const handleCollapsedRailClick = useCallback(
+    (event: ReactMouseEvent<HTMLElement>) => {
+      if (isOpen) {
+        return;
+      }
+
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      if (target?.closest('button, a, [role="button"]')) {
+        return;
+      }
+
+      onOpen();
+    },
+    [isOpen, onOpen]
+  );
+
+  const handleRailPanelButtonClick = useCallback(() => {
+    if (isOpen) {
+      onToggleSidePanel();
+      return;
+    }
+
+    onOpen();
+  }, [isOpen, onOpen, onToggleSidePanel]);
+
+  const expandSection = useCallback((section: ExpandedSectionKey) => {
+    setExpandedSections((prev) => ({
+      ...prev,
+      [section]: true,
+    }));
+  }, []);
+
+  const toggleSection = useCallback((section: ExpandedSectionKey) => {
+    setExpandedSections((prev) => ({
+      ...prev,
+      [section]: !prev[section],
+    }));
+  }, []);
+
+  const handleOpenWorkspacesFromRail = useCallback(
+    (event: ReactMouseEvent<HTMLButtonElement>) => {
+      event.stopPropagation();
+      expandSection('workspaces');
+      onOpenWorkspacesSection();
+    },
+    [expandSection, onOpenWorkspacesSection]
+  );
+
+  const handleOpenTemporaryFromRail = useCallback(
+    (event: ReactMouseEvent<HTMLButtonElement>) => {
+      event.stopPropagation();
+      expandSection('temporary');
+      onOpenTemporarySection();
+    },
+    [expandSection, onOpenTemporarySection]
+  );
+
+  const handleCreateTemporaryFromSection = useCallback(
+    (event: ReactMouseEvent<HTMLButtonElement>) => {
+      event.stopPropagation();
+      expandSection('temporary');
+      onCreateTemporaryChat();
+    },
+    [expandSection, onCreateTemporaryChat]
+  );
+
+  const handleOpenChatsFromRail = useCallback(
+    (event: ReactMouseEvent<HTMLButtonElement>) => {
+      event.stopPropagation();
+      expandSection('chats');
+      onOpenAllChats();
+    },
+    [expandSection, onOpenAllChats]
   );
 
   const handleConversationDrop = (
@@ -376,14 +595,20 @@ export default function SidePanel({
                 onDragLeave={(event) => handleDropTargetDragLeave(event, group.workspace_id)}
                 onDrop={(event) => handleConversationDrop(event, group.workspace_id)}
                 data-testid={`workspace-drop-target-${group.workspace_id}`}
-                className={`flex items-center gap-2 rounded-xl px-3 py-1 transition-colors ${
-                  isSelectedWorkspace ? 'bg-foreground/[0.05]' : 'hover:bg-foreground/[0.03]'
-                } ${getDropTargetClass(group.workspace_id)}`}
+                className={cx(
+                  'mr-2 flex items-center gap-2 rounded-xl px-3 py-1',
+                  buttonStyles.transition,
+                  isSelectedWorkspace ? 'bg-foreground/[0.05]' : 'hover:bg-foreground/[0.03]',
+                  getDropTargetClass(group.workspace_id)
+                )}
               >
                 <button
                   type="button"
                   onClick={() => onOpenWorkspace(group.workspace_id)}
-                  className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                  className={cx(
+                    'flex min-w-0 flex-1 items-center gap-3 text-left',
+                    buttonStyles.focus
+                  )}
                 >
                   {renderWorkspaceIcon(group)}
                   <span className="min-w-0 flex-1 truncate font-sans text-[15px] text-foreground">
@@ -392,13 +617,33 @@ export default function SidePanel({
                 </button>
                 <button
                   type="button"
-                  onClick={() =>
+                  onClick={() => {
+                    const nextExpanded = !isExpanded;
+                    const selectedWorkspaceKey =
+                      selectedWorkspaceId === group.workspace_id
+                        ? getWorkspaceSelectionKey(
+                            workspaceKey,
+                            selectedDraftId,
+                            selectedConversationId
+                          )
+                        : null;
+                    if (nextExpanded || !selectedWorkspaceKey) {
+                      delete manuallyCollapsedWorkspaceSelectionRef.current[workspaceKey];
+                    } else {
+                      manuallyCollapsedWorkspaceSelectionRef.current[workspaceKey] =
+                        selectedWorkspaceKey;
+                    }
                     setExpandedWorkspaces((prev) => ({
                       ...prev,
-                      [workspaceKey]: !isExpanded,
-                    }))
-                  }
-                  className="inline-flex h-[1.625rem] w-[1.625rem] flex-shrink-0 items-center justify-center rounded-full text-muted transition-colors hover:bg-foreground/[0.05] hover:text-foreground"
+                      [workspaceKey]: nextExpanded,
+                    }));
+                  }}
+                  className={cx(
+                    'inline-flex h-[1.625rem] w-[1.625rem] flex-shrink-0 items-center justify-center rounded-full',
+                    buttonStyles.transition,
+                    buttonStyles.focus,
+                    buttonStyles.ghost
+                  )}
                   aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${group.workspace_name}`}
                 >
                   <svg
@@ -414,7 +659,12 @@ export default function SidePanel({
                 <button
                   type="button"
                   onClick={() => onCreateWorkspaceDraft(group.workspace_id)}
-                  className="inline-flex h-[1.625rem] w-[1.625rem] flex-shrink-0 items-center justify-center rounded-full text-muted transition-colors hover:bg-foreground/[0.05] hover:text-foreground"
+                  className={cx(
+                    'inline-flex h-[1.625rem] w-[1.625rem] flex-shrink-0 items-center justify-center rounded-full',
+                    buttonStyles.transition,
+                    buttonStyles.focus,
+                    buttonStyles.ghost
+                  )}
                   aria-label={`New chat in ${group.workspace_name}`}
                 >
                   <svg
@@ -435,11 +685,14 @@ export default function SidePanel({
                     <button
                       type="button"
                       onClick={() => onSelectDraft(draft.id)}
-                      className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-1.5 text-left transition-colors ${
+                      className={cx(
+                        'mr-2 flex w-[calc(100%-0.5rem)] items-center justify-between gap-3 rounded-xl px-3 py-1.5 text-left',
+                        buttonStyles.transition,
+                        buttonStyles.focus,
                         selectedDraftId === draft.id
-                          ? 'bg-foreground/[0.06]'
-                          : 'hover:bg-foreground/[0.04]'
-                      }`}
+                          ? buttonStyles.listRowSelected
+                          : buttonStyles.listRowHover
+                      )}
                     >
                       <span className="truncate font-sans text-sm text-foreground">{draft.title}</span>
                       <span className="flex-shrink-0 font-sans text-[11px] text-muted">
@@ -454,11 +707,15 @@ export default function SidePanel({
                       type="button"
                       onClick={() => onSelectConversation(conversation)}
                       {...getConversationDragProps(conversation)}
-                      className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-1.5 text-left transition-colors ${
+                      className={cx(
+                        'mr-2 flex w-[calc(100%-0.5rem)] items-center justify-between gap-3 rounded-xl px-3 py-1.5 text-left',
+                        buttonStyles.transition,
+                        buttonStyles.focus,
                         selectedConversationId === conversation.id
-                          ? 'bg-foreground/[0.06]'
-                          : 'hover:bg-foreground/[0.04]'
-                      } ${movingConversationId === conversation.id ? 'opacity-60' : ''}`}
+                          ? buttonStyles.listRowSelected
+                          : buttonStyles.listRowHover,
+                        movingConversationId === conversation.id ? 'opacity-60' : null
+                      )}
                     >
                       <span className="truncate font-sans text-sm text-foreground/88">
                         {conversation.title}
@@ -483,7 +740,12 @@ export default function SidePanel({
                                   : (prev[workspaceKey] ?? 3) + 10,
                             }))
                           }
-                          className="text-[11px] font-sans font-medium tracking-wide text-muted transition-colors hover:text-foreground"
+                          className={cx(
+                            'text-[11px] font-sans font-medium tracking-wide',
+                            buttonStyles.transition,
+                            buttonStyles.focus,
+                            buttonStyles.ghostQuiet
+                          )}
                         >
                           Show more
                         </button>
@@ -496,7 +758,12 @@ export default function SidePanel({
                               [workspaceKey]: 3,
                             }))
                           }
-                          className="text-[11px] font-medium tracking-wide text-muted transition-colors hover:text-foreground"
+                          className={cx(
+                            'text-[11px] font-medium tracking-wide',
+                            buttonStyles.transition,
+                            buttonStyles.focus,
+                            buttonStyles.ghostQuiet
+                          )}
                         >
                           Show less
                         </button>
@@ -522,11 +789,14 @@ export default function SidePanel({
             <button
               type="button"
               onClick={() => onSelectDraft(globalDraft.id)}
-              className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-1.5 text-left transition-colors ${
+              className={cx(
+                'mr-2 flex w-[calc(100%-0.5rem)] items-center justify-between gap-3 rounded-xl px-3 py-1.5 text-left',
+                buttonStyles.transition,
+                buttonStyles.focus,
                 selectedDraftId === globalDraft.id
-                  ? 'bg-foreground/[0.06]'
-                  : 'hover:bg-foreground/[0.04]'
-              }`}
+                  ? buttonStyles.listRowSelected
+                  : buttonStyles.listRowHover
+              )}
             >
               <span className="truncate font-sans text-sm text-foreground">{globalDraft.title}</span>
               <span className="flex-shrink-0 font-sans text-[11px] text-muted">
@@ -541,11 +811,15 @@ export default function SidePanel({
               type="button"
               onClick={() => onSelectConversation(conversation)}
               {...getConversationDragProps(conversation)}
-              className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-1.5 text-left transition-colors ${
+              className={cx(
+                'mr-2 flex w-[calc(100%-0.5rem)] items-center justify-between gap-3 rounded-xl px-3 py-1.5 text-left',
+                buttonStyles.transition,
+                buttonStyles.focus,
                 selectedConversationId === conversation.id
-                  ? 'bg-foreground/[0.06]'
-                  : 'hover:bg-foreground/[0.04]'
-              } ${movingConversationId === conversation.id ? 'opacity-60' : ''}`}
+                  ? buttonStyles.listRowSelected
+                  : buttonStyles.listRowHover,
+                movingConversationId === conversation.id ? 'opacity-60' : null
+              )}
             >
               <span className="truncate font-sans text-sm text-foreground/88">
                 {conversation.title}
@@ -568,7 +842,12 @@ export default function SidePanel({
                         (prev[CHAT_LIST_KEY] ?? 10) + 10,
                     }))
                   }
-                  className="text-[11px] font-sans font-medium tracking-wide text-muted transition-colors hover:text-foreground"
+                  className={cx(
+                    'text-[11px] font-sans font-medium tracking-wide',
+                    buttonStyles.transition,
+                    buttonStyles.focus,
+                    buttonStyles.ghostQuiet
+                  )}
                 >
                   Show more
                 </button>
@@ -581,7 +860,12 @@ export default function SidePanel({
                       [CHAT_LIST_KEY]: 10,
                     }))
                   }
-                  className="text-[11px] font-medium tracking-wide text-muted transition-colors hover:text-foreground"
+                  className={cx(
+                    'text-[11px] font-medium tracking-wide',
+                    buttonStyles.transition,
+                    buttonStyles.focus,
+                    buttonStyles.ghostQuiet
+                  )}
                 >
                   Show less
                 </button>
@@ -599,7 +883,7 @@ export default function SidePanel({
       <Tooltip content={isOpen ? 'Hide chats' : 'Chats'} side="right">
         <button
           type="button"
-          onClick={onToggleSidePanel}
+          onClick={handleRailPanelButtonClick}
           className={`${railIconButtonClass} ${isOpen ? 'text-foreground' : ''}`}
           aria-pressed={isOpen}
           aria-label={isOpen ? 'Close conversations' : 'Open conversations'}
@@ -620,7 +904,7 @@ export default function SidePanel({
       <Tooltip content="Workspaces" side="right">
         <button
           type="button"
-          onClick={onOpenWorkspacesSection}
+          onClick={handleOpenWorkspacesFromRail}
           className={railIconButtonClass}
           aria-label="Workspaces"
         >
@@ -630,7 +914,7 @@ export default function SidePanel({
       <Tooltip content="Temporary" side="right">
         <button
           type="button"
-          onClick={onOpenTemporarySection}
+          onClick={handleOpenTemporaryFromRail}
           className={railIconButtonClass}
           aria-label="Temporary chats"
         >
@@ -640,7 +924,7 @@ export default function SidePanel({
       <Tooltip content="Chats" side="right">
         <button
           type="button"
-          onClick={onOpenAllChats}
+          onClick={handleOpenChatsFromRail}
           className={railIconButtonClass}
           aria-label="Chats"
         >
@@ -688,7 +972,13 @@ export default function SidePanel({
                 type="button"
                 onClick={() => setPendingMove(null)}
                 disabled={movingConversationId !== null}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted transition-colors hover:bg-foreground/[0.05] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                className={cx(
+                  'inline-flex h-8 w-8 items-center justify-center rounded-md',
+                  buttonStyles.transition,
+                  buttonStyles.focus,
+                  buttonStyles.ghost,
+                  buttonStyles.disabled
+                )}
                 aria-label="Close"
               >
                 <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.7" viewBox="0 0 24 24">
@@ -702,7 +992,13 @@ export default function SidePanel({
                 type="button"
                 onClick={() => setPendingMove(null)}
                 disabled={movingConversationId !== null}
-                className="rounded-lg border border-border-subtle bg-surface px-3 py-2 font-sans text-sm font-semibold text-foreground transition hover:bg-foreground/[0.04] disabled:cursor-not-allowed disabled:opacity-50"
+                className={cx(
+                  'rounded-lg border border-border-subtle bg-surface px-3 py-2 font-sans text-sm font-semibold text-foreground',
+                  buttonStyles.transition,
+                  buttonStyles.focus,
+                  buttonStyles.navRowHover,
+                  buttonStyles.disabled
+                )}
               >
                 Cancel
               </button>
@@ -715,7 +1011,11 @@ export default function SidePanel({
                   )
                 }
                 disabled={movingConversationId !== null}
-                className="rounded-lg bg-foreground px-3 py-2 font-sans text-sm font-semibold text-background transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                className={cx(
+                  'rounded-lg px-3 py-2 font-sans text-sm font-semibold',
+                  buttonStyles.primaryText,
+                  buttonStyles.focus
+                )}
               >
                 {movingConversationId ? 'Moving...' : 'Move chat'}
               </button>
@@ -725,7 +1025,7 @@ export default function SidePanel({
       )}
 
       <div
-        className={`fixed inset-0 z-40 bg-foreground/[0.06] backdrop-blur-sm transition-opacity duration-300 dark:bg-black/40 lg:hidden ${
+        className={`side-panel-backdrop fixed inset-0 z-40 bg-foreground/[0.06] backdrop-blur-sm transition-opacity duration-300 dark:bg-black/40 ${
           isOpen ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'
         }`}
         onClick={onClose}
@@ -733,16 +1033,15 @@ export default function SidePanel({
       />
 
       <div
-        className={`fixed left-0 top-0 z-50 flex h-dvh overflow-hidden border-r border-foreground/[0.06] bg-background transition-[width] duration-300 ease-out dark:border-foreground/[0.08] ${
-          isOpen
-            ? 'w-[min(21.8rem,100vw)]'
-            : 'w-14'
-        }`}
+        data-open={isOpen}
+        className="side-panel-shell fixed left-0 top-0 z-50 flex h-dvh overflow-hidden border-r border-foreground/[0.06] bg-background transition-[width] duration-300 ease-out dark:border-foreground/[0.08]"
+        style={panelStyle}
       >
         {/* Rail icons — always mounted, faded out when panel is open so the width transition has no DOM swap */}
         <nav
+          onClick={handleCollapsedRailClick}
           className={`absolute inset-y-0 left-0 flex w-14 flex-shrink-0 flex-col bg-background transition-opacity duration-300 ${
-            isOpen ? 'pointer-events-none opacity-0' : 'opacity-100'
+            isOpen ? 'pointer-events-none opacity-0' : 'cursor-pointer opacity-100'
           }`}
           aria-label="Chat navigation"
           aria-hidden={isOpen}
@@ -773,7 +1072,12 @@ export default function SidePanel({
                     onClick={onToggleSidePanel}
                     aria-pressed
                     aria-label="Close conversations"
-                    className="flex h-10 w-full items-center text-left transition-colors hover:bg-foreground/[0.04]"
+                    className={cx(
+                      'flex h-10 w-full items-center text-left',
+                      buttonStyles.transition,
+                      buttonStyles.focus,
+                      buttonStyles.navRowHover
+                    )}
                   >
                     <div className="flex w-14 flex-shrink-0 items-center justify-center">
                       <SidebarPanelIcon className="h-5 w-5 text-foreground" />
@@ -788,7 +1092,12 @@ export default function SidePanel({
                     type="button"
                     onClick={onNewChatKeen}
                     aria-label="New chat with Keen"
-                    className="flex h-10 w-full items-center text-left transition-colors hover:bg-foreground/[0.04]"
+                    className={cx(
+                      'flex h-10 w-full items-center text-left',
+                      buttonStyles.transition,
+                      buttonStyles.focus,
+                      buttonStyles.navRowHover
+                    )}
                   >
                     <div className="flex w-14 flex-shrink-0 items-center justify-center">
                       <RailIconNewChat className="h-5 w-5 text-foreground" />
@@ -799,14 +1108,35 @@ export default function SidePanel({
 
                 <div id="side-panel-section-workspaces" className="scroll-mt-2">
                   <div className="flex h-10 w-full items-center">
-                    <div className="flex w-14 flex-shrink-0 items-center justify-center">
-                      <RailIconWorkspace className="h-5 w-5 text-foreground" />
-                    </div>
-                    <span className="font-sans text-sm font-medium text-foreground">Workspaces</span>
+                    <button
+                      type="button"
+                      onClick={() => toggleSection('workspaces')}
+                      className={cx(
+                        'group flex min-w-0 flex-1 items-center self-stretch text-left',
+                        buttonStyles.transition,
+                        buttonStyles.focus,
+                        buttonStyles.navRowHover
+                      )}
+                      aria-expanded={expandedSections.workspaces}
+                      aria-controls="side-panel-workspaces-list"
+                    >
+                      <div className="flex w-14 flex-shrink-0 items-center justify-center">
+                        <RailIconWorkspace className="h-5 w-5 text-foreground" />
+                      </div>
+                      <span className="font-sans text-sm font-medium text-foreground">Workspaces</span>
+                      <span className="ml-2">
+                        <SectionCaret expanded={expandedSections.workspaces} />
+                      </span>
+                    </button>
                     <button
                       type="button"
                       onClick={onCreateWorkspace}
-                      className="ml-auto mr-3 inline-flex h-7 w-7 items-center justify-center rounded-full text-muted transition-colors hover:bg-foreground/[0.05] hover:text-foreground"
+                      className={cx(
+                        'ml-auto mr-3 inline-flex h-7 w-7 items-center justify-center rounded-full',
+                        buttonStyles.transition,
+                        buttonStyles.focus,
+                        buttonStyles.ghost
+                      )}
                       aria-label="New workspace"
                     >
                       <svg
@@ -820,14 +1150,16 @@ export default function SidePanel({
                       </svg>
                     </button>
                   </div>
-                  <div className="pl-14 pr-2">
-                    {workspaceList}
-                  </div>
+                  {expandedSections.workspaces && (
+                    <div id="side-panel-workspaces-list" className="pl-9 pr-0">
+                      {workspaceList}
+                    </div>
+                  )}
                 </div>
 
-                {moveError && (
+                {expandedSections.workspaces && moveError && (
                   <p
-                    className="ml-14 mr-5 rounded-md border border-amber-300/70 bg-amber-50 px-3 py-2 font-sans text-xs text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100"
+                    className="ml-11 mr-5 rounded-md border border-amber-300/70 bg-amber-50 px-3 py-2 font-sans text-xs text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100"
                     role="alert"
                   >
                     {moveError}
@@ -839,64 +1171,116 @@ export default function SidePanel({
                   className="scroll-mt-2"
                 >
                   <div className="flex h-10 w-full items-center">
-                    <div className="flex w-14 flex-shrink-0 items-center justify-center">
-                      <RailIconTemporary className="h-5 w-5 text-foreground" />
-                    </div>
-                    <span className="font-sans text-sm font-medium text-foreground">Temporary</span>
-                  </div>
-                  <div className="pl-14 pr-2">
-                    {temporaryChats.length > 0 ? (
-                      <div className="space-y-1">
-                        {temporaryChats.map((chat) => {
-                          const isActive = selectedTempChatId === chat.id;
-                          return (
-                            <div
-                              key={chat.id}
-                              className={`group flex items-center gap-3 rounded-xl px-3 py-1.5 transition-colors ${
-                                isActive ? 'bg-foreground/[0.06]' : 'hover:bg-foreground/[0.04]'
-                              }`}
-                            >
-                              <button
-                                type="button"
-                                onClick={() => onSelectTemporaryChat(chat.id)}
-                                aria-label={`Temp ${chat.title}`}
-                                className="flex min-w-0 flex-1 items-center gap-3 text-left"
-                              >
-                                <span className="min-w-0 flex-1 truncate font-sans text-sm text-foreground">
-                                  {chat.title}
-                                </span>
-                                <span className="flex-shrink-0 font-sans text-[11px] text-muted">
-                                  {formatDate(chat.updated_at)}
-                                </span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => onCloseTemporaryChat(chat.id)}
-                                className="rounded-full p-1 text-muted/60 transition-colors hover:text-foreground"
-                                aria-label={`Close ${chat.title}`}
-                              >
-                                <svg
-                                  className="h-3.5 w-3.5"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="1.5"
-                                  viewBox="0 0 24 24"
-                                >
-                                  <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    d="M6 18L18 6M6 6l12 12"
-                                  />
-                                </svg>
-                              </button>
-                            </div>
-                          );
-                        })}
+                    <button
+                      type="button"
+                      onClick={() => toggleSection('temporary')}
+                      className={cx(
+                        'group flex min-w-0 flex-1 items-center self-stretch text-left',
+                        buttonStyles.transition,
+                        buttonStyles.focus,
+                        buttonStyles.navRowHover
+                      )}
+                      aria-expanded={expandedSections.temporary}
+                      aria-controls="side-panel-temporary-list"
+                    >
+                      <div className="flex w-14 flex-shrink-0 items-center justify-center">
+                        <RailIconTemporary className="h-5 w-5 text-foreground" />
                       </div>
-                    ) : (
-                      <p className="font-sans text-xs text-muted">No temporary chats.</p>
-                    )}
+                      <span className="font-sans text-sm font-medium text-foreground">Temporary</span>
+                      <span className="ml-2">
+                        <SectionCaret expanded={expandedSections.temporary} />
+                      </span>
+                    </button>
+                    <Tooltip content="New temporary chat">
+                      <button
+                        type="button"
+                        onClick={handleCreateTemporaryFromSection}
+                        className={cx(
+                          'mr-3 inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full',
+                          buttonStyles.transition,
+                          buttonStyles.focus,
+                          buttonStyles.ghost
+                        )}
+                        aria-label="New temporary chat"
+                      >
+                        <svg
+                          className="h-4 w-4"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.5"
+                          viewBox="0 0 24 24"
+                          aria-hidden="true"
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                        </svg>
+                      </button>
+                    </Tooltip>
                   </div>
+                  {expandedSections.temporary && (
+                    <div id="side-panel-temporary-list" className="pl-11 pr-2">
+                      {temporaryChats.length > 0 ? (
+                        <div className="space-y-1">
+                          {temporaryChats.map((chat) => {
+                            const isActive = selectedTempChatId === chat.id;
+                            return (
+                              <div
+                                key={chat.id}
+                                className={cx(
+                                  'group mr-2 flex items-center gap-3 rounded-xl px-3 py-1.5',
+                                  buttonStyles.transition,
+                                  isActive ? buttonStyles.listRowSelected : buttonStyles.listRowHover
+                                )}
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => onSelectTemporaryChat(chat.id)}
+                                  aria-label={`Temp ${chat.title}`}
+                                  className={cx(
+                                    'flex min-w-0 flex-1 items-center gap-3 text-left',
+                                    buttonStyles.focus
+                                  )}
+                                >
+                                  <span className="min-w-0 flex-1 truncate font-sans text-sm text-foreground">
+                                    {chat.title}
+                                  </span>
+                                  <span className="flex-shrink-0 font-sans text-[11px] text-muted">
+                                    {formatDate(chat.updated_at)}
+                                  </span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => onCloseTemporaryChat(chat.id)}
+                                  className={cx(
+                                    'rounded-full p-1',
+                                    buttonStyles.transition,
+                                    buttonStyles.focus,
+                                    buttonStyles.ghost
+                                  )}
+                                  aria-label={`Close ${chat.title}`}
+                                >
+                                  <svg
+                                    className="h-3.5 w-3.5"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="1.5"
+                                    viewBox="0 0 24 24"
+                                  >
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      d="M6 18L18 6M6 6l12 12"
+                                    />
+                                  </svg>
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <p className="px-3 font-sans text-xs text-muted">No temporary chats.</p>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div id="side-panel-section-all-chats" className="scroll-mt-2">
@@ -907,14 +1291,35 @@ export default function SidePanel({
                     onDrop={(event) => handleConversationDrop(event, null)}
                     data-testid="global-drop-target"
                   >
-                    <div className="flex w-14 flex-shrink-0 items-center justify-center">
-                      <RailIconAllChats className="h-5 w-5 text-foreground" />
-                    </div>
-                    <span className="font-sans text-sm font-medium text-foreground">Chats</span>
+                    <button
+                      type="button"
+                      onClick={() => toggleSection('chats')}
+                      className={cx(
+                        'group flex min-w-0 flex-1 items-center self-stretch text-left',
+                        buttonStyles.transition,
+                        buttonStyles.focus,
+                        buttonStyles.navRowHover
+                      )}
+                      aria-expanded={expandedSections.chats}
+                      aria-controls="side-panel-chats-list"
+                    >
+                      <div className="flex w-14 flex-shrink-0 items-center justify-center">
+                        <RailIconAllChats className="h-5 w-5 text-foreground" />
+                      </div>
+                      <span className="font-sans text-sm font-medium text-foreground">Chats</span>
+                      <span className="ml-2">
+                        <SectionCaret expanded={expandedSections.chats} />
+                      </span>
+                    </button>
                     <button
                       type="button"
                       onClick={onNewChatKeen}
-                      className="ml-auto mr-3 inline-flex h-7 w-7 items-center justify-center rounded-full text-muted transition-colors hover:bg-foreground/[0.05] hover:text-foreground"
+                      className={cx(
+                        'ml-auto mr-3 inline-flex h-7 w-7 items-center justify-center rounded-full',
+                        buttonStyles.transition,
+                        buttonStyles.focus,
+                        buttonStyles.ghost
+                      )}
                       aria-label="New chat"
                     >
                       <svg
@@ -928,23 +1333,25 @@ export default function SidePanel({
                       </svg>
                     </button>
                   </div>
-                  <div className="pl-14 pb-6 pr-2">
-                    {chatList}
-                  </div>
+                  {expandedSections.chats && (
+                    <div id="side-panel-chats-list" className="pl-11 pb-6 pr-2">
+                      {chatList}
+                    </div>
+                  )}
                 </div>
                 </div>{/* end header rows */}
               </div>
 
             </div>
 
-            <div className="border-t border-border-subtle px-4 py-2">
-              <div className="flex items-center justify-between gap-3 px-3 py-0.5">
-                <div className="flex min-w-0 flex-1 items-center gap-3">
-                  <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-foreground/[0.05] text-[11px] font-semibold text-foreground">
+            <div className="border-t border-border-subtle px-2.5 py-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex min-w-0 flex-1 items-center gap-2">
+                  <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md bg-foreground/[0.05] text-[9px] font-semibold text-foreground">
                     {profileInitials}
                   </div>
                   <div className="min-w-0">
-                    <p className="truncate font-sans text-sm text-foreground">{profileName}</p>
+                    <p className="truncate font-sans text-xs text-foreground">{profileName}</p>
                   </div>
                 </div>
 
@@ -954,36 +1361,74 @@ export default function SidePanel({
                     router.push('/settings');
                     onClose();
                   }}
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-muted transition-colors hover:bg-foreground/[0.05] hover:text-foreground"
+                  className={cx(
+                    'inline-flex h-8 w-8 items-center justify-center rounded-lg',
+                    buttonStyles.transition,
+                    buttonStyles.focus,
+                    buttonStyles.ghost
+                  )}
                   aria-label="Open settings"
                   title="Open settings"
                 >
                   <svg
-                    className="h-[26px] w-[26px] translate-x-[1px] text-muted"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.7"
+                    className="h-[18px] w-[18px] text-muted/80"
+                    fill="currentColor"
                     viewBox="0 0 24 24"
+                    aria-hidden="true"
                   >
                     <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M12 3.75v2.1M12 18.15v2.1M3.75 12h2.1M18.15 12h2.1M6.17 6.17l1.48 1.48M16.35 16.35l1.48 1.48M17.83 6.17l-1.48 1.48M7.65 16.35l-1.48 1.48"
+                      fillRule="evenodd"
+                      clipRule="evenodd"
+                      d="M19.43 12.98c.04-.32.07-.65.07-.98s-.02-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46a.5.5 0 00-.61-.22l-2.49 1a7.28 7.28 0 00-1.69-.98L14.5 2.42A.5.5 0 0014 2h-4a.5.5 0 00-.49.42L9.13 5.07c-.61.24-1.18.56-1.69.98l-2.49-1a.5.5 0 00-.61.22l-2 3.46a.5.5 0 00.12.64l2.11 1.65a7.93 7.93 0 000 1.96l-2.11 1.65a.5.5 0 00-.12.64l2 3.46c.13.22.39.31.61.22l2.49-1c.51.4 1.08.73 1.69.98l.38 2.65A.5.5 0 0010 22h4a.5.5 0 00.49-.42l.38-2.65c.61-.24 1.18-.56 1.69-.98l2.49 1c.23.08.48 0 .61-.22l2-3.46a.5.5 0 00-.12-.64l-2.11-1.65zM12 15.5a3.5 3.5 0 110-7 3.5 3.5 0 010 7z"
                     />
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M12 6.65a5.35 5.35 0 100 10.7 5.35 5.35 0 000-10.7z"
-                    />
-                    <circle cx="12" cy="12" r="2.2" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
                 </button>
               </div>
             </div>
         </div>
+
+        <div
+          role="separator"
+          aria-label="Resize conversations sidebar"
+          aria-orientation="vertical"
+          aria-valuemin={SIDE_PANEL_MIN_WIDTH_PX}
+          aria-valuemax={SIDE_PANEL_MAX_WIDTH_PX}
+          aria-valuenow={sidePanelWidthPx}
+          tabIndex={isOpen ? 0 : -1}
+          data-testid="side-panel-resize-handle"
+          onPointerDown={handleStartResize}
+          onKeyDown={handleResizeKeyDown}
+          className={`side-panel-resize-handle group absolute inset-y-0 right-[-3px] z-20 hidden w-2 cursor-col-resize items-stretch justify-center outline-none ${
+            isOpen ? 'pointer-events-auto' : 'pointer-events-none'
+          }`}
+        >
+          <span className="my-4 w-px rounded-full bg-transparent transition-colors group-hover:bg-foreground/20 group-focus-visible:bg-foreground/30" />
+        </div>
       </div>
 
       <style jsx>{`
+        .side-panel-shell {
+          width: ${SIDE_PANEL_COLLAPSED_WIDTH_PX}px;
+        }
+
+        .side-panel-shell[data-open='true'] {
+          width: min(21.8rem, 100vw);
+        }
+
+        @media ${SIDE_PANEL_DESKTOP_MEDIA_QUERY} {
+          .side-panel-backdrop {
+            display: none;
+          }
+
+          .side-panel-shell[data-open='true'] {
+            width: min(var(--side-panel-width), calc(100vw - 5rem));
+          }
+
+          .side-panel-resize-handle {
+            display: flex;
+          }
+        }
+
         .side-panel-scroll {
           scrollbar-width: none;
         }

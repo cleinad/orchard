@@ -15,7 +15,7 @@ type HomeHeaderProps = {
   temporaryMemoryMode: TemporaryMemoryMode;
   loadingLists: boolean;
   onCreateTemporaryChat: () => void;
-  conversationMapBranchPointCount: number;
+  conversationMapNodeCount: number;
   conversationMapOpen: boolean;
   onToggleConversationMap: () => void;
 };
@@ -26,7 +26,7 @@ export default function HomeHeader({
   temporaryMemoryMode,
   loadingLists,
   onCreateTemporaryChat,
-  conversationMapBranchPointCount,
+  conversationMapNodeCount,
   conversationMapOpen,
   onToggleConversationMap,
 }: HomeHeaderProps) {
@@ -63,7 +63,7 @@ export default function HomeHeader({
           loading...
         </span>
         <ConversationMapToggle
-          branchPointCount={conversationMapBranchPointCount}
+          nodeCount={conversationMapNodeCount}
           isOpen={conversationMapOpen}
           onToggle={onToggleConversationMap}
         />

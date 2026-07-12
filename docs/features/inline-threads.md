@@ -86,6 +86,8 @@ Key behavior:
 
 - It opens on the right side of the home screen.
 - Requests from the thread panel answer the user's latest thread question directly while treating the selected text as local context.
+- The model receives a dedicated thread context block before the latest thread question. That block separates app-owned thread rules from quoted source data, includes selected text up to the generous safety cap, the source message role/id, selection offsets, and a marked source-message excerpt so ambiguous references like "this" normally resolve to the highlighted span.
+- Thread context should use the source message's parent chain, capped to the recent anchor path, plus prior thread messages. It should not include unrelated main-chat turns that happened after the selected source.
 - Only one panel is visible at a time.
 - The newest submitted thread session becomes the active panel session.
 - Older sessions keep running in the background.

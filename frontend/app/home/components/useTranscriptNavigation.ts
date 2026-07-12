@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type Dispatch,
@@ -19,7 +20,10 @@ interface UseTranscriptNavigationParams {
   activeMessages: Message[];
   containerRef: RefObject<HTMLDivElement | null>;
   currentMapMessageId: string | null;
+  getSavedScrollPosition: (key: string) => number | null;
   messagesEndRef: RefObject<HTMLDivElement | null>;
+  scrollRestorationKey: string | null;
+  setSavedScrollPosition: (key: string, scrollTop: number) => void;
   setCurrentMapMessageId: Dispatch<SetStateAction<string | null>>;
 }
 
@@ -27,16 +31,32 @@ export function useTranscriptNavigation({
   activeMessages,
   containerRef,
   currentMapMessageId,
+  getSavedScrollPosition,
   messagesEndRef,
+  scrollRestorationKey,
+  setSavedScrollPosition,
   setCurrentMapMessageId,
 }: UseTranscriptNavigationParams) {
   const [userHasScrolled, setUserHasScrolled] = useState(false);
   const userHasScrolledRef = useRef(false);
   const scrollInstantRef = useRef(true);
+  const activeMessagesLengthRef = useRef(activeMessages.length);
+  const pendingScrollRestoreKeyRef = useRef<string | null>(scrollRestorationKey);
+  const previousScrollRestorationKeyRef = useRef<string | null>(scrollRestorationKey);
+  const scrollRestorationKeyRef = useRef<string | null>(scrollRestorationKey);
+  const skipNextAutoScrollKeyRef = useRef<string | null>(null);
+  const blockAutoScrollUntilRef = useRef(0);
   const programmaticTranscriptNavigationRef = useRef(false);
   const transcriptNavigationTimeoutRef = useRef<number | null>(null);
   const transcriptNavigationEndHandlerRef = useRef<EventListener | null>(null);
   const visibleMapMessageAnimationFrameRef = useRef<number | null>(null);
+
+  scrollRestorationKeyRef.current = scrollRestorationKey;
+  activeMessagesLengthRef.current = activeMessages.length;
+  if (previousScrollRestorationKeyRef.current !== scrollRestorationKey) {
+    pendingScrollRestoreKeyRef.current = scrollRestorationKey;
+    previousScrollRestorationKeyRef.current = scrollRestorationKey;
+  }
 
   useEffect(() => {
     userHasScrolledRef.current = userHasScrolled;
@@ -46,6 +66,16 @@ export function useTranscriptNavigation({
     userHasScrolledRef.current = nextValue;
     setUserHasScrolled((current) => (current === nextValue ? current : nextValue));
   }, []);
+
+  const saveCurrentScrollPosition = useCallback(() => {
+    const key = scrollRestorationKeyRef.current;
+    const container = containerRef.current;
+    if (!key || !container || activeMessagesLengthRef.current === 0) {
+      return;
+    }
+
+    setSavedScrollPosition(key, container.scrollTop);
+  }, [containerRef, setSavedScrollPosition]);
 
   const endProgrammaticTranscriptNavigation = useCallback(() => {
     programmaticTranscriptNavigationRef.current = false;
@@ -89,8 +119,77 @@ export function useTranscriptNavigation({
     };
   }, [endProgrammaticTranscriptNavigation]);
 
+  useLayoutEffect(() => {
+    if (
+      !scrollRestorationKey
+      || pendingScrollRestoreKeyRef.current !== scrollRestorationKey
+      || activeMessages.length === 0
+    ) {
+      return;
+    }
+
+    const savedScrollTop = getSavedScrollPosition(scrollRestorationKey);
+    const container = containerRef.current;
+    if (!container) {
+      return;
+    }
+
+    pendingScrollRestoreKeyRef.current = null;
+
+    if (savedScrollTop === null) {
+      return;
+    }
+
+    container.scrollTop = savedScrollTop;
+    skipNextAutoScrollKeyRef.current = scrollRestorationKey;
+    blockAutoScrollUntilRef.current = performance.now() + 600;
+    scrollInstantRef.current = false;
+
+    const isAtBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight < 100;
+    setUserHasScrolledState(!isAtBottom);
+
+    let frame: number | null = null;
+    let attempts = 0;
+    const reapplyScroll = () => {
+      if (scrollRestorationKeyRef.current === scrollRestorationKey) {
+        container.scrollTop = savedScrollTop;
+      }
+      attempts += 1;
+      if (attempts < 8) {
+        frame = window.requestAnimationFrame(reapplyScroll);
+      }
+    };
+
+    frame = window.requestAnimationFrame(reapplyScroll);
+
+    return () => {
+      if (frame !== null) {
+        window.cancelAnimationFrame(frame);
+      }
+    };
+  }, [
+    activeMessages,
+    containerRef,
+    getSavedScrollPosition,
+    scrollRestorationKey,
+    setUserHasScrolledState,
+  ]);
+
   useEffect(() => {
     if (!messagesEndRef.current) {
+      return;
+    }
+
+    if (skipNextAutoScrollKeyRef.current === scrollRestorationKey) {
+      skipNextAutoScrollKeyRef.current = null;
+      return;
+    }
+
+    if (
+      scrollRestorationKey
+      && performance.now() < blockAutoScrollUntilRef.current
+    ) {
       return;
     }
 
@@ -99,7 +198,7 @@ export function useTranscriptNavigation({
       scrollInstantRef.current = false;
       messagesEndRef.current.scrollIntoView({ behavior });
     }
-  }, [activeMessages, messagesEndRef]);
+  }, [activeMessages, messagesEndRef, scrollRestorationKey]);
 
   const updateCurrentVisibleMapMessage = useCallback(() => {
     visibleMapMessageAnimationFrameRef.current = null;
@@ -155,6 +254,15 @@ export function useTranscriptNavigation({
     const container = containerRef.current;
     if (!container) return;
 
+    const key = scrollRestorationKeyRef.current;
+    if (
+      key
+      && activeMessagesLengthRef.current > 0
+      && pendingScrollRestoreKeyRef.current !== key
+    ) {
+      setSavedScrollPosition(key, container.scrollTop);
+    }
+
     if (!programmaticTranscriptNavigationRef.current) {
       const isAtBottom =
         container.scrollHeight - container.scrollTop - container.clientHeight < 100;
@@ -162,7 +270,12 @@ export function useTranscriptNavigation({
     }
 
     scheduleCurrentVisibleMapMessageUpdate();
-  }, [containerRef, scheduleCurrentVisibleMapMessageUpdate, setUserHasScrolledState]);
+  }, [
+    containerRef,
+    scheduleCurrentVisibleMapMessageUpdate,
+    setSavedScrollPosition,
+    setUserHasScrolledState,
+  ]);
 
   useEffect(() => {
     if (activeMessages.length === 0) {
@@ -232,6 +345,7 @@ export function useTranscriptNavigation({
     endProgrammaticTranscriptNavigation,
     handleScroll,
     jumpToMessage,
+    saveCurrentScrollPosition,
     scrollInstantRef,
     setUserHasScrolledState,
     userHasScrolled,

@@ -507,9 +507,13 @@ export default function ConversationMap({
             Conversation map
           </p>
           <p className="mt-1 text-sm text-foreground">
-            {model.branchPointIds.size === 1
-              ? '1 fork point'
-              : `${model.branchPointIds.size} fork points`}
+            {model.branchPointIds.size === 0
+              ? model.nodes.length === 1
+                ? '1 turn'
+                : `${model.nodes.length} turns`
+              : model.branchPointIds.size === 1
+                ? '1 fork point'
+                : `${model.branchPointIds.size} fork points`}
           </p>
         </div>
         <div className="flex items-center gap-3">

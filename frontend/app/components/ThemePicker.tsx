@@ -10,6 +10,7 @@ import {
   normalizeStoredThemeId,
   resolveThemeId,
 } from "@/lib/theme";
+import { buttonStyles, cx } from "@/app/components/buttonStyles";
 import "./theme-picker.css";
 
 type ThemePopoverElement = HTMLDivElement & {
@@ -141,11 +142,14 @@ export default function ThemePicker() {
         aria-expanded={isOpen}
         aria-haspopup="dialog"
         onClick={togglePopover}
-        className={`inline-flex h-8 items-center gap-1.5 rounded-full border px-2.5 font-sans text-[13px] font-medium transition ${
+        className={cx(
+          "inline-flex h-8 items-center gap-1.5 rounded-full border px-2.5 font-sans text-[13px] font-medium",
+          buttonStyles.transition,
+          buttonStyles.controlFocus,
           isOpen
             ? "border-black/[0.08] bg-foreground/[0.055] text-foreground dark:border-white/[0.08]"
-            : "border-transparent bg-background text-foreground/82 hover:bg-foreground/[0.035] hover:text-foreground"
-        }`}
+            : buttonStyles.controlInactive
+        )}
       >
         {isHydrated ? (
           <ThemeAccent themeId={currentTheme.id} />
@@ -185,11 +189,12 @@ export default function ThemePicker() {
                   type="button"
                   aria-pressed={active}
                   onClick={() => selectTheme(theme.id)}
-                  className={`flex w-full items-center justify-between rounded-[0.95rem] px-3 py-2 text-left transition ${
-                    active
-                      ? "bg-foreground/[0.055]"
-                      : "hover:bg-foreground/[0.04]"
-                  }`}
+                  className={cx(
+                    "flex w-full items-center justify-between rounded-[0.95rem] px-3 py-2 text-left",
+                    buttonStyles.transition,
+                    buttonStyles.focus,
+                    active ? buttonStyles.menuItemActive : buttonStyles.menuItemInactive
+                  )}
                 >
                   <span className="text-[13px] font-medium text-foreground">{theme.label}</span>
 

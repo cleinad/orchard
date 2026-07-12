@@ -76,6 +76,8 @@ export function createMockSupabase(options: MockSupabaseOptions = {}) {
     const filters: Record<string, unknown> = {};
     let singleMode: 'single' | 'maybeSingle' | null = null;
     let selectCalled = false;
+    let limitCount: number | null = null;
+    let orderSpec: { column: string; ascending: boolean } | null = null;
 
     const chain: Record<string, unknown> = {};
 
@@ -87,8 +89,17 @@ export function createMockSupabase(options: MockSupabaseOptions = {}) {
       };
     }
 
-    chain.order = () => chain;
-    chain.limit = () => chain;
+    chain.order = (column: string, options?: { ascending?: boolean }) => {
+      orderSpec = {
+        column,
+        ascending: options?.ascending ?? true,
+      };
+      return chain;
+    };
+    chain.limit = (count: number) => {
+      limitCount = count;
+      return chain;
+    };
     chain.single = () => {
       singleMode = 'single';
       return chain;
@@ -97,7 +108,7 @@ export function createMockSupabase(options: MockSupabaseOptions = {}) {
       singleMode = 'maybeSingle';
       return chain;
     };
-    chain.select = (cols?: string) => {
+    chain.select = () => {
       selectCalled = true;
       return chain;
     };
@@ -131,18 +142,20 @@ export function createMockSupabase(options: MockSupabaseOptions = {}) {
         } else {
           // SELECT path — return matching rows from config
           const tableConf = tables[table];
-          const rows = tableConf?.rows ?? [];
+          const rows = sortRows(filterRows(tableConf?.rows ?? [], filters), orderSpec);
+          const limitedRows =
+            typeof limitCount === 'number' ? rows.slice(0, Math.max(0, limitCount)) : rows;
           queries.push({ table, operation, args, filters });
 
           if (singleMode === 'single') {
             resolve({
-              data: rows[0] ?? null,
-              error: rows.length === 0 ? { message: 'not found' } : null,
+              data: limitedRows[0] ?? null,
+              error: limitedRows.length === 0 ? { message: 'not found' } : null,
             });
           } else if (singleMode === 'maybeSingle') {
-            resolve({ data: rows[0] ?? null, error: null });
+            resolve({ data: limitedRows[0] ?? null, error: null });
           } else {
-            resolve({ data: rows, error: null });
+            resolve({ data: limitedRows, error: null });
           }
         }
       } catch (err) {
@@ -153,12 +166,80 @@ export function createMockSupabase(options: MockSupabaseOptions = {}) {
     return chain;
   }
 
+  function getRowValue(row: MockRow, column: string) {
+    return (row as Record<string, unknown>)[column];
+  }
+
+  function rowHasColumn(row: MockRow, column: string) {
+    return Object.prototype.hasOwnProperty.call(row, column);
+  }
+
+  function filterRows(rows: MockRow[], filters: Record<string, unknown>) {
+    return rows.filter((row) => {
+      for (const [filterKey, expected] of Object.entries(filters)) {
+        const [method, column] = filterKey.split(':');
+        const hasColumn = rowHasColumn(row, column);
+        const actual = getRowValue(row, column);
+
+        if (method === 'eq') {
+          if (!hasColumn) {
+            if (column === 'thread_id') return false;
+            continue;
+          }
+          if (actual !== expected) return false;
+        } else if (method === 'is') {
+          if (!hasColumn) {
+            if (expected !== null) return false;
+            continue;
+          }
+          if (actual !== expected) return false;
+        } else if (method === 'in') {
+          if (!hasColumn) continue;
+          if (!Array.isArray(expected) || !expected.includes(actual)) return false;
+        } else if (method === 'neq') {
+          if (hasColumn && actual === expected) return false;
+        } else if (method === 'gt') {
+          if (hasColumn && !((actual as string | number) > (expected as string | number))) return false;
+        } else if (method === 'gte') {
+          if (hasColumn && !((actual as string | number) >= (expected as string | number))) return false;
+        } else if (method === 'lt') {
+          if (hasColumn && !((actual as string | number) < (expected as string | number))) return false;
+        } else if (method === 'lte') {
+          if (hasColumn && !((actual as string | number) <= (expected as string | number))) return false;
+        }
+      }
+
+      return true;
+    });
+  }
+
+  function sortRows(
+    rows: MockRow[],
+    order: { column: string; ascending: boolean } | null
+  ) {
+    if (!order) {
+      return rows;
+    }
+
+    return [...rows].sort((a, b) => {
+      const aValue = getRowValue(a, order.column);
+      const bValue = getRowValue(b, order.column);
+
+      if (aValue === bValue) return 0;
+      if (aValue === null || aValue === undefined) return order.ascending ? -1 : 1;
+      if (bValue === null || bValue === undefined) return order.ascending ? 1 : -1;
+
+      const result = (aValue as string | number) < (bValue as string | number) ? -1 : 1;
+      return order.ascending ? result : -result;
+    });
+  }
+
   const client = {
     from: (table: string) => ({
       select: (cols?: string) => buildChain(table, 'select', cols),
       insert: (data: unknown) => buildChain(table, 'insert', data),
       update: (data: unknown) => buildChain(table, 'update', data),
-      upsert: (data: unknown, opts?: unknown) => buildChain(table, 'upsert', data),
+      upsert: (data: unknown) => buildChain(table, 'upsert', data),
       delete: () => buildChain(table, 'delete'),
     }),
     rpc: (fn: string, args: unknown) => {

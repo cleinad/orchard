@@ -8,6 +8,7 @@ import type { BranchChip } from '@/app/home/components/conversationTree';
 
 interface ConversationViewProps {
   activeHighlightSource: ThreadSource | null;
+  isWideLayout: boolean;
   listError: string | null;
   routeConversationError: string | null;
   messages: Message[];
@@ -28,6 +29,7 @@ interface ConversationViewProps {
 
 export default function ConversationView({
   activeHighlightSource,
+  isWideLayout,
   listError,
   routeConversationError,
   messages,
@@ -81,8 +83,12 @@ export default function ConversationView({
     });
   }, []);
 
+  const widthClassName = isWideLayout
+    ? 'w-full max-w-[88rem] px-6 sm:w-[calc(100%-3rem)] sm:px-8 lg:w-[calc(100%-5rem)] lg:px-10'
+    : 'max-w-2xl px-6';
+
   return (
-    <div className="mx-auto max-w-2xl px-6 pb-4">
+    <div className={`mx-auto pb-4 ${widthClassName}`}>
       {listError && (
         <div className="mb-4 rounded-lg bg-surface px-4 py-2 font-sans text-xs text-muted shadow-sm">
           {listError}
