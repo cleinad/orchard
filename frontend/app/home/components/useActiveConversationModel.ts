@@ -260,9 +260,11 @@ export function useActiveConversationModel({
       pendingBranch,
     ]
   );
-  const activeName = isTemporaryChat
-    ? 'Keen'
-    : selectedConversation?.mentor_name || activeMentor?.name || 'Keen';
+  const conversationTitle = isTemporaryChat
+    ? selectedTemporaryChat?.title ?? tempChatTitle
+    : selectedChat?.kind === 'draft'
+      ? selectedDraftChat?.title ?? 'New chat'
+      : selectedConversation?.title ?? 'New chat';
   const isActiveConversationLoading =
     activePendingRequest?.phase === 'awaiting-response'
     && activeMessages.some((message) => message.id === activePendingRequest.userMessageId);
@@ -286,11 +288,11 @@ export function useActiveConversationModel({
     activeConversationId,
     activeConversationMessages,
     activeMessages,
-    activeName,
     activeSelectedBranchIds,
     activeTemporaryMemoryMode,
     activeThreadMarkersMap,
     branchChipsByMessageId,
+    conversationTitle,
     conversationMapModel,
     emptySubtitle,
     emptyTitle,

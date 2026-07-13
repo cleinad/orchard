@@ -778,7 +778,6 @@ export default function WorkspacePage() {
 
             <div className="border-t border-border-subtle py-3">
               <ChatComposer
-                activeName={workspaceName}
                 chatModels={chatModels}
                 input={composerInput}
                 isLoading={composerLoading}

@@ -130,11 +130,22 @@ test('default composer sends auto search mode', async ({ page }) => {
   await page.goto('/home?e2e=search-mode-auto');
   await expect(page.getByRole('button', { name: 'Search mode auto' })).toBeVisible();
 
-  const composer = page.getByPlaceholder('Message Keen...');
+  const composer = page.getByLabel('Message composer');
   await composer.fill(userMessage);
   await composer.press('Enter');
 
   await expect(page).toHaveURL(new RegExp(`/home/${conversationId}\\?e2e=search-mode-auto$`));
+  await expect(page.locator('header').getByText('Name Brainstorm', { exact: true })).toBeVisible();
+
+  const userMessageRow = page.locator('[data-message-role="user"]');
+  await expect(userMessageRow.locator('[data-message-presentation="bubble"]')).toBeVisible();
+  await expect(userMessageRow.locator('[data-message-content="true"]')).not.toHaveClass(/mt-2/);
+  await expect(userMessageRow.getByText('You', { exact: true })).toHaveCount(0);
+
+  const assistantMessageRow = page.locator('[data-message-role="assistant"]');
+  await expect(assistantMessageRow.locator('[data-message-presentation="plain"]')).toBeVisible();
+  await expect(assistantMessageRow.getByText('Keen', { exact: true })).toHaveCount(0);
+  await expect(page.locator('[data-message-role] time')).toHaveCount(0);
 });
 
 test('always search sends required search mode and renders a scalable source tray', async ({ page }) => {
@@ -194,7 +205,7 @@ test('always search sends required search mode and renders a scalable source tra
   await selectSearchMode(page, 'Always search');
   await expect(page.getByRole('button', { name: 'Search mode always search' })).toBeVisible();
 
-  const composer = page.getByPlaceholder('Message Keen...');
+  const composer = page.getByLabel('Message composer');
   await composer.fill(userMessage);
   await composer.press('Enter');
 
@@ -316,7 +327,7 @@ test('off mode sends off and search mode is restored per composer session', asyn
   await reopenedSidePanelAgain.getByRole('button', { name: /Second Search Chat/ }).click();
   await expect(page.getByRole('button', { name: 'Search mode off' })).toBeVisible();
 
-  const composer = page.getByPlaceholder('Message Keen...');
+  const composer = page.getByLabel('Message composer');
   await composer.fill('Answer from memory');
   await composer.press('Enter');
 });

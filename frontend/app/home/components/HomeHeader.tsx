@@ -10,7 +10,7 @@ import {
 import type { TemporaryMemoryMode } from "@/lib/chat-session";
 
 type HomeHeaderProps = {
-  activeName: string;
+  conversationTitle: string;
   isTemporaryChat: boolean;
   temporaryMemoryMode: TemporaryMemoryMode;
   loadingLists: boolean;
@@ -21,7 +21,7 @@ type HomeHeaderProps = {
 };
 
 export default function HomeHeader({
-  activeName,
+  conversationTitle,
   isTemporaryChat,
   temporaryMemoryMode,
   loadingLists,
@@ -38,7 +38,9 @@ export default function HomeHeader({
       <div className="flex min-w-0 items-center gap-3">
         <div className="min-w-0">
           <div className="mt-1 flex items-center gap-2">
-            <span className="truncate font-heading text-xl text-foreground">{activeName}</span>
+            <span className="truncate font-heading text-xl text-foreground">
+              {conversationTitle}
+            </span>
             {isTemporaryChat && (
               <div className="flex items-center gap-1.5 font-sans text-[11px] font-medium text-muted">
                 <span className="whitespace-nowrap">Temporary</span>

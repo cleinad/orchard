@@ -57,7 +57,7 @@ const TINY_PNG_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=';
 
 async function pasteFilesIntoComposer(page, files, options = {}) {
-  await page.locator('textarea[placeholder^="Message"]').evaluate((textarea, payload) => {
+  await page.getByLabel('Message composer').evaluate((textarea, payload) => {
     const makeFile = (spec) => {
       const binary = atob(spec.base64);
       const bytes = new Uint8Array(binary.length);
@@ -86,7 +86,7 @@ async function pasteFilesIntoComposer(page, files, options = {}) {
 }
 
 async function dropFilesIntoComposer(page, files, options = {}) {
-  await page.locator('textarea[placeholder^="Message"]').evaluate((textarea, payload) => {
+  await page.getByLabel('Message composer').evaluate((textarea, payload) => {
     const form = textarea.closest('form');
     if (!form) {
       throw new Error('Composer form not found');
@@ -356,7 +356,7 @@ test('workspace new chat preserves workspace selection after navigating home', a
 
   await expect(page).toHaveURL(/\/home\?e2e=workspace-draft$/);
 
-  const composer = page.locator('textarea[placeholder^="Message"]').first();
+  const composer = page.getByLabel('Message composer').first();
   await composer.fill('draft workspace send');
   await page.keyboard.press('Enter');
 
@@ -414,7 +414,7 @@ test('workspace sidebar draft stays visible as a chat while the first response i
   const sidePanel = await ensureConversationsOpen(page);
   await sidePanel.getByRole('button', { name: 'New chat in Health' }).click();
 
-  const composer = page.locator('textarea[placeholder^="Message"]').first();
+  const composer = page.getByLabel('Message composer').first();
   await composer.fill('workspace sidebar send');
   await page.keyboard.press('Enter');
 
@@ -823,7 +823,7 @@ test('dragging a default chat into a workspace moves the chat and single-source 
 
   await expect(sidePanel.getByTestId(`conversation-row-${conversationId}`)).toBeVisible();
 
-  const composer = page.locator('textarea[placeholder^="Message"]').first();
+  const composer = page.getByLabel('Message composer').first();
   await composer.fill('continue after move');
   await page.keyboard.press('Enter');
 

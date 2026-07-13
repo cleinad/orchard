@@ -463,10 +463,10 @@ function HomePageInner() {
     activeConversationId,
     activeConversationMessages,
     activeMessages,
-    activeName,
     activeTemporaryMemoryMode,
     activeThreadMarkersMap,
     branchChipsByMessageId,
+    conversationTitle,
     conversationMapModel,
     emptySubtitle,
     emptyTitle,
@@ -984,7 +984,7 @@ function HomePageInner() {
       >
         <div className="w-full shrink-0 px-6">
           <HomeHeader
-            activeName={activeName}
+            conversationTitle={conversationTitle}
             isTemporaryChat={isTemporaryChat}
             temporaryMemoryMode={activeTemporaryMemoryMode}
             loadingLists={loadingLists}
@@ -1020,7 +1020,6 @@ function HomePageInner() {
                 listError={shouldShowRouteConversationError ? null : listError}
                 routeConversationError={routeConversationError}
                 messages={activeMessages}
-                activeName={activeName}
                 emptyTitle={emptyTitle}
                 emptySubtitle={emptySubtitle}
                 isLoading={isActiveConversationLoading}
@@ -1077,7 +1076,6 @@ function HomePageInner() {
         </div>
 
         <ChatComposer
-          activeName={activeName}
           chatModels={chatModels}
           input={input}
           isLoading={isLoading}

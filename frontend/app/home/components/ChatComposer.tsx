@@ -30,7 +30,6 @@ import { getResponseStyleSummary, type ResponseStyle } from '@/lib/response-styl
 import { buttonStyles, cx } from '@/app/components/buttonStyles';
 
 interface ChatComposerProps {
-  activeName: string;
   chatModels: ChatModelListItem[];
   input: string;
   isLoading: boolean;
@@ -65,7 +64,6 @@ interface ChatComposerProps {
 }
 
 export default function ChatComposer({
-  activeName,
   chatModels,
   input,
   isLoading,
@@ -117,9 +115,9 @@ export default function ChatComposer({
     off: 'Off',
   };
   const searchModeTooltip: Record<SearchMode, string> = {
-    auto: 'Search auto: Keen will decide when live sources are needed',
-    required: 'Always search: Keen will ground this reply with live sources',
-    off: 'Search off: Keen will answer without live retrieval',
+    auto: 'Search auto: live sources are used when needed',
+    required: 'Always search: replies use live sources',
+    off: 'Search off: replies do not use live retrieval',
   };
   useEffect(() => {
     if (!searchMenuOpen) {
@@ -421,7 +419,7 @@ export default function ChatComposer({
                 <span>
                   <span className="font-medium">No memory:</span>
                   {' '}
-                  Keen won&apos;t read or write memory.
+                  Saved memory is not read or updated.
                   <br />
                   <span className="font-medium">Use memories:</span>
                   {' '}
@@ -489,7 +487,8 @@ export default function ChatComposer({
               value={input}
               onChange={(event) => onInputChange(event.target.value)}
               onKeyDown={onKeyDown}
-              placeholder={`Message ${activeName}...`}
+              aria-label="Message composer"
+              placeholder="Ask a question or add a thought..."
               rows={1}
               disabled={isUploadingImages}
               className="composer-scrollbar w-full min-h-10 min-w-0 resize-none bg-transparent pl-3 pr-[5.5rem] py-2.5 font-sans text-sm leading-relaxed text-foreground placeholder-muted/50 outline-none disabled:cursor-not-allowed disabled:opacity-50 overflow-y-auto"
