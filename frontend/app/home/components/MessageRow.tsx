@@ -164,6 +164,36 @@ function MessageRow({
   );
   const activeHighlightForMessage =
     activeHighlightSource?.sourceMessageId === message.id ? activeHighlightSource : null;
+  const activeHighlightMarker = useMemo<InlineThreadMarker | null>(() => {
+    if (
+      message.role !== 'assistant'
+      || !activeHighlightForMessage
+      || threads.some(
+        (thread) =>
+          thread.sourceMessageId === activeHighlightForMessage.sourceMessageId
+          && thread.startOffset === activeHighlightForMessage.startOffset
+          && thread.endOffset === activeHighlightForMessage.endOffset
+          && getSelectionStreamVersion(thread.selectionStreamVersion)
+            === getSelectionStreamVersion(activeHighlightForMessage.selectionStreamVersion)
+      )
+    ) {
+      return null;
+    }
+
+    return {
+      markerId: `active-${message.id}-${activeHighlightForMessage.startOffset}-${activeHighlightForMessage.endOffset}`,
+      threadId: null,
+      sessionId: null,
+      status: 'ready',
+      highlightedText: activeHighlightForMessage.highlightedText,
+      sourceMessageId: activeHighlightForMessage.sourceMessageId,
+      startOffset: activeHighlightForMessage.startOffset,
+      endOffset: activeHighlightForMessage.endOffset,
+      selectionStreamVersion: getSelectionStreamVersion(
+        activeHighlightForMessage.selectionStreamVersion
+      ),
+    };
+  }, [activeHighlightForMessage, message.id, message.role, threads]);
 
   const overlaySources = useMemo<ThreadHighlightOverlaySource[]>(() => {
     if (message.role !== 'assistant') {
@@ -192,24 +222,21 @@ function MessageRow({
       emphasized: thread.status !== 'loading' && emphasizedThreadMarkerId === thread.markerId,
     }));
 
-    if (
-      activeHighlightForMessage
-      && !threads.some((thread) => matchesActiveSource(thread))
-    ) {
+    if (activeHighlightMarker) {
       sources.push({
-        id: `active-${message.id}-${activeHighlightForMessage.startOffset}-${activeHighlightForMessage.endOffset}`,
+        id: activeHighlightMarker.markerId,
         kind: 'active',
-        startOffset: activeHighlightForMessage.startOffset,
-        endOffset: activeHighlightForMessage.endOffset,
-        selectionStreamVersion: activeSourceVersion ?? undefined,
+        startOffset: activeHighlightMarker.startOffset,
+        endOffset: activeHighlightMarker.endOffset,
+        selectionStreamVersion: activeHighlightMarker.selectionStreamVersion,
       });
     }
 
     return sources;
   }, [
     activeHighlightForMessage,
+    activeHighlightMarker,
     emphasizedThreadMarkerId,
-    message.id,
     message.role,
     threads,
   ]);
@@ -377,6 +404,7 @@ function MessageRow({
           <MarkdownWithThreads
             content={message.content}
             threads={threads}
+            activeHighlightMarker={activeHighlightMarker}
             onThreadClick={onThreadClick}
             searchMetadata={replySearchMetadata}
             activeCitationSourceId={activeSourceId}
