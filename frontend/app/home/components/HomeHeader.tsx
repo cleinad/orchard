@@ -31,26 +31,20 @@ export default function HomeHeader({
   onToggleConversationMap,
 }: HomeHeaderProps) {
   const temporaryMemoryModeLabel =
-    temporaryMemoryMode === "use_existing" ? "Uses memories" : "No memory";
+    temporaryMemoryMode === "use_existing" ? "With memory" : "No memory";
 
   return (
     <header className="flex h-16 items-center justify-between">
       <div className="flex min-w-0 items-center gap-3">
         <div className="min-w-0">
-          <div className="mt-1 flex items-center gap-2">
-            <span className="truncate font-heading text-xl text-foreground">
-              {conversationTitle}
-            </span>
-            {isTemporaryChat && (
-              <div className="flex items-center gap-1.5 font-sans text-[11px] font-medium text-muted">
-                <span className="whitespace-nowrap">Temporary</span>
-                <span aria-hidden="true" className="text-muted/70">
-                  /
-                </span>
-                <span className="whitespace-nowrap">{temporaryMemoryModeLabel}</span>
-              </div>
-            )}
+          <div className="truncate font-heading text-xl text-foreground">
+            {isTemporaryChat ? "Temporary Chat" : conversationTitle}
           </div>
+          {isTemporaryChat && (
+            <div className="mt-0.5 font-sans text-[11px] font-medium text-muted">
+              {temporaryMemoryModeLabel}
+            </div>
+          )}
         </div>
       </div>
 
