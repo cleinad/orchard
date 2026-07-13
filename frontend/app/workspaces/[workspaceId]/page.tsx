@@ -45,7 +45,7 @@ import {
   type ChatModelThinkingOverrides,
 } from '@/lib/chat-models';
 import { DEFAULT_RESPONSE_STYLE, type ResponseStyle } from '@/lib/response-style';
-import type { SearchMode } from '@/lib/chat-search';
+import { DEFAULT_SEARCH_MODE, type SearchMode } from '@/lib/chat-search';
 import type { WorkspaceListItem } from '@/lib/workspaces';
 import { CHAT_IMAGE_BUCKET } from '@/lib/chat-attachments';
 import { supabase } from '@/lib/supabase';
@@ -150,7 +150,7 @@ export default function WorkspacePage() {
   const [deletingWorkspace, setDeletingWorkspace] = useState(false);
   const [composerInput, setComposerInput] = useState('');
   const [composerLoading, setComposerLoading] = useState(false);
-  const [searchMode, setSearchMode] = useState<SearchMode>('auto');
+  const [searchMode, setSearchMode] = useState<SearchMode>(DEFAULT_SEARCH_MODE);
   const [selectedModelId, setSelectedModelId] = usePersistedString<ChatModelId>(
     CHAT_MODEL_STORAGE_KEY,
     DEFAULT_CHAT_MODEL_ID,
@@ -778,7 +778,6 @@ export default function WorkspacePage() {
 
             <div className="border-t border-border-subtle py-3">
               <ChatComposer
-                activeName={workspaceName}
                 chatModels={chatModels}
                 input={composerInput}
                 isLoading={composerLoading}

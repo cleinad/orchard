@@ -47,7 +47,6 @@ function getHighlightSourceIdAtPoint(root: HTMLElement, clientX: number, clientY
 
 interface MessageRowProps {
   activeHighlightSource: ThreadSource | null;
-  activeName: string;
   activeSourceId: number | null;
   branchChips: BranchChip[];
   isPendingBranchSource: boolean;
@@ -104,7 +103,6 @@ function BranchPlusIcon() {
 
 function MessageRow({
   activeHighlightSource,
-  activeName,
   activeSourceId,
   branchChips,
   isPendingBranchSource,
@@ -320,25 +318,21 @@ function MessageRow({
       data-message-role={message.role}
       onPointerUp={message.role === 'assistant' ? onAssistantPointerUp : undefined}
     >
+      <span className="sr-only">
+        {message.role === 'user' ? 'Your message' : 'Response'}
+      </span>
       <div
-        className={`rounded-2xl transition ${
+        data-message-presentation={message.role === 'user' ? 'bubble' : 'plain'}
+        className={cx(
+          'rounded-2xl transition',
+          message.role === 'user'
+            ? 'ml-auto w-fit max-w-[85%] bg-foreground/[0.045] px-4 py-3 ring-1 ring-border-subtle sm:max-w-[36rem]'
+            : null,
           isPendingBranchSource
             ? 'bg-foreground/[0.03] px-3 py-3 ring-1 ring-foreground/[0.08]'
-            : ''
-        }`}
+            : null
+        )}
       >
-        <div className="flex items-baseline justify-between font-sans">
-          <span className="text-xs font-medium tracking-wider text-muted">
-            {message.role === 'user' ? 'You' : activeName}
-          </span>
-          <span className="text-xs text-muted/60">
-            {message.timestamp.toLocaleTimeString([], {
-              hour: '2-digit',
-              minute: '2-digit',
-            })}
-          </span>
-        </div>
-
         {searchActivityLabel && (
           <div
             className="mt-2 font-sans text-xs text-muted/70"
@@ -367,7 +361,11 @@ function MessageRow({
         <div
           ref={setMessageContentNode}
           data-message-content="true"
-          className={`${markdownContentClassName} mt-2 text-base leading-relaxed text-foreground`}
+          className={cx(
+            markdownContentClassName,
+            message.role === 'assistant' ? 'mt-2' : null,
+            'text-base leading-relaxed text-foreground'
+          )}
           onBlur={handleThreadMarkerBlur}
           onFocus={handleThreadMarkerFocus}
           onPointerOut={handleThreadMarkerPointerOut}

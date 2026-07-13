@@ -11,7 +11,11 @@ import {
   sanitizeResponseStyle,
   type ResponseStyle,
 } from '@/lib/response-style';
-import { SEARCH_MODES, type SearchMode } from '@/lib/chat-search';
+import {
+  DEFAULT_SEARCH_MODE,
+  SEARCH_MODES,
+  type SearchMode,
+} from '@/lib/chat-search';
 import { isChatImageMimeType } from '@/lib/chat-attachments';
 
 const INITIAL_SEND_HANDOFF_STORAGE_KEY = 'keen-home-initial-send-handoff-v1';
@@ -46,7 +50,7 @@ function sanitizeSearchMode(value: unknown): SearchMode {
     return value as SearchMode;
   }
 
-  return 'auto';
+  return DEFAULT_SEARCH_MODE;
 }
 
 function sanitizeUploadedAttachments(value: unknown): UploadedChatImageAttachment[] {
@@ -135,7 +139,7 @@ export function readInitialSendHandoff(conversationId: string): InitialSendHando
         : DEFAULT_RESPONSE_STYLE,
       searchMode:
         parsed.searchMode === undefined && typeof parsed.searchEnabled === 'boolean'
-          ? (parsed.searchEnabled ? 'required' : 'auto')
+          ? (parsed.searchEnabled ? 'required' : DEFAULT_SEARCH_MODE)
           : sanitizeSearchMode(parsed.searchMode),
       uploadedAttachments,
     };

@@ -9,6 +9,7 @@ export type { PersistedSearchMetadata } from '@/lib/search-citations';
 
 export const SEARCH_MODES = ['auto', 'required', 'off'] as const;
 export type SearchMode = (typeof SEARCH_MODES)[number];
+export const DEFAULT_SEARCH_MODE: SearchMode = 'off';
 export type SearchSkipReason = 'mode_off' | 'auto_decision';
 export type SearchFreshnessRisk = 'none' | 'low' | 'medium' | 'high';
 

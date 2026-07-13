@@ -12,7 +12,6 @@ interface ConversationViewProps {
   listError: string | null;
   routeConversationError: string | null;
   messages: Message[];
-  activeName: string;
   emptyTitle: string;
   emptySubtitle: string;
   isLoading: boolean;
@@ -33,7 +32,6 @@ export default function ConversationView({
   listError,
   routeConversationError,
   messages,
-  activeName,
   emptyTitle,
   emptySubtitle,
   isLoading,
@@ -153,7 +151,6 @@ export default function ConversationView({
               <MessageRow
                 key={message.renderId ?? message.id}
                 activeHighlightSource={activeHighlightSource}
-                activeName={activeName}
                 activeSourceId={activeSourceId}
                 branchChips={branchChips}
                 isPendingBranchSource={isPendingBranchSource}
@@ -173,24 +170,23 @@ export default function ConversationView({
 
           {/* Bouncing dots only while waiting for the first token (no streaming message yet) */}
           {isLoading && !messages.some((m) => m.isStreaming) && (
-            <div className="py-4 font-sans">
-              <span className="text-xs font-medium tracking-wider text-muted">
-                {activeName}
-              </span>
-              <div className="mt-2 flex items-center gap-1.5">
-                <span
-                  className="h-2 w-2 animate-bounce rounded-full bg-muted/40"
-                  style={{ animationDelay: '0ms' }}
-                />
-                <span
-                  className="h-2 w-2 animate-bounce rounded-full bg-muted/40"
-                  style={{ animationDelay: '150ms' }}
-                />
-                <span
-                  className="h-2 w-2 animate-bounce rounded-full bg-muted/40"
-                  style={{ animationDelay: '300ms' }}
-                />
-              </div>
+            <div
+              role="status"
+              aria-label="Generating response"
+              className="flex items-center gap-1.5 py-4 font-sans"
+            >
+              <span
+                className="h-2 w-2 animate-bounce rounded-full bg-muted/40"
+                style={{ animationDelay: '0ms' }}
+              />
+              <span
+                className="h-2 w-2 animate-bounce rounded-full bg-muted/40"
+                style={{ animationDelay: '150ms' }}
+              />
+              <span
+                className="h-2 w-2 animate-bounce rounded-full bg-muted/40"
+                style={{ animationDelay: '300ms' }}
+              />
             </div>
           )}
 

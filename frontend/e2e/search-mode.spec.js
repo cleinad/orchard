@@ -71,7 +71,7 @@ async function ensureConversationsOpen(page) {
   return sidePanel;
 }
 
-test('default composer sends auto search mode', async ({ page }) => {
+test('default composer sends off search mode', async ({ page }) => {
   const conversationId = 'conversation-search-auto';
   const userMessage = 'Help me brainstorm names';
   const state = await mockHomeDataRoutes(page, {
@@ -86,7 +86,7 @@ test('default composer sends auto search mode', async ({ page }) => {
   });
 
   await mockChatRoute(page, async (body) => {
-    expect(body.searchMode).toBe('auto');
+    expect(body.searchMode).toBe('off');
 
     state.messagesByConversationId[conversationId] = [
       createMessage({
@@ -110,31 +110,35 @@ test('default composer sends auto search mode', async ({ page }) => {
       assistantMessageId: 'message-assistant-auto',
       message: 'Here are a few name directions.',
       search: {
-        mode: 'auto',
+        mode: 'off',
         attempted: false,
         status: 'not_attempted',
         resultCount: 0,
         warning: null,
         metadata: null,
-        decision: {
-          shouldSearch: false,
-          reason: 'Stable brainstorming request.',
-          confidence: 0.9,
-          freshnessRisk: 'none',
-        },
-        skippedReason: 'auto_decision',
       },
     };
   });
 
   await page.goto('/home?e2e=search-mode-auto');
-  await expect(page.getByRole('button', { name: 'Search mode auto' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Search mode off' })).toBeVisible();
 
-  const composer = page.getByPlaceholder('Message Keen...');
+  const composer = page.getByLabel('Message composer');
   await composer.fill(userMessage);
   await composer.press('Enter');
 
   await expect(page).toHaveURL(new RegExp(`/home/${conversationId}\\?e2e=search-mode-auto$`));
+  await expect(page.locator('header').getByText('Name Brainstorm', { exact: true })).toBeVisible();
+
+  const userMessageRow = page.locator('[data-message-role="user"]');
+  await expect(userMessageRow.locator('[data-message-presentation="bubble"]')).toBeVisible();
+  await expect(userMessageRow.locator('[data-message-content="true"]')).not.toHaveClass(/mt-2/);
+  await expect(userMessageRow.getByText('You', { exact: true })).toHaveCount(0);
+
+  const assistantMessageRow = page.locator('[data-message-role="assistant"]');
+  await expect(assistantMessageRow.locator('[data-message-presentation="plain"]')).toBeVisible();
+  await expect(assistantMessageRow.getByText('Keen', { exact: true })).toHaveCount(0);
+  await expect(page.locator('[data-message-role] time')).toHaveCount(0);
 });
 
 test('always search sends required search mode and renders a scalable source tray', async ({ page }) => {
@@ -194,7 +198,7 @@ test('always search sends required search mode and renders a scalable source tra
   await selectSearchMode(page, 'Always search');
   await expect(page.getByRole('button', { name: 'Search mode always search' })).toBeVisible();
 
-  const composer = page.getByPlaceholder('Message Keen...');
+  const composer = page.getByLabel('Message composer');
   await composer.fill(userMessage);
   await composer.press('Enter');
 
@@ -304,8 +308,6 @@ test('off mode sends off and search mode is restored per composer session', asyn
   const sidePanel = await ensureConversationsOpen(page);
   await sidePanel.getByRole('button', { name: /Second Search Chat/ }).click();
   await expect(page.getByText('Second chat ready.')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Search mode auto' })).toBeVisible();
-  await selectSearchMode(page, 'Off');
   await expect(page.getByRole('button', { name: 'Search mode off' })).toBeVisible();
 
   const reopenedSidePanel = await ensureConversationsOpen(page);
@@ -316,7 +318,7 @@ test('off mode sends off and search mode is restored per composer session', asyn
   await reopenedSidePanelAgain.getByRole('button', { name: /Second Search Chat/ }).click();
   await expect(page.getByRole('button', { name: 'Search mode off' })).toBeVisible();
 
-  const composer = page.getByPlaceholder('Message Keen...');
+  const composer = page.getByLabel('Message composer');
   await composer.fill('Answer from memory');
   await composer.press('Enter');
 });

@@ -6,7 +6,11 @@ import {
   deleteRecordKey,
   getComposerStateKey,
 } from '@/app/home/components/homeSelection';
-import type { SearchMetadata, SearchMode } from '@/lib/chat-search';
+import {
+  DEFAULT_SEARCH_MODE,
+  type SearchMetadata,
+  type SearchMode,
+} from '@/lib/chat-search';
 import {
   DEFAULT_RESPONSE_STYLE,
   isDefaultResponseStyle,
@@ -26,7 +30,7 @@ export function getSearchModeFromMap(
   modesByChatKey: Record<string, SearchMode>,
   composerStateKey: string
 ) {
-  return modesByChatKey[composerStateKey] ?? 'auto';
+  return modesByChatKey[composerStateKey] ?? DEFAULT_SEARCH_MODE;
 }
 
 export function setSearchModeForKey(
@@ -35,7 +39,7 @@ export function setSearchModeForKey(
   mode: SearchMode,
   sessionStore: Record<string, SearchMode> = searchModesSessionStore
 ) {
-  if (mode === 'auto') {
+  if (mode === DEFAULT_SEARCH_MODE) {
     delete sessionStore[key];
     return deleteRecordKey(modesByChatKey, key);
   }
@@ -66,11 +70,11 @@ export function moveSearchModeBetweenKeys(
   toKey: string,
   sessionStore: Record<string, SearchMode> = searchModesSessionStore
 ) {
-  const mode = modesByChatKey[fromKey] ?? sessionStore[fromKey] ?? 'auto';
+  const mode = modesByChatKey[fromKey] ?? sessionStore[fromKey] ?? DEFAULT_SEARCH_MODE;
   delete sessionStore[fromKey];
   let nextModes = deleteRecordKey(modesByChatKey, fromKey);
 
-  if (mode === 'auto') {
+  if (mode === DEFAULT_SEARCH_MODE) {
     delete sessionStore[toKey];
     return deleteRecordKey(nextModes, toKey);
   }

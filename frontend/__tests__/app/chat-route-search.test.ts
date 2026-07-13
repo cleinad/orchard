@@ -279,7 +279,7 @@ describe('chat route search citations', () => {
     expect(assistantInsert.search_metadata).toBeNull();
   });
 
-  it('defaults missing search mode to auto and skips search when the decision says no', async () => {
+  it('defaults missing search mode to off', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-01-02T03:04:05.000Z'));
 
@@ -299,14 +299,10 @@ describe('chat route search citations', () => {
 
     expect(response.status).toBe(200);
     expect(body.search).toMatchObject({
-      mode: 'auto',
+      mode: 'off',
       attempted: false,
       status: 'not_attempted',
       metadata: null,
-      decision: {
-        shouldSearch: false,
-      },
-      skippedReason: 'auto_decision',
     });
     expect(mockRunSearchPipeline).not.toHaveBeenCalled();
     expect(parts.some((part) => part.type === 'data-searchActivity')).toBe(false);

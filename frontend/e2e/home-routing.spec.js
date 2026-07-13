@@ -420,7 +420,7 @@ test('the first draft send replaces /home with the new persistent conversation r
   await sidePanel.locator('#side-panel-section-new').getByRole('button', { name: 'New chat with Keen' }).click();
   await expect(page).toHaveURL(new RegExp('/home\\?e2e=home-routing-draft$'));
 
-  const composer = page.getByPlaceholder('Message Keen...');
+  const composer = page.getByLabel('Message composer');
   await composer.fill(message);
   await composer.press('Enter');
 
@@ -467,7 +467,7 @@ test('promoted draft stays visible in the sidebar while the first response is pe
   const sidePanel = await ensureConversationsOpen(page);
   await sidePanel.locator('#side-panel-section-new').getByRole('button', { name: 'New chat with Keen' }).click();
 
-  const composer = page.getByPlaceholder('Message Keen...');
+  const composer = page.getByLabel('Message composer');
   await composer.fill(message);
   await composer.press('Enter');
 
@@ -586,7 +586,7 @@ test('unsent composer text is preserved per persistent chat', async ({ page }) =
     "/home/" + firstConversationId + "?e2e=home-routing-chat-scoped-input"
   );
 
-  const composer = page.getByPlaceholder('Message Keen...');
+  const composer = page.getByLabel('Message composer');
   await composer.fill('Draft for chat one');
 
   const sidePanel = await ensureConversationsOpen(page);
@@ -596,7 +596,7 @@ test('unsent composer text is preserved per persistent chat', async ({ page }) =
     new RegExp("/home/" + secondConversationId + "\\?e2e=home-routing-chat-scoped-input$")
   );
 
-  const secondComposer = page.getByPlaceholder('Message Keen...');
+  const secondComposer = page.getByLabel('Message composer');
   await secondComposer.fill('Draft for chat two');
 
   const reopenedSidePanel = await ensureConversationsOpen(page);
@@ -604,11 +604,11 @@ test('unsent composer text is preserved per persistent chat', async ({ page }) =
   await expect(page).toHaveURL(
     new RegExp("/home/" + firstConversationId + "\\?e2e=home-routing-chat-scoped-input$")
   );
-  await expect(page.getByPlaceholder('Message Keen...')).toHaveValue('Draft for chat one');
+  await expect(page.getByLabel('Message composer')).toHaveValue('Draft for chat one');
 
   const reopenedSidePanelAgain = await ensureConversationsOpen(page);
   await reopenedSidePanelAgain.getByRole('button', { name: /Chat Two/ }).click();
-  await expect(page.getByPlaceholder('Message Keen...')).toHaveValue('Draft for chat two');
+  await expect(page.getByLabel('Message composer')).toHaveValue('Draft for chat two');
 });
 
 test('persistent chat switches reuse cached transcripts and restore scroll cleanly', async ({ page }) => {
@@ -849,7 +849,7 @@ test('the same chat stays editable while its response is in flight', async ({ pa
   );
   await routeMessagesLoaded;
 
-  const composer = page.getByPlaceholder('Message Keen...');
+  const composer = page.getByLabel('Message composer');
   await composer.fill(firstQuestion);
   await composer.press('Enter');
 
@@ -949,7 +949,7 @@ test('model effort and thinking controls are included in chat requests', async (
   await page.getByRole('menuitemradio', { name: /^High$/ }).click();
   await page.getByRole('switch', { name: /Thinking/ }).click();
 
-  const composer = page.getByPlaceholder('Message Keen...');
+  const composer = page.getByLabel('Message composer');
   await composer.fill(message);
   await composer.press('Enter');
 
@@ -1019,7 +1019,7 @@ test('untouched model defaults are omitted from chat requests', async ({ page })
   await page.getByRole('menuitemradio', { name: /Claude Opus 4\.8/ }).click();
   await page.keyboard.press('Escape');
 
-  const composer = page.getByPlaceholder('Message Keen...');
+  const composer = page.getByLabel('Message composer');
   await composer.fill(message);
   await composer.press('Enter');
 
@@ -1088,7 +1088,7 @@ test('auto mode omits untouched effort and thinking overrides', async ({ page })
 
   await page.goto('/home?e2e=home-routing-auto-default-effort');
 
-  const composer = page.getByPlaceholder('Message Keen...');
+  const composer = page.getByLabel('Message composer');
   await composer.fill(message);
   await composer.press('Enter');
 
@@ -1300,14 +1300,14 @@ test('a second chat can send while another chat is still in flight', async ({ pa
   );
   await firstRouteMessagesLoaded;
 
-  const firstComposer = page.getByPlaceholder('Message Keen...');
+  const firstComposer = page.getByLabel('Message composer');
   await firstComposer.fill(firstQuestion);
   await firstComposer.press('Enter');
 
   await page.getByRole('main').getByLabel('New temporary chat').click();
   await expect(page).toHaveURL(new RegExp('/home\\?e2e=home-routing-concurrent-send$'));
 
-  const temporaryComposer = page.getByPlaceholder('Message Keen...');
+  const temporaryComposer = page.getByLabel('Message composer');
   await temporaryComposer.fill(secondQuestion);
   await temporaryComposer.press('Enter');
 
@@ -1414,7 +1414,7 @@ test('background draft promotion does not steal focus from the chat you switched
 
   await page.goto('/home?e2e=home-routing-background-draft');
 
-  const composer = page.getByPlaceholder('Message Keen...');
+  const composer = page.getByLabel('Message composer');
   await composer.fill(firstQuestion);
   await composer.press('Enter');
   await createStarted.promise;
