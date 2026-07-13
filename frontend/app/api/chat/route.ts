@@ -35,6 +35,7 @@ import {
   createFailedSearchMetadata,
   createNotAttemptedSearchMetadata,
   createSearchMetadataFromPersisted,
+  DEFAULT_SEARCH_MODE,
   SEARCH_MODES,
   type SearchMode,
   withSearchDebugMetadata,
@@ -666,7 +667,7 @@ function resolveSearchMode({
     return 'required';
   }
 
-  return 'auto';
+  return DEFAULT_SEARCH_MODE;
 }
 
 function buildMessagePromptText(message: string, attachmentCount: number) {

@@ -17,7 +17,7 @@ describe('usePerChatComposerState search modes', () => {
 
     expect(getSearchModeFromMap(modes, BLANK_COMPOSER_KEY)).toBe('off');
     expect(getSearchModeFromMap(modes, 'draft:draft-1')).toBe('required');
-    expect(getSearchModeFromMap(modes, 'persistent:conversation-1')).toBe('auto');
+    expect(getSearchModeFromMap(modes, 'persistent:conversation-1')).toBe('off');
   });
 
   it('clears discarded composer search mode state', () => {
@@ -27,7 +27,7 @@ describe('usePerChatComposerState search modes', () => {
     modes = setSearchModeForKey(modes, 'draft:draft-1', 'required', sessionStore);
     modes = clearSearchModeForKey(modes, 'draft:draft-1', sessionStore);
 
-    expect(getSearchModeFromMap(modes, 'draft:draft-1')).toBe('auto');
+    expect(getSearchModeFromMap(modes, 'draft:draft-1')).toBe('off');
     expect(sessionStore).toEqual({});
   });
 
@@ -44,16 +44,15 @@ describe('usePerChatComposerState search modes', () => {
       sessionStore
     );
 
-    expect(getSearchModeFromMap(modes, 'draft:draft-1')).toBe('auto');
+    expect(getSearchModeFromMap(modes, 'draft:draft-1')).toBe('off');
     expect(getSearchModeFromMap(modes, 'persistent:conversation-1')).toBe('required');
     expect(getSearchModeFromMap(modes, 'persistent:conversation-2')).toBe('off');
     expect(sessionStore).toEqual({
       'persistent:conversation-1': 'required',
-      'persistent:conversation-2': 'off',
     });
   });
 
-  it('clears the promoted persistent key when moving default auto mode', () => {
+  it('clears the promoted persistent key when moving default off mode', () => {
     const sessionStore = {};
     let modes = {};
 
@@ -65,7 +64,15 @@ describe('usePerChatComposerState search modes', () => {
       sessionStore
     );
 
-    expect(getSearchModeFromMap(modes, 'persistent:conversation-1')).toBe('auto');
+    expect(getSearchModeFromMap(modes, 'persistent:conversation-1')).toBe('off');
     expect(sessionStore).toEqual({});
+  });
+
+  it('preserves auto as an explicit per-chat choice', () => {
+    const sessionStore = {};
+    const modes = setSearchModeForKey({}, 'persistent:conversation-1', 'auto', sessionStore);
+
+    expect(getSearchModeFromMap(modes, 'persistent:conversation-1')).toBe('auto');
+    expect(sessionStore).toEqual({ 'persistent:conversation-1': 'auto' });
   });
 });
