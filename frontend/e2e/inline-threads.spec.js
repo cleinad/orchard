@@ -274,9 +274,13 @@ test('submitting a selection question opens the thread panel immediately and sho
   await page.getByTestId('selection-popover-input').press('Enter');
 
   await expect(page.getByTestId('selection-popover')).toHaveCount(0);
-  await expect(page.getByTestId('thread-panel')).toHaveAttribute('data-state', 'open');
-  await expect(page.getByTestId('thread-panel')).toContainText(question);
+  const threadPanel = page.getByTestId('thread-panel');
+  await expect(threadPanel).toHaveAttribute('data-state', 'open');
+  await expect(threadPanel).toContainText(question);
   await expect(page.getByTestId('thread-panel-loading')).toBeVisible();
+  const userMessageRow = threadPanel.locator('[data-message-role="user"]');
+  await expect(userMessageRow.locator('[data-message-presentation="bubble"]')).toBeVisible();
+  await expect(userMessageRow.getByText('You', { exact: true })).toHaveCount(0);
   const loadingMarker = page.locator(
     '[data-testid="inline-thread-link"][data-thread-status="loading"]'
   );
@@ -293,9 +297,12 @@ test('submitting a selection question opens the thread panel immediately and sho
     assistantMessageId: 'assistant-loading-1',
   });
 
-  await expect(page.getByTestId('thread-panel')).toContainText(
+  await expect(threadPanel).toContainText(
     'Because microtasks flush before rendering.'
   );
+  const assistantMessageRow = threadPanel.locator('[data-message-role="assistant"]');
+  await expect(assistantMessageRow.locator('[data-message-presentation="plain"]')).toBeVisible();
+  await expect(assistantMessageRow.getByText('Thread', { exact: true })).toHaveCount(0);
   await expect(
     page.locator('[data-testid="inline-thread-link"][data-thread-status="ready"]')
   ).toContainText(selectedText);

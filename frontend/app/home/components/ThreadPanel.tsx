@@ -11,10 +11,12 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import MarkdownWithThreads from "@/app/home/components/MarkdownWithThreads";
+import ChatMessageFrame, {
+  chatMessageContentClassName,
+} from "@/app/home/components/ChatMessageFrame";
 import SearchSourcesTray from "@/app/home/components/SearchSourcesTray";
 import type { ThreadSession } from "@/app/home/components/threadTypes";
 import { SIDE_PANEL_COLLAPSED_WIDTH_PX } from "@/app/home/components/SidePanelContext";
-import { markdownContentClassName } from "@/lib/markdown";
 import { hasUsableSearchSources } from "@/lib/search-citations";
 import { buttonStyles, cx } from "@/app/components/buttonStyles";
 
@@ -342,12 +344,9 @@ export default function ThreadPanel({
           }}
         >
           {session?.messages.map((message) => (
-            <div key={message.id} className="py-3">
-              <span className="text-xs font-medium tracking-wider text-muted">
-                {message.role === "user" ? "You" : "Thread"}
-              </span>
+            <ChatMessageFrame key={message.id} messageRole={message.role}>
               <div
-                className={`${markdownContentClassName} mt-1 text-sm leading-relaxed text-foreground font-reading`}
+                className={chatMessageContentClassName(message.role)}
               >
                 <MarkdownWithThreads
                   content={message.content}
@@ -367,52 +366,52 @@ export default function ThreadPanel({
                 />
               </div>
               {hasUsableSearchSources(message.searchMetadata) && message.searchMetadata && (
-                  <>
-                    <div className="mt-2">
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          handleSourcesToggle(
-                            message.id,
-                            message.searchMetadata?.sources[0]?.id ?? 1
-                          );
-                        }}
-                        onPointerUp={(event) => event.stopPropagation()}
-                        className={cx(
-                          "inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-xs",
-                          buttonStyles.transition,
-                          buttonStyles.focus,
-                          openSourceTray?.messageId === message.id
-                            ? "border-foreground/15 bg-foreground/[0.04] text-foreground"
-                            : "border-transparent hover:border-border-subtle",
-                          openSourceTray?.messageId === message.id
-                            ? null
-                            : buttonStyles.ghostSubtle
-                        )}
-                      >
-                        <span>Sources</span>
-                        <span className="text-current/55">{message.searchMetadata.sources.length}</span>
-                      </button>
-                    </div>
+                <>
+                  <div className="mt-2">
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        handleSourcesToggle(
+                          message.id,
+                          message.searchMetadata?.sources[0]?.id ?? 1
+                        );
+                      }}
+                      onPointerUp={(event) => event.stopPropagation()}
+                      className={cx(
+                        "inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-xs",
+                        buttonStyles.transition,
+                        buttonStyles.focus,
+                        openSourceTray?.messageId === message.id
+                          ? "border-foreground/15 bg-foreground/[0.04] text-foreground"
+                          : "border-transparent hover:border-border-subtle",
+                        openSourceTray?.messageId === message.id
+                          ? null
+                          : buttonStyles.ghostSubtle
+                      )}
+                    >
+                      <span>Sources</span>
+                      <span className="text-current/55">{message.searchMetadata.sources.length}</span>
+                    </button>
+                  </div>
 
-                    {openSourceTray?.messageId === message.id && (
-                      <SearchSourcesTray
-                        searchMetadata={message.searchMetadata}
-                        activeSourceId={
-                          openSourceTray.sourceId ?? message.searchMetadata.sources[0]?.id ?? null
-                        }
-                        onSourceSelect={(sourceId) =>
-                          setOpenSourceTray({
-                            messageId: message.id,
-                            sourceId,
-                          })
-                        }
-                      />
-                    )}
-                  </>
-                )}
-            </div>
+                  {openSourceTray?.messageId === message.id && (
+                    <SearchSourcesTray
+                      searchMetadata={message.searchMetadata}
+                      activeSourceId={
+                        openSourceTray.sourceId ?? message.searchMetadata.sources[0]?.id ?? null
+                      }
+                      onSourceSelect={(sourceId) =>
+                        setOpenSourceTray({
+                          messageId: message.id,
+                          sourceId,
+                        })
+                      }
+                    />
+                  )}
+                </>
+              )}
+            </ChatMessageFrame>
           ))}
 
           {isBusy && (
