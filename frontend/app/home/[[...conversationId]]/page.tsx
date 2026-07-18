@@ -11,10 +11,6 @@ import {
 } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import {
-  SIDE_PANEL_COLLAPSED_WIDTH_PX,
-  useSidePanel,
-} from '@/app/home/components/SidePanelContext';
-import {
   useHomeDataContext,
   type SelectedChat,
   type PersistentDraftChat,
@@ -225,9 +221,7 @@ function HomePageInner() {
   const [hasLoadedThreadPanelWidth, setHasLoadedThreadPanelWidth] = useState(false);
 
   const { learningMode } = useLearningMode();
-  const { isOpen: sidePanelOpen, widthPx: sidePanelWidthPx } = useSidePanel();
   const mainStyle = {
-    '--side-panel-width': `${sidePanelWidthPx}px`,
     '--thread-panel-width': `${threadPanelWidthPx}px`,
   } as CSSProperties;
   const setThreadPanelWidthPx = useCallback((nextWidthPx: number) => {
@@ -977,9 +971,8 @@ function HomePageInner() {
       <HomeBackground />
 
       <main
-        data-side-panel-open={sidePanelOpen}
         data-thread-panel-open={threadPanelOpen}
-        className="home-main-shell relative flex min-h-0 flex-1 flex-col transition-[padding] duration-300 ease-out"
+        className="home-main-shell side-panel-content relative flex min-h-0 flex-1 flex-col transition-[padding] duration-300 ease-out"
         style={mainStyle}
       >
         <div className="w-full shrink-0 px-6">
@@ -1142,19 +1135,7 @@ function HomePageInner() {
       />
 
       <style jsx>{`
-        .home-main-shell {
-          padding-left: ${SIDE_PANEL_COLLAPSED_WIDTH_PX}px;
-        }
-
-        .home-main-shell[data-side-panel-open='true'] {
-          padding-left: min(21.8rem, 100vw);
-        }
-
         @media (min-width: 768px) {
-          .home-main-shell[data-side-panel-open='true'] {
-            padding-left: min(var(--side-panel-width), calc(100vw - 5rem));
-          }
-
           .home-main-shell[data-thread-panel-open='true'] {
             padding-right: min(var(--thread-panel-width), calc(100vw - 5rem));
           }

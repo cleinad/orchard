@@ -789,6 +789,20 @@ body {
   animation: shimmer 2s linear infinite;
 }
 
+.side-panel-content {
+  padding-left: 3.5rem;
+}
+
+.side-panel-layout[data-side-panel-open="true"] .side-panel-content {
+  padding-left: min(21.8rem, 100vw);
+}
+
+@media (min-width: 768px) {
+  .side-panel-layout[data-side-panel-open="true"] .side-panel-content {
+    padding-left: min(var(--side-panel-width), calc(100vw - 5rem));
+  }
+}
+
 /* Styled scrollbar for the chat composer textarea */
 .composer-scrollbar {
   scrollbar-width: thin; /* Firefox */

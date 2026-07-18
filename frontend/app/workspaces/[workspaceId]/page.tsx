@@ -28,7 +28,6 @@ import { useChatModelCatalog } from '@/app/home/components/useChatModelCatalog';
 import { useHomeDataContext } from '@/app/home/components/HomeDataContext';
 import { usePersistedJson } from '@/app/home/components/usePersistedJson';
 import { usePersistedString } from '@/app/home/components/usePersistedString';
-import { useSidePanel } from '@/app/home/components/SidePanelContext';
 import {
   GOOGLE_GIF_UNSUPPORTED_MESSAGE,
   IMAGE_MODEL_UNSUPPORTED_MESSAGE,
@@ -114,7 +113,6 @@ export default function WorkspacePage() {
   const params = useParams<{ workspaceId: string }>();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { isOpen: sidePanelOpen } = useSidePanel();
   const workspaceId = params.workspaceId;
   const {
     conversations,
@@ -568,12 +566,10 @@ export default function WorkspacePage() {
     event.currentTarget.form?.requestSubmit();
   };
 
-  const pageOffsetClass = sidePanelOpen ? 'lg:pl-[21.8rem]' : 'lg:pl-14';
-
   if (loading) {
     return (
       <main
-        className={`flex min-h-0 flex-1 items-center justify-center bg-background pl-14 text-foreground transition-[padding-left] duration-300 ease-out ${pageOffsetClass}`}
+        className="side-panel-content flex min-h-0 flex-1 items-center justify-center bg-background text-foreground transition-[padding-left] duration-300 ease-out"
       >
         <div className="text-sm text-muted">Loading workspace...</div>
       </main>
@@ -583,7 +579,7 @@ export default function WorkspacePage() {
   if (error && !workspace) {
     return (
       <main
-        className={`flex min-h-0 flex-1 items-center justify-center bg-background pl-14 text-foreground transition-[padding-left] duration-300 ease-out ${pageOffsetClass}`}
+        className="side-panel-content flex min-h-0 flex-1 items-center justify-center bg-background text-foreground transition-[padding-left] duration-300 ease-out"
       >
         <div className="rounded-lg border border-border-subtle bg-surface px-4 py-3 text-sm text-foreground">
           {error}
@@ -598,7 +594,7 @@ export default function WorkspacePage() {
 
   return (
     <main
-      className={`flex min-h-0 flex-1 flex-col overflow-y-auto bg-background pl-14 text-foreground transition-[padding-left] duration-300 ease-out lg:overflow-hidden ${pageOffsetClass}`}
+      className="side-panel-content flex min-h-0 flex-1 flex-col overflow-y-auto bg-background text-foreground transition-[padding-left] duration-300 ease-out lg:overflow-hidden"
     >
       <div className="mx-auto flex min-h-full w-full max-w-[92rem] flex-col px-4 pt-5 sm:px-6 lg:h-full lg:min-h-0 lg:px-8">
         <header className="flex flex-wrap items-start justify-between gap-4 pb-5">

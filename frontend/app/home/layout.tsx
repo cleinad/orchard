@@ -5,6 +5,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type CSSProperties,
   type FormEvent,
   type ReactNode,
 } from 'react';
@@ -303,7 +304,11 @@ function HomeShell({ children }: { children: ReactNode }) {
   };
 
   return (
-    <div className="relative flex h-dvh min-h-0 flex-col overflow-hidden bg-background text-foreground">
+    <div
+      className="side-panel-layout relative flex h-dvh min-h-0 flex-col overflow-hidden bg-background text-foreground"
+      data-side-panel-open={sidePanelOpen}
+      style={{ '--side-panel-width': `${sidePanelWidthPx}px` } as CSSProperties}
+    >
       {children}
 
       <CreateWorkspaceModal
