@@ -1,5 +1,5 @@
 const { test, expect } = require('@playwright/test');
-const { deferred, mockChatRoute } = require('./helpers/chatMocks');
+const { deferred, mockChatRoute, mockStreamingChatRoute } = require('./helpers/chatMocks');
 const { mockHomeDataRoutes } = require('./helpers/homeRouteMocks');
 
 function createConversation({
@@ -694,6 +694,75 @@ test('persistent chat switches reuse cached transcripts and restore scroll clean
   await expect.poll(() =>
     transcript.evaluate((element) => element.scrollTop)
   ).toBeLessThan(savedScrollTop + 180);
+});
+
+test('streaming auto-follow ignores no-op downward scrolling and pauses on upward scrolling', async ({ page }) => {
+  const chunks = [
+    `STREAM_START\n\n${'Opening response paragraph. '.repeat(80)}`,
+    `\n\nSTREAM_MIDDLE\n\n${'Middle response paragraph. '.repeat(80)}`,
+    `\n\nSTREAM_END\n\n${'Closing response paragraph. '.repeat(80)}`,
+  ];
+
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await mockHomeDataRoutes(page, {});
+
+  await mockStreamingChatRoute(page, {
+    chunks,
+    delayMs: 500,
+    metadata: {
+      userMessageId: 'message-stream-scroll-user',
+      assistantMessageId: 'message-stream-scroll-assistant',
+    },
+  });
+
+  await page.goto('/home?e2e=conversation-map-temporary');
+
+  const transcript = page.getByTestId('home-scroll-container');
+  await expect(transcript.getByText('Give me two ways to explain delayed browser paint.'))
+    .toBeVisible();
+  const composer = page.getByLabel('Message composer');
+  await composer.fill('Keep the transcript still when I scroll.');
+  await composer.press('Enter');
+
+  await expect(transcript.getByText('STREAM_START')).toBeVisible();
+  await expect.poll(() => transcript.evaluate((element) =>
+    element.scrollHeight - element.scrollTop - element.clientHeight
+  )).toBeLessThanOrEqual(2);
+
+  const transcriptBox = await transcript.boundingBox();
+  expect(transcriptBox).not.toBeNull();
+  await page.mouse.move(
+    transcriptBox.x + transcriptBox.width / 2,
+    transcriptBox.y + transcriptBox.height / 2
+  );
+  await page.mouse.wheel(0, 48);
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+  });
+  await page.keyboard.press('ArrowUp');
+
+  await expect(transcript.getByText('STREAM_MIDDLE')).toBeVisible();
+  await expect.poll(() => transcript.evaluate((element) =>
+    element.scrollHeight - element.scrollTop - element.clientHeight
+  )).toBeLessThanOrEqual(2);
+
+  await page.mouse.wheel(0, -48);
+
+  await expect.poll(() => transcript.evaluate((element) =>
+    element.scrollHeight - element.scrollTop - element.clientHeight
+  )).toBeGreaterThan(2);
+  const pausedScrollTop = await transcript.evaluate((element) => element.scrollTop);
+  const pausedDistanceFromBottom = await transcript.evaluate((element) =>
+    element.scrollHeight - element.scrollTop - element.clientHeight
+  );
+  expect(pausedDistanceFromBottom).toBeLessThan(100);
+
+  await expect(transcript.getByText('STREAM_END')).toBeVisible();
+  await page.waitForTimeout(600);
+  await expect.poll(() => transcript.evaluate((element) => element.scrollTop))
+    .toBe(pausedScrollTop);
 });
 
 test('a superseded chat load cannot replace the cached chat returned to', async ({ page }) => {

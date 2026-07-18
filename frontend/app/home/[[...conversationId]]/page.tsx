@@ -492,7 +492,6 @@ function HomePageInner() {
     handleScroll,
     jumpToMessage,
     saveCurrentScrollPosition,
-    scrollInstantRef,
     setUserHasScrolledState,
   } = useTranscriptNavigation({
     activeMessages,
@@ -657,7 +656,6 @@ function HomePageInner() {
     registerPrepareForChatSwitch,
     resetThreadUi,
     saveCurrentScrollPosition,
-    scrollInstantRef,
     selectedChatRef,
     selectedDraftChat,
     selectedDraftChatRef,
