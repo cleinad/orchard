@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
-import { SidePanelProvider, useSidePanel } from '@/app/home/components/SidePanelContext';
+import { useSidePanel } from '@/app/home/components/SidePanelContext';
 import { HomeDataProvider, useHomeDataContext } from '@/app/home/components/HomeDataContext';
 import SidePanel from '@/app/home/components/SidePanel';
 import { getHomeE2eFixture } from '@/app/home/e2eFixtures';
@@ -402,7 +402,7 @@ function HomeLayoutInner({ children }: { children: ReactNode }) {
   const skipInitialSidebarRefresh = getHomeE2eFixture(e2eQueryParam) !== null;
 
   return (
-    <SidePanelProvider>
+    <>
       <SidePanelShortcut />
       <HomeDataProvider
         routeConversationId={routeConversationId}
@@ -411,7 +411,7 @@ function HomeLayoutInner({ children }: { children: ReactNode }) {
       >
         <HomeShell>{children}</HomeShell>
       </HomeDataProvider>
-    </SidePanelProvider>
+    </>
   );
 }
 
