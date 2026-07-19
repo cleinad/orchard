@@ -202,6 +202,49 @@ test('workspace view shows sessions, sidebar workspace grouping, memory, and edi
   expect(state.workspaces[0].context).toBe('Prefer practical training advice and concise caveats.');
 });
 
+test('open resized desktop sidebar stays open when navigating to a workspace', async ({ page }) => {
+  const workspaceId = 'workspace-sidebar-navigation';
+  const expectedWidth = 420;
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.addInitScript(({ width }) => {
+    window.localStorage.setItem('keen-side-panel-width-v1', String(width));
+  }, { width: expectedWidth });
+  await mockHomeDataRoutes(page, {
+    workspaces: [
+      createWorkspace({
+        id: workspaceId,
+        name: 'Health',
+      }),
+    ],
+  });
+
+  await page.goto('/home?e2e=workspace-sidebar-navigation');
+
+  const sidePanel = await ensureConversationsOpen(page);
+  await expect.poll(async () => Math.round((await sidePanel.boundingBox())?.width ?? 0))
+    .toBe(expectedWidth);
+
+  await sidePanel
+    .getByTestId(`workspace-drop-target-${workspaceId}`)
+    .getByRole('button')
+    .first()
+    .click();
+
+  await expect(page).toHaveURL(
+    new RegExp(`/workspaces/${workspaceId}\\?e2e=workspace-sidebar-navigation$`)
+  );
+  await expect(page.getByRole('heading', { name: 'Health' })).toBeVisible();
+  await expect(page.locator('nav[aria-hidden]').first()).toHaveAttribute('aria-hidden', 'true');
+  await expect.poll(async () => Math.round((await sidePanel.boundingBox())?.width ?? 0))
+    .toBe(expectedWidth);
+  await expect.poll(async () =>
+    page.getByRole('main').evaluate((element) =>
+      Math.round(Number.parseFloat(window.getComputedStyle(element).paddingLeft))
+    )
+  ).toBe(expectedWidth);
+});
+
 test('workspace delete requires confirmation and removes scoped chats and memories', async ({ page }) => {
   const workspaceId = 'workspace-health';
   const state = await mockHomeDataRoutes(page, {

@@ -13,6 +13,7 @@ const TABLE_HEADER_SELECTION = 'Phase\tTrigger\tResult';
 const TABLE_ROW_SELECTION = 'Microtask\tPromise callback\tRuns before paint';
 const PARAGRAPH_TO_TABLE_SELECTION = 'comparison:\nPhase\tTrigger';
 const TABLE_TO_PARAGRAPH_SELECTION = 'Pixels become visible\nThe important bit';
+const CITATION_SPANNING_SELECTION = 'Research note [1] links timing to rendering.';
 const RICH_SELECTION_CASES = [
   'Paragraph text includes',
   'queueMicrotask()',
@@ -134,6 +135,21 @@ async function expectRectsInsideLocator(rectLocator, boundsLocator, tolerance = 
     expect(rect.right).toBeLessThanOrEqual(bounds.right + tolerance);
     expect(rect.bottom).toBeLessThanOrEqual(bounds.bottom + tolerance);
   }
+}
+
+async function areRectsInsideLocator(rectLocator, boundsLocator, tolerance = 1) {
+  const rects = await getClientRects(rectLocator);
+  const boundsRects = await getClientRects(boundsLocator);
+  if (rects.length === 0 || boundsRects.length === 0) return false;
+
+  const bounds = getUnionBounds(boundsRects);
+  return rects.every(
+    (rect) =>
+      rect.left >= bounds.left - tolerance
+      && rect.top >= bounds.top - tolerance
+      && rect.right <= bounds.right + tolerance
+      && rect.bottom <= bounds.bottom + tolerance
+  );
 }
 
 async function getStableBoundingBox(locator) {
@@ -258,9 +274,13 @@ test('submitting a selection question opens the thread panel immediately and sho
   await page.getByTestId('selection-popover-input').press('Enter');
 
   await expect(page.getByTestId('selection-popover')).toHaveCount(0);
-  await expect(page.getByTestId('thread-panel')).toHaveAttribute('data-state', 'open');
-  await expect(page.getByTestId('thread-panel')).toContainText(question);
+  const threadPanel = page.getByTestId('thread-panel');
+  await expect(threadPanel).toHaveAttribute('data-state', 'open');
+  await expect(threadPanel).toContainText(question);
   await expect(page.getByTestId('thread-panel-loading')).toBeVisible();
+  const userMessageRow = threadPanel.locator('[data-message-role="user"]');
+  await expect(userMessageRow.locator('[data-message-presentation="bubble"]')).toBeVisible();
+  await expect(userMessageRow.getByText('You', { exact: true })).toHaveCount(0);
   const loadingMarker = page.locator(
     '[data-testid="inline-thread-link"][data-thread-status="loading"]'
   );
@@ -277,9 +297,12 @@ test('submitting a selection question opens the thread panel immediately and sho
     assistantMessageId: 'assistant-loading-1',
   });
 
-  await expect(page.getByTestId('thread-panel')).toContainText(
+  await expect(threadPanel).toContainText(
     'Because microtasks flush before rendering.'
   );
+  const assistantMessageRow = threadPanel.locator('[data-message-role="assistant"]');
+  await expect(assistantMessageRow.locator('[data-message-presentation="plain"]')).toBeVisible();
+  await expect(assistantMessageRow.getByText('Thread', { exact: true })).toHaveCount(0);
   await expect(
     page.locator('[data-testid="inline-thread-link"][data-thread-status="ready"]')
   ).toContainText(selectedText);
@@ -478,6 +501,58 @@ test('captures selections across rich markdown renderers', async ({ page }) => {
     await page.keyboard.press('Escape');
     await expect(page.getByTestId('selection-popover')).toHaveCount(0);
   }
+});
+
+test('measures an active selection across a citation from inline markers', async ({ page }) => {
+  const response = deferred();
+
+  await mockChatRoute(page, async () => response.promise);
+
+  const { messageId } = await gotoHomeFixture(page, 'inline-threads-rich-selection');
+  const messageContent = page.locator(
+    `[data-message-id="${messageId}"] [data-message-content]`
+  );
+  const citationParagraph = messageContent.locator('p').filter({
+    hasText: 'Research note',
+  });
+
+  await selectTextInMessage(page, messageId, CITATION_SPANNING_SELECTION);
+
+  const activeMarkers = messageContent.locator(
+    '[data-testid="active-thread-highlight-marker"]'
+  );
+  const activeOverlayRects = messageContent.locator(
+    '[data-testid="thread-highlight-rect"][data-highlight-kind="active"]'
+  );
+  await expect.poll(() => activeMarkers.count()).toBeGreaterThan(0);
+  await expect.poll(() => activeOverlayRects.count()).toBeGreaterThan(0);
+  await expectOverlayBoundsNearMarkers(activeOverlayRects, activeMarkers);
+  await expect
+    .poll(() => areRectsInsideLocator(activeOverlayRects, citationParagraph, 2))
+    .toBe(true);
+
+  await page.getByTestId('selection-popover-input').fill('Explain this citation.');
+  await page.getByTestId('selection-popover-input').press('Enter');
+
+  await expect(activeMarkers).toHaveCount(0);
+  const loadingMarker = messageContent.locator(
+    '[data-testid="inline-thread-link"][data-thread-status="loading"]'
+  );
+  await expect(loadingMarker).toContainText(CITATION_SPANNING_SELECTION);
+  const loadingMarkerId = await loadingMarker.getAttribute('data-thread-marker-id');
+  const loadingOverlayRects = messageContent.locator(
+    `[data-testid="thread-highlight-rect"][data-highlight-source-id="${loadingMarkerId}"]`
+  );
+  await expect.poll(() => loadingOverlayRects.count()).toBeGreaterThan(0);
+  await expect
+    .poll(() => areRectsInsideLocator(loadingOverlayRects, citationParagraph, 2))
+    .toBe(true);
+
+  response.resolve({
+    message: 'The citation supports the rendering-timing claim.',
+    userMessageId: 'user-citation-highlight-1',
+    assistantMessageId: 'assistant-citation-highlight-1',
+  });
 });
 
 test('copy after source selection and paste into the popover input keep native clipboard behavior', async ({

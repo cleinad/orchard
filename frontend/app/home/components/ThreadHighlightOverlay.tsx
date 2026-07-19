@@ -381,7 +381,9 @@ function measureDomRects(
 
 function getRenderedThreadMarkerElements(root: HTMLElement, sourceId: string) {
   return Array.from(
-    root.querySelectorAll<HTMLElement>('[data-testid="inline-thread-link"]')
+    root.querySelectorAll<HTMLElement>(
+      '[data-testid="inline-thread-link"], [data-testid="active-thread-highlight-marker"]'
+    )
   ).filter((element) => element.dataset.threadMarkerId === sourceId);
 }
 

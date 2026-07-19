@@ -15,6 +15,8 @@ import type { Message } from '@/app/home/types';
 const MAP_SCROLL_TOP_OFFSET = 104;
 const TRANSCRIPT_NAVIGATION_LOCK_MS = 700;
 const JUMP_TO_MESSAGE_MAX_ATTEMPTS = 8;
+const SCROLL_BOTTOM_EPSILON_PX = 2;
+const SCROLL_KEYS = new Set(['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' ']);
 
 interface UseTranscriptNavigationParams {
   activeMessages: Message[];
@@ -39,7 +41,9 @@ export function useTranscriptNavigation({
 }: UseTranscriptNavigationParams) {
   const [userHasScrolled, setUserHasScrolled] = useState(false);
   const userHasScrolledRef = useRef(false);
-  const scrollInstantRef = useRef(true);
+  const autoFollowPausedByUserRef = useRef(false);
+  const userMovedAwayAfterPauseRef = useRef(false);
+  const transcriptPointerDownRef = useRef(false);
   const activeMessagesLengthRef = useRef(activeMessages.length);
   const pendingScrollRestoreKeyRef = useRef<string | null>(scrollRestorationKey);
   const previousScrollRestorationKeyRef = useRef<string | null>(scrollRestorationKey);
@@ -64,6 +68,10 @@ export function useTranscriptNavigation({
 
   const setUserHasScrolledState = useCallback((nextValue: boolean) => {
     userHasScrolledRef.current = nextValue;
+    if (!nextValue) {
+      autoFollowPausedByUserRef.current = false;
+      userMovedAwayAfterPauseRef.current = false;
+    }
     setUserHasScrolled((current) => (current === nextValue ? current : nextValue));
   }, []);
 
@@ -119,6 +127,103 @@ export function useTranscriptNavigation({
     };
   }, [endProgrammaticTranscriptNavigation]);
 
+  const pauseAutoFollow = useCallback((allowAtBottom = false) => {
+    const container = containerRef.current;
+    if (!container || autoFollowPausedByUserRef.current) {
+      return;
+    }
+
+    const distanceFromBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight;
+    const canScroll = container.scrollHeight - container.clientHeight > SCROLL_BOTTOM_EPSILON_PX;
+    if (
+      distanceFromBottom <= SCROLL_BOTTOM_EPSILON_PX
+      && (!allowAtBottom || !canScroll)
+    ) {
+      return;
+    }
+
+    autoFollowPausedByUserRef.current = true;
+    userMovedAwayAfterPauseRef.current = distanceFromBottom > SCROLL_BOTTOM_EPSILON_PX;
+    endProgrammaticTranscriptNavigation();
+    setUserHasScrolledState(true);
+
+    // Freeze any smooth navigation already in flight at its current position.
+    container.scrollTo({ top: container.scrollTop, behavior: 'instant' });
+  }, [containerRef, endProgrammaticTranscriptNavigation, setUserHasScrolledState]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) {
+      return;
+    }
+
+    const handlePointerDown = () => {
+      transcriptPointerDownRef.current = true;
+    };
+    const handlePointerUp = () => {
+      transcriptPointerDownRef.current = false;
+    };
+    const handlePointerScroll = () => {
+      if (transcriptPointerDownRef.current) {
+        pauseAutoFollow();
+      }
+    };
+    const handleWheel = (event: WheelEvent) => {
+      pauseAutoFollow(event.deltaY < 0);
+    };
+    const handleTouchMove = () => {
+      pauseAutoFollow();
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target;
+      const isEditableTarget =
+        target instanceof HTMLElement
+        && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName));
+      const isInteractiveTarget =
+        target instanceof Element
+        && Boolean(target.closest('a, button, summary, [role="button"], [role="link"]'));
+      const activeElement = document.activeElement;
+
+      if (
+        event.defaultPrevented
+        || event.metaKey
+        || event.ctrlKey
+        || event.altKey
+        || isEditableTarget
+        || isInteractiveTarget
+        || !SCROLL_KEYS.has(event.key)
+        || !activeElement
+        || !container.contains(activeElement)
+      ) {
+        return;
+      }
+
+      const movesAwayFromBottom =
+        ['ArrowUp', 'PageUp', 'Home'].includes(event.key)
+        || (event.key === ' ' && event.shiftKey);
+      pauseAutoFollow(movesAwayFromBottom);
+    };
+
+    container.addEventListener('wheel', handleWheel, { capture: true, passive: true });
+    container.addEventListener('touchmove', handleTouchMove, { capture: true, passive: true });
+    container.addEventListener('pointerdown', handlePointerDown, { capture: true });
+    container.addEventListener('scroll', handlePointerScroll);
+    window.addEventListener('pointerup', handlePointerUp, { capture: true });
+    window.addEventListener('pointercancel', handlePointerUp, { capture: true });
+    window.addEventListener('keydown', handleKeyDown, { capture: true });
+
+    return () => {
+      container.removeEventListener('wheel', handleWheel, { capture: true });
+      container.removeEventListener('touchmove', handleTouchMove, { capture: true });
+      container.removeEventListener('pointerdown', handlePointerDown, { capture: true });
+      container.removeEventListener('scroll', handlePointerScroll);
+      window.removeEventListener('pointerup', handlePointerUp, { capture: true });
+      window.removeEventListener('pointercancel', handlePointerUp, { capture: true });
+      window.removeEventListener('keydown', handleKeyDown, { capture: true });
+    };
+  }, [containerRef, pauseAutoFollow]);
+
   useLayoutEffect(() => {
     if (
       !scrollRestorationKey
@@ -143,7 +248,6 @@ export function useTranscriptNavigation({
     container.scrollTop = savedScrollTop;
     skipNextAutoScrollKeyRef.current = scrollRestorationKey;
     blockAutoScrollUntilRef.current = performance.now() + 600;
-    scrollInstantRef.current = false;
 
     const isAtBottom =
       container.scrollHeight - container.scrollTop - container.clientHeight < 100;
@@ -194,9 +298,7 @@ export function useTranscriptNavigation({
     }
 
     if (!userHasScrolledRef.current) {
-      const behavior = scrollInstantRef.current ? 'instant' : 'smooth';
-      scrollInstantRef.current = false;
-      messagesEndRef.current.scrollIntoView({ behavior });
+      messagesEndRef.current.scrollIntoView({ behavior: 'instant' });
     }
   }, [activeMessages, messagesEndRef, scrollRestorationKey]);
 
@@ -264,9 +366,18 @@ export function useTranscriptNavigation({
     }
 
     if (!programmaticTranscriptNavigationRef.current) {
-      const isAtBottom =
-        container.scrollHeight - container.scrollTop - container.clientHeight < 100;
-      setUserHasScrolledState(!isAtBottom);
+      const distanceFromBottom =
+        container.scrollHeight - container.scrollTop - container.clientHeight;
+
+      if (autoFollowPausedByUserRef.current) {
+        if (distanceFromBottom > SCROLL_BOTTOM_EPSILON_PX) {
+          userMovedAwayAfterPauseRef.current = true;
+        } else if (userMovedAwayAfterPauseRef.current) {
+          setUserHasScrolledState(false);
+        }
+      } else {
+        setUserHasScrolledState(distanceFromBottom >= 100);
+      }
     }
 
     scheduleCurrentVisibleMapMessageUpdate();
@@ -346,7 +457,6 @@ export function useTranscriptNavigation({
     handleScroll,
     jumpToMessage,
     saveCurrentScrollPosition,
-    scrollInstantRef,
     setUserHasScrolledState,
     userHasScrolled,
   };

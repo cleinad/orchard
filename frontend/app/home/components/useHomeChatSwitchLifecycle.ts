@@ -21,7 +21,6 @@ interface UseHomeChatSwitchLifecycleParams {
   registerPrepareForChatSwitch: (fn: (next: SelectedChat | null) => void) => void;
   resetThreadUi: () => void;
   saveCurrentScrollPosition: () => void;
-  scrollInstantRef: MutableRefObject<boolean>;
   selectedChatRef: MutableRefObject<SelectedChat | null>;
   selectedDraftChat: PersistentDraftChat | null;
   selectedDraftChatRef: MutableRefObject<PersistentDraftChat | null>;
@@ -44,7 +43,6 @@ export function useHomeChatSwitchLifecycle({
   registerPrepareForChatSwitch,
   resetThreadUi,
   saveCurrentScrollPosition,
-  scrollInstantRef,
   selectedChatRef,
   selectedDraftChat,
   selectedDraftChatRef,
@@ -65,7 +63,6 @@ export function useHomeChatSwitchLifecycle({
       setConversationMapOpen(false);
       endProgrammaticTranscriptNavigation();
       setUserHasScrolledState(false);
-      scrollInstantRef.current = true;
 
       const currentSelection = selectedChatRef.current;
       const currentDraft = selectedDraftChatRef.current;
@@ -103,7 +100,6 @@ export function useHomeChatSwitchLifecycle({
       endProgrammaticTranscriptNavigation,
       resetThreadUi,
       saveCurrentScrollPosition,
-      scrollInstantRef,
       selectedChatRef,
       selectedDraftChatRef,
       setConversationMapOpen,

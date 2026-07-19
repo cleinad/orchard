@@ -5,11 +5,12 @@ import {
   useEffect,
   useRef,
   useState,
+  type CSSProperties,
   type FormEvent,
   type ReactNode,
 } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
-import { SidePanelProvider, useSidePanel } from '@/app/home/components/SidePanelContext';
+import { useSidePanel } from '@/app/home/components/SidePanelContext';
 import { HomeDataProvider, useHomeDataContext } from '@/app/home/components/HomeDataContext';
 import SidePanel from '@/app/home/components/SidePanel';
 import { getHomeE2eFixture } from '@/app/home/e2eFixtures';
@@ -303,7 +304,11 @@ function HomeShell({ children }: { children: ReactNode }) {
   };
 
   return (
-    <div className="relative flex h-dvh min-h-0 flex-col overflow-hidden bg-background text-foreground">
+    <div
+      className="side-panel-layout relative flex h-dvh min-h-0 flex-col overflow-hidden bg-background text-foreground"
+      data-side-panel-open={sidePanelOpen}
+      style={{ '--side-panel-width': `${sidePanelWidthPx}px` } as CSSProperties}
+    >
       {children}
 
       <CreateWorkspaceModal
@@ -402,7 +407,7 @@ function HomeLayoutInner({ children }: { children: ReactNode }) {
   const skipInitialSidebarRefresh = getHomeE2eFixture(e2eQueryParam) !== null;
 
   return (
-    <SidePanelProvider>
+    <>
       <SidePanelShortcut />
       <HomeDataProvider
         routeConversationId={routeConversationId}
@@ -411,7 +416,7 @@ function HomeLayoutInner({ children }: { children: ReactNode }) {
       >
         <HomeShell>{children}</HomeShell>
       </HomeDataProvider>
-    </SidePanelProvider>
+    </>
   );
 }
 

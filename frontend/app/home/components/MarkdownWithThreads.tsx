@@ -31,6 +31,7 @@ import InlineCitation, {
 interface MarkdownWithThreadsProps {
   content: string;
   threads: InlineThreadMarker[];
+  activeHighlightMarker?: InlineThreadMarker | null;
   onThreadClick: (thread: InlineThreadMarker) => void;
   searchMetadata?: PersistedSearchMetadata | null;
   activeCitationSourceId?: number | null;
@@ -238,12 +239,34 @@ function ThreadIndicator({
   );
 }
 
-function normalizeThreadMatches(threads: InlineThreadMarker[]): TextMatch[] {
+function ActiveHighlightIndicator({
+  children,
+  markerId,
+}: {
+  children: ReactNode;
+  markerId: string;
+}) {
+  return (
+    <span
+      data-testid="active-thread-highlight-marker"
+      data-thread-marker-id={markerId}
+      className="box-decoration-clone rounded-[2px] px-[0.05em]"
+    >
+      {children}
+    </span>
+  );
+}
+
+function normalizeThreadMatches(
+  threads: InlineThreadMarker[],
+  preferredMarkerId: string | null = null
+): TextMatch[] {
   const normalizedThreads = [...threads]
     .filter((thread) => thread.endOffset > thread.startOffset)
     .sort(
       (a, b) =>
-        a.startOffset - b.startOffset
+        Number(b.markerId === preferredMarkerId) - Number(a.markerId === preferredMarkerId)
+        || a.startOffset - b.startOffset
         || (b.endOffset - b.startOffset) - (a.endOffset - a.startOffset)
     );
   const matches: TextMatch[] = [];
@@ -672,13 +695,21 @@ function rehypeInlineCitations(validSourceIds: ReadonlySet<number>) {
 export default function MarkdownWithThreads({
   content,
   threads,
+  activeHighlightMarker = null,
   onThreadClick,
   searchMetadata = null,
   activeCitationSourceId = null,
   citationVariant = "numberOnly",
   onCitationClick,
 }: MarkdownWithThreadsProps) {
-  const matches = useMemo(() => normalizeThreadMatches(threads), [threads]);
+  const markerThreads = useMemo(
+    () => activeHighlightMarker ? [activeHighlightMarker, ...threads] : threads,
+    [activeHighlightMarker, threads]
+  );
+  const matches = useMemo(
+    () => normalizeThreadMatches(markerThreads, activeHighlightMarker?.markerId ?? null),
+    [activeHighlightMarker?.markerId, markerThreads]
+  );
   const threadById = useMemo(
     () => new Map(matches.map((match) => [match.thread.markerId, match.thread])),
     [matches]
@@ -726,6 +757,15 @@ export default function MarkdownWithThreads({
           if (thread) {
             const rest = { ...props };
             delete rest["data-inline-thread-id"];
+
+            if (thread.markerId === activeHighlightMarker?.markerId) {
+              return (
+                <ActiveHighlightIndicator markerId={thread.markerId}>
+                  <span {...rest}>{children}</span>
+                </ActiveHighlightIndicator>
+              );
+            }
+
             return (
               <ThreadIndicator thread={thread} onClick={onThreadClick}>
                 <span {...rest}>{children}</span>
@@ -764,6 +804,7 @@ export default function MarkdownWithThreads({
     }),
     [
       activeCitationSourceId,
+      activeHighlightMarker?.markerId,
       citationVariant,
       onCitationClick,
       onThreadClick,

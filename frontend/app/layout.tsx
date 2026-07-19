@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Fraunces, Newsreader } from "next/font/google";
 import BodyFontSync from "@/app/components/BodyFontSync";
+import { SidePanelProvider } from "@/app/home/components/SidePanelContext";
 import {
   BODY_FONT_STACK,
   BODY_FONT_STORAGE_KEY,
@@ -59,7 +60,7 @@ export default function RootLayout({
           }}
         />
         <BodyFontSync />
-        {children}
+        <SidePanelProvider>{children}</SidePanelProvider>
       </body>
     </html>
   );

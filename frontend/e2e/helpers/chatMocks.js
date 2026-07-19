@@ -10,6 +10,66 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
+async function mockStreamingChatRoute(page, {
+  chunks,
+  metadata,
+  delayMs = 400,
+}) {
+  await page.addInitScript(({ streamChunks, streamMetadata, streamDelayMs }) => {
+    const originalFetch = window.fetch.bind(window);
+
+    window.fetch = (input, init) => {
+      const url = new URL(
+        typeof input === 'string' ? input : input instanceof URL ? input.href : input.url,
+        window.location.href
+      );
+      if (url.pathname !== '/api/chat') {
+        return originalFetch(input, init);
+      }
+
+      const encoder = new TextEncoder();
+      const body = new ReadableStream({
+        start(controller) {
+          let chunkIndex = 0;
+          const writeNext = () => {
+            if (chunkIndex < streamChunks.length) {
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                type: 'text-delta',
+                delta: streamChunks[chunkIndex],
+              })}\n\n`));
+              chunkIndex += 1;
+              window.setTimeout(writeNext, streamDelayMs);
+              return;
+            }
+
+            controller.enqueue(encoder.encode('data: {"type":"text-end"}\n\n'));
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+              type: 'data-chatMeta',
+              data: {
+                ...streamMetadata,
+                message: streamChunks.join(''),
+              },
+            })}\n\n`));
+            controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+            controller.close();
+          };
+
+          writeNext();
+        },
+      });
+
+      return Promise.resolve(new Response(body, {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      }));
+    };
+  }, {
+    streamChunks: chunks,
+    streamMetadata: metadata,
+    streamDelayMs: delayMs,
+  });
+}
+
 function normalizeRouteResult(result) {
   if (result && typeof result === 'object' && 'json' in result) {
     return {
@@ -77,5 +137,6 @@ async function mockThreadMessagesRoute(page, handler) {
 module.exports = {
   deferred,
   mockChatRoute,
+  mockStreamingChatRoute,
   mockThreadMessagesRoute,
 };

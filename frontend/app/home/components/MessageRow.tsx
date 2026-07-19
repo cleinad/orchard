@@ -12,6 +12,9 @@ import {
   type PointerEvent,
 } from 'react';
 import AssistantCopyControl from '@/app/home/components/AssistantCopyControl';
+import ChatMessageFrame, {
+  chatMessageContentClassName,
+} from '@/app/home/components/ChatMessageFrame';
 import MarkdownWithThreads from '@/app/home/components/MarkdownWithThreads';
 import SearchSourcesTray from '@/app/home/components/SearchSourcesTray';
 import ThreadHighlightOverlay, {
@@ -22,7 +25,6 @@ import type { InlineThreadMarker, ThreadSource } from '@/app/home/components/thr
 import type { Message } from '@/app/home/types';
 import { getSelectionStreamVersion } from '@/app/home/components/markdownSelectableStream';
 import type { ChatImageAttachment } from '@/lib/chat-attachments';
-import { markdownContentClassName } from '@/lib/markdown';
 import { hasUsableSearchSources } from '@/lib/search-citations';
 import type { SearchActivityEvent } from '@/lib/search/types';
 import SourceFavicon from '@/app/home/components/SourceFavicon';
@@ -164,6 +166,36 @@ function MessageRow({
   );
   const activeHighlightForMessage =
     activeHighlightSource?.sourceMessageId === message.id ? activeHighlightSource : null;
+  const activeHighlightMarker = useMemo<InlineThreadMarker | null>(() => {
+    if (
+      message.role !== 'assistant'
+      || !activeHighlightForMessage
+      || threads.some(
+        (thread) =>
+          thread.sourceMessageId === activeHighlightForMessage.sourceMessageId
+          && thread.startOffset === activeHighlightForMessage.startOffset
+          && thread.endOffset === activeHighlightForMessage.endOffset
+          && getSelectionStreamVersion(thread.selectionStreamVersion)
+            === getSelectionStreamVersion(activeHighlightForMessage.selectionStreamVersion)
+      )
+    ) {
+      return null;
+    }
+
+    return {
+      markerId: `active-${message.id}-${activeHighlightForMessage.startOffset}-${activeHighlightForMessage.endOffset}`,
+      threadId: null,
+      sessionId: null,
+      status: 'ready',
+      highlightedText: activeHighlightForMessage.highlightedText,
+      sourceMessageId: activeHighlightForMessage.sourceMessageId,
+      startOffset: activeHighlightForMessage.startOffset,
+      endOffset: activeHighlightForMessage.endOffset,
+      selectionStreamVersion: getSelectionStreamVersion(
+        activeHighlightForMessage.selectionStreamVersion
+      ),
+    };
+  }, [activeHighlightForMessage, message.id, message.role, threads]);
 
   const overlaySources = useMemo<ThreadHighlightOverlaySource[]>(() => {
     if (message.role !== 'assistant') {
@@ -192,24 +224,21 @@ function MessageRow({
       emphasized: thread.status !== 'loading' && emphasizedThreadMarkerId === thread.markerId,
     }));
 
-    if (
-      activeHighlightForMessage
-      && !threads.some((thread) => matchesActiveSource(thread))
-    ) {
+    if (activeHighlightMarker) {
       sources.push({
-        id: `active-${message.id}-${activeHighlightForMessage.startOffset}-${activeHighlightForMessage.endOffset}`,
+        id: activeHighlightMarker.markerId,
         kind: 'active',
-        startOffset: activeHighlightForMessage.startOffset,
-        endOffset: activeHighlightForMessage.endOffset,
-        selectionStreamVersion: activeSourceVersion ?? undefined,
+        startOffset: activeHighlightMarker.startOffset,
+        endOffset: activeHighlightMarker.endOffset,
+        selectionStreamVersion: activeHighlightMarker.selectionStreamVersion,
       });
     }
 
     return sources;
   }, [
     activeHighlightForMessage,
+    activeHighlightMarker,
     emphasizedThreadMarkerId,
-    message.id,
     message.role,
     threads,
   ]);
@@ -312,26 +341,16 @@ function MessageRow({
   }, [message.role, onThreadClick, overlaySources.length, threadByMarkerId]);
 
   return (
-    <div
-      className="py-4"
-      data-message-id={message.id}
-      data-message-role={message.role}
-      onPointerUp={message.role === 'assistant' ? onAssistantPointerUp : undefined}
-    >
-      <span className="sr-only">
-        {message.role === 'user' ? 'Your message' : 'Response'}
-      </span>
-      <div
-        data-message-presentation={message.role === 'user' ? 'bubble' : 'plain'}
-        className={cx(
-          'rounded-2xl transition',
-          message.role === 'user'
-            ? 'ml-auto w-fit max-w-[85%] bg-foreground/[0.045] px-4 py-3 ring-1 ring-border-subtle sm:max-w-[36rem]'
-            : null,
+    <>
+      <ChatMessageFrame
+        data-message-id={message.id}
+        messageRole={message.role}
+        onPointerUp={message.role === 'assistant' ? onAssistantPointerUp : undefined}
+        surfaceClassName={
           isPendingBranchSource
             ? 'bg-foreground/[0.03] px-3 py-3 ring-1 ring-foreground/[0.08]'
-            : null
-        )}
+            : undefined
+        }
       >
         {searchActivityLabel && (
           <div
@@ -361,11 +380,7 @@ function MessageRow({
         <div
           ref={setMessageContentNode}
           data-message-content="true"
-          className={cx(
-            markdownContentClassName,
-            message.role === 'assistant' ? 'mt-2' : null,
-            'text-base leading-relaxed text-foreground'
-          )}
+          className={chatMessageContentClassName(message.role)}
           onBlur={handleThreadMarkerBlur}
           onFocus={handleThreadMarkerFocus}
           onPointerOut={handleThreadMarkerPointerOut}
@@ -377,6 +392,7 @@ function MessageRow({
           <MarkdownWithThreads
             content={message.content}
             threads={threads}
+            activeHighlightMarker={activeHighlightMarker}
             onThreadClick={onThreadClick}
             searchMetadata={replySearchMetadata}
             activeCitationSourceId={activeSourceId}
@@ -525,7 +541,7 @@ function MessageRow({
             </button>
           </div>
         )}
-      </div>
+      </ChatMessageFrame>
 
       {selectedImage?.url && (
         <div
@@ -558,7 +574,7 @@ function MessageRow({
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }
 
