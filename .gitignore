@@ -93,6 +93,10 @@ node_modules/
 coverage/
 *.lcov
 .nyc_output
+playwright-report/
+blob-report/
+test-results/
+.next-playwright-*/
 
 # Next.js
 .next/
