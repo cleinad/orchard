@@ -21,6 +21,8 @@ const INLINE_THREADS_MESSAGE_CONTENT = [
   'A useful rule of thumb is that microtasks run before the browser paints the next frame,',
   'which is why promise callbacks can update state before rendering catches up.',
 ].join(' ');
+const INLINE_THREADS_EARLIER_SELECTION_TEXT =
+  'event loop coordinates work between tasks';
 const INLINE_THREADS_ORDERED_LIST_TEXT = 'microtasks run before the browser paints the next frame';
 const INLINE_THREADS_ORDERED_LIST_CONTENT = `3. ${INLINE_THREADS_ORDERED_LIST_TEXT}`;
 const INLINE_THREADS_REPEATED_TEXT = 'before paint';
@@ -274,6 +276,25 @@ const HOME_E2E_FIXTURES: Record<string, HomeE2eFixture> = {
     chatMode: 'persistent',
     conversationId: 'conversation-inline-threads-fixture',
     messages: FIXTURE_MESSAGES.persistent,
+  },
+  'inline-threads-highlight-order': {
+    key: 'inline-threads-highlight-order',
+    chatMode: 'temporary',
+    conversationId: null,
+    messages: FIXTURE_MESSAGES.persistent,
+    threads: [
+      {
+        threadId: 'persisted-thread-highlight-order-1',
+        sourceMessageId: 'assistant-inline-threads-persistent-fixture',
+        highlightedText: INLINE_THREADS_EARLIER_SELECTION_TEXT,
+        startOffset: INLINE_THREADS_MESSAGE_CONTENT.indexOf(
+          INLINE_THREADS_EARLIER_SELECTION_TEXT
+        ),
+        endOffset:
+          INLINE_THREADS_MESSAGE_CONTENT.indexOf(INLINE_THREADS_EARLIER_SELECTION_TEXT)
+          + INLINE_THREADS_EARLIER_SELECTION_TEXT.length,
+      },
+    ],
   },
   'inline-threads-offset-render': {
     key: 'inline-threads-offset-render',

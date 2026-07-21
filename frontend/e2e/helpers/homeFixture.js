@@ -16,6 +16,10 @@ const FIXTURE_CONFIGS = {
     messageId: 'assistant-inline-threads-persistent-fixture',
     selectedText: INLINE_THREADS_SELECTED_TEXT,
   },
+  'inline-threads-highlight-order': {
+    messageId: 'assistant-inline-threads-persistent-fixture',
+    selectedText: 'promise callbacks can update state before rendering catches up.',
+  },
   'inline-threads-offset-render': {
     messageId: 'assistant-inline-threads-ordered-list-fixture',
     selectedText: INLINE_THREADS_SELECTED_TEXT,

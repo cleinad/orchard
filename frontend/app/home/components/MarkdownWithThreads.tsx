@@ -285,7 +285,7 @@ function normalizeThreadMatches(
     }
   }
 
-  return matches;
+  return matches.sort((a, b) => a.start - b.start || a.end - b.end);
 }
 
 function getClassNames(node: HastNode): string[] {
