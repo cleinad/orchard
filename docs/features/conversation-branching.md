@@ -227,15 +227,15 @@ Current behavior:
 | `frontend/app/home/components/useHomeData.ts` | Loads `previous_message_id` and `conversation_branches` for persistent conversations |
 | `frontend/app/api/chat/route.ts` | Branch-aware request handling, `Main` materialization, branch row creation, and active-path prompt assembly |
 | `frontend/lib/memory-agent.ts` | Memory extraction rules that avoid storing speculative branch exploration as facts |
-| `supabase/migrations/20260412043830_conversation_branches.sql` | Schema changes for `messages.previous_message_id` and `conversation_branches` |
+| `supabase/migrations/20260719001000_production_schema_baseline.sql` | Production-derived schema for `messages.previous_message_id` and `conversation_branches` |
 
 ## Database Impact
 
-Branching added a dedicated migration:
+Branching is present in the production-derived baseline:
 
-- [`20260412043830_conversation_branches.sql`](../../supabase/migrations/20260412043830_conversation_branches.sql)
+- [`20260719001000_production_schema_baseline.sql`](../../supabase/migrations/20260719001000_production_schema_baseline.sql)
 
-That migration:
+That baseline:
 
 - adds `messages.previous_message_id`
 - creates `conversation_branches`

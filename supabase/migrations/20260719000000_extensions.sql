@@ -1,0 +1,10 @@
+-- Extensions required by the hosted Orchard public schema.
+create extension if not exists btree_gist with schema public;
+create extension if not exists pg_graphql with schema graphql;
+create extension if not exists pg_net with schema extensions;
+create extension if not exists pg_stat_statements with schema extensions;
+create extension if not exists vector with schema public;
+create extension if not exists pg_trgm with schema public;
+create extension if not exists pgcrypto with schema extensions;
+create extension if not exists supabase_vault with schema vault;
+create extension if not exists "uuid-ossp" with schema extensions;

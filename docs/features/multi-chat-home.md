@@ -266,13 +266,13 @@ For the first top-level exchange in a temporary chat, the route can still genera
 
 ## Database Impact
 
-Supporting multi-chat required removing the old one-conversation-per-mentor invariant.
+The production-derived baseline includes the multi-chat schema and no longer has the old one-conversation-per-mentor invariant.
 
-Relevant migration:
+Relevant baseline:
 
-- [`20260404113000_multi_conversation_sidebar.sql`](../../supabase/migrations/20260404113000_multi_conversation_sidebar.sql)
+- [`20260719001000_production_schema_baseline.sql`](../../supabase/migrations/20260719001000_production_schema_baseline.sql)
 
-That migration:
+That baseline:
 
 - drops the unique constraint that previously enforced one persistent conversation per mentor per user
 - adds recency-oriented indexes used by the sidebar loading path
