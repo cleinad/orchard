@@ -18,8 +18,9 @@ This is the canonical doc for how route protection currently works.
 
 - `/`
 - `/login`
+- `/signup`
 
-The proxy also treats `/signup` as public, but the current app does not ship a separate `/signup` page. Signup is handled as a mode on `/login`.
+Login and signup share the same auth form component while remaining separate routes.
 
 ### Protected pages
 
@@ -42,6 +43,7 @@ The proxy matcher intentionally excludes:
 - `/_next/static`
 - `/_next/image`
 - `/favicon.ico`
+- `/icon.png`
 - `/robots.txt`
 - `/sitemap.xml`
 
@@ -182,6 +184,8 @@ When adding or changing routes:
 | `frontend/lib/supabase.ts` | Browser Supabase client |
 | `frontend/lib/supabase-server.ts` | Server Supabase client for route handlers and server code |
 | `frontend/lib/auth-redirect.ts` | Safe post-login redirect sanitization |
-| `frontend/app/login/page.tsx` | Login and signup UI, safe post-login redirect handling |
+| `frontend/app/components/AuthPage.tsx` | Shared login and signup UI with safe post-auth redirect handling |
+| `frontend/app/login/page.tsx` | Login route |
+| `frontend/app/signup/page.tsx` | Signup route |
 | `frontend/app/api/chat/models/route.ts` | Example authenticated API route |
 | `frontend/app/api/tts/route.ts` | Authenticated TTS route |

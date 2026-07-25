@@ -41,6 +41,14 @@ describe('proxy auth protection', () => {
     expect(mockCreateServerClient).not.toHaveBeenCalled();
   });
 
+  it('allows the app icon through without consulting Supabase', async () => {
+    const response = await proxy(createRequest('/icon.png'));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('location')).toBeNull();
+    expect(mockCreateServerClient).not.toHaveBeenCalled();
+  });
+
   it('redirects unauthenticated protected routes to login', async () => {
     mockCreateServerClient.mockReturnValue(createSupabaseClient(null));
 
