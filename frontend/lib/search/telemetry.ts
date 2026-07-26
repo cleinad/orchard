@@ -81,16 +81,18 @@ export function createSearchTelemetry(
     traceId,
     conversationId,
     query,
+    redactQuery = false,
     logger = console,
   }: {
     traceId: string;
     conversationId: string | null;
     query: string;
+    redactQuery?: boolean;
     logger?: SearchTelemetryLogger;
   }
 ): SearchTelemetry {
-  const queryHash = hashSearchQuery(query);
-  const queryPreview = isDevelopment() ? sanitizeQueryPreview(query) : '';
+  const queryHash = redactQuery ? null : hashSearchQuery(query);
+  const queryPreview = !redactQuery && isDevelopment() ? sanitizeQueryPreview(query) : '';
 
   const emit = (
     level: 'error' | 'info',
@@ -103,7 +105,7 @@ export function createSearchTelemetry(
       timestamp: new Date().toISOString(),
       traceId,
       conversationId,
-      queryHash,
+      ...(queryHash ? { queryHash } : {}),
       ...(queryPreview ? { queryPreview } : {}),
       ...payload,
     });
@@ -133,7 +135,7 @@ export function createSearchTelemetry(
         httpStatus: details.httpStatus,
         requestedResultCount: details.requestedResultCount,
         usefulResultCount: details.usefulResultCount,
-        ...(details.error ? { error: details.error } : {}),
+        ...(!redactQuery && details.error ? { error: details.error } : {}),
       });
     },
     logPipelineCompleted(details) {
@@ -142,7 +144,9 @@ export function createSearchTelemetry(
     logPipelineFailed(details) {
       emit('error', 'search.pipeline_failed', {
         durationMs: details.durationMs,
-        error: formatError(details.error),
+        error: redactQuery
+          ? details.error instanceof Error ? details.error.name : 'redacted_error'
+          : formatError(details.error),
       });
     },
   };

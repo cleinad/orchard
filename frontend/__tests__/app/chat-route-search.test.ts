@@ -91,6 +91,7 @@ async function readMockChatResponseDetails(response: Response) {
 }
 
 vi.mock('ai', () => ({
+  consumeStream: vi.fn(),
   generateText: (...args: unknown[]) => mockGenerateText(...args),
   generateObject: (...args: unknown[]) => mockGenerateObject(...args),
   streamText: (...args: unknown[]) => mockStreamText(...args),
@@ -504,10 +505,13 @@ describe('chat route search citations', () => {
       '[chat] auto search failed invisibly',
       expect.objectContaining({
         searchMode: 'auto',
-        latestMessagePreview: 'Search the web for provider status',
-        error: 'provider down',
+        error: 'Error',
       })
     );
+    expect(JSON.stringify(warnSpy.mock.calls)).not.toContain(
+      'Search the web for provider status'
+    );
+    expect(JSON.stringify(warnSpy.mock.calls)).not.toContain('provider down');
 
     warnSpy.mockRestore();
   });
@@ -554,9 +558,11 @@ describe('chat route search citations', () => {
       '[chat] auto search failed invisibly',
       expect.objectContaining({
         searchMode: 'auto',
-        latestMessagePreview: 'Search the web for provider status',
-        error: 'upstream_error',
+        error: 'redacted_error',
       })
+    );
+    expect(JSON.stringify(warnSpy.mock.calls)).not.toContain(
+      'Search the web for provider status'
     );
 
     warnSpy.mockRestore();

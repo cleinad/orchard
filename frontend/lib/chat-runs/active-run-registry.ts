@@ -12,6 +12,8 @@ export function releaseActiveChatRun(runId: string) {
 
 export function abortActiveChatRun(runId: string) {
   const controller = controllers.get(runId);
-  controller?.abort();
-  return Boolean(controller);
+  if (!controller) return false;
+  controllers.delete(runId);
+  controller.abort();
+  return true;
 }

@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { after } from 'next/server';
+import { after, NextRequest, NextResponse } from 'next/server';
 import {
   createUIMessageStream,
   createUIMessageStreamResponse,
+  consumeStream,
   generateText,
   streamText,
   type ModelMessage,
@@ -68,6 +68,21 @@ import {
   sanitizeGeneratedChatTitle,
 } from '@/lib/chat-session';
 import { getSelectionStreamVersion } from '@/app/home/components/markdownSelectableStream';
+import {
+  acceptChatRun,
+  getChatRun,
+  logChatRunEvent,
+  updateActiveChatRun,
+  updateChatRun,
+  updateUncancelledChatRun,
+  validateChatRunMetadata,
+  type ChatRunRequestMetadata,
+} from '@/lib/chat-runs/server';
+import { buildChatRunTarget } from '@/lib/chat-runs/protocol';
+import {
+  registerActiveChatRun,
+  releaseActiveChatRun,
+} from '@/lib/chat-runs/active-run-registry';
 
 const BASE_SYSTEM_PROMPT = `You are Keen, a thinking partner. You explain things to the user with precision, accuracy, and understandability.
 
@@ -89,6 +104,10 @@ const MAX_THREAD_SOURCE_CONTEXT_CHARS = 24_000;
 const THREAD_SOURCE_EXCERPT_RADIUS = 1_000;
 const MAX_THREAD_ANCHOR_PATH_MESSAGES = 50;
 const MAX_THREAD_ANCHOR_FALLBACK_FETCHES = 5;
+const REDACTED_SEARCH_PLANNER_LOGGER = {
+  info: () => undefined,
+  warn: () => undefined,
+};
 
 interface ContextMessage extends ChatHistoryMessage {
   id: string | null;
@@ -161,6 +180,7 @@ interface ChatRequest {
   history?: ChatHistoryMessage[];
   threadHistory?: ChatHistoryMessage[];
   attachments?: ChatImageAttachmentRequest[];
+  run?: ChatRunRequestMetadata;
 }
 
 interface PersistedMainMessage {
@@ -629,22 +649,33 @@ function logAutoSearchFailure({
   latestMessage,
   activity,
   error,
+  redactContent = false,
 }: {
   traceId: string;
   conversationId: string | null;
   latestMessage: string;
   activity: SearchActivitySummary | null;
   error: unknown;
+  redactContent?: boolean;
 }) {
   console.warn('[chat] auto search failed invisibly', {
     traceId,
     conversationId,
     searchMode: 'auto',
-    latestMessagePreview: sanitizeSearchQuery(latestMessage),
-    lastActivityLabel: activity?.collapsedLabel ?? null,
-    lastActivityEvent:
-      activity?.events.length ? activity.events[activity.events.length - 1]?.type ?? null : null,
-    error: error instanceof Error ? error.message : String(error),
+    ...(!redactContent
+      ? { latestMessagePreview: sanitizeSearchQuery(latestMessage) }
+      : {}),
+    ...(!redactContent
+      ? {
+          lastActivityLabel: activity?.collapsedLabel ?? null,
+          lastActivityEvent: activity?.events.length
+            ? activity.events[activity.events.length - 1]?.type ?? null
+            : null,
+        }
+      : {}),
+    error: redactContent
+      ? error instanceof Error ? error.name : 'redacted_error'
+      : error instanceof Error ? error.message : String(error),
   });
 }
 
@@ -862,8 +893,9 @@ async function loadChatImageAttachments(
 
     if (error || !data) {
       console.error('[chat] failed to load image attachment', {
-        storagePath: attachment.storagePath,
-        error,
+        code: typeof error === 'object' && error && 'statusCode' in error
+          ? error.statusCode
+          : undefined,
       });
       return {
         attachments: [],
@@ -1042,32 +1074,169 @@ ${formatSearchResultsForPrompt(searchMetadata)}
 
 async function generateConversationTitle(
   userMessage: string,
-  assistantMessage: string
+  assistantMessage?: string
 ) {
   const fallbackTitle = fallbackChatTitleFromMessage(userMessage);
 
   try {
     const titleModelSelection = resolveChatModelSelection(null);
     if (!titleModelSelection) {
-      return fallbackTitle;
+      return { title: fallbackTitle, failed: true };
     }
 
     const result = await generateText({
       model: getChatModel(titleModelSelection.id),
       system:
-        'Write a concise chat title in 2 to 5 words. Use plain title case. Do not use quotes or ending punctuation.',
-      prompt: `User message:\n${userMessage}\n\nAssistant reply:\n${assistantMessage}`,
+        'Generate a concise sidebar title that names the conversation topic in 2 to 5 words. Do not answer the user\'s question or make a factual claim. Convert questions into short noun phrases. Return only the title in plain title case, without quotes or ending punctuation.',
+      prompt: assistantMessage
+        ? `First user message:\n${userMessage}\n\nAssistant reply (secondary context):\n${assistantMessage}`
+        : `First user message:\n${userMessage}`,
     });
 
-    return sanitizeGeneratedChatTitle(result.text, fallbackTitle);
+    return {
+      title: sanitizeGeneratedChatTitle(result.text, fallbackTitle),
+      failed: false,
+    };
   } catch (error) {
-    console.error('Failed to generate conversation title:', error);
-    return fallbackTitle;
+    console.error('[chat-title] generation failed', {
+      code: error instanceof Error ? error.name : 'unknown_error',
+    });
+    return { title: fallbackTitle, failed: true };
   }
+}
+
+async function finalizeConversationTitle(params: {
+  supabase: SupabaseServerClient;
+  userId: string;
+  conversationId: string;
+  runId: string | null;
+  fallbackTitle: string;
+  expectedVersion: number;
+  generatedTitlePromise: ReturnType<typeof generateConversationTitle>;
+}) {
+  let conversationTitle = params.fallbackTitle;
+  let titleSource: 'fallback' | 'generated' = 'fallback';
+  let titleVersion = params.expectedVersion;
+  let titleWasSuperseded = false;
+
+  try {
+    const titleResult = await params.generatedTitlePromise;
+    if (titleResult.failed) throw new Error('Title generation failed');
+    if (params.runId) {
+      const currentRun = await getChatRun(params.supabase, params.runId);
+      if (currentRun?.status === 'cancelled') {
+        return { conversationTitle, titleSource, titleStatus: 'cancelled' as const };
+      }
+    }
+
+    const generatedTitle = titleResult.title;
+    if (generatedTitle && generatedTitle !== params.fallbackTitle) {
+      const { data: currentTitle } = await params.supabase
+        .from('conversations')
+        .select('title_source, title_version')
+        .eq('id', params.conversationId)
+        .eq('user_id', params.userId)
+        .maybeSingle();
+      const mayCommit =
+        (currentTitle?.title_source ?? 'fallback') === 'fallback'
+        && (Number(currentTitle?.title_version) || 0) === params.expectedVersion;
+      if (mayCommit) {
+        const { data: updatedTitle, error: titleError } = await params.supabase
+          .from('conversations')
+          .update({
+            title: generatedTitle,
+            title_source: 'generated',
+            title_version: params.expectedVersion + 1,
+            title_run_id: params.runId,
+          })
+          .eq('id', params.conversationId)
+          .eq('user_id', params.userId)
+          .eq('title_source', 'fallback')
+          .eq('title_version', params.expectedVersion)
+          .select('title')
+          .maybeSingle();
+        if (titleError) throw titleError;
+        if (updatedTitle) {
+          conversationTitle = generatedTitle;
+          titleSource = 'generated';
+          titleVersion = params.expectedVersion + 1;
+        } else {
+          titleWasSuperseded = true;
+        }
+      } else {
+        titleWasSuperseded = true;
+      }
+    }
+
+    if (params.runId) {
+      const titleUpdated = await updateUncancelledChatRun({
+        supabase: params.supabase,
+        runId: params.runId,
+        values: {
+          title: conversationTitle,
+          title_source: titleSource,
+          title_version: titleVersion,
+          title_status: 'completed',
+        },
+      });
+      if (titleUpdated && (titleSource === 'generated' || titleWasSuperseded)) {
+        await logChatRunEvent({
+          supabase: params.supabase,
+          userId: params.userId,
+          runId: params.runId,
+          event: titleSource === 'generated' ? 'title_committed' : 'title_superseded',
+        });
+      }
+    }
+  } catch (titleError) {
+    console.error('[chat-run] title finalization failed', {
+      runId: params.runId,
+      code: titleError instanceof Error ? titleError.name : 'unknown_error',
+    });
+    if (params.runId) {
+      const titleFailed = await updateUncancelledChatRun({
+        supabase: params.supabase,
+        runId: params.runId,
+        values: { title_status: 'failed' },
+      });
+      if (titleFailed) {
+        await logChatRunEvent({
+          supabase: params.supabase,
+          userId: params.userId,
+          runId: params.runId,
+          event: 'failed',
+          detailCode: 'title_failed',
+        });
+      }
+    }
+  }
+
+  return { conversationTitle, titleSource, titleStatus: 'completed' as const };
+}
+
+async function finalizeTemporaryTitle(
+  fallbackTitle: string,
+  generatedTitlePromise: ReturnType<typeof generateConversationTitle>
+) {
+  const result = await generatedTitlePromise;
+  if (result.failed) {
+    return {
+      conversationTitle: fallbackTitle,
+      titleSource: 'fallback' as const,
+      titleStatus: 'failed' as const,
+    };
+  }
+  return {
+    conversationTitle: result.title,
+    titleSource: result.title === fallbackTitle ? 'fallback' as const : 'generated' as const,
+    titleStatus: 'completed' as const,
+  };
 }
 
 export async function POST(request: NextRequest) {
   let activeThreadId: string | null = null;
+  let activeRunId: string | null = null;
+  let isTemporaryRequest = false;
 
   try {
     const supabase = await createSupabaseServerClient();
@@ -1107,7 +1276,14 @@ export async function POST(request: NextRequest) {
       history,
       threadHistory,
       attachments: attachmentInput,
+      run: runMetadata,
     } = body;
+    const runMetadataError = runMetadata
+      ? validateChatRunMetadata(runMetadata)
+      : null;
+    if (runMetadataError) {
+      return NextResponse.json({ error: runMetadataError }, { status: 400 });
+    }
     const { attachments, error: attachmentValidationError } =
       validateAttachmentRequests(attachmentInput, user.id);
     if (attachmentValidationError) {
@@ -1118,6 +1294,7 @@ export async function POST(request: NextRequest) {
     const messageForPrompt = buildMessagePromptText(messageText, attachments.length);
     const messageForTitle = messageText || 'Image question';
     const isTemporaryChat = chatMode === 'temporary';
+    isTemporaryRequest = isTemporaryChat;
     // Temporary chats default to no memory when omitted; persistent chats keep prior behavior.
     const memoryMode: TemporaryMemoryMode =
       memoryModeFromBody ??
@@ -1172,6 +1349,11 @@ export async function POST(request: NextRequest) {
     const normalizedSourceMessageId = normalizeOptionalId(sourceMessageId);
     const normalizedPreviousMessageId = normalizeOptionalId(previousMessageId);
     const normalizedBranchSourceMessageId = normalizeOptionalId(branchSourceMessageId);
+    const normalizedNewThreadId = normalizeOptionalId(runMetadata?.newThreadId);
+    const normalizedNewBranchId = normalizeOptionalId(runMetadata?.newBranchId);
+    const normalizedTemporarySessionId = normalizeOptionalId(
+      runMetadata?.temporarySessionId
+    );
     activeThreadId = normalizedThreadId;
     let threadSourceMessageId = normalizedSourceMessageId;
     let threadStartOffset = typeof startOffset === 'number' ? startOffset : null;
@@ -1271,6 +1453,24 @@ export async function POST(request: NextRequest) {
         { status: 503 }
       );
     }
+    let chatModel: ReturnType<typeof getChatModel>;
+    let chatModelProviderOptions: ReturnType<typeof getChatModelProviderOptions>;
+    try {
+      chatModel = getChatModel(resolvedSelection.id);
+      chatModelProviderOptions = getChatModelProviderOptions(resolvedSelection.id, {
+        effort: requestedModelEffort,
+        thinkingEnabled,
+      });
+    } catch (error) {
+      await removeUnreferencedCleanupAttachmentStorage(supabase, attachments);
+      return NextResponse.json(
+        {
+          error:
+            error instanceof Error ? error.message : getNoChatModelConfiguredMessage(),
+        },
+        { status: 503 }
+      );
+    }
 
     const priorImageContextLimit = attachments.length > 0 ? 0 : 1;
     const imageProviderLimits = CHAT_IMAGE_PROVIDER_LIMITS[resolvedSelection.provider];
@@ -1292,23 +1492,68 @@ export async function POST(request: NextRequest) {
     }
 
     let isFirstPersistentMainMessage = false;
+    let conversationTitleSource: 'fallback' | 'generated' | 'user' = 'fallback';
+    let conversationTitleVersion = 0;
 
     if (!isTemporaryChat) {
       if (activeConversationId) {
-        const { data: existingConversation, error: conversationError } = await supabase
+        const { data: existingConversationRow, error: conversationError } = await supabase
           .from('conversations')
-          .select('id, mentor_id, workspace_id')
+          .select('id, mentor_id, workspace_id, title_source, title_version')
           .eq('id', activeConversationId)
           .eq('user_id', user.id)
           .single();
 
-        if (conversationError || !existingConversation) {
+        let existingConversation = existingConversationRow;
+        if ((!existingConversation || conversationError) && runMetadata?.createConversation) {
+          if (!isUuid(activeConversationId)) {
+            return NextResponse.json({ error: 'Invalid conversation id' }, { status: 400 });
+          }
+          const { data: createdConversationRow, error: createConversationError } = await supabase
+            .from('conversations')
+            .insert({
+              id: activeConversationId,
+              user_id: user.id,
+              title: fallbackConversationTitle,
+              mentor_id: mentor?.id ?? null,
+              workspace_id: workspace?.id ?? null,
+            })
+            .select('id, mentor_id, workspace_id, title_source, title_version')
+            .single();
+          if (createConversationError || !createdConversationRow) {
+            const { data: concurrentlyCreatedConversation } = await supabase
+              .from('conversations')
+              .select('id, mentor_id, workspace_id, title_source, title_version')
+              .eq('id', activeConversationId)
+              .eq('user_id', user.id)
+              .maybeSingle();
+            if (!concurrentlyCreatedConversation) {
+              await removeUnreferencedCleanupAttachmentStorage(supabase, loadedAttachments);
+              return NextResponse.json(
+                { error: 'Failed to create conversation' },
+                { status: 500 }
+              );
+            }
+            existingConversation = concurrentlyCreatedConversation;
+          } else {
+            existingConversation = createdConversationRow;
+            createdConversation = true;
+          }
+        }
+
+        if (!existingConversation) {
           await removeUnreferencedCleanupAttachmentStorage(supabase, loadedAttachments);
           return NextResponse.json(
             { error: 'Conversation not found' },
             { status: 404 }
           );
         }
+        conversationTitleSource =
+          existingConversation.title_source === 'user'
+          || existingConversation.title_source === 'generated'
+            ? existingConversation.title_source
+            : 'fallback';
+        conversationTitleVersion = Number(existingConversation.title_version) || 0;
 
         if (mentor && existingConversation.mentor_id !== mentor.id) {
           await removeUnreferencedCleanupAttachmentStorage(supabase, loadedAttachments);
@@ -1395,18 +1640,136 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const creatingThread = Boolean(
+      !normalizedThreadId && normalizedSourceMessageId && highlightedText
+    );
+    if (runMetadata) {
+      if (isTemporaryChat && !normalizedTemporarySessionId) {
+        return NextResponse.json(
+          { error: 'temporarySessionId is required for temporary runs' },
+          { status: 400 }
+        );
+      }
+      if (creatingThread && !normalizedNewThreadId) {
+        return NextResponse.json(
+          { error: 'newThreadId is required when creating a thread' },
+          { status: 400 }
+        );
+      }
+      if (normalizedBranchSourceMessageId && !normalizedNewBranchId) {
+        return NextResponse.json(
+          { error: 'newBranchId is required when creating a branch' },
+          { status: 400 }
+        );
+      }
+
+      const target = buildChatRunTarget({
+        mode: isTemporaryChat ? 'temporary' : 'persistent',
+        conversationId: activeConversationId,
+        temporarySessionId: normalizedTemporarySessionId,
+        threadId:
+          normalizedThreadId ?? (creatingThread ? normalizedNewThreadId : null),
+        branchId: normalizedNewBranchId,
+        branchSourceMessageId: normalizedBranchSourceMessageId,
+        sourceMessageId: normalizedSourceMessageId,
+        expectedPredecessorId: normalizedPreviousMessageId,
+      });
+      if (!isTemporaryChat) {
+        const accepted = await acceptChatRun({
+          supabase,
+          metadata: runMetadata,
+          target,
+          payload: body,
+          fallbackTitle: fallbackConversationTitle,
+        });
+
+        if (accepted.disposition === 'reattach') {
+          const run = await getChatRun(supabase, runMetadata.runId);
+          return NextResponse.json(
+            { run, runId: runMetadata.runId, reattached: true },
+            { status: run && ['completed', 'failed', 'cancelled'].includes(run.status) ? 200 : 202 }
+          );
+        }
+        if (accepted.disposition !== 'accepted') {
+          const status = accepted.disposition === 'payload_conflict'
+            || accepted.disposition === 'active_conflict'
+            ? 409
+            : 400;
+          return NextResponse.json(
+            {
+              error:
+                accepted.disposition === 'payload_conflict'
+                  ? 'This runId was already used with a different payload.'
+                  : accepted.disposition === 'active_conflict'
+                    ? 'Another run is already active for this path tail.'
+                    : 'Invalid chat run target.',
+              code: accepted.code ?? accepted.disposition,
+              runId: accepted.runId ?? null,
+            },
+            { status }
+          );
+        }
+
+        activeRunId = runMetadata.runId;
+        request.signal.addEventListener('abort', () => {
+          if (!activeRunId) return;
+          void logChatRunEvent({
+            supabase,
+            userId: user.id,
+            runId: activeRunId,
+            event: 'client_disconnected',
+          });
+        }, { once: true });
+        await updateActiveChatRun({
+          supabase,
+          runId: activeRunId,
+          values: { status: 'submitting' },
+        });
+      }
+    }
+    const markActiveRunFailed = async (code: string, message: string) => {
+      if (!activeRunId) return;
+      const markedFailed = await updateActiveChatRun({
+        supabase,
+        runId: activeRunId,
+        values: {
+          status: 'failed',
+          response_status: 'failed',
+          error_code: code,
+          error_message: message,
+          completed_at: new Date().toISOString(),
+        },
+      });
+      if (markedFailed) {
+        await logChatRunEvent({
+          supabase,
+          userId: user.id,
+          runId: activeRunId,
+          event: 'failed',
+          detailCode: code,
+        });
+      }
+    };
+
     let existingThreadHighlightedText: string | null = null;
 
     if (!isTemporaryChat) {
       if (activeThreadId) {
         const { data: existingThread, error: threadCheckError } = await supabase
           .from('threads')
-          .select('id, highlighted_text, source_message_id, start_offset, end_offset, selection_stream_version')
+          .select('id, conversation_id, highlighted_text, source_message_id, start_offset, end_offset, selection_stream_version')
           .eq('id', activeThreadId)
           .eq('user_id', user.id)
           .single();
 
-        if (threadCheckError || !existingThread) {
+        if (
+          threadCheckError
+          || !existingThread
+          || (runMetadata && existingThread.conversation_id !== activeConversationId)
+          || (runMetadata && normalizedSourceMessageId
+            && existingThread.source_message_id !== normalizedSourceMessageId)
+        ) {
+          await markActiveRunFailed('invalid_thread_target', 'Thread not found for this conversation.');
           await removeUnreferencedCleanupAttachmentStorage(supabase, loadedAttachments);
           return NextResponse.json({ error: 'Thread not found' }, { status: 404 });
         }
@@ -1419,6 +1782,27 @@ export async function POST(request: NextRequest) {
         threadSelectionStreamVersion =
           threadSelectionStreamVersion
           ?? getSelectionStreamVersion(existingThread.selection_stream_version);
+
+        if (runMetadata) {
+          const { data: latestThreadMessage } = await supabase
+            .from('messages')
+            .select('id')
+            .eq('thread_id', activeThreadId)
+            .eq('user_id', user.id)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if ((latestThreadMessage?.id ?? null) !== normalizedPreviousMessageId) {
+            await markActiveRunFailed(
+              'stale_target',
+              'The inline thread advanced before this run was accepted.'
+            );
+            return NextResponse.json(
+              { error: 'The inline thread advanced before this run was accepted.', code: 'stale_target' },
+              { status: 409 }
+            );
+          }
+        }
       }
 
       if (!activeThreadId && normalizedSourceMessageId && highlightedText) {
@@ -1432,6 +1816,7 @@ export async function POST(request: NextRequest) {
           || normalizedStartOffset < 0
           || normalizedEndOffset <= normalizedStartOffset
         ) {
+          await markActiveRunFailed('invalid_thread_selection', 'Valid selection offsets are required.');
           await removeUnreferencedCleanupAttachmentStorage(supabase, loadedAttachments);
           return NextResponse.json(
             { error: 'Valid selection offsets are required to create a thread' },
@@ -1439,9 +1824,31 @@ export async function POST(request: NextRequest) {
           );
         }
 
+        if (runMetadata) {
+          const { data: threadSourceMessage } = await supabase
+            .from('messages')
+            .select('id')
+            .eq('id', normalizedSourceMessageId)
+            .eq('conversation_id', activeConversationId)
+            .eq('user_id', user.id)
+            .is('thread_id', null)
+            .maybeSingle();
+          if (!threadSourceMessage) {
+            await markActiveRunFailed(
+              'invalid_thread_source',
+              'Thread source message does not belong to this conversation.'
+            );
+            return NextResponse.json(
+              { error: 'Thread source message does not belong to this conversation' },
+              { status: 409 }
+            );
+          }
+        }
+
         const { data: threadRow, error: threadError } = await supabase
           .from('threads')
           .insert({
+            ...(normalizedNewThreadId ? { id: normalizedNewThreadId } : {}),
             conversation_id: activeConversationId,
             source_message_id: normalizedSourceMessageId,
             highlighted_text: highlightedText,
@@ -1455,6 +1862,7 @@ export async function POST(request: NextRequest) {
 
         if (threadError || !threadRow) {
           console.error('Error creating thread:', threadError);
+          await markActiveRunFailed('thread_create_failed', 'Failed to create thread.');
           await removeUnreferencedCleanupAttachmentStorage(supabase, loadedAttachments);
           return NextResponse.json({ error: 'Failed to create thread' }, { status: 500 });
         }
@@ -1463,6 +1871,23 @@ export async function POST(request: NextRequest) {
       }
     } else {
       existingThreadHighlightedText = highlightedText || null;
+      if (!activeThreadId && creatingThread && normalizedNewThreadId) {
+        if (
+          runMetadata
+          && normalizedSourceMessageId
+          && !sanitizedHistory.some((entry) => entry.id === normalizedSourceMessageId)
+        ) {
+          await markActiveRunFailed(
+            'invalid_thread_source',
+            'Temporary thread source is missing from submitted history.'
+          );
+          return NextResponse.json(
+            { error: 'Temporary thread source is missing from the submitted history' },
+            { status: 409 }
+          );
+        }
+        activeThreadId = normalizedNewThreadId;
+      }
     }
 
     let latestUserMessageId: string | null = null;
@@ -1483,6 +1908,7 @@ export async function POST(request: NextRequest) {
           .single();
 
         if (sourceMessageError || !sourceMessageRow || sourceMessageRow.role !== 'assistant') {
+          await markActiveRunFailed('invalid_branch_source', 'Branch source message not found.');
           await removeUnreferencedCleanupAttachmentStorage(supabase, loadedAttachments);
           return NextResponse.json(
             { error: 'Branch source message not found' },
@@ -1518,7 +1944,7 @@ export async function POST(request: NextRequest) {
         effectivePreviousMessageId = branchSourceForMessage;
       }
 
-      if (!effectivePreviousMessageId) {
+      if (!branchSourceForMessage) {
         const { data: latestMainMessage } = await supabase
           .from('messages')
           .select('id')
@@ -1528,7 +1954,25 @@ export async function POST(request: NextRequest) {
           .limit(1)
           .maybeSingle();
 
-        effectivePreviousMessageId = latestMainMessage?.id ?? null;
+        const authoritativeTailId = latestMainMessage?.id ?? null;
+        if (
+          runMetadata
+          && authoritativeTailId !== normalizedPreviousMessageId
+        ) {
+          await markActiveRunFailed(
+            'stale_target',
+            'The selected path advanced before this run was accepted.'
+          );
+          return NextResponse.json(
+            {
+              error: 'The selected path advanced before this run was accepted.',
+              code: 'stale_target',
+              runId: activeRunId,
+            },
+            { status: 409 }
+          );
+        }
+        effectivePreviousMessageId = authoritativeTailId;
       }
 
       isFirstPersistentMainMessage =
@@ -1537,10 +1981,38 @@ export async function POST(request: NextRequest) {
         && !effectivePreviousMessageId;
     }
 
+    if (isTemporaryChat && runMetadata && !activeThreadId) {
+      const temporaryTailId = sanitizedHistory.at(-1)?.id ?? null;
+      if (temporaryTailId !== normalizedPreviousMessageId) {
+        await markActiveRunFailed(
+          'stale_target',
+          'The temporary path tail did not match the submitted target.'
+        );
+        return NextResponse.json(
+          { error: 'The temporary path tail did not match the submitted target.', code: 'stale_target' },
+          { status: 409 }
+        );
+      }
+    }
+    if (isTemporaryChat && runMetadata && activeThreadId) {
+      const temporaryThreadTailId = sanitizedThreadHistory.at(-1)?.id ?? null;
+      if (temporaryThreadTailId !== normalizedPreviousMessageId) {
+        await markActiveRunFailed(
+          'stale_target',
+          'The temporary inline thread tail did not match.'
+        );
+        return NextResponse.json(
+          { error: 'The temporary inline thread tail did not match.', code: 'stale_target' },
+          { status: 409 }
+        );
+      }
+    }
+
     if (!isTemporaryChat) {
       const { data: userMessageRow, error: userMsgError } = await supabase
         .from('messages')
         .insert({
+          ...(runMetadata ? { id: runMetadata.userMessageId } : {}),
           conversation_id: activeConversationId,
           user_id: user.id,
           role: 'user',
@@ -1554,12 +2026,14 @@ export async function POST(request: NextRequest) {
 
       if (userMsgError) {
         console.error('Error saving user message:', userMsgError);
+        await markActiveRunFailed('user_message_commit_failed', 'Failed to save user message.');
         await removeUnreferencedCleanupAttachmentStorage(supabase, loadedAttachments);
         return NextResponse.json({ error: 'Failed to save message' }, { status: 500 });
       }
 
       latestUserMessageId = userMessageRow?.id ?? null;
       if (!latestUserMessageId) {
+        await markActiveRunFailed('user_message_commit_failed', 'Failed to save user message.');
         await removeUnreferencedCleanupAttachmentStorage(supabase, loadedAttachments);
         return NextResponse.json({ error: 'Failed to save message' }, { status: 500 });
       }
@@ -1583,6 +2057,10 @@ export async function POST(request: NextRequest) {
 
         if (attachmentInsertError) {
           console.error('Error saving message attachments:', attachmentInsertError);
+          await markActiveRunFailed(
+            'attachment_commit_failed',
+            'Failed to save image attachments.'
+          );
           const { error: attachmentRollbackError } = await supabase
             .from('message_attachments')
             .delete()
@@ -1636,6 +2114,7 @@ export async function POST(request: NextRequest) {
         const { error: branchInsertError } = await supabase
           .from('conversation_branches')
           .insert({
+            ...(normalizedNewBranchId ? { id: normalizedNewBranchId } : {}),
             conversation_id: activeConversationId,
             source_message_id: branchSourceForMessage,
             entry_message_id: latestUserMessageId,
@@ -1651,8 +2130,56 @@ export async function POST(request: NextRequest) {
 
         if (branchInsertError) {
           console.error('Error creating conversation branch:', branchInsertError);
+          await markActiveRunFailed(
+            'branch_create_failed',
+            'Failed to create conversation branch.'
+          );
+
+          const { error: attachmentRollbackError } = await supabase
+            .from('message_attachments')
+            .delete()
+            .eq('message_id', latestUserMessageId)
+            .eq('user_id', user.id);
+          if (attachmentRollbackError) {
+            console.error('Error rolling back message attachments:', attachmentRollbackError);
+          }
+
+          const { error: messageRollbackError } = await supabase
+            .from('messages')
+            .delete()
+            .eq('id', latestUserMessageId)
+            .eq('user_id', user.id);
+          if (messageRollbackError) {
+            console.error('Error rolling back user message:', messageRollbackError);
+          }
+
+          if (materializedMainBranch && existingMainContinuationId) {
+            const { error: mainBranchRollbackError } = await supabase
+              .from('conversation_branches')
+              .delete()
+              .eq('conversation_id', activeConversationId)
+              .eq('source_message_id', branchSourceForMessage)
+              .eq('entry_message_id', existingMainContinuationId)
+              .eq('user_id', user.id)
+              .eq('is_main', true);
+            if (mainBranchRollbackError) {
+              console.error(
+                'Error rolling back materialized main branch:',
+                mainBranchRollbackError
+              );
+            }
+          }
+
+          await removeUnreferencedCleanupAttachmentStorage(supabase, loadedAttachments);
+          return NextResponse.json(
+            { error: 'Failed to create conversation branch' },
+            { status: 500 }
+          );
         }
       }
+    }
+    if (isTemporaryChat && runMetadata) {
+      latestUserMessageId = runMetadata.userMessageId;
     }
 
     const threadHighlightedText = highlightedText || existingThreadHighlightedText;
@@ -1785,23 +2312,6 @@ export async function POST(request: NextRequest) {
       : buildSystemPrompt(memoryContext, replyContext);
 
     baseSystemPrompt = appendWorkspaceContext(baseSystemPrompt, workspace?.context ?? null);
-
-    let chatModel;
-    try {
-      chatModel = getChatModel(resolvedSelection.id);
-    } catch (error) {
-      return NextResponse.json(
-        {
-          error:
-            error instanceof Error ? error.message : getNoChatModelConfiguredMessage(),
-        },
-        { status: 503 }
-      );
-    }
-    const chatModelProviderOptions = getChatModelProviderOptions(resolvedSelection.id, {
-      effort: requestedModelEffort,
-      thinkingEnabled,
-    });
 
     const threadContextMessage = buildThreadContextMessage(threadSourcePromptContext);
     if (threadContextMessage) {
@@ -1968,12 +2478,83 @@ export async function POST(request: NextRequest) {
     const shouldGenerateTitle =
       !activeThreadId &&
       ((isTemporaryChat && sanitizedHistory.length === 0) ||
-        (!isTemporaryChat && (createdConversation || isFirstPersistentMainMessage)));
+        (!isTemporaryChat
+          && conversationTitleSource === 'fallback'
+          && (createdConversation || isFirstPersistentMainMessage)));
+    if (activeRunId) {
+      const streamingStarted = await updateActiveChatRun({
+        supabase,
+        runId: activeRunId,
+        values: {
+          status: 'streaming',
+          response_status: 'running',
+          title_status: shouldGenerateTitle ? 'running' : 'skipped',
+          search_status: searchMode === 'off' ? 'skipped' : 'running',
+          memory_status: 'pending',
+        },
+      });
+      if (!streamingStarted) {
+        releaseActiveChatRun(activeRunId);
+        return NextResponse.json({ run: await getChatRun(supabase, activeRunId) });
+      }
+    }
+    const generatedTitlePromise = shouldGenerateTitle
+      ? generateConversationTitle(messageForTitle)
+      : null;
+    // Title generation and commit are deliberately independent from response
+    // streaming. A provider failure or disconnected browser must not strand it.
+    const titleFinalizationPromise = shouldGenerateTitle && generatedTitlePromise
+      ? isTemporaryChat
+        ? finalizeTemporaryTitle(fallbackConversationTitle, generatedTitlePromise)
+        : activeConversationId
+          ? finalizeConversationTitle({
+              supabase,
+              userId: user.id,
+              conversationId: activeConversationId,
+              runId: activeRunId,
+              fallbackTitle: fallbackConversationTitle,
+              expectedVersion: conversationTitleVersion,
+              generatedTitlePromise,
+            })
+          : Promise.resolve(null)
+      : Promise.resolve(null);
+    if (activeRunId && shouldGenerateTitle) {
+      after(async () => {
+        await titleFinalizationPromise;
+      });
+    }
+    const runAbortController = activeRunId
+      ? registerActiveChatRun(activeRunId)
+      : isTemporaryChat
+        ? new AbortController()
+        : null;
+    if (isTemporaryChat && runAbortController) {
+      request.signal.addEventListener(
+        'abort',
+        () => runAbortController.abort(),
+        { once: true }
+      );
+    }
 
     // createUIMessageStream lets us pipe streamText output and send a custom
     // metadata data-part to the client once onFinish has run.
     const uiStream = createUIMessageStream({
       execute: async ({ writer }) => {
+        if (activeRunId) {
+          void titleFinalizationPromise
+            .then(async (titleResult) => {
+              if (!titleResult) return;
+              const titleRun = await getChatRun(supabase, activeRunId!);
+              if (titleRun) {
+                writer.write({ type: 'data-chatRun', data: titleRun });
+              }
+            })
+            .catch(() => {
+              console.error('[chat-run] failed to publish title snapshot', {
+                runId: activeRunId,
+              });
+            });
+        }
         let search = createNotAttemptedSearchMetadata(searchMode);
         let persistedSearchMetadata: PersistedSearchMetadata | null = null;
         let finalSystemPrompt = baseSystemPrompt;
@@ -1986,6 +2567,7 @@ export async function POST(request: NextRequest) {
             traceId: searchTraceId,
             conversationId: activeConversationId,
             query: sanitizeSearchQuery(messageForPrompt),
+            redactQuery: isTemporaryChat,
           });
 
           searchTelemetry.logRequestStarted({ searchMode });
@@ -2023,6 +2605,7 @@ export async function POST(request: NextRequest) {
                     traceId: searchTraceId,
                     conversationId: activeConversationId,
                     query,
+                    redactQuery: isTemporaryChat,
                   });
                   return runSearchPipeline(query, { telemetry: queryTelemetry });
                 },
@@ -2034,6 +2617,7 @@ export async function POST(request: NextRequest) {
 
                   writeSearchActivity(activity);
                 },
+                ...(isTemporaryChat ? { logger: REDACTED_SEARCH_PLANNER_LOGGER } : {}),
               }
             );
 
@@ -2050,6 +2634,7 @@ export async function POST(request: NextRequest) {
                 latestMessage: messageForPrompt,
                 activity: bufferedAutoActivities.at(-1) ?? searchRun.activity,
                 error: searchRun.metadata?.status ?? 'auto_search_failed',
+                redactContent: isTemporaryChat,
               });
             } else if (searchMode === 'auto') {
               for (const activity of bufferedAutoActivities) {
@@ -2087,9 +2672,12 @@ export async function POST(request: NextRequest) {
                 latestMessage: messageForPrompt,
                 activity: bufferedAutoActivities.at(-1) ?? null,
                 error,
+                redactContent: isTemporaryChat,
               });
             } else {
-              console.error('[chat] search pipeline failed', error);
+              console.error('[chat] search pipeline failed', isTemporaryChat
+                ? { code: error instanceof Error ? error.name : 'unknown_error' }
+                : error);
             }
             const failedQuery = sanitizeSearchQuery(messageForPrompt) || null;
             const failureActivity =
@@ -2124,10 +2712,59 @@ export async function POST(request: NextRequest) {
           model: chatModel,
           system: finalSystemPrompt,
           messages: modelMessages,
+          ...(runAbortController ? { abortSignal: runAbortController.signal } : {}),
           ...(chatModelProviderOptions
             ? { providerOptions: chatModelProviderOptions }
             : {}),
+          onError: async ({ error }) => {
+            console.error('[chat-run] response stream failed', {
+              runId: activeRunId,
+              code: error instanceof Error ? error.name : 'unknown_error',
+            });
+            if (activeRunId) {
+              const currentRun = await getChatRun(supabase, activeRunId);
+              if (currentRun?.status !== 'cancelled') {
+                const markedFailed = await updateActiveChatRun({
+                  supabase,
+                  runId: activeRunId,
+                  values: {
+                    status: 'failed',
+                    response_status: 'failed',
+                    error_code: 'response_stream_failed',
+                    error_message: 'The response stream failed.',
+                    completed_at: new Date().toISOString(),
+                  },
+                });
+                if (markedFailed) {
+                  await logChatRunEvent({
+                    supabase,
+                    userId: user.id,
+                    runId: activeRunId,
+                    event: 'failed',
+                    detailCode: 'response_stream_failed',
+                  });
+                }
+              }
+              releaseActiveChatRun(activeRunId);
+            }
+          },
           onFinish: async ({ text }) => {
+            if (activeRunId) {
+              const currentRun = await getChatRun(supabase, activeRunId);
+              if (currentRun?.status === 'cancelled') {
+                releaseActiveChatRun(activeRunId);
+                return;
+              }
+              const movedToFinalizing = await updateActiveChatRun({
+                supabase,
+                runId: activeRunId,
+                values: { status: 'finalizing' },
+              });
+              if (!movedToFinalizing) {
+                releaseActiveChatRun(activeRunId);
+                return;
+              }
+            }
             let rawText = text.trim();
 
             if (!rawText) {
@@ -2142,6 +2779,7 @@ export async function POST(request: NextRequest) {
                   model: chatModel,
                   system: finalSystemPrompt,
                   messages: modelMessages,
+                  ...(runAbortController ? { abortSignal: runAbortController.signal } : {}),
                   ...(chatModelProviderOptions
                     ? { providerOptions: chatModelProviderOptions }
                     : {}),
@@ -2149,7 +2787,12 @@ export async function POST(request: NextRequest) {
 
                 rawText = fallbackGeneration.text.trim();
               } catch (retryError) {
-                console.error('[chat] retry after empty streamed response failed', retryError);
+                console.error(
+                  '[chat] retry after empty streamed response failed',
+                  isTemporaryChat
+                    ? { code: retryError instanceof Error ? retryError.name : 'unknown_error' }
+                    : retryError
+                );
               }
             }
 
@@ -2166,33 +2809,89 @@ export async function POST(request: NextRequest) {
               assistantResponse,
               capturedPersistedSearchMetadata
             );
+            const finalSearchStatus = searchMode === 'off'
+              ? 'skipped'
+              : capturedSearch.status === 'missing_config'
+              || capturedSearch.status === 'timeout'
+              || capturedSearch.status === 'upstream_error'
+                ? 'failed'
+                : 'completed';
+            const finalSearchActivity =
+              capturedPersistedSearchMetadata?.version === 2
+                ? capturedPersistedSearchMetadata.activity ?? null
+                : null;
 
-            let assistantMessageId: string | null = null;
+            let assistantMessageId: string | null = runMetadata?.assistantMessageId ?? null;
+            let assistantWasCommitted = isTemporaryChat;
             if (!isTemporaryChat) {
-              const { data: assistantMessageRow, error: assistantMsgError } = await supabase
-                .from('messages')
-                .insert({
-                  conversation_id: activeConversationId,
-                  user_id: user.id,
-                  role: 'assistant',
-                  content: assistantResponse,
-                  search_metadata: capturedSearch.metadata,
-                  ...(activeThreadId
-                    ? { thread_id: activeThreadId, parent_message_id: threadSourceMessageId }
-                    : { previous_message_id: latestUserMessageId }),
-                })
-                .select('id')
-                .single();
-
-              if (assistantMsgError) {
-                console.error('Error saving assistant message:', assistantMsgError);
+              if (activeRunId) {
+                const { data: commitResult, error: assistantCommitError } = await supabase.rpc(
+                  'commit_persistent_chat_run_response',
+                  {
+                    p_run_id: activeRunId,
+                    p_content: assistantResponse,
+                    p_message_search_metadata: capturedSearch.metadata,
+                    p_run_search_status: finalSearchStatus,
+                    p_run_search_metadata: capturedSearch,
+                    p_search_activity: finalSearchActivity,
+                    p_thread_id: activeThreadId,
+                    p_parent_message_id: threadSourceMessageId,
+                  }
+                );
+                const commit = commitResult as {
+                  disposition?: string;
+                  assistant_message_id?: string;
+                } | null;
+                if (assistantCommitError) {
+                  console.error('Error atomically saving assistant message:', assistantCommitError);
+                }
+                if (commit?.disposition === 'cancelled') {
+                  releaseActiveChatRun(activeRunId);
+                  return;
+                }
+                assistantWasCommitted =
+                  !assistantCommitError && commit?.disposition === 'committed';
+                assistantMessageId = commit?.assistant_message_id ?? assistantMessageId;
+              } else {
+                const { data: assistantMessageRow, error: assistantMsgError } = await supabase
+                  .from('messages')
+                  .insert({
+                    conversation_id: activeConversationId,
+                    user_id: user.id,
+                    role: 'assistant',
+                    content: assistantResponse,
+                    search_metadata: capturedSearch.metadata,
+                    ...(activeThreadId
+                      ? { thread_id: activeThreadId, parent_message_id: threadSourceMessageId }
+                      : { previous_message_id: latestUserMessageId }),
+                  })
+                  .select('id')
+                  .single();
+                if (assistantMsgError) {
+                  console.error('Error saving assistant message:', assistantMsgError);
+                }
+                assistantMessageId = assistantMessageRow?.id ?? assistantMessageId;
+                assistantWasCommitted = Boolean(assistantMessageRow?.id) && !assistantMsgError;
               }
-
-              assistantMessageId = assistantMessageRow?.id ?? null;
+              if (activeRunId && assistantWasCommitted) {
+                await logChatRunEvent({
+                  supabase,
+                  userId: user.id,
+                  runId: activeRunId,
+                  event: 'assistant_committed',
+                });
+              }
             }
 
-            if (!isTemporaryChat) {
+            if (!isTemporaryChat && assistantWasCommitted) {
               const memoryMessages = capturedMessages.map(({ role, content }) => ({ role, content }));
+              if (activeRunId) {
+                await updateChatRun({
+                  supabase,
+                  runId: activeRunId,
+                  values: { memory_status: 'running' },
+                });
+              }
               after(async () => {
                 try {
                   await processMemoryV2(supabase, user.id, memoryMessages, cleanAssistantResponse, {
@@ -2202,38 +2901,76 @@ export async function POST(request: NextRequest) {
                     sourceMessageId: latestUserMessageId,
                     sourceRole: 'user',
                   });
+                  if (activeRunId) {
+                    await updateChatRun({
+                      supabase,
+                      runId: activeRunId,
+                      values: { memory_status: 'completed' },
+                    });
+                  }
                 } catch (err) {
                   console.error('[Memory V2] Error:', err);
+                  if (activeRunId) {
+                    await updateChatRun({
+                      supabase,
+                      runId: activeRunId,
+                      values: { memory_status: 'failed' },
+                    });
+                    await logChatRunEvent({
+                      supabase,
+                      userId: user.id,
+                      runId: activeRunId,
+                      event: 'failed',
+                      detailCode: 'memory_failed',
+                    });
+                  }
                 }
+              });
+            } else if (!isTemporaryChat && activeRunId) {
+              await updateChatRun({
+                supabase,
+                runId: activeRunId,
+                values: { memory_status: 'skipped' },
               });
             }
 
-            const conversationTitle = shouldGenerateTitle ? fallbackConversationTitle : null;
-            if (shouldGenerateTitle && !isTemporaryChat && activeConversationId) {
-              after(async () => {
-                try {
-                  const generatedTitle = await generateConversationTitle(
-                    messageForTitle,
-                    cleanAssistantResponse
-                  );
+            // A title is auxiliary work. The assistant response must reach a
+            // terminal state even if title generation is slow or unavailable.
+            const temporaryTitleResult = isTemporaryChat
+              ? await titleFinalizationPromise
+              : null;
+            const conversationTitle = temporaryTitleResult?.conversationTitle
+              ?? (shouldGenerateTitle ? fallbackConversationTitle : null);
 
-                  if (!generatedTitle || generatedTitle === fallbackConversationTitle) {
-                    return;
-                  }
-
-                  const { error: titleError } = await supabase
-                    .from('conversations')
-                    .update({ title: generatedTitle })
-                    .eq('id', activeConversationId)
-                    .eq('user_id', user.id);
-
-                  if (titleError) {
-                    console.error('Failed to save conversation title:', titleError);
-                  }
-                } catch (titleError) {
-                  console.error('Failed to generate conversation title:', titleError);
-                }
-              });
+            let completedRun = null;
+            if (activeRunId) {
+              const terminalStateRecorded = assistantWasCommitted
+                ? true
+                : await updateActiveChatRun({
+                    supabase,
+                    runId: activeRunId,
+                    values: {
+                      status: 'failed',
+                      response_status: 'failed',
+                      response_text: assistantResponse,
+                      search_status: finalSearchStatus,
+                      search_metadata: capturedSearch,
+                      search_activity: finalSearchActivity,
+                      error_code: 'assistant_commit_failed',
+                      error_message: 'The generated assistant message could not be saved.',
+                      completed_at: new Date().toISOString(),
+                    },
+                  });
+              if (terminalStateRecorded) {
+                await logChatRunEvent({
+                  supabase,
+                  userId: user.id,
+                  runId: activeRunId,
+                  event: 'generation_completed',
+                });
+                completedRun = await getChatRun(supabase, activeRunId);
+              }
+              releaseActiveChatRun(activeRunId);
             }
 
             // Send response metadata as a custom data-part after text streaming is done.
@@ -2243,6 +2980,9 @@ export async function POST(request: NextRequest) {
                 message: assistantResponse,
                 conversationId: activeConversationId,
                 conversationTitle: conversationTitle ?? null,
+                conversationTitleSource: temporaryTitleResult?.titleSource ?? null,
+                titleStatus: temporaryTitleResult?.titleStatus
+                  ?? (shouldGenerateTitle ? null : 'skipped'),
                 mentorId: mentor?.id ?? null,
                 workspaceId: workspace?.id ?? null,
                 threadId: activeThreadId,
@@ -2255,6 +2995,8 @@ export async function POST(request: NextRequest) {
                   capturedPersistedSearchMetadata?.version === 2
                     ? capturedPersistedSearchMetadata.activity ?? null
                     : null,
+                runId: runMetadata?.runId ?? activeRunId,
+                run: completedRun,
               },
             });
           },
@@ -2265,12 +3007,61 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    return createUIMessageStreamResponse({ stream: uiStream });
+    return isTemporaryChat
+      ? createUIMessageStreamResponse({ stream: uiStream })
+      : createUIMessageStreamResponse({
+          stream: uiStream,
+          consumeSseStream: consumeStream,
+        });
   } catch (error) {
-    console.error('Chat API error:', error);
+    console.error(
+      activeRunId
+        ? '[chat-run] request failed'
+        : isTemporaryRequest
+          ? '[temporary-chat] request failed'
+          : 'Chat API error:',
+      activeRunId || isTemporaryRequest
+        ? {
+            ...(activeRunId ? { runId: activeRunId } : {}),
+            code: error instanceof Error ? error.name : 'unknown_error',
+          }
+        : error);
+    if (activeRunId) {
+      try {
+        const failureSupabase = await createSupabaseServerClient();
+        const { data: { user: failureUser } } = await failureSupabase.auth.getUser();
+        const markedFailed = await updateActiveChatRun({
+          supabase: failureSupabase,
+          runId: activeRunId,
+          values: {
+            status: 'failed',
+            response_status: 'failed',
+            error_code: 'run_failed',
+            error_message: 'The chat run failed.',
+            completed_at: new Date().toISOString(),
+          },
+        });
+        if (failureUser && markedFailed) {
+          await logChatRunEvent({
+            supabase: failureSupabase,
+            userId: failureUser.id,
+            runId: activeRunId,
+            event: 'failed',
+            detailCode: 'run_failed',
+          });
+        }
+      } catch (runUpdateError) {
+        console.error('[chat-run] failed to record terminal error', runUpdateError);
+      }
+      releaseActiveChatRun(activeRunId);
+    }
     return NextResponse.json(
       {
-        error: error instanceof Error ? error.message : 'Internal server error',
+        error: activeRunId
+          ? 'The chat run failed.'
+          : error instanceof Error
+            ? error.message
+            : 'Internal server error',
         ...(activeThreadId ? { threadId: activeThreadId } : {}),
       },
       { status: 500 }

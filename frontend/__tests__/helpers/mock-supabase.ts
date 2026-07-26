@@ -41,6 +41,7 @@ export interface MutationTracker {
 
 interface TableConfig {
   rows: MockRow[];
+  queryError?: unknown;
   /** Rows returned by .select().single() after an insert/update. Shifts one per call. */
   returnOnMutate?: MockRow[];
   mutateError?:
@@ -142,6 +143,11 @@ export function createMockSupabase(options: MockSupabaseOptions = {}) {
         } else {
           // SELECT path — return matching rows from config
           const tableConf = tables[table];
+          if (tableConf?.queryError) {
+            queries.push({ table, operation, args, filters });
+            resolve({ data: null, error: tableConf.queryError });
+            return;
+          }
           const rows = sortRows(filterRows(tableConf?.rows ?? [], filters), orderSpec);
           const limitedRows =
             typeof limitCount === 'number' ? rows.slice(0, Math.max(0, limitCount)) : rows;
