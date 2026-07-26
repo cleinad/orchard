@@ -555,6 +555,28 @@ test('measures an active selection across a citation from inline markers', async
   });
 });
 
+test('keeps message text stable when an active highlight follows a persisted highlight', async ({
+  page,
+}) => {
+  const { messageId, selectedText } = await gotoHomeFixture(
+    page,
+    'inline-threads-highlight-order'
+  );
+  const messageContent = page.locator(
+    `[data-message-id="${messageId}"] [data-message-content]`
+  );
+  const originalText = await messageContent.textContent();
+
+  await selectTextInMessage(page, messageId, selectedText);
+  await expect(page.getByTestId('selection-popover')).toBeVisible();
+
+  expect(await messageContent.textContent()).toBe(originalText);
+  await expect(page.getByTestId('inline-thread-link')).toContainText(
+    'event loop coordinates work between tasks'
+  );
+  await expect(page.getByTestId('active-thread-highlight-marker')).toContainText(selectedText);
+});
+
 test('copy after source selection and paste into the popover input keep native clipboard behavior', async ({
   context,
   page,

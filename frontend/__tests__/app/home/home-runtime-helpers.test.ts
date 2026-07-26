@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   BLANK_COMPOSER_KEY,
   deleteRecordKey,
@@ -19,6 +19,23 @@ import {
 import { getTemporaryChatAttachmentStoragePaths } from '@/app/home/components/temporaryChatAttachmentCleanup';
 import type { ThreadMessage } from '@/app/home/components/threadTypes';
 import type { Message } from '@/app/home/types';
+import {
+  getDraftSelectionForPromotion,
+  isDefinitivePreAcceptanceFailure,
+  loadProvisionalChatPromotion,
+  removeProvisionalChatPromotion,
+  storeProvisionalChatPromotion,
+} from '@/app/home/components/provisionalChatPromotion';
+import { createQueuedChatRunSnapshot } from '@/lib/chat-runs/protocol';
+
+function createSessionStorage() {
+  const values = new Map<string, string>();
+  return {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => values.set(key, value),
+    removeItem: (key: string) => values.delete(key),
+  };
+}
 
 describe('homeSelection helpers', () => {
   it('creates stable keys for blank, draft, temporary, and persistent chats', () => {
@@ -76,6 +93,7 @@ describe('homeStorage helpers', () => {
       id: 'message-1',
       role: 'assistant',
       content: 'Hello',
+      isError: true,
       timestamp: new Date('2026-04-15T12:34:56.000Z'),
       searchMetadata: null,
       previousMessageId: null,
@@ -100,6 +118,134 @@ describe('homeStorage helpers', () => {
 
     expect(restored).toEqual(message);
     expect(restored.timestamp).toBeInstanceOf(Date);
+  });
+});
+
+describe('provisional chat promotion helpers', () => {
+  beforeEach(() => {
+    vi.stubGlobal('window', { sessionStorage: createSessionStorage() });
+  });
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('round-trips the recovery draft and removes it after confirmation', () => {
+    const promotion = {
+      runId: '10000000-0000-4000-8000-000000000010',
+      conversationId: '20000000-0000-4000-8000-000000000010',
+      prompt: 'Keep this prompt editable',
+      draft: {
+        id: 'draft-recovery',
+        mentorId: null,
+        workspaceId: null,
+        title: 'New chat' as const,
+        createdAt: '2026-07-25T12:00:00.000Z',
+        updatedAt: '2026-07-25T12:00:00.000Z',
+        messages: [{
+          id: 'message-before-send',
+          role: 'assistant' as const,
+          content: 'Earlier draft context',
+          timestamp: new Date('2026-07-25T12:00:00.000Z'),
+          previousMessageId: null,
+        }],
+        branches: [],
+        selectedBranchIds: {},
+      },
+    };
+
+    storeProvisionalChatPromotion(promotion);
+    expect(loadProvisionalChatPromotion(promotion.runId)).toEqual({
+      ...promotion,
+      draft: {
+        ...promotion.draft,
+        messages: [{
+          ...promotion.draft.messages[0],
+          attachments: [],
+          isError: undefined,
+          searchMetadata: null,
+        }],
+      },
+    });
+    expect(getDraftSelectionForPromotion(promotion)).toEqual({
+      kind: 'draft',
+      draftId: promotion.draft.id,
+      mentorId: null,
+      workspaceId: null,
+    });
+
+    removeProvisionalChatPromotion(promotion.runId);
+    expect(loadProvisionalChatPromotion(promotion.runId)).toBeNull();
+  });
+
+  it('distinguishes confirmed rejection from accepted and ambiguous failures', () => {
+    const queued = createQueuedChatRunSnapshot({
+      identifiers: {
+        runId: '30000000-0000-4000-8000-000000000010',
+        userMessageId: '40000000-0000-4000-8000-000000000010',
+        assistantMessageId: '50000000-0000-4000-8000-000000000010',
+      },
+      mode: 'persistent',
+      target: {
+        kind: 'main',
+        chatId: '20000000-0000-4000-8000-000000000010',
+        conversationId: '20000000-0000-4000-8000-000000000010',
+        threadId: null,
+        branchId: null,
+        branchSourceMessageId: null,
+        sourceMessageId: null,
+        expectedPredecessorId: null,
+      },
+      fallbackTitle: 'Fallback',
+    });
+    const rejected = {
+      ...queued,
+      status: 'failed' as const,
+      errorCode: 'submission_rejected',
+    };
+
+    expect(isDefinitivePreAcceptanceFailure(rejected)).toBe(true);
+    expect(isDefinitivePreAcceptanceFailure({
+      ...rejected,
+      acceptedAt: '2026-07-25T12:00:01.000Z',
+    })).toBe(false);
+    expect(isDefinitivePreAcceptanceFailure({
+      ...queued,
+      status: 'interrupted',
+      errorCode: 'connection_interrupted',
+    })).toBe(false);
+  });
+
+  it('retains active-tab recovery when session storage is unavailable', () => {
+    vi.stubGlobal('window', {
+      sessionStorage: {
+        getItem: () => null,
+        setItem: () => {
+          throw new Error('Storage blocked');
+        },
+        removeItem: () => {
+          throw new Error('Storage blocked');
+        },
+      },
+    });
+    const promotion = {
+      runId: '60000000-0000-4000-8000-000000000010',
+      conversationId: '70000000-0000-4000-8000-000000000010',
+      prompt: 'Recover without browser storage',
+      draft: {
+        id: 'draft-memory-recovery',
+        mentorId: null,
+        workspaceId: null,
+        title: 'New chat' as const,
+        createdAt: '2026-07-25T12:00:00.000Z',
+        updatedAt: '2026-07-25T12:00:00.000Z',
+        messages: [],
+        branches: [],
+        selectedBranchIds: {},
+      },
+    };
+
+    expect(() => storeProvisionalChatPromotion(promotion)).not.toThrow();
+    expect(loadProvisionalChatPromotion(promotion.runId)).toEqual(promotion);
+    expect(() => removeProvisionalChatPromotion(promotion.runId)).not.toThrow();
   });
 });
 

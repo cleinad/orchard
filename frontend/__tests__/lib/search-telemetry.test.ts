@@ -63,4 +63,28 @@ describe('search telemetry', () => {
     const event = info.mock.calls[0]?.[1];
     expect(event.queryPreview).toBeUndefined();
   });
+
+  it('omits all prompt-derived telemetry when the query is redacted', () => {
+    vi.stubEnv('NODE_ENV', 'development');
+    const info = vi.fn();
+    const error = vi.fn();
+    const telemetry = createSearchTelemetry({
+      traceId: 'temporary-trace',
+      conversationId: null,
+      query: 'private temporary prompt',
+      redactQuery: true,
+      logger: { info, error },
+    });
+
+    telemetry.logRequestStarted({ searchMode: 'auto' });
+    telemetry.logPipelineFailed({
+      durationMs: 5,
+      error: new Error('private temporary prompt leaked into an error'),
+    });
+
+    const started = info.mock.calls[0]?.[1];
+    expect(started.queryPreview).toBeUndefined();
+    expect(started.queryHash).toBeUndefined();
+    expect(JSON.stringify(error.mock.calls)).not.toContain('private temporary prompt');
+  });
 });

@@ -125,6 +125,22 @@ export function addThreadMetaToMap(
   return next;
 }
 
+export function removeThreadMetaFromMap(
+  prev: Map<string, ThreadMeta[]>,
+  threadId: string
+) {
+  const next = new Map<string, ThreadMeta[]>();
+
+  for (const [messageId, threads] of prev.entries()) {
+    const remaining = threads.filter((thread) => thread.threadId !== threadId);
+    if (remaining.length > 0) {
+      next.set(messageId, remaining);
+    }
+  }
+
+  return next;
+}
+
 export function addThreadMetaToRecord(
   prev: ThreadMetaRecord,
   threadId: string,
@@ -143,6 +159,22 @@ export function addThreadMetaToRecord(
       { threadId, ...source },
     ],
   };
+}
+
+export function removeThreadMetaFromRecord(
+  prev: ThreadMetaRecord,
+  threadId: string
+) {
+  const next: ThreadMetaRecord = {};
+
+  for (const [messageId, threads] of Object.entries(prev)) {
+    const remaining = threads.filter((thread) => thread.threadId !== threadId);
+    if (remaining.length > 0) {
+      next[messageId] = remaining;
+    }
+  }
+
+  return next;
 }
 
 export function mapThreadMessages(rows: Array<{

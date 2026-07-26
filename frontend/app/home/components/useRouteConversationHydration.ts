@@ -73,12 +73,14 @@ export function useRouteConversationHydration({
   const hydratedRouteConversationIdRef = useRef<string | null>(null);
   const routeLoadRequestIdRef = useRef(0);
   const routeLoadConversationIdRef = useRef<string | null>(null);
+  const routeConversationMissingRef = useRef(false);
   const activeRouteConversationIdRef = useRef(effectiveRouteConversationId);
 
   if (activeRouteConversationIdRef.current !== effectiveRouteConversationId) {
     activeRouteConversationIdRef.current = effectiveRouteConversationId;
     routeLoadRequestIdRef.current += 1;
     routeLoadConversationIdRef.current = null;
+    routeConversationMissingRef.current = false;
   }
 
   useEffect(() => () => {
@@ -102,6 +104,7 @@ export function useRouteConversationHydration({
       routeLoadRequestIdRef.current += 1;
       routeLoadConversationIdRef.current = null;
       hydratedRouteConversationIdRef.current = null;
+      routeConversationMissingRef.current = false;
       setHydratedRouteConversationId(null);
       setIsRouteConversationLoading(false);
       setRouteConversationError(null);
@@ -120,9 +123,15 @@ export function useRouteConversationHydration({
       && currentPersistentSelection?.conversationId === effectiveRouteConversationId
       && hydratedRouteConversationIdRef.current !== effectiveRouteConversationId
     ) {
-      routeLoadConversationIdRef.current = null;
-      setIsRouteConversationLoading(false);
-      return;
+      const missingConversationNowExists =
+        routeConversationMissingRef.current
+        && conversations.some((entry) => entry.id === effectiveRouteConversationId);
+      if (!missingConversationNowExists) {
+        routeLoadConversationIdRef.current = null;
+        setIsRouteConversationLoading(false);
+        return;
+      }
+      routeConversationMissingRef.current = false;
     }
 
     const alreadyHydrated =
@@ -135,6 +144,7 @@ export function useRouteConversationHydration({
     if (alreadyHydrated) {
       routeLoadConversationIdRef.current = null;
       hydratedRouteConversationIdRef.current = effectiveRouteConversationId;
+      routeConversationMissingRef.current = false;
       setHydratedRouteConversationId(effectiveRouteConversationId);
       setIsRouteConversationLoading(false);
       setRouteConversationError(null);
@@ -185,6 +195,7 @@ export function useRouteConversationHydration({
       if (getPersistentConversationTranscript(effectiveRouteConversationId)) {
         routeLoadConversationIdRef.current = null;
         hydratedRouteConversationIdRef.current = effectiveRouteConversationId;
+        routeConversationMissingRef.current = false;
         setHydratedRouteConversationId(effectiveRouteConversationId);
         setIsRouteConversationLoading(false);
         setRouteConversationError(null);
@@ -201,6 +212,7 @@ export function useRouteConversationHydration({
       }
 
       hydratedRouteConversationIdRef.current = effectiveRouteConversationId;
+      routeConversationMissingRef.current = false;
       routeLoadConversationIdRef.current = null;
       setHydratedRouteConversationId(effectiveRouteConversationId);
       setIsRouteConversationLoading(false);
@@ -216,6 +228,8 @@ export function useRouteConversationHydration({
       }
 
       hydratedRouteConversationIdRef.current = null;
+      const errorMessage = err instanceof Error ? err.message : 'Failed to load conversation';
+      routeConversationMissingRef.current = /conversation not found/i.test(errorMessage);
       routeLoadConversationIdRef.current = null;
       setHydratedRouteConversationId(null);
       invokePrepareForChatSwitch({
@@ -224,7 +238,7 @@ export function useRouteConversationHydration({
         mentorId: null,
         workspaceId: null,
       });
-      setListError(err instanceof Error ? err.message : 'Failed to load conversation');
+      setListError(errorMessage);
       const fallbackSelection: SelectedChat = {
         kind: 'persistent',
         conversationId: effectiveRouteConversationId,
@@ -234,9 +248,7 @@ export function useRouteConversationHydration({
       selectedChatRef.current = fallbackSelection;
       setSelectedChat(fallbackSelection);
       setIsRouteConversationLoading(false);
-      setRouteConversationError(
-        err instanceof Error ? err.message : 'Failed to load conversation'
-      );
+      setRouteConversationError(errorMessage);
     });
   }, [
     conversations,
@@ -273,6 +285,7 @@ export function useRouteConversationHydration({
     && routeConversationError !== null;
 
   return {
+    hydratedRouteConversationId,
     hydratedRouteConversationIdRef,
     isRouteConversationLoading,
     routeConversationError,

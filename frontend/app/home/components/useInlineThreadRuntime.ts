@@ -3,6 +3,8 @@
 import {
   useCallback,
   useEffect,
+  useRef,
+  useState,
   type Dispatch,
   type MutableRefObject,
   type SetStateAction,
@@ -13,16 +15,17 @@ import type {
 } from '@/app/home/components/HomeDataContext';
 import { logResolvedChatModel } from '@/app/home/components/logResolvedChatModel';
 import {
-  addThreadMetaToMap,
   addThreadMetaToRecord,
   createEmptyPersistentThreadRuntime,
   deserializePersistentThreadRuntimes,
   mapThreadMessages,
   mergeThreadMessages,
+  removeThreadMetaFromRecord,
   serializePersistentThreadRuntimes,
   type PersistentThreadRuntime,
   type PersistentThreadRuntimeRecord,
 } from '@/app/home/components/persistentThreadRuntime';
+import { getSelectionStreamVersion } from '@/app/home/components/markdownSelectableStream';
 import {
   readChatStream,
   type ChatResponse,
@@ -30,7 +33,6 @@ import {
 import type {
   InlineThreadMarker,
   ThreadMessage,
-  ThreadMeta,
   ThreadSession,
   ThreadSessionStatus,
   ThreadSource,
@@ -45,6 +47,14 @@ import { getBrowserTimeZone } from '@/lib/browser-timezone';
 import type { ChatModelEffortLevel } from '@/lib/chat-models';
 import type { SearchMode } from '@/lib/chat-search';
 import type { ResponseStyle } from '@/lib/response-style';
+import { useOptionalChatRunCoordinator } from '@/app/components/ChatRunCoordinator';
+import {
+  createChatRunIdentifiers,
+  createQueuedChatRunSnapshot,
+  type ChatRunIdentifiers,
+  isTerminalChatRunStatus,
+} from '@/lib/chat-runs/protocol';
+import { fallbackChatTitleFromMessage } from '@/lib/chat-session';
 
 interface UseInlineThreadRuntimeParams {
   activeConversationId: string | null;
@@ -59,7 +69,6 @@ interface UseInlineThreadRuntimeParams {
   persistentThreadRuntimes: PersistentThreadRuntimeRecord;
   persistentThreadRuntimesRef: MutableRefObject<PersistentThreadRuntimeRecord>;
   selectedChat: SelectedChat | null;
-  selectedChatRef: MutableRefObject<SelectedChat | null>;
   selectedModelId: string;
   selectedModelEffort: ChatModelEffortLevel | null;
   thinkingEnabled: boolean | null;
@@ -67,7 +76,12 @@ interface UseInlineThreadRuntimeParams {
   searchMode: SearchMode;
   selectedTemporaryChat: TemporaryChatSession | null;
   setPersistentThreadRuntimes: Dispatch<SetStateAction<PersistentThreadRuntimeRecord>>;
-  setPersistentThreadsMap: Dispatch<SetStateAction<Map<string, ThreadMeta[]>>>;
+  upsertPersistentThreadMeta: (
+    conversationId: string,
+    threadId: string,
+    source: ThreadSource,
+    previousThreadId?: string
+  ) => void;
   storageKey: string;
   threadSessionsRef: MutableRefObject<Record<string, ThreadSession>>;
   updateTemporaryChat: (
@@ -90,7 +104,6 @@ export function useInlineThreadRuntime({
   persistentThreadRuntimes,
   persistentThreadRuntimesRef,
   selectedChat,
-  selectedChatRef,
   selectedModelId,
   selectedModelEffort,
   thinkingEnabled,
@@ -98,15 +111,20 @@ export function useInlineThreadRuntime({
   searchMode,
   selectedTemporaryChat,
   setPersistentThreadRuntimes,
-  setPersistentThreadsMap,
+  upsertPersistentThreadMeta,
   storageKey,
   threadSessionsRef,
   updateTemporaryChat,
   updateThreadSession,
 }: UseInlineThreadRuntimeParams) {
+  const chatRunCoordinator = useOptionalChatRunCoordinator();
+  const [persistentThreadStorageRestored, setPersistentThreadStorageRestored] =
+    useState(false);
+  const reconciledPersistentThreadRunVersionsRef = useRef(new Set<string>());
   useEffect(() => {
     const stored = window.sessionStorage.getItem(storageKey);
     if (!stored) {
+      setPersistentThreadStorageRestored(true);
       return;
     }
 
@@ -115,10 +133,13 @@ export function useInlineThreadRuntime({
     } catch (error) {
       console.error('Failed to restore persistent thread runtime:', error);
       window.sessionStorage.removeItem(storageKey);
+    } finally {
+      setPersistentThreadStorageRestored(true);
     }
   }, [setPersistentThreadRuntimes, storageKey]);
 
   useEffect(() => {
+    if (!persistentThreadStorageRestored) return;
     if (Object.keys(persistentThreadRuntimes).length === 0) {
       window.sessionStorage.removeItem(storageKey);
       return;
@@ -128,7 +149,7 @@ export function useInlineThreadRuntime({
       storageKey,
       serializePersistentThreadRuntimes(persistentThreadRuntimes)
     );
-  }, [persistentThreadRuntimes, storageKey]);
+  }, [persistentThreadRuntimes, persistentThreadStorageRestored, storageKey]);
 
   const setTemporaryThreadMessages = useCallback(
     (tempChatId: string, threadId: string, nextMessages: ThreadMessage[]) => {
@@ -170,17 +191,6 @@ export function useInlineThreadRuntime({
       });
     },
     [setPersistentThreadRuntimes]
-  );
-
-  const setSelectedTemporaryThreadMessagesForThread = useCallback(
-    (threadId: string, nextMessages: ThreadMessage[]) => {
-      if (selectedChat?.kind !== 'temporary') {
-        return;
-      }
-
-      setTemporaryThreadMessages(selectedChat.tempChatId, threadId, nextMessages);
-    },
-    [selectedChat, setTemporaryThreadMessages]
   );
 
   const setPersistentThreadMessages = useCallback(
@@ -230,17 +240,6 @@ export function useInlineThreadRuntime({
     [updatePersistentThreadRuntime]
   );
 
-  const setSelectedTemporaryThreadStatusForThread = useCallback(
-    (threadId: string, status: ThreadSessionStatus) => {
-      if (selectedChat?.kind !== 'temporary') {
-        return;
-      }
-
-      setTemporaryThreadStatus(selectedChat.tempChatId, threadId, status);
-    },
-    [selectedChat, setTemporaryThreadStatus]
-  );
-
   const addTemporaryThreadMeta = useCallback(
     (tempChatId: string, threadId: string, source: ThreadSource) => {
       updateTemporaryChat(tempChatId, (chat) => ({
@@ -259,28 +258,86 @@ export function useInlineThreadRuntime({
         threadsMap: addThreadMetaToRecord(runtime.threadsMap, threadId, source),
       }));
 
-      if (
-        selectedChatRef.current?.kind === 'persistent'
-        && selectedChatRef.current.conversationId === conversationId
-      ) {
-        setPersistentThreadsMap((prev) => addThreadMetaToMap(prev, threadId, source));
-      }
+      upsertPersistentThreadMeta(conversationId, threadId, source);
     },
-    [selectedChatRef, setPersistentThreadsMap, updatePersistentThreadRuntime]
+    [updatePersistentThreadRuntime, upsertPersistentThreadMeta]
   );
 
-  const addThreadMeta = useCallback(
-    (threadId: string, source: ThreadSource) => {
-      if (selectedChat?.kind === 'temporary') {
-        addTemporaryThreadMeta(selectedChat.tempChatId, threadId, source);
+  const replaceThreadResultId = useCallback(
+    (
+      selection: Extract<SelectedChat, { kind: 'temporary' | 'persistent' }>,
+      previousThreadId: string,
+      threadId: string,
+      source: ThreadSource
+    ) => {
+      if (previousThreadId === threadId) {
         return;
       }
 
-      if (selectedChat?.kind === 'persistent') {
-        addPersistentThreadMeta(selectedChat.conversationId, threadId, source);
+      if (selection.kind === 'temporary') {
+        updateTemporaryChat(selection.tempChatId, (chat) => {
+          const nextThreadMessages = { ...chat.threadMessages };
+          const previousMessages = nextThreadMessages[previousThreadId] ?? [];
+          delete nextThreadMessages[previousThreadId];
+          if (previousMessages.length > 0 && !nextThreadMessages[threadId]) {
+            nextThreadMessages[threadId] = previousMessages;
+          }
+
+          const nextThreadStatuses = { ...chat.threadStatuses };
+          const previousStatus = nextThreadStatuses[previousThreadId];
+          delete nextThreadStatuses[previousThreadId];
+          if (previousStatus && !nextThreadStatuses[threadId]) {
+            nextThreadStatuses[threadId] = previousStatus;
+          }
+
+          return {
+            ...chat,
+            threadsMap: addThreadMetaToRecord(
+              removeThreadMetaFromRecord(chat.threadsMap, previousThreadId),
+              threadId,
+              source
+            ),
+            threadMessages: nextThreadMessages,
+            threadStatuses: nextThreadStatuses,
+            updatedAt: new Date().toISOString(),
+          };
+        });
+        return;
       }
+
+      updatePersistentThreadRuntime(selection.conversationId, (runtime) => {
+        const nextThreadMessages = { ...runtime.threadMessages };
+        const previousMessages = nextThreadMessages[previousThreadId] ?? [];
+        delete nextThreadMessages[previousThreadId];
+        if (previousMessages.length > 0 && !nextThreadMessages[threadId]) {
+          nextThreadMessages[threadId] = previousMessages;
+        }
+
+        const nextThreadStatuses = { ...runtime.threadStatuses };
+        const previousStatus = nextThreadStatuses[previousThreadId];
+        delete nextThreadStatuses[previousThreadId];
+        if (previousStatus && !nextThreadStatuses[threadId]) {
+          nextThreadStatuses[threadId] = previousStatus;
+        }
+
+        return {
+          threadsMap: addThreadMetaToRecord(
+            removeThreadMetaFromRecord(runtime.threadsMap, previousThreadId),
+            threadId,
+            source
+          ),
+          threadMessages: nextThreadMessages,
+          threadStatuses: nextThreadStatuses,
+        };
+      });
+      upsertPersistentThreadMeta(
+        selection.conversationId,
+        threadId,
+        source,
+        previousThreadId
+      );
     },
-    [addPersistentThreadMeta, addTemporaryThreadMeta, selectedChat]
+    [updatePersistentThreadRuntime, updateTemporaryChat, upsertPersistentThreadMeta]
   );
 
   const buildThreadSession = useCallback(
@@ -340,17 +397,145 @@ export function useInlineThreadRuntime({
     ]
   );
 
+  useEffect(() => {
+    if (!chatRunCoordinator) return;
+
+    return chatRunCoordinator.subscribeAll((run) => {
+      if (
+        run.mode !== 'persistent'
+        || run.target.kind !== 'thread'
+        || !run.target.threadId
+      ) return;
+
+      const conversationId = run.target.conversationId ?? run.target.chatId;
+      const targetThreadId = run.target.threadId;
+      const threadId = run.createdThreadId ?? targetThreadId;
+      if (threadId !== targetThreadId) {
+        const runtime = persistentThreadRuntimesRef.current[conversationId];
+        const source = runtime
+          ? Object.values(runtime.threadsMap)
+              .flat()
+              .find((thread) => thread.threadId === targetThreadId)
+          : null;
+        if (source) {
+          replaceThreadResultId(
+            {
+              kind: 'persistent',
+              conversationId,
+              mentorId: null,
+              workspaceId: null,
+            },
+            targetThreadId,
+            threadId,
+            source
+          );
+        }
+      }
+      if (run.status !== 'interrupted' && !isTerminalChatRunStatus(run.status)) {
+        setPersistentThreadStatus(conversationId, threadId, 'loading');
+        return;
+      }
+      if (run.status !== 'completed') {
+        setPersistentThreadStatus(
+          conversationId,
+          threadId,
+          run.status === 'cancelled' ? 'ready' : 'error'
+        );
+        return;
+      }
+
+      const versionKey = `${run.runId}:${run.status}:${run.updatedAt}`;
+      if (reconciledPersistentThreadRunVersionsRef.current.has(versionKey)) {
+        return;
+      }
+      reconciledPersistentThreadRunVersionsRef.current.add(versionKey);
+      setPersistentThreadStatus(conversationId, threadId, 'ready');
+
+      void fetch(`/api/threads/${threadId}/messages`)
+        .then(async (response) => {
+          if (!response.ok) throw new Error('Failed to reconcile thread');
+          const data = await response.json() as {
+            thread?: {
+              threadId?: unknown;
+              conversationId?: unknown;
+              sourceMessageId?: unknown;
+              highlightedText?: unknown;
+              startOffset?: unknown;
+              endOffset?: unknown;
+              selectionStreamVersion?: unknown;
+            };
+            messages?: Parameters<typeof mapThreadMessages>[0];
+          };
+          const thread = data.thread;
+          if (
+            thread
+            && thread.threadId === threadId
+            && thread.conversationId === conversationId
+            && typeof thread.sourceMessageId === 'string'
+            && typeof thread.highlightedText === 'string'
+            && typeof thread.startOffset === 'number'
+            && typeof thread.endOffset === 'number'
+          ) {
+            const source = {
+              sourceMessageId: thread.sourceMessageId,
+              highlightedText: thread.highlightedText,
+              startOffset: thread.startOffset,
+              endOffset: thread.endOffset,
+              selectionStreamVersion: getSelectionStreamVersion(
+                typeof thread.selectionStreamVersion === 'string'
+                  ? thread.selectionStreamVersion
+                  : null
+              ),
+            };
+            if (threadId !== targetThreadId) {
+              replaceThreadResultId(
+                {
+                  kind: 'persistent',
+                  conversationId,
+                  mentorId: null,
+                  workspaceId: null,
+                },
+                targetThreadId,
+                threadId,
+                source
+              );
+            } else {
+              addPersistentThreadMeta(conversationId, threadId, source);
+            }
+          }
+          const messages = mapThreadMessages(data.messages ?? []);
+          setPersistentThreadMessages(conversationId, threadId, messages);
+          setPersistentThreadStatus(conversationId, threadId, 'ready');
+        })
+        .catch(() => {
+          reconciledPersistentThreadRunVersionsRef.current.delete(versionKey);
+        });
+    });
+  }, [
+    addPersistentThreadMeta,
+    chatRunCoordinator,
+    persistentThreadRuntimesRef,
+    replaceThreadResultId,
+    setPersistentThreadMessages,
+    setPersistentThreadStatus,
+  ]);
+
   const sendThreadRequest = useCallback(
     async (params: {
       sessionId: string;
       question: string;
-      selection: SelectedChat;
+      selection: Extract<SelectedChat, { kind: 'temporary' | 'persistent' }>;
       source: ThreadSource;
       requestThreadId: string | null;
       previousMessages: ThreadMessage[];
       optimisticMessages: ThreadMessage[];
       optimisticUserMessageId: string;
+      identifiers: ChatRunIdentifiers;
+      isNewThread: boolean;
     }) => {
+      if (params.selection.kind !== 'persistent' && params.selection.kind !== 'temporary') {
+        return;
+      }
       const finalizeThreadState = (options: {
         status: ThreadSessionStatus;
         threadId: string | null;
@@ -366,6 +551,19 @@ export function useInlineThreadRuntime({
         );
         const nextMessages = [...reconciledMessages, options.assistantMessage];
         const nextThreadId = options.threadId ?? latestSession?.threadId ?? null;
+
+        if (
+          nextThreadId
+          && params.requestThreadId
+          && nextThreadId !== params.requestThreadId
+        ) {
+          replaceThreadResultId(
+            params.selection,
+            params.requestThreadId,
+            nextThreadId,
+            params.source
+          );
+        }
 
         if (latestSession) {
           updateThreadSession(params.sessionId, () => ({
@@ -389,10 +587,24 @@ export function useInlineThreadRuntime({
       };
 
       try {
-        const response = await fetch('/api/chat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+        const runMode = params.selection.kind === 'temporary'
+          ? 'temporary' as const
+          : 'persistent' as const;
+        const runTarget = {
+          kind: 'thread' as const,
+          chatId: params.selection.kind === 'temporary'
+            ? params.selection.tempChatId
+            : params.selection.conversationId,
+          conversationId: params.selection.kind === 'persistent'
+            ? params.selection.conversationId
+            : null,
+          threadId: params.requestThreadId,
+          branchId: null,
+          branchSourceMessageId: null,
+          sourceMessageId: params.source.sourceMessageId,
+          expectedPredecessorId: params.previousMessages.at(-1)?.id ?? null,
+        };
+        const requestBody = {
             message: params.question,
             conversationId:
               params.selection.kind === 'persistent'
@@ -412,9 +624,23 @@ export function useInlineThreadRuntime({
             startOffset: params.source.startOffset,
             endOffset: params.source.endOffset,
             selectionStreamVersion: params.source.selectionStreamVersion,
-            ...(params.requestThreadId ? { threadId: params.requestThreadId } : {}),
+            previousMessageId: params.previousMessages.at(-1)?.id ?? null,
+            ...(!params.isNewThread && params.requestThreadId
+              ? { threadId: params.requestThreadId }
+              : {}),
             timezone: getBrowserTimeZone(),
             chatMode: params.selection.kind === 'temporary' ? 'temporary' : 'persistent',
+            run: {
+              ...params.identifiers,
+              temporarySessionId:
+                params.selection.kind === 'temporary'
+                  ? params.selection.tempChatId
+                  : undefined,
+              newThreadId: params.isNewThread
+                ? params.requestThreadId ?? undefined
+                : undefined,
+              target: runTarget,
+            },
             ...(params.selection.kind === 'temporary'
               ? {
                   memoryMode: activeTemporaryMemoryMode,
@@ -422,12 +648,42 @@ export function useInlineThreadRuntime({
                   threadHistory: toChatHistory(params.previousMessages),
                 }
               : {}),
-          }),
-        });
-
-        const data = response.ok
-          ? await readChatStream(response, () => {})
-          : (await response.json()) as ChatResponse;
+          };
+        let data: ChatResponse;
+        if (chatRunCoordinator) {
+          const run = await chatRunCoordinator.start({
+            request: requestBody,
+            initialSnapshot: createQueuedChatRunSnapshot({
+              identifiers: params.identifiers,
+              mode: runMode,
+              target: runTarget,
+              fallbackTitle: fallbackChatTitleFromMessage(params.question),
+            }),
+          });
+          data = {
+            message: run.response ?? undefined,
+            conversationId: run.target.conversationId ?? undefined,
+            threadId: run.createdThreadId ?? run.target.threadId,
+            userMessageId: run.userMessageId,
+            assistantMessageId: run.assistantMessageId,
+            search: run.search ?? undefined,
+            searchActivity: run.searchActivity,
+            ...(run.status === 'failed' || run.status === 'interrupted'
+              ? { error: run.errorMessage ?? 'Thread run failed.' }
+              : {}),
+            cancelled: run.status === 'cancelled',
+          };
+        } else {
+          const response = await fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestBody),
+          });
+          data = response.ok
+            ? await readChatStream(response, () => {})
+            : (await response.json()) as ChatResponse;
+          if (!response.ok && !data.error) data.error = 'Something went wrong.';
+        }
 
         logResolvedChatModel(data, 'thread');
         const resolvedThreadId =
@@ -435,15 +691,29 @@ export function useInlineThreadRuntime({
             ? data.threadId
             : params.requestThreadId;
 
-        if (!response.ok || data.error || !data.message) {
+        if (data.cancelled) {
+          const latestSession = threadSessionsRef.current[params.sessionId];
+          const messages = latestSession?.messages ?? params.optimisticMessages;
+          updateThreadSession(params.sessionId, (session) => ({
+            ...session,
+            status: 'ready',
+            isHydrating: false,
+          }));
+          persistThreadResult(
+            { selection: params.selection, source: params.source },
+            resolvedThreadId,
+            messages,
+            'ready'
+          );
+          return;
+        }
+
+        if (data.error || !data.message) {
           finalizeThreadState({
             status: 'error',
             threadId: resolvedThreadId,
             assistantMessage: {
-              id:
-                params.selection.kind === 'temporary'
-                  ? createTemporaryId('message')
-                  : (Date.now() + 1).toString(),
+              id: params.identifiers.assistantMessageId,
               role: 'assistant',
               content: data.error || 'Something went wrong.',
               timestamp: new Date(),
@@ -457,10 +727,7 @@ export function useInlineThreadRuntime({
           status: 'ready',
           threadId: resolvedThreadId,
           assistantMessage: {
-            id:
-              params.selection.kind === 'temporary'
-                ? createTemporaryId('message')
-                : data.assistantMessageId || (Date.now() + 1).toString(),
+            id: data.assistantMessageId || params.identifiers.assistantMessageId,
             role: 'assistant',
             content: data.message,
             timestamp: new Date(),
@@ -468,17 +735,14 @@ export function useInlineThreadRuntime({
           },
           resolvedUserMessageId: data.userMessageId,
         });
-      } catch {
+      } catch (error) {
         finalizeThreadState({
           status: 'error',
           threadId: params.requestThreadId,
           assistantMessage: {
-            id:
-              params.selection.kind === 'temporary'
-                ? createTemporaryId('message')
-                : (Date.now() + 1).toString(),
+            id: params.identifiers.assistantMessageId,
             role: 'assistant',
-            content: 'Something went wrong.',
+            content: error instanceof Error ? error.message : 'Something went wrong.',
             timestamp: new Date(),
           },
         });
@@ -487,9 +751,11 @@ export function useInlineThreadRuntime({
     [
       activeMessages,
       activeTemporaryMemoryMode,
+      chatRunCoordinator,
       persistThreadResult,
       selectedModelEffort,
       responseStyle,
+      replaceThreadResultId,
       searchMode,
       selectedModelId,
       thinkingEnabled,
@@ -514,13 +780,10 @@ export function useInlineThreadRuntime({
         return;
       }
 
-      const requestThreadId =
-        selection.kind === 'temporary' ? createTemporaryId('thread') : null;
+      const identifiers = createChatRunIdentifiers('thread');
+      const requestThreadId = identifiers.threadId ?? crypto.randomUUID();
       const userMessage: ThreadMessage = {
-        id:
-          selection.kind === 'temporary'
-            ? createTemporaryId('message')
-            : Date.now().toString(),
+        id: identifiers.userMessageId,
         role: 'user',
         content: trimmedQuestion,
         timestamp: new Date(),
@@ -533,11 +796,12 @@ export function useInlineThreadRuntime({
 
       createThreadSession(session, { makeActive: true });
 
-      if (selection.kind === 'temporary' && requestThreadId) {
-        addThreadMeta(requestThreadId, source);
-        setSelectedTemporaryThreadMessagesForThread(requestThreadId, session.messages);
-        setSelectedTemporaryThreadStatusForThread(requestThreadId, 'loading');
-      }
+      persistThreadResult(
+        { selection, source },
+        requestThreadId,
+        session.messages,
+        'loading'
+      );
 
       void sendThreadRequest({
         sessionId: session.sessionId,
@@ -548,17 +812,17 @@ export function useInlineThreadRuntime({
         previousMessages: [],
         optimisticMessages: session.messages,
         optimisticUserMessageId: userMessage.id,
+        identifiers,
+        isNewThread: true,
       });
     },
     [
       activeConversationId,
-      addThreadMeta,
       buildThreadSession,
       createThreadSession,
+      persistThreadResult,
       selectedChat,
       sendThreadRequest,
-      setSelectedTemporaryThreadMessagesForThread,
-      setSelectedTemporaryThreadStatusForThread,
     ]
   );
 
@@ -619,13 +883,10 @@ export function useInlineThreadRuntime({
         return;
       }
 
-      const requestThreadId =
-        session.threadId ?? (selection.kind === 'temporary' ? createTemporaryId('thread') : null);
+      const identifiers = createChatRunIdentifiers(session.threadId ? 'main' : 'thread');
+      const requestThreadId = session.threadId ?? identifiers.threadId ?? crypto.randomUUID();
       const userMessage: ThreadMessage = {
-        id:
-          selection.kind === 'temporary'
-            ? createTemporaryId('message')
-            : Date.now().toString(),
+        id: identifiers.userMessageId,
         role: 'user',
         content,
         timestamp: new Date(),
@@ -641,13 +902,12 @@ export function useInlineThreadRuntime({
         messages: nextMessages,
       }));
 
-      if (selection.kind === 'temporary' && requestThreadId) {
-        if (!session.threadId) {
-          addThreadMeta(requestThreadId, session);
-        }
-        setSelectedTemporaryThreadMessagesForThread(requestThreadId, nextMessages);
-        setSelectedTemporaryThreadStatusForThread(requestThreadId, 'loading');
-      }
+      persistThreadResult(
+        { selection, source: session },
+        requestThreadId,
+        nextMessages,
+        'loading'
+      );
 
       void sendThreadRequest({
         sessionId,
@@ -658,15 +918,15 @@ export function useInlineThreadRuntime({
         previousMessages: session.messages,
         optimisticMessages: nextMessages,
         optimisticUserMessageId: userMessage.id,
+        identifiers,
+        isNewThread: !session.threadId,
       });
     },
     [
       activeConversationId,
-      addThreadMeta,
+      persistThreadResult,
       selectedChat,
       sendThreadRequest,
-      setSelectedTemporaryThreadMessagesForThread,
-      setSelectedTemporaryThreadStatusForThread,
       threadSessionsRef,
       updateThreadSession,
     ]

@@ -46,6 +46,16 @@ import {
   type StoredMessage,
   type StoredThreadMessage,
 } from '@/app/home/components/homeStorage';
+import { useOptionalChatRunCoordinator } from '@/app/components/ChatRunCoordinator';
+import {
+  isSettledChatRunSnapshot,
+} from '@/lib/chat-runs/protocol';
+import { mergeThreadsMaps } from '@/app/home/components/persistentThreadRuntime';
+import {
+  getDraftSelectionForPromotion,
+  loadProvisionalChatPromotion,
+  removeProvisionalChatPromotion,
+} from '@/app/home/components/provisionalChatPromotion';
 // ---------------------------------------------------------------------------
 // Shared home selection types (also used by page.tsx for send / tree state)
 // ---------------------------------------------------------------------------
@@ -175,6 +185,26 @@ function sortByUpdatedAtDesc<T extends { updatedAt: string }>(items: T[]): T[] {
   );
 }
 
+function mergeHydratedTranscriptWithLocalRunState(
+  hydrated: PersistentConversationTranscript,
+  local: PersistentConversationTranscript | null
+): PersistentConversationTranscript {
+  if (!local) return hydrated;
+  const hydratedMessageIds = new Set(hydrated.messages.map((message) => message.id));
+  const localOnlyMessages = local.messages.filter(
+    (message) => !hydratedMessageIds.has(message.id)
+  );
+
+  return {
+    ...hydrated,
+    messages: [...hydrated.messages, ...localOnlyMessages].sort((a, b) => {
+      const timestampOrder = a.timestamp.getTime() - b.timestamp.getTime();
+      return timestampOrder || a.id.localeCompare(b.id);
+    }),
+    threadsMap: mergeThreadsMaps(hydrated.threadsMap, local.threadsMap),
+  };
+}
+
 function deserializeTemporaryChats(raw: string): TemporaryChatSession[] {
   const stored = JSON.parse(raw) as StoredTemporaryChatSession[];
   return stored.map((chat) => ({
@@ -226,6 +256,10 @@ interface HomeDataContextValue {
     updatedAt?: string | null;
     createdAt?: string | null;
   }) => void;
+  rollbackProvisionalChatPromotion: (runId: string) => Extract<
+    SelectedChat,
+    { kind: 'draft' }
+  > | null;
 
   // Draft + temporary chat state
   draftChats: PersistentDraftChat[];
@@ -326,6 +360,7 @@ export function HomeDataProvider({
 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
+  const chatRunCoordinator = useOptionalChatRunCoordinator();
 
   const {
     mentors,
@@ -338,6 +373,7 @@ export function HomeDataProvider({
     setListError,
     refreshSidebarData,
     upsertSidebarConversation,
+    removeSidebarConversation,
     loadConversationById,
     loadConversationMessages,
   } = useHomeData();
@@ -353,6 +389,8 @@ export function HomeDataProvider({
     useState<PersistentConversationTranscriptRecord>({});
 
   const selectedChatRef = useRef<SelectedChat | null>(null);
+  const appliedPersistentRunTitlesRef = useRef(new Set<string>());
+  const pendingPersistentRunTitleRefreshesRef = useRef(new Set<string>());
   const persistentConversationCacheRef = useRef<PersistentConversationTranscriptRecord>({});
   const persistentConversationLoadsRef =
     useRef<Record<string, Promise<PersistentConversationTranscript>>>({});
@@ -362,11 +400,9 @@ export function HomeDataProvider({
 
   const setPersistentConversationCache = useCallback(
     (updater: SetStateAction<PersistentConversationTranscriptRecord>) => {
-      setPersistentConversationCacheState((current) => {
-        const next = resolveStateAction(updater, current);
-        persistentConversationCacheRef.current = next;
-        return next;
-      });
+      const next = resolveStateAction(updater, persistentConversationCacheRef.current);
+      persistentConversationCacheRef.current = next;
+      setPersistentConversationCacheState(next);
     },
     []
   );
@@ -407,7 +443,11 @@ export function HomeDataProvider({
 
       const load = loader()
         .then((transcriptInput) => {
-          const transcript = normalizePersistentConversationTranscript(transcriptInput);
+          const hydrated = normalizePersistentConversationTranscript(transcriptInput);
+          const transcript = mergeHydratedTranscriptWithLocalRunState(
+            hydrated,
+            persistentConversationCacheRef.current[conversationId] ?? null
+          );
           setPersistentConversationCache((current) => ({
             ...current,
             [conversationId]: transcript,
@@ -460,6 +500,21 @@ export function HomeDataProvider({
     persistentConversationLoadsRef.current = {};
     setPersistentConversationCache({});
   }, [setPersistentConversationCache]);
+
+  const removePersistentConversationTranscript = useCallback(
+    (conversationId: string) => {
+      const nextLoads = { ...persistentConversationLoadsRef.current };
+      delete nextLoads[conversationId];
+      persistentConversationLoadsRef.current = nextLoads;
+      setPersistentConversationCache((current) => {
+        if (!current[conversationId]) return current;
+        const next = { ...current };
+        delete next[conversationId];
+        return next;
+      });
+    },
+    [setPersistentConversationCache]
+  );
 
   const getTranscriptScrollPosition = useCallback((key: string) => {
     return transcriptScrollPositionsRef.current[key] ?? null;
@@ -519,6 +574,168 @@ export function HomeDataProvider({
     }
     window.sessionStorage.setItem(TEMP_CHAT_STORAGE_KEY, serializeTemporaryChats(temporaryChats));
   }, [temporaryChats]);
+
+  useEffect(() => {
+    if (!chatRunCoordinator) return;
+    return chatRunCoordinator.subscribeAll((run) => {
+      if (run.mode === 'persistent') {
+        const conversationId = run.target.conversationId;
+        const currentSelection = selectedChatRef.current;
+        const matchingDraft =
+          currentSelection?.kind === 'draft'
+          && currentSelection.draftId === run.target.chatId;
+        if (
+          conversationId
+          && run.acceptedAt
+          && run.target.kind === 'main'
+          && (!currentSelection || matchingDraft)
+        ) {
+          const existingConversation = conversations.find(
+            (conversation) => conversation.id === conversationId
+          );
+          const next: SelectedChat = {
+            kind: 'persistent',
+            conversationId,
+            mentorId: matchingDraft
+              ? currentSelection.mentorId
+              : existingConversation?.mentor_id ?? null,
+            workspaceId: matchingDraft
+              ? currentSelection.workspaceId
+              : existingConversation?.workspace_id ?? null,
+          };
+          if (matchingDraft) {
+            setDraftChats((current) =>
+              current.filter((draft) => draft.id !== currentSelection.draftId)
+            );
+          }
+          selectedChatRef.current = next;
+          setSelectedChat(next);
+          setClientRouteConversationId(conversationId);
+          setPendingRouteConversationId(null);
+          const nextUrl = new URL(window.location.href);
+          nextUrl.pathname = `/home/${encodeURIComponent(conversationId)}`;
+          window.history.replaceState(
+            window.history.state,
+            '',
+            `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`
+          );
+        }
+        if (
+          run.target.kind !== 'thread'
+          && conversationId
+          && run.title.value
+          && run.title.source === 'generated'
+          && run.subsystems.title === 'completed'
+        ) {
+          const titleKey = `${conversationId}:${run.title.source}:${run.title.version}:${run.title.value}`;
+          if (!appliedPersistentRunTitlesRef.current.has(titleKey)) {
+            const existing = conversations.find((conversation) =>
+              conversation.id === conversationId
+            );
+            if (existing) {
+              appliedPersistentRunTitlesRef.current.add(titleKey);
+              pendingPersistentRunTitleRefreshesRef.current.delete(titleKey);
+              upsertSidebarConversation({
+                id: existing.id,
+                title: run.title.value,
+                mentorId: existing.mentor_id,
+                workspaceId: existing.workspace_id,
+                createdAt: existing.created_at,
+                updatedAt: existing.updated_at,
+              });
+            } else if (!pendingPersistentRunTitleRefreshesRef.current.has(titleKey)) {
+              pendingPersistentRunTitleRefreshesRef.current.add(titleKey);
+              void refreshSidebarData().finally(() => {
+                pendingPersistentRunTitleRefreshesRef.current.delete(titleKey);
+              });
+            }
+          }
+        }
+        return;
+      }
+      if (run.mode !== 'temporary') return;
+      const now = run.updatedAt;
+      const assistantMessage: Message = {
+        id: run.assistantMessageId,
+        renderId: run.assistantMessageId,
+        role: 'assistant',
+        content: run.response
+          ?? (run.status === 'failed' || run.status === 'interrupted'
+            ? run.errorMessage ?? 'The temporary response was interrupted.'
+            : ''),
+        timestamp: new Date(run.updatedAt),
+        previousMessageId: run.userMessageId,
+        isStreaming: !isSettledChatRunSnapshot(run),
+        isError: run.status === 'failed' || run.status === 'interrupted',
+        searchMetadata: run.search?.metadata ?? null,
+        searchActivity: run.searchActivity,
+      };
+      const threadId = run.createdThreadId ?? run.target.threadId;
+      const isThread = run.target.kind === 'thread' && Boolean(threadId);
+
+      setTemporaryChats((current) => {
+        const existing = current.find((chat) => chat.id === run.target.chatId);
+        if (existing) {
+          return current.map((chat) => {
+            if (chat.id !== run.target.chatId) return chat;
+            if (isThread && threadId) {
+              const priorThreadMessages = chat.threadMessages[threadId] ?? [];
+              const existingAssistant = priorThreadMessages.find(
+                (message) => message.id === run.assistantMessageId
+              );
+              const nextThreadMessages = [
+                ...priorThreadMessages.filter((message) => message.id !== run.assistantMessageId),
+                ...(run.status === 'cancelled'
+                  ? []
+                  : [{
+                      ...assistantMessage,
+                      content: assistantMessage.content || existingAssistant?.content || '',
+                    }]),
+              ];
+              return {
+                ...chat,
+                updatedAt: now,
+                threadMessages: {
+                  ...chat.threadMessages,
+                  [threadId]: nextThreadMessages,
+                },
+                threadStatuses: {
+                  ...chat.threadStatuses,
+                  [threadId]: run.status === 'failed' || run.status === 'interrupted'
+                    ? 'error' as const
+                    : isSettledChatRunSnapshot(run)
+                      ? 'ready' as const
+                      : 'loading' as const,
+                },
+              };
+            }
+            return {
+              ...chat,
+              title: run.title.value ?? chat.title,
+              updatedAt: now,
+              messages: [
+                ...chat.messages.filter((message) => message.id !== run.assistantMessageId),
+                ...(run.status === 'cancelled'
+                  ? []
+                  : [{
+                      ...assistantMessage,
+                      content: assistantMessage.content
+                        || chat.messages.find((message) => message.id === run.assistantMessageId)?.content
+                        || '',
+                    }]),
+              ],
+            };
+          });
+        }
+        return current;
+      });
+    });
+  }, [
+    chatRunCoordinator,
+    conversations,
+    refreshSidebarData,
+    upsertSidebarConversation,
+  ]);
 
   // ------------------------------------------------------------------
   // Restore selection handoff (draft/temp chat navigated from /home/<id>)
@@ -661,6 +878,42 @@ export function HomeDataProvider({
     [buildHomeHref]
   );
 
+  const rollbackProvisionalChatPromotion = useCallback((runId: string) => {
+    const promotion = loadProvisionalChatPromotion(runId);
+    if (!promotion) return null;
+
+    removeProvisionalChatPromotion(runId);
+    removeSidebarConversation(promotion.conversationId);
+    removePersistentConversationTranscript(promotion.conversationId);
+    setDraftChats((current) => [
+      promotion.draft,
+      ...current.filter((draft) => draft.id !== promotion.draft.id),
+    ]);
+
+    const draftSelection = getDraftSelectionForPromotion(promotion);
+    const currentSelection = selectedChatRef.current;
+    const isSelectedPromotion =
+      currentSelection?.kind === 'persistent'
+      && currentSelection.conversationId === promotion.conversationId;
+    const isViewingPromotion =
+      window.location.pathname
+        === `/home/${encodeURIComponent(promotion.conversationId)}`;
+    if (isViewingPromotion) {
+      if (isSelectedPromotion) {
+        prepareForChatSwitchRef.current(draftSelection);
+      }
+      selectedChatRef.current = draftSelection;
+      setSelectedChat(draftSelection);
+      openHomeWorkspace();
+    }
+
+    return draftSelection;
+  }, [
+    openHomeWorkspace,
+    removePersistentConversationTranscript,
+    removeSidebarConversation,
+  ]);
+
   const clearPendingRouteConversationId = useCallback(() => {
     setPendingRouteConversationId(null);
   }, []);
@@ -755,7 +1008,7 @@ export function HomeDataProvider({
   const handleCreateTemporaryChat = useCallback(() => {
     const now = new Date().toISOString();
     const chat: TemporaryChatSession = {
-      id: createTemporaryId('temporary-chat'),
+      id: crypto.randomUUID(),
       title: TEMP_CHAT_TITLE,
       memoryMode: DEFAULT_TEMPORARY_MEMORY_MODE,
       createdAt: now,
@@ -839,6 +1092,7 @@ export function HomeDataProvider({
     setListError,
     refreshSidebarData,
     upsertSidebarConversation,
+    rollbackProvisionalChatPromotion,
     loadConversationById,
     loadConversationMessages,
     draftChats,

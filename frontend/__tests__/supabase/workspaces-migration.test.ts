@@ -1,99 +1,69 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
-const migrationSql = readFileSync(
-  new URL('../../../supabase/migrations/20260625120000_workspaces_v1.sql', import.meta.url),
-  'utf8'
-);
-const deleteCascadeMigrationSql = readFileSync(
+const baselineSql = readFileSync(
   new URL(
-    '../../../supabase/migrations/20260627120000_workspace_delete_cascade.sql',
+    '../../../supabase/migrations/20260719001000_production_schema_baseline.sql',
     import.meta.url
   ),
   'utf8'
-);
-const memorySourcesMigrationSql = readFileSync(
-  new URL(
-    '../../../supabase/migrations/20260627130000_memory_sources_and_conversation_context_moves.sql',
-    import.meta.url
-  ),
-  'utf8'
-);
+).replaceAll('"', '').toLowerCase();
 
 describe('workspaces migration', () => {
-  it('drops foreign keys attached to memory_items.owner_id without relying on rendered FK text', () => {
-    expect(migrationSql).toContain("a.attname = 'owner_id'");
-    expect(migrationSql).toContain("c.contype = 'f'");
-    expect(migrationSql).toContain('alter table public.memory_items drop constraint if exists %I');
-    expect(migrationSql).not.toContain('pg_get_constraintdef');
-    expect(migrationSql).not.toContain('REFERENCES public.mentors');
+  it('contains the complete workspace and memory schema in the production baseline', () => {
+    expect(baselineSql).toContain('create table if not exists public.workspaces');
+    expect(baselineSql).toContain('create table if not exists public.memory_items');
+    expect(baselineSql).toContain('create table if not exists public.memory_item_sources');
   });
 
   it('keeps workspace conversation deletion as a cascade', () => {
-    expect(deleteCascadeMigrationSql).toContain('drop constraint if exists conversations_workspace_id_fkey');
-    expect(deleteCascadeMigrationSql).toContain('foreign key (workspace_id)');
-    expect(deleteCascadeMigrationSql).toContain('references public.workspaces(id)');
-    expect(deleteCascadeMigrationSql).toContain('on delete cascade');
+    expect(baselineSql).toContain('add constraint conversations_workspace_id_fkey');
+    expect(baselineSql).toContain('foreign key (workspace_id) references public.workspaces(id) on delete cascade');
   });
 
   it('defines an atomic workspace delete RPC for scoped database cleanup', () => {
-    expect(deleteCascadeMigrationSql).toContain(
+    expect(baselineSql).toContain(
       'create or replace function public.delete_workspace_cascade'
     );
-    expect(deleteCascadeMigrationSql).toContain('returns jsonb');
-    expect(deleteCascadeMigrationSql).toContain('v_user_id uuid := auth.uid()');
-    expect(deleteCascadeMigrationSql).toContain("owner_type = 'workspace'");
-    expect(deleteCascadeMigrationSql).toContain('delete from public.memory_item_embeddings');
-    expect(deleteCascadeMigrationSql).toContain('delete from public.memory_items');
-    expect(deleteCascadeMigrationSql).toContain('delete from public.conversations');
-    expect(deleteCascadeMigrationSql).toContain('delete from public.workspaces');
-    expect(deleteCascadeMigrationSql).toContain("'storage_paths', to_jsonb(v_storage_paths)");
-    expect(deleteCascadeMigrationSql).toContain(
-      'grant execute on function public.delete_workspace_cascade(uuid) to authenticated'
+    expect(baselineSql).toContain('returns jsonb');
+    expect(baselineSql).toContain('v_user_id uuid := auth.uid()');
+    expect(baselineSql).toContain("owner_type = 'workspace'");
+    expect(baselineSql).toContain('delete from public.memory_item_embeddings');
+    expect(baselineSql).toContain('delete from public.memory_items');
+    expect(baselineSql).toContain('delete from public.conversations');
+    expect(baselineSql).toContain('delete from public.workspaces');
+    expect(baselineSql).toContain("'storage_paths', to_jsonb(v_storage_paths)");
+    expect(baselineSql).toContain(
+      'grant all on function public.delete_workspace_cascade(p_workspace_id uuid) to authenticated'
     );
   });
 
   it('adds memory provenance sources with RLS and a compatibility backfill', () => {
-    expect(memorySourcesMigrationSql).toContain(
+    expect(baselineSql).toContain(
       'create table if not exists public.memory_item_sources'
     );
-    expect(memorySourcesMigrationSql).toContain(
-      'memory_item_id uuid not null references public.memory_items(id) on delete cascade'
-    );
-    expect(memorySourcesMigrationSql).toContain(
-      'conversation_id uuid references public.conversations(id) on delete set null'
-    );
-    expect(memorySourcesMigrationSql).toContain(
-      "unique nulls not distinct (memory_item_id, conversation_id, message_id, contribution_type)"
-    );
-    expect(memorySourcesMigrationSql).toContain(
-      'alter table public.memory_item_sources enable row level security'
-    );
-    expect(memorySourcesMigrationSql).toContain('auth.uid() = user_id');
-    expect(memorySourcesMigrationSql).toContain('memory_items.user_id = auth.uid()');
-    expect(memorySourcesMigrationSql).toContain('from public.memory_items');
-    expect(memorySourcesMigrationSql).toContain('source_conversation_id');
-    expect(memorySourcesMigrationSql).toContain(
-      'on conflict (memory_item_id, conversation_id, message_id, contribution_type) do nothing'
-    );
+    expect(baselineSql).toContain('memory_item_sources_memory_item_id_fkey');
+    expect(baselineSql).toContain('memory_item_sources_conversation_id_fkey');
+    expect(baselineSql).toContain('alter table public.memory_item_sources enable row level security');
+    expect(baselineSql).toContain('auth.uid() = user_id');
   });
 
   it('defines a conservative conversation move RPC that protects workspace memory', () => {
-    expect(memorySourcesMigrationSql).toContain(
+    expect(baselineSql).toContain(
       'create or replace function public.move_conversation_context'
     );
-    expect(memorySourcesMigrationSql).toContain('p_memory_policy text default');
-    expect(memorySourcesMigrationSql).toContain("p_memory_policy is distinct from 'conservative'");
-    expect(memorySourcesMigrationSql).toContain('for update');
-    expect(memorySourcesMigrationSql).toContain("error', 'mentor_context_unsupported'");
-    expect(memorySourcesMigrationSql).toContain("error', 'noop'");
-    expect(memorySourcesMigrationSql).toContain('from public.memory_item_sources mis');
-    expect(memorySourcesMigrationSql).toContain('other_sources.conversation_id <> p_conversation_id');
-    expect(memorySourcesMigrationSql).toContain("set owner_type = 'workspace'");
-    expect(memorySourcesMigrationSql).toContain('set workspace_id = p_workspace_id');
-    expect(memorySourcesMigrationSql).toContain("'leftInPlace'");
-    expect(memorySourcesMigrationSql).toContain(
-      'grant execute on function public.move_conversation_context(uuid, uuid, text) to authenticated'
+    expect(baselineSql).toContain('p_memory_policy text default');
+    expect(baselineSql).toContain("p_memory_policy is distinct from 'conservative'");
+    expect(baselineSql).toContain('for update');
+    expect(baselineSql).toContain("error', 'mentor_context_unsupported'");
+    expect(baselineSql).toContain("error', 'noop'");
+    expect(baselineSql).toContain('from public.memory_item_sources mis');
+    expect(baselineSql).toContain('other_sources.conversation_id <> p_conversation_id');
+    expect(baselineSql).toContain('set owner_type = \'workspace\'');
+    expect(baselineSql).toContain('set workspace_id = p_workspace_id');
+    expect(baselineSql).toContain("'leftinplace'");
+    expect(baselineSql).toContain(
+      'grant all on function public.move_conversation_context(p_conversation_id uuid, p_workspace_id uuid, p_memory_policy text) to authenticated'
     );
   });
 });

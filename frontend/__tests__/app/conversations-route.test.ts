@@ -98,6 +98,29 @@ async function runDeleteConversationRequest(
   return { response, body: json, tracker };
 }
 
+async function runTitleRequest(
+  conversationId: string,
+  body: unknown,
+  tables: Record<string, {
+    rows: object[];
+    returnOnMutate?: object[];
+    queryError?: unknown;
+  }> = {}
+) {
+  const { supabase, tracker } = createAuthenticatedSupabase(tables);
+  mockCreateSupabaseServerClient.mockResolvedValue(supabase);
+  const { PATCH } = await import('@/app/api/conversations/[conversationId]/title/route');
+  const response = await PATCH(new NextRequest(
+    `http://localhost/api/conversations/${conversationId}/title`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+      headers: { 'content-type': 'application/json' },
+    }
+  ), { params: Promise.resolve({ conversationId }) });
+  return { response, body: await response.json(), tracker };
+}
+
 describe('conversations route', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -141,6 +164,49 @@ describe('conversations route', () => {
       mentor_id: null,
       workspace_id: null,
     });
+  });
+
+  it('records manual title provenance and increments its version', async () => {
+    const conversationId = 'conversation-1';
+    const { response, body, tracker } = await runTitleRequest(
+      conversationId,
+      { title: 'My deliberate title', expectedVersion: 2 },
+      {
+        conversations: {
+          rows: [{ id: conversationId, title_version: 2 }],
+        },
+      }
+    );
+
+    expect(response.status).toBe(200);
+    expect(body.title).toEqual({
+      value: 'My deliberate title',
+      source: 'user',
+      version: 3,
+    });
+    expect(tracker.updates('conversations')[0].args).toEqual({
+      title: 'My deliberate title',
+      title_source: 'user',
+      title_version: 3,
+      title_run_id: null,
+    });
+  });
+
+  it('reports a title lookup failure separately from a missing conversation', async () => {
+    const { response, body, tracker } = await runTitleRequest(
+      'conversation-1',
+      { title: 'Unavailable edit' },
+      {
+        conversations: {
+          rows: [],
+          queryError: { message: 'database unavailable' },
+        },
+      }
+    );
+
+    expect(response.status).toBe(500);
+    expect(body.error).toBe('Failed to load conversation');
+    expect(tracker.updates('conversations')).toHaveLength(0);
   });
 
   it('creates a workspace conversation when workspaceId is provided', async () => {

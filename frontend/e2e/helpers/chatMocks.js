@@ -87,6 +87,15 @@ function normalizeRouteResult(result) {
 }
 
 async function mockChatRoute(page, handler) {
+  // Legacy-style chat mocks do not create authoritative run records. Make that
+  // absence explicit so coordinator retry/error tests do not reach a real API.
+  await page.route('**/api/chat-runs/*', async (route) => {
+    await route.fulfill({
+      status: 404,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: 'Mock run was not persisted' }),
+    });
+  });
   await page.route('**/api/chat', async (route) => {
     const body = route.request().postDataJSON();
     const result = normalizeRouteResult(await handler(body, route.request()));

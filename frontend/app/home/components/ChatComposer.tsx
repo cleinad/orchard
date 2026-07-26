@@ -60,6 +60,7 @@ interface ChatComposerProps {
   onToggleWideLayout?: () => void;
   onTemporaryMemoryModeChange: (mode: TemporaryMemoryMode) => void;
   onSubmit: FormEventHandler<HTMLFormElement>;
+  onStop?: () => void;
   onKeyDown: KeyboardEventHandler<HTMLTextAreaElement>;
 }
 
@@ -94,6 +95,7 @@ export default function ChatComposer({
   onToggleWideLayout,
   onTemporaryMemoryModeChange,
   onSubmit,
+  onStop,
   onKeyDown,
 }: ChatComposerProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -506,15 +508,19 @@ export default function ChatComposer({
               />
               {renderAttachButton()}
               <button
-                type="submit"
-                disabled={!canSubmit || isBusy}
+                type={isLoading ? 'button' : 'submit'}
+                onClick={isLoading ? onStop : undefined}
+                disabled={isLoading ? !onStop : !canSubmit || isBusy}
+                aria-label={isLoading ? 'Stop response' : 'Send message'}
                 className={cx(
                   'flex h-7 w-7 items-center justify-center rounded-md p-0',
                   buttonStyles.primary,
                   buttonStyles.focus
                 )}
               >
-                <svg
+                {isLoading ? (
+                  <span className="h-2.5 w-2.5 rounded-[2px] bg-current" />
+                ) : <svg
                   className="h-3 w-3"
                   fill="none"
                   stroke="currentColor"
@@ -526,7 +532,7 @@ export default function ChatComposer({
                     strokeLinejoin="round"
                     d="M5 10l7-7m0 0l7 7m-7-7v18"
                   />
-                </svg>
+                </svg>}
               </button>
             </div>
           </div>

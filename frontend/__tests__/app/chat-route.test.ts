@@ -6,6 +6,9 @@ const mockAfter = vi.fn((callback: () => unknown) => callback());
 const mockGenerateText = vi.fn();
 const mockGenerateObject = vi.fn();
 const mockStreamText = vi.fn();
+const mockConsumeStream = vi.fn(async ({ stream }: { stream: ReadableStream }) => {
+  await stream.pipeTo(new WritableStream());
+});
 const mockCreateSupabaseServerClient = vi.fn();
 const mockLoadMemoryContextV2 = vi.fn();
 const mockProcessMemoryV2 = vi.fn();
@@ -13,6 +16,7 @@ const mockBuildMentorPrompt = vi.fn();
 const mockRunSearchPipeline = vi.fn();
 const mockStorageDownload = vi.fn();
 const mockStorageRemove = vi.fn();
+const mockGetChatModel = vi.fn(() => 'mock-chat-model');
 const mockResolveChatModelSelection = vi.fn((modelId?: string | null) => {
   void modelId;
 
@@ -117,6 +121,7 @@ async function readMockChatResponse(response: Response) {
 }
 
 vi.mock('ai', () => ({
+  consumeStream: (options: { stream: ReadableStream }) => mockConsumeStream(options),
   generateText: (...args: unknown[]) => mockGenerateText(...args),
   generateObject: (...args: unknown[]) => mockGenerateObject(...args),
   streamText: (...args: unknown[]) => mockStreamText(...args),
@@ -125,8 +130,16 @@ vi.mock('ai', () => ({
   }: {
     execute: (params: { writer: { write: (part: Record<string, unknown>) => void; merge: (_stream: unknown) => void } }) => Promise<void> | void;
   }) => createMockUIMessageStream({ execute }),
-  createUIMessageStreamResponse: ({ stream }: { stream: ReadableStream }) => {
-    return new Response(stream, {
+  createUIMessageStreamResponse: ({
+    stream,
+    consumeSseStream,
+  }: {
+    stream: ReadableStream;
+    consumeSseStream?: (options: { stream: ReadableStream }) => void;
+  }) => {
+    const [clientStream, serverStream] = stream.tee();
+    consumeSseStream?.({ stream: serverStream });
+    return new Response(clientStream, {
       status: 200,
       headers: { 'content-type': 'text/event-stream' },
     });
@@ -146,7 +159,7 @@ vi.mock('@/lib/memory-agent', () => ({
 }));
 
 vi.mock('@/lib/models', () => ({
-  getChatModel: vi.fn(() => 'mock-chat-model'),
+  getChatModel: () => mockGetChatModel(),
   getSearchPlannerModel: vi.fn(() => null),
   getSearchDecisionModelConfig: vi.fn(() => ({
     primary: null,
@@ -172,7 +185,10 @@ vi.mock('@/lib/mentors/prompts', () => ({
   buildMentorPrompt: (...args: unknown[]) => mockBuildMentorPrompt(...args),
 }));
 
-function createAuthenticatedSupabase(tables: Record<string, TestTableConfig> = {}) {
+function createAuthenticatedSupabase(
+  tables: Record<string, TestTableConfig> = {},
+  rpcResults: Record<string, { data?: unknown; error?: unknown }> = {}
+) {
   const { client, tracker } = createMockSupabase({
     tables: {
       profiles: {
@@ -180,6 +196,7 @@ function createAuthenticatedSupabase(tables: Record<string, TestTableConfig> = {
       },
       ...tables,
     },
+    rpcResults,
   });
 
   const supabase = {
@@ -203,9 +220,16 @@ function createAuthenticatedSupabase(tables: Record<string, TestTableConfig> = {
 
 async function runChatRequest(
   body: Record<string, unknown>,
-  tables: Record<string, TestTableConfig> = {}
+  tables: Record<string, TestTableConfig> = {},
+  rpcResults: Record<string, { data?: unknown; error?: unknown }> = {}
 ) {
-  const { supabase, tracker } = createAuthenticatedSupabase(tables);
+  const { supabase, tracker } = createAuthenticatedSupabase(tables, {
+    commit_persistent_chat_run_response: {
+      data: { disposition: 'committed' },
+      error: null,
+    },
+    ...rpcResults,
+  });
   mockCreateSupabaseServerClient.mockResolvedValue(supabase);
 
   const { POST } = await import('@/app/api/chat/route');
@@ -332,7 +356,12 @@ describe('chat route memory contract', () => {
     expect(response.status).toBe(200);
     expect(body.conversationId).toBe('conv-precreated-1');
     expect(body.conversationTitle).toBe('Help me plan a launch');
-    expect(tracker.updates('conversations')[0].args).toEqual({ title: 'Test Title' });
+    expect(tracker.updates('conversations')[0].args).toEqual({
+      title: 'Test Title',
+      title_source: 'generated',
+      title_version: 1,
+      title_run_id: null,
+    });
   });
 
   it('does not retitle existing conversations that already have messages', async () => {
@@ -1614,5 +1643,703 @@ describe('chat route memory contract', () => {
       'eq:user_id': 'user-1',
     });
     expect(mockStorageRemove).not.toHaveBeenCalled();
+  });
+});
+
+describe('chat route run lifecycle', () => {
+  const conversationId = '10000000-0000-4000-8000-000000000001';
+  const run = {
+    runId: '20000000-0000-4000-8000-000000000001',
+    userMessageId: '30000000-0000-4000-8000-000000000001',
+    assistantMessageId: '40000000-0000-4000-8000-000000000001',
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockStreamText.mockImplementation(({ onFinish }: {
+      onFinish?: (result: { text: string }) => Promise<void>;
+    }) => ({
+      toUIMessageStream: () => ({
+        __pending: onFinish?.({ text: 'Coordinated reply' }) ?? Promise.resolve(),
+      }),
+    }));
+    mockGenerateText.mockResolvedValue({ text: 'Coordinated Title' });
+    mockLoadMemoryContextV2.mockResolvedValue('');
+    mockProcessMemoryV2.mockResolvedValue(undefined);
+    mockResolveChatModelSelection.mockReturnValue({
+      id: 'gpt-5-mini',
+      label: 'GPT 5 Mini',
+      provider: 'openai',
+      apiModelId: 'gpt-5-mini',
+      supportsImages: true,
+    });
+  });
+
+  it('persists client-generated message ids and starts generation once', async () => {
+    const { response, tracker } = await runChatRequest(
+      {
+        message: 'Coordinate this turn',
+        conversationId,
+        previousMessageId: null,
+        run,
+      },
+      {
+        conversations: {
+          rows: [{
+            id: conversationId,
+            mentor_id: null,
+            workspace_id: null,
+            title_source: 'fallback',
+            title_version: 0,
+          }],
+        },
+        messages: { rows: [] },
+        chat_runs: { rows: [] },
+      },
+      {
+        accept_chat_run: { data: { disposition: 'accepted', run_id: run.runId } },
+      }
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockStreamText).toHaveBeenCalledTimes(1);
+    expect(mockConsumeStream).toHaveBeenCalledTimes(1);
+    expect(tracker.inserts('messages')[0].args).toMatchObject({
+      id: run.userMessageId,
+      role: 'user',
+    });
+    expect(tracker.rpcs.find((rpc) =>
+      rpc.fn === 'commit_persistent_chat_run_response'
+    )?.args).toMatchObject({
+      p_run_id: run.runId,
+      p_content: 'Coordinated reply',
+      p_run_search_status: 'skipped',
+    });
+    expect(tracker.updates('chat_runs').some((mutation) =>
+      (mutation.args as { status?: string }).status === 'completed'
+    )).toBe(false);
+  });
+
+  it('constructs the model before accepting a durable run', async () => {
+    mockGetChatModel.mockImplementationOnce(() => {
+      throw new Error('model setup failed');
+    });
+
+    const { response, body, tracker } = await runChatRequest({
+      message: 'Do not persist this turn',
+      conversationId,
+      previousMessageId: null,
+      run,
+    });
+
+    expect(response.status).toBe(503);
+    expect(body.error).toBe('model setup failed');
+    expect(tracker.rpcs).toHaveLength(0);
+    expect(tracker.mutations).toHaveLength(0);
+    expect(mockStreamText).not.toHaveBeenCalled();
+  });
+
+  it('reattaches an identical accepted run without another model call', async () => {
+    const completedRow = {
+      id: run.runId,
+      target: {
+        kind: 'main',
+        chatId: conversationId,
+        conversationId,
+        threadId: null,
+        branchId: null,
+        branchSourceMessageId: null,
+        sourceMessageId: null,
+        expectedPredecessorId: null,
+      },
+      user_message_id: run.userMessageId,
+      assistant_message_id: run.assistantMessageId,
+      status: 'completed',
+      response_status: 'completed',
+      title_status: 'completed',
+      search_status: 'skipped',
+      memory_status: 'completed',
+      response_text: 'Existing reply',
+      title: 'Existing title',
+      title_source: 'generated',
+      title_version: 1,
+      accepted_at: '2026-07-18T10:00:00.000Z',
+      updated_at: '2026-07-18T10:01:00.000Z',
+      completed_at: '2026-07-18T10:01:00.000Z',
+    };
+    const { response, body, tracker } = await runChatRequest(
+      { message: 'Coordinate this turn', conversationId, run },
+      {
+        conversations: { rows: [{ id: conversationId, mentor_id: null }] },
+        chat_runs: { rows: [completedRow] },
+      },
+      {
+        accept_chat_run: { data: { disposition: 'reattach', run_id: run.runId } },
+      }
+    );
+
+    expect(response.status).toBe(200);
+    expect((body.run as { response?: string }).response).toBe('Existing reply');
+    expect(mockStreamText).not.toHaveBeenCalled();
+    expect(tracker.inserts('messages')).toHaveLength(0);
+  });
+
+  it('rejects a conflicting payload for the same run id', async () => {
+    const { response, body } = await runChatRequest(
+      { message: 'Different payload', conversationId, run },
+      { conversations: { rows: [{ id: conversationId, mentor_id: null }] } },
+      {
+        accept_chat_run: {
+          data: { disposition: 'payload_conflict', run_id: run.runId },
+        },
+      }
+    );
+
+    expect(response.status).toBe(409);
+    expect(body.code).toBe('payload_conflict');
+    expect(mockStreamText).not.toHaveBeenCalled();
+  });
+
+  it('enforces one active run per server path scope', async () => {
+    const existingRunId = '70000000-0000-4000-8000-000000000001';
+    const { response, body } = await runChatRequest(
+      { message: 'Competing turn', conversationId, run },
+      { conversations: { rows: [{ id: conversationId, mentor_id: null }] } },
+      {
+        accept_chat_run: {
+          data: {
+            disposition: 'active_conflict',
+            run_id: existingRunId,
+            status: 'streaming',
+          },
+        },
+      }
+    );
+
+    expect(response.status).toBe(409);
+    expect(body.code).toBe('active_conflict');
+    expect(body.runId).toBe(existingRunId);
+    expect(mockStreamText).not.toHaveBeenCalled();
+  });
+
+  it('rejects a stale persistent path tail before inserting a message', async () => {
+    const { response, body, tracker } = await runChatRequest(
+      { message: 'Stale turn', conversationId, previousMessageId: null, run },
+      {
+        conversations: { rows: [{ id: conversationId, mentor_id: null }] },
+        messages: {
+          rows: [{
+            id: '50000000-0000-4000-8000-000000000001',
+            role: 'assistant',
+            content: 'Newer tail',
+            previous_message_id: null,
+            created_at: '2026-07-18T10:00:00.000Z',
+          }],
+        },
+      },
+      {
+        accept_chat_run: { data: { disposition: 'accepted', run_id: run.runId } },
+      }
+    );
+
+    expect(response.status).toBe(409);
+    expect(body.code).toBe('stale_target');
+    expect(tracker.inserts('messages')).toHaveLength(0);
+    expect(mockStreamText).not.toHaveBeenCalled();
+  });
+
+  it('binds a background thread run to its validated conversation and thread', async () => {
+    const threadId = '50000000-0000-4000-8000-000000000001';
+    const sourceMessageId = '60000000-0000-4000-8000-000000000001';
+    const { response, tracker } = await runChatRequest(
+      {
+        message: 'Continue in this thread',
+        conversationId,
+        threadId,
+        sourceMessageId,
+        previousMessageId: null,
+        run,
+      },
+      {
+        conversations: {
+          rows: [{
+            id: conversationId,
+            mentor_id: null,
+            workspace_id: null,
+            title_source: 'generated',
+            title_version: 1,
+          }],
+        },
+        threads: {
+          rows: [{
+            id: threadId,
+            conversation_id: conversationId,
+            highlighted_text: 'selected phrase',
+            source_message_id: sourceMessageId,
+            start_offset: 0,
+            end_offset: 15,
+            selection_stream_version: 'markdown-structure-v2',
+          }],
+        },
+        messages: {
+          rows: [{
+            id: sourceMessageId,
+            role: 'assistant',
+            content: 'The selected phrase is here.',
+            previous_message_id: null,
+            thread_id: null,
+            created_at: '2026-07-18T10:00:00.000Z',
+          }],
+        },
+        chat_runs: { rows: [] },
+      },
+      {
+        accept_chat_run: { data: { disposition: 'accepted', run_id: run.runId } },
+      }
+    );
+
+    expect(response.status).toBe(200);
+    const acceptance = tracker.rpcs.find((rpc) => rpc.fn === 'accept_chat_run');
+    expect(acceptance?.args).toMatchObject({
+      p_target: {
+        kind: 'thread',
+        chatId: conversationId,
+        conversationId,
+        threadId,
+        sourceMessageId,
+      },
+    });
+    expect(tracker.rpcs.find((rpc) =>
+      rpc.fn === 'commit_persistent_chat_run_response'
+    )?.args).toMatchObject({ p_thread_id: threadId, p_parent_message_id: sourceMessageId });
+  });
+
+  it('uses the client branch id without allowing the completion to retarget', async () => {
+    const branchSourceMessageId = '70000000-0000-4000-8000-000000000001';
+    const newBranchId = '80000000-0000-4000-8000-000000000001';
+    const { response, tracker } = await runChatRequest(
+      {
+        message: 'Explore another branch',
+        conversationId,
+        previousMessageId: branchSourceMessageId,
+        branchSourceMessageId,
+        run: { ...run, newBranchId },
+      },
+      {
+        conversations: {
+          rows: [{
+            id: conversationId,
+            mentor_id: null,
+            workspace_id: null,
+            title_source: 'generated',
+            title_version: 1,
+          }],
+        },
+        messages: {
+          rows: [{
+            id: branchSourceMessageId,
+            role: 'assistant',
+            content: 'Original answer',
+            previous_message_id: null,
+            thread_id: null,
+            created_at: '2026-07-18T10:00:00.000Z',
+          }],
+        },
+        conversation_branches: { rows: [] },
+        chat_runs: { rows: [] },
+      },
+      {
+        accept_chat_run: { data: { disposition: 'accepted', run_id: run.runId } },
+      }
+    );
+
+    expect(response.status).toBe(200);
+    expect(tracker.rpcs.find((rpc) => rpc.fn === 'accept_chat_run')?.args).toMatchObject({
+      p_created_branch_id: newBranchId,
+      p_target: {
+        kind: 'branch',
+        branchId: newBranchId,
+        branchSourceMessageId,
+      },
+    });
+    expect(tracker.inserts('conversation_branches').some((mutation) =>
+      (mutation.args as { id?: string }).id === newBranchId
+    )).toBe(true);
+  });
+
+  it('fails the run and rolls back its user message when branch creation fails', async () => {
+    const branchSourceMessageId = '70000000-0000-4000-8000-000000000001';
+    const newBranchId = '80000000-0000-4000-8000-000000000001';
+    const { response, body, tracker } = await runChatRequest(
+      {
+        message: 'Explore a branch that cannot be saved',
+        conversationId,
+        previousMessageId: branchSourceMessageId,
+        branchSourceMessageId,
+        run: { ...run, newBranchId },
+      },
+      {
+        conversations: {
+          rows: [{
+            id: conversationId,
+            mentor_id: null,
+            workspace_id: null,
+            title_source: 'generated',
+            title_version: 1,
+          }],
+        },
+        messages: {
+          rows: [
+            {
+              id: branchSourceMessageId,
+              role: 'assistant',
+              content: 'Original answer',
+              previous_message_id: null,
+              thread_id: null,
+              created_at: '2026-07-18T10:00:00.000Z',
+            },
+            {
+              id: '82000000-0000-4000-8000-000000000001',
+              role: 'user',
+              content: 'Existing continuation',
+              previous_message_id: branchSourceMessageId,
+              thread_id: null,
+              created_at: '2026-07-18T10:01:00.000Z',
+            },
+          ],
+        },
+        conversation_branches: {
+          rows: [],
+          mutateError: (operation, args) =>
+            operation === 'insert'
+            && (args as { id?: string }).id === newBranchId
+              ? { message: 'branch insert failed' }
+              : null,
+        },
+        chat_runs: { rows: [] },
+      },
+      {
+        accept_chat_run: { data: { disposition: 'accepted', run_id: run.runId } },
+      }
+    );
+
+    expect(response.status).toBe(500);
+    expect(body.error).toBe('Failed to create conversation branch');
+    expect(mockStreamText).not.toHaveBeenCalled();
+    expect(tracker.rpcs.some((rpc) =>
+      rpc.fn === 'commit_persistent_chat_run_response'
+    )).toBe(false);
+    expect(tracker.updates('chat_runs').some((mutation) =>
+      (mutation.args as { status?: string; error_code?: string }).status === 'failed'
+      && (mutation.args as { error_code?: string }).error_code === 'branch_create_failed'
+    )).toBe(true);
+    expect(tracker.deletes('message_attachments')[0].filters).toEqual({
+      'eq:message_id': run.userMessageId,
+      'eq:user_id': 'user-1',
+    });
+    expect(tracker.deletes('messages')[0].filters).toEqual({
+      'eq:id': run.userMessageId,
+      'eq:user_id': 'user-1',
+    });
+    expect(tracker.deletes('conversation_branches')[0].filters).toEqual({
+      'eq:conversation_id': conversationId,
+      'eq:source_message_id': branchSourceMessageId,
+      'eq:entry_message_id': '82000000-0000-4000-8000-000000000001',
+      'eq:user_id': 'user-1',
+      'eq:is_main': true,
+    });
+  });
+
+  it('keeps temporary completion and title local without any database run work', async () => {
+    const temporarySessionId = '60000000-0000-4000-8000-000000000001';
+    const { response, body, tracker } = await runChatRequest(
+      {
+        message: 'Temporary prompt',
+        chatMode: 'temporary',
+        history: [],
+        previousMessageId: null,
+        run: { ...run, temporarySessionId },
+      },
+      {}
+    );
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      message: 'Coordinated reply',
+      conversationTitle: 'Coordinated Title',
+      conversationTitleSource: 'generated',
+      titleStatus: 'completed',
+      runId: run.runId,
+    });
+    expect(tracker.mutations).toHaveLength(0);
+    expect(tracker.rpcs).toHaveLength(0);
+    expect(mockProcessMemoryV2).not.toHaveBeenCalled();
+    expect(mockConsumeStream).not.toHaveBeenCalled();
+  });
+
+  it('keeps a failed temporary title local without failing the response', async () => {
+    mockGenerateText.mockRejectedValue(new Error('title unavailable'));
+    const temporarySessionId = '60000000-0000-4000-8000-000000000001';
+    const { response, body, tracker } = await runChatRequest({
+      message: 'Local fallback title',
+      chatMode: 'temporary',
+      history: [],
+      previousMessageId: null,
+      run: { ...run, temporarySessionId },
+    });
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      message: 'Coordinated reply',
+      conversationTitle: 'Local fallback title',
+      conversationTitleSource: 'fallback',
+      titleStatus: 'failed',
+    });
+    expect(tracker.mutations).toHaveLength(0);
+    expect(tracker.rpcs).toHaveLength(0);
+    expect(mockProcessMemoryV2).not.toHaveBeenCalled();
+  });
+
+  it('preserves temporary branch targeting without database mutations', async () => {
+    const temporarySessionId = '60000000-0000-4000-8000-000000000001';
+    const sourceMessageId = '70000000-0000-4000-8000-000000000001';
+    const newBranchId = '80000000-0000-4000-8000-000000000001';
+    const { response, body, tracker } = await runChatRequest({
+      message: 'Explore locally',
+      chatMode: 'temporary',
+      history: [{ id: sourceMessageId, role: 'assistant', content: 'Source answer' }],
+      previousMessageId: sourceMessageId,
+      branchSourceMessageId: sourceMessageId,
+      run: { ...run, temporarySessionId, newBranchId },
+    });
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      message: 'Coordinated reply',
+      userMessageId: run.userMessageId,
+      assistantMessageId: run.assistantMessageId,
+    });
+    expect(tracker.mutations).toHaveLength(0);
+    expect(tracker.rpcs).toHaveLength(0);
+  });
+
+  it('preserves temporary inline-thread targeting without database mutations', async () => {
+    const temporarySessionId = '60000000-0000-4000-8000-000000000001';
+    const sourceMessageId = '70000000-0000-4000-8000-000000000001';
+    const newThreadId = '80000000-0000-4000-8000-000000000001';
+    const { response, body, tracker } = await runChatRequest({
+      message: 'Explain the selection locally',
+      chatMode: 'temporary',
+      history: [{ id: sourceMessageId, role: 'assistant', content: 'Selected source answer' }],
+      threadHistory: [],
+      previousMessageId: null,
+      sourceMessageId,
+      highlightedText: 'Selected source',
+      startOffset: 0,
+      endOffset: 15,
+      selectionStreamVersion: 'markdown-structure-v2',
+      run: { ...run, temporarySessionId, newThreadId },
+    });
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      message: 'Coordinated reply',
+      threadId: newThreadId,
+      userMessageId: run.userMessageId,
+      assistantMessageId: run.assistantMessageId,
+    });
+    expect(tracker.mutations).toHaveLength(0);
+    expect(tracker.rpcs).toHaveLength(0);
+  });
+
+  it('does not let a delayed generated title overwrite a manual title version', async () => {
+    const conversation = {
+      id: conversationId,
+      mentor_id: null,
+      workspace_id: null,
+      title_source: 'fallback',
+      title_version: 0,
+    };
+    mockGenerateText.mockImplementation(async () => {
+      conversation.title_source = 'user';
+      conversation.title_version = 1;
+      return { text: 'Late Generated Title' };
+    });
+
+    const { response, body, tracker } = await runChatRequest(
+      {
+        message: 'Protect this manual title',
+        conversationId,
+        previousMessageId: null,
+        run,
+      },
+      {
+        conversations: { rows: [conversation] },
+        messages: { rows: [] },
+        chat_runs: { rows: [] },
+      },
+      {
+        accept_chat_run: { data: { disposition: 'accepted', run_id: run.runId } },
+      }
+    );
+
+    expect(response.status).toBe(200);
+    expect(body.conversationTitle).toBe('Protect this manual title');
+    expect(tracker.updates('conversations')).toHaveLength(0);
+    expect(tracker.inserts('chat_run_events').some((mutation) =>
+      (mutation.args as { event?: string }).event === 'title_superseded'
+    )).toBe(true);
+  });
+
+  it('keeps response completion independent from title and memory failures', async () => {
+    mockGenerateText.mockRejectedValue(new Error('title unavailable'));
+    mockProcessMemoryV2.mockRejectedValue(new Error('memory unavailable'));
+    const { response, body, tracker } = await runChatRequest(
+      { message: 'Independent subsystems', conversationId, previousMessageId: null, run },
+      {
+        conversations: {
+          rows: [{
+            id: conversationId,
+            mentor_id: null,
+            workspace_id: null,
+            title_source: 'fallback',
+            title_version: 0,
+          }],
+        },
+        messages: { rows: [] },
+        chat_runs: { rows: [] },
+      },
+      {
+        accept_chat_run: { data: { disposition: 'accepted', run_id: run.runId } },
+      }
+    );
+
+    expect(response.status).toBe(200);
+    expect(body.message).toBe('Coordinated reply');
+    expect(tracker.updates('chat_runs').some((mutation) =>
+      (mutation.args as { title_status?: string }).title_status === 'failed'
+    )).toBe(true);
+    expect(tracker.updates('chat_runs').some((mutation) =>
+      (mutation.args as { memory_status?: string }).memory_status === 'failed'
+    )).toBe(true);
+    expect(tracker.rpcs.find((rpc) =>
+      rpc.fn === 'commit_persistent_chat_run_response'
+    )?.args).toMatchObject({ p_run_search_status: 'skipped' });
+  });
+
+  it('does not wait for title generation before completing the response', async () => {
+    let resolveTitle: (value: { text: string }) => void = () => {};
+    mockGenerateText.mockImplementation(() => new Promise<{ text: string }>((resolve) => {
+      resolveTitle = resolve;
+    }));
+
+    const result = await Promise.race([
+      runChatRequest(
+        { message: 'Return before title', conversationId, previousMessageId: null, run },
+        {
+          conversations: {
+            rows: [{
+              id: conversationId,
+              mentor_id: null,
+              workspace_id: null,
+              title_source: 'fallback',
+              title_version: 0,
+            }],
+          },
+          messages: { rows: [] },
+          chat_runs: { rows: [] },
+        },
+        {
+          accept_chat_run: { data: { disposition: 'accepted', run_id: run.runId } },
+        }
+      ),
+      new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('response waited for title generation')), 100);
+      }),
+    ]);
+
+    expect(result.response.status).toBe(200);
+    expect(result.body.message).toBe('Coordinated reply');
+    // One post-response task owns title finalization and one owns memory extraction.
+    expect(mockAfter).toHaveBeenCalledTimes(2);
+    resolveTitle({ text: 'Eventually titled' });
+  });
+
+  it('keeps a completed title when the asynchronous response stream fails', async () => {
+    mockStreamText.mockImplementation(({ onError }: {
+      onError?: (result: { error: unknown }) => Promise<void>;
+    }) => ({
+      toUIMessageStream: () => ({
+        __pending: onError?.({ error: new Error('provider disconnected') }) ?? Promise.resolve(),
+      }),
+    }));
+
+    const { response, tracker } = await runChatRequest(
+      { message: 'Title survives provider failure', conversationId, previousMessageId: null, run },
+      {
+        conversations: {
+          rows: [{
+            id: conversationId,
+            mentor_id: null,
+            workspace_id: null,
+            title_source: 'fallback',
+            title_version: 0,
+          }],
+        },
+        messages: { rows: [] },
+        chat_runs: { rows: [] },
+      },
+      {
+        accept_chat_run: { data: { disposition: 'accepted', run_id: run.runId } },
+      }
+    );
+
+    expect(response.status).toBe(200);
+    expect(tracker.updates('conversations').some((mutation) =>
+      (mutation.args as { title_source?: string }).title_source === 'generated'
+    )).toBe(true);
+    expect(tracker.updates('chat_runs').some((mutation) =>
+      (mutation.args as { title_status?: string }).title_status === 'completed'
+    )).toBe(true);
+    expect(tracker.updates('chat_runs').some((mutation) => {
+      const args = mutation.args as { response_status?: string; error_code?: string };
+      return args.response_status === 'failed' && args.error_code === 'response_stream_failed';
+    })).toBe(true);
+    expect(tracker.inserts('messages')).toHaveLength(1);
+  });
+
+  it('does not report completion when the assistant message commit fails', async () => {
+    const { response, tracker } = await runChatRequest(
+      { message: 'Commit this safely', conversationId, previousMessageId: null, run },
+      {
+        conversations: {
+          rows: [{
+            id: conversationId,
+            mentor_id: null,
+            workspace_id: null,
+            title_source: 'fallback',
+            title_version: 0,
+          }],
+        },
+        messages: { rows: [] },
+        chat_runs: { rows: [] },
+      },
+      {
+        accept_chat_run: { data: { disposition: 'accepted', run_id: run.runId } },
+        commit_persistent_chat_run_response: {
+          data: { disposition: 'message_conflict' },
+        },
+      }
+    );
+
+    expect(response.status).toBe(200);
+    expect(tracker.updates('chat_runs').some((mutation) => {
+      const args = mutation.args as { status?: string; error_code?: string };
+      return args.status === 'failed' && args.error_code === 'assistant_commit_failed';
+    })).toBe(true);
+    expect(tracker.inserts('chat_run_events').some((mutation) =>
+      (mutation.args as { event?: string }).event === 'assistant_committed'
+    )).toBe(false);
+    expect(mockProcessMemoryV2).not.toHaveBeenCalled();
   });
 });

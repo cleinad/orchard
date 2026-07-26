@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Fraunces, Newsreader } from "next/font/google";
 import BodyFontSync from "@/app/components/BodyFontSync";
+import { ChatRunCoordinator } from "@/app/components/ChatRunCoordinator";
 import { SidePanelProvider } from "@/app/home/components/SidePanelContext";
 import {
   BODY_FONT_STACK,
@@ -33,8 +34,8 @@ const newsreader = Newsreader({
 });
 
 export const metadata: Metadata = {
-  title: "Keen",
-  description: "Hands Off AI",
+  title: "Orchard",
+  description: "A place for ideas to grow.",
 };
 
 const themeBootstrapScript = `(function(){try{var root=document.documentElement;var stored=localStorage.getItem('${STORAGE_KEY}');var modes=${JSON.stringify(THEME_MODE_BY_ID)};var legacy=${JSON.stringify(LEGACY_THEME_ID_MAP)};var prefers=window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches;var theme=(stored&&modes[stored]?stored:(stored&&legacy[stored]?legacy[stored]:null))||(prefers?'${DEFAULT_DARK_THEME_ID}':'${DEFAULT_LIGHT_THEME_ID}');var isDark=modes[theme]==='dark';root.dataset.theme=theme;root.classList.toggle('dark',isDark);root.style.colorScheme=isDark?'dark':'light';if(stored&&legacy[stored]&&stored!==legacy[stored]){localStorage.setItem('${STORAGE_KEY}',legacy[stored]);}}catch(e){}})();`;
@@ -60,7 +61,9 @@ export default function RootLayout({
           }}
         />
         <BodyFontSync />
-        <SidePanelProvider>{children}</SidePanelProvider>
+        <ChatRunCoordinator>
+          <SidePanelProvider>{children}</SidePanelProvider>
+        </ChatRunCoordinator>
       </body>
     </html>
   );

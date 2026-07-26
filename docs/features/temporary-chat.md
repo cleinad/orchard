@@ -10,14 +10,14 @@ For the full home navigation model, see:
 
 Temporary chats are session-scoped Keen-style chats that:
 
-- never write to the database
+- never write chat content, run state, titles, messages, search results, memory data, or lifecycle events to a remote database
 - can exist multiple times at once
 - appear in the sidebar under `Temporary`
 - persist across reloads in the same browser tab via `sessionStorage`
 - disappear when closed or when the browser tab or session ends
 - stay URL-less and use `/home` rather than `/home/<conversationId>`
 
-They are intentionally a real no-persistence path, not a "write then delete later" path.
+They are intentionally a real no-database-persistence path, not a "write then delete later" path. Prompts still transit the application server and selected model provider. See [`chat-run-lifecycle.md`](./chat-run-lifecycle.md) for the shared protocol and mode-specific limitations.
 
 ## User-Facing Behavior
 
@@ -93,6 +93,12 @@ That gives the desired behavior:
 - does not touch the database
 - preserves temporary selection while leaving `/home/<conversationId>` so the old routed persistent conversation does not briefly win selection back during the same transition
 
+### Local run adapter
+
+Temporary and persistent chats share `ChatRunCoordinator`, client-generated IDs, the state machine, targeting, and Stop semantics. Temporary runs remain in the coordinator and browser session only. Switching chats or navigating within the app does not cancel while the root coordinator and live connection remain available.
+
+There is no remote run record to reconcile. A reload or unrecoverable connection loss during generation marks the run `interrupted`, and the client does not automatically retry an ambiguously acknowledged request. Completed local sessions continue to survive ordinary refreshes through `sessionStorage`.
+
 ### Temporary threads
 
 Temporary threads reuse the inline-thread UI, but remain local-only.
@@ -109,6 +115,12 @@ Temporary requests send enough context for the server to answer without any pers
 
 ```ts
 {
+  run: {
+    runId: string,
+    userMessageId: string,
+    assistantMessageId: string,
+    temporarySessionId: string
+  },
   message: string,
   chatMode: 'temporary',
   memoryMode: 'use_existing' | 'off',
@@ -128,23 +140,29 @@ On the temporary path, `POST /api/chat`:
 - does not create or validate a thread row
 - does not write user or assistant messages
 - does not schedule memory extraction
-- can still generate a title for the first top-level exchange and return it to the client
+- generates the first title in parallel and returns it to the local session
+- bypasses database run acceptance, updates, reconciliation, events, and title persistence
+- aborts live temporary generation when the client connection is genuinely lost
 
 ## Key Files
 
 | File | Role |
 |------|------|
 | `frontend/lib/chat-session.ts` | Shared temporary ids, memory-mode types, and title fallback helpers |
-| `frontend/app/home/[[...conversationId]]/page.tsx` | Temporary chat collection, session storage, selection, and `/home` route coordination |
+| `frontend/lib/chat-runs/` | Shared protocol and browser run storage |
+| `frontend/app/components/ChatRunCoordinator.tsx` | Root submission ownership, local temporary execution, Stop, and persistent reconciliation |
+| `frontend/app/home/components/HomeDataContext.tsx` | Temporary chat collection, session storage, selection, and `/home` route coordination |
 | `frontend/app/home/components/SidePanel.tsx` | Temporary section rendering, selection, and close behavior |
 | `frontend/app/home/components/HomeHeader.tsx` | `New temporary chat` entry point and temporary metadata beside `Keen` |
 | `frontend/app/home/components/ChatComposer.tsx` | Temporary intro card and per-chat memory mode controls |
 | `frontend/app/home/components/TextSelectionPopover.tsx` | Temporary thread creation payloads |
 | `frontend/app/home/components/ThreadPanel.tsx` | Temporary thread interaction UI |
-| `frontend/app/api/chat/route.ts` | Zero-write temporary path with optional memory read |
+| `frontend/app/api/chat/route.ts` | Zero-database-write temporary path with optional memory read |
 
 ## Intentional Limits
 
 - Temporary chats cannot be converted into persistent chats in the current version.
 - Temporary chats do not affect mentor ordering in the sidebar.
 - Temporary chats are session-local only.
+- Active generation is not recoverable after a true browser or connection loss.
+- Image attachments retain the existing private Supabase Storage path and best-effort deletion behavior; see [`image-attachments.md`](./image-attachments.md).

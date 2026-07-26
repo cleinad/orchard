@@ -6,7 +6,10 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
 function isPublicPage(pathname: string) {
-  return pathname === '/' || pathname === '/login' || pathname === '/signup';
+  return pathname === '/'
+    || pathname === '/login'
+    || pathname === '/signup'
+    || pathname === '/icon.png';
 }
 
 function isE2eBypassRoute(pathname: string) {
@@ -69,6 +72,6 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    '/((?!api|_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml).*)',
+    '/((?!api|_next/static|_next/image|favicon.ico|icon.png|robots.txt|sitemap.xml).*)',
   ],
 };

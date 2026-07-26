@@ -40,7 +40,7 @@ type RawSearchActionPlan =
   & Partial<Pick<SearchActionPlan, 'plannerSource' | 'plannerModelId'>>;
 type ModelPlanner = (input: SearchPlannerInput) => Promise<RawSearchActionPlan | null>;
 type ModelSearchDecision = (input: SearchPlannerInput) => Promise<Partial<SearchDecision> | null>;
-type PlannerLogger = Pick<Console, 'info' | 'warn'>;
+export type PlannerLogger = Pick<Console, 'info' | 'warn'>;
 type SearchDecisionProviderLabel = string;
 
 const MAX_QUERY_LENGTH = 280;
@@ -855,7 +855,6 @@ export async function decideSearchNecessity(
       confidence: fallback.confidence,
       freshnessRisk: fallback.freshnessRisk,
     });
-    console.warn('[search] decision model failed; using deterministic fallback', error);
     return fallback;
   }
 }
@@ -964,7 +963,6 @@ export async function planSearchAction(
       reason: error instanceof Error ? error.message : 'planner_model_failed',
       fallbackQuery,
     });
-    console.warn('[search] model planner failed; using deterministic fallback', error);
   }
 
   return fallback;

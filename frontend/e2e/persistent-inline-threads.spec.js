@@ -3,8 +3,54 @@ const {
   mockChatRoute,
   mockThreadMessagesRoute,
 } = require('./helpers/chatMocks');
-const { gotoHomeFixture } = require('./helpers/homeFixture');
+const {
+  gotoHomeFixture,
+  INLINE_THREADS_SELECTED_TEXT,
+} = require('./helpers/homeFixture');
 const { selectTextInMessage } = require('./helpers/selectText');
+const { mockHomeDataRoutes } = require('./helpers/homeRouteMocks');
+
+const PERSISTENT_SWITCH_CONTENT =
+  'The event loop drains microtasks before the browser paints the next frame.';
+const PERSISTENT_SWITCH_SELECTION =
+  'microtasks before the browser paints';
+
+function persistentThreadRunSnapshot(run, status = 'completed') {
+  const now = new Date().toISOString();
+  const completed = status === 'completed';
+
+  return {
+    runId: run.runId,
+    mode: 'persistent',
+    status,
+    target: run.target,
+    userMessageId: run.userMessageId,
+    assistantMessageId: run.assistantMessageId,
+    createdThreadId: run.newThreadId,
+    createdBranchId: null,
+    response: completed ? 'Recovered persistent thread answer.' : null,
+    search: null,
+    searchActivity: null,
+    title: {
+      value: null,
+      source: 'fallback',
+      version: 0,
+      runId: run.runId,
+    },
+    subsystems: {
+      response: completed ? 'completed' : 'running',
+      title: 'skipped',
+      search: 'skipped',
+      memory: completed ? 'completed' : 'running',
+    },
+    errorCode: null,
+    errorMessage: null,
+    acceptedAt: now,
+    updatedAt: now,
+    completedAt: completed ? now : null,
+    expiresAt: null,
+  };
+}
 
 async function getInlineThreadStartOffset(page, messageId, threadId) {
   return page.evaluate(({ messageId, threadId }) => {
@@ -47,32 +93,38 @@ async function getInlineThreadStartOffset(page, messageId, threadId) {
 test('reopens a persisted inline thread from the source message', async ({ page }) => {
   const question = 'How should I reason about this in React?';
   const answer = 'Think of microtasks as work that finishes before the browser can paint.';
+  let persistedThreadId = null;
+  let persistedUserMessageId = null;
+  let persistedAssistantMessageId = null;
 
   await mockChatRoute(page, async (body) => {
     expect(body.concise).toBeUndefined();
     expect(body.message).toBe(question);
     expect(body.conversationId).toBe('conversation-inline-threads-fixture');
+    persistedThreadId = body.run.newThreadId;
+    persistedUserMessageId = body.run.userMessageId;
+    persistedAssistantMessageId = body.run.assistantMessageId;
 
     return {
-      threadId: 'persisted-thread-1',
-      userMessageId: 'persisted-user-1',
-      assistantMessageId: 'persisted-assistant-1',
+      threadId: persistedThreadId,
+      userMessageId: persistedUserMessageId,
+      assistantMessageId: persistedAssistantMessageId,
       message: answer,
     };
   });
 
   await mockThreadMessagesRoute(page, async ({ threadId }) => {
-    expect(threadId).toBe('persisted-thread-1');
+    expect(threadId).toBe(persistedThreadId);
     return {
       messages: [
         {
-          id: 'persisted-user-1',
+          id: persistedUserMessageId,
           role: 'user',
           content: question,
           created_at: '2026-04-05T09:00:01.000Z',
         },
         {
-          id: 'persisted-assistant-1',
+          id: persistedAssistantMessageId,
           role: 'assistant',
           content: answer,
           created_at: '2026-04-05T09:00:02.000Z',
@@ -101,27 +153,236 @@ test('reopens a persisted inline thread from the source message', async ({ page 
   await expect(page.getByTestId('thread-panel')).toContainText(answer);
 });
 
+test('persistent thread completion survives switching to another chat', async ({ page }) => {
+  const firstConversationId = '20000000-0000-4000-8000-000000000021';
+  const secondConversationId = '20000000-0000-4000-8000-000000000022';
+  const sourceMessageId = '30000000-0000-4000-8000-000000000021';
+  const question = 'Why is this ordering important?';
+  const answer = 'It keeps state changes ahead of the next visible frame.';
+  let pendingResponseResolve;
+  let submittedThreadId = null;
+  const pendingResponse = new Promise((resolve) => {
+    pendingResponseResolve = resolve;
+  });
+  const now = '2026-07-20T12:00:00.000Z';
+
+  await mockHomeDataRoutes(page, {
+    conversations: [
+      {
+        id: firstConversationId,
+        title: 'Thread Source Chat',
+        mentor_id: null,
+        workspace_id: null,
+        created_at: now,
+        updated_at: '2026-07-20T12:02:00.000Z',
+      },
+      {
+        id: secondConversationId,
+        title: 'Other Chat',
+        mentor_id: null,
+        workspace_id: null,
+        created_at: now,
+        updated_at: '2026-07-20T12:01:00.000Z',
+      },
+    ],
+    messagesByConversationId: {
+      [firstConversationId]: [{
+        id: sourceMessageId,
+        role: 'assistant',
+        content: PERSISTENT_SWITCH_CONTENT,
+        previous_message_id: null,
+        created_at: now,
+        search_metadata: null,
+      }],
+      [secondConversationId]: [{
+        id: '30000000-0000-4000-8000-000000000022',
+        role: 'assistant',
+        content: 'This conversation should remain independent.',
+        previous_message_id: null,
+        created_at: now,
+        search_metadata: null,
+      }],
+    },
+  });
+
+  await mockChatRoute(page, async (body) => {
+    submittedThreadId = body.run.newThreadId;
+    return pendingResponse;
+  });
+  await mockThreadMessagesRoute(page, async ({ threadId }) => ({
+    thread: {
+      threadId,
+      conversationId: firstConversationId,
+      sourceMessageId,
+      highlightedText: PERSISTENT_SWITCH_SELECTION,
+      startOffset: PERSISTENT_SWITCH_CONTENT.indexOf(PERSISTENT_SWITCH_SELECTION),
+      endOffset:
+        PERSISTENT_SWITCH_CONTENT.indexOf(PERSISTENT_SWITCH_SELECTION)
+        + PERSISTENT_SWITCH_SELECTION.length,
+      selectionStreamVersion: 'v2',
+    },
+    messages: [
+      {
+        id: '40000000-0000-4000-8000-000000000021',
+        role: 'user',
+        content: question,
+        created_at: '2026-07-20T12:03:00.000Z',
+      },
+      {
+        id: '50000000-0000-4000-8000-000000000021',
+        role: 'assistant',
+        content: answer,
+        created_at: '2026-07-20T12:03:01.000Z',
+      },
+    ],
+  }));
+
+  await page.addInitScript(() => {
+    window.localStorage.setItem('learningMode', 'true');
+  });
+  await page.goto(`/home/${firstConversationId}?e2e=persistent-thread-switch`);
+  await page.waitForSelector(`[data-message-id="${sourceMessageId}"]`);
+  await selectTextInMessage(page, sourceMessageId, PERSISTENT_SWITCH_SELECTION);
+  await page.getByTestId('selection-popover-input').fill(question);
+  await page.getByTestId('selection-popover-input').press('Enter');
+  await expect(page.locator(
+    '[data-testid="inline-thread-link"][data-thread-status="loading"]'
+  )).toContainText(PERSISTENT_SWITCH_SELECTION);
+
+  await page.getByRole('button', { name: 'Open conversations' }).click();
+  await page.getByRole('button', { name: /Other Chat/ }).click();
+  await expect(page).toHaveURL(
+    new RegExp(`/home/${secondConversationId}\\?e2e=persistent-thread-switch$`)
+  );
+
+  pendingResponseResolve({
+    threadId: submittedThreadId,
+    userMessageId: '40000000-0000-4000-8000-000000000021',
+    assistantMessageId: '50000000-0000-4000-8000-000000000021',
+    message: answer,
+  });
+
+  await page.getByRole('button', { name: /Thread Source Chat/ }).click();
+  await expect(page).toHaveURL(
+    new RegExp(`/home/${firstConversationId}\\?e2e=persistent-thread-switch$`)
+  );
+
+  const restoredMarker = page.locator(
+    '[data-testid="inline-thread-link"][data-thread-status="ready"]'
+  );
+  await expect(restoredMarker).toContainText(PERSISTENT_SWITCH_SELECTION);
+  await restoredMarker.click();
+  await expect(page.getByTestId('thread-panel')).toContainText(question);
+  await expect(page.getByTestId('thread-panel')).toContainText(answer);
+});
+
+test('reload during a persistent thread run restores marker metadata from the server', async ({
+  page,
+}) => {
+  const conversationId = 'conversation-inline-threads-fixture';
+  const threadId = '10000000-0000-4000-8000-000000000031';
+  const run = {
+    runId: '20000000-0000-4000-8000-000000000031',
+    userMessageId: '30000000-0000-4000-8000-000000000031',
+    assistantMessageId: '40000000-0000-4000-8000-000000000031',
+    newThreadId: threadId,
+    target: {
+      kind: 'thread',
+      chatId: conversationId,
+      conversationId,
+      threadId,
+      branchId: null,
+      branchSourceMessageId: null,
+      sourceMessageId: 'assistant-inline-threads-persistent-fixture',
+      expectedPredecessorId: null,
+    },
+  };
+  const streamingRun = persistentThreadRunSnapshot(run, 'streaming');
+  const completedRun = persistentThreadRunSnapshot(run, 'completed');
+  let reconciliationCalls = 0;
+
+  await page.route('**/api/chat-runs/*', async (route) => {
+    reconciliationCalls += 1;
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ run: completedRun }),
+    });
+  });
+  await mockThreadMessagesRoute(page, async () => ({
+    thread: {
+      threadId,
+      conversationId,
+      sourceMessageId: 'assistant-inline-threads-persistent-fixture',
+      highlightedText: INLINE_THREADS_SELECTED_TEXT,
+      startOffset: 105,
+      endOffset: 105 + INLINE_THREADS_SELECTED_TEXT.length,
+      selectionStreamVersion: 'v2',
+    },
+    messages: [
+      {
+        id: run.userMessageId,
+        role: 'user',
+        content: 'Recover this thread after refresh.',
+        created_at: '2026-07-20T12:04:00.000Z',
+      },
+      {
+        id: run.assistantMessageId,
+        role: 'assistant',
+        content: 'Recovered persistent thread answer.',
+        created_at: '2026-07-20T12:04:01.000Z',
+      },
+    ],
+  }));
+
+  const { messageId } = await gotoHomeFixture(page, 'inline-threads-persistent');
+  await page.evaluate((storedRun) => {
+    window.sessionStorage.removeItem('keen-persistent-thread-runtime-v1');
+    window.sessionStorage.setItem('orchard-chat-runs-v2', JSON.stringify([storedRun]));
+  }, streamingRun);
+  await page.reload();
+  await page.waitForSelector(`[data-message-id="${messageId}"]`);
+
+  const restoredMarker = page.locator(
+    `[data-testid="inline-thread-link"][data-thread-id="${threadId}"]`
+  );
+  await expect(restoredMarker).toContainText(INLINE_THREADS_SELECTED_TEXT);
+  expect(reconciliationCalls).toBeGreaterThan(0);
+
+  await restoredMarker.click();
+  await expect(page.getByTestId('thread-panel')).toContainText(
+    'Recover this thread after refresh.'
+  );
+  await expect(page.getByTestId('thread-panel')).toContainText(
+    'Recovered persistent thread answer.'
+  );
+});
+
 test('persistent error markers survive reload and reopen with cached thread state', async ({ page }) => {
   const question = 'Why did this request fail?';
   const errorMessage = 'Thread request failed.';
+  let failedThreadId = null;
+  let failedUserMessageId = null;
 
   await mockChatRoute(page, async (body) => {
     expect(body.message).toBe(question);
+    failedThreadId = body.run.newThreadId;
+    failedUserMessageId = body.run.userMessageId;
     return {
       status: 500,
       json: {
         error: errorMessage,
-        threadId: 'persisted-thread-error-1',
+        threadId: failedThreadId,
       },
     };
   });
 
   await mockThreadMessagesRoute(page, async ({ threadId }) => {
-    expect(threadId).toBe('persisted-thread-error-1');
+    expect(threadId).toBe(failedThreadId);
     return {
       messages: [
         {
-          id: 'persisted-error-user-1',
+          id: failedUserMessageId,
           role: 'user',
           content: question,
           created_at: '2026-04-05T09:40:01.000Z',
@@ -136,7 +397,7 @@ test('persistent error markers survive reload and reopen with cached thread stat
   await page.getByTestId('selection-popover-input').press('Enter');
 
   const errorMarker = page.locator(
-    '[data-testid="inline-thread-link"][data-thread-id="persisted-thread-error-1"][data-thread-status="error"]'
+    `[data-testid="inline-thread-link"][data-thread-id="${failedThreadId}"][data-thread-status="error"]`
   );
   await expect(errorMarker).toContainText(selectedText);
   await expect(page.getByTestId('thread-panel')).toContainText(errorMessage);
@@ -145,7 +406,7 @@ test('persistent error markers survive reload and reopen with cached thread stat
   await page.waitForSelector(`[data-message-id="${messageId}"]`);
 
   const reloadedErrorMarker = page.locator(
-    '[data-testid="inline-thread-link"][data-thread-id="persisted-thread-error-1"][data-thread-status="error"]'
+    `[data-testid="inline-thread-link"][data-thread-id="${failedThreadId}"][data-thread-status="error"]`
   );
   await expect(reloadedErrorMarker).toContainText(selectedText);
 
