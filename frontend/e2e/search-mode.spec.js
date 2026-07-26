@@ -72,31 +72,27 @@ async function ensureConversationsOpen(page) {
 }
 
 test('default composer sends off search mode', async ({ page }) => {
-  const conversationId = 'conversation-search-auto';
+  let conversationId = null;
   const userMessage = 'Help me brainstorm names';
   const state = await mockHomeDataRoutes(page, {
     conversations: [],
     messagesByConversationId: {},
-    createdConversations: [
-      createConversation({
-        id: conversationId,
-        title: 'Name Brainstorm',
-      }),
-    ],
   });
 
   await mockChatRoute(page, async (body) => {
+    conversationId = body.conversationId;
     expect(body.searchMode).toBe('off');
+    state.conversations.unshift(createConversation({ id: conversationId, title: 'Name Brainstorm' }));
 
     state.messagesByConversationId[conversationId] = [
       createMessage({
-        id: 'message-user-auto',
+        id: body.run.userMessageId,
         role: 'user',
         content: userMessage,
         createdAt: '2026-04-17T12:00:01.000Z',
       }),
       createMessage({
-        id: 'message-assistant-auto',
+        id: body.run.assistantMessageId,
         role: 'assistant',
         content: 'Here are a few name directions.',
         createdAt: '2026-04-17T12:00:02.000Z',
@@ -106,8 +102,8 @@ test('default composer sends off search mode', async ({ page }) => {
     return {
       conversationId,
       conversationTitle: 'Name Brainstorm',
-      userMessageId: 'message-user-auto',
-      assistantMessageId: 'message-assistant-auto',
+      userMessageId: body.run.userMessageId,
+      assistantMessageId: body.run.assistantMessageId,
       message: 'Here are a few name directions.',
       search: {
         mode: 'off',
@@ -126,6 +122,7 @@ test('default composer sends off search mode', async ({ page }) => {
   const composer = page.getByLabel('Message composer');
   await composer.fill(userMessage);
   await composer.press('Enter');
+  await expect.poll(() => conversationId).not.toBeNull();
 
   await expect(page).toHaveURL(new RegExp(`/home/${conversationId}\\?e2e=search-mode-auto$`));
   await expect(page.locator('header').getByText('Name Brainstorm', { exact: true })).toBeVisible();
@@ -142,23 +139,22 @@ test('default composer sends off search mode', async ({ page }) => {
 });
 
 test('always search sends required search mode and renders a scalable source tray', async ({ page }) => {
-  const conversationId = 'conversation-search-mode';
+  let conversationId = null;
   const userMessage = 'What changed with OpenAI pricing this week?';
   const assistantMessage = 'OpenAI updated pricing details [1] [2].';
   const searchMetadata = buildSearchMetadata(10);
   const state = await mockHomeDataRoutes(page, {
     conversations: [],
     messagesByConversationId: {},
-    createdConversations: [
-      createConversation({
-        id: conversationId,
-        title: 'OpenAI Pricing Changes',
-      }),
-    ],
   });
 
   await mockChatRoute(page, async (body) => {
+    conversationId = body.conversationId;
     expect(body.searchMode).toBe('required');
+    state.conversations.unshift(createConversation({
+      id: conversationId,
+      title: 'OpenAI Pricing Changes',
+    }));
 
     state.messagesByConversationId[conversationId] = [
       createMessage({
@@ -201,6 +197,7 @@ test('always search sends required search mode and renders a scalable source tra
   const composer = page.getByLabel('Message composer');
   await composer.fill(userMessage);
   await composer.press('Enter');
+  await expect.poll(() => conversationId).not.toBeNull();
 
   await expect(page).toHaveURL(new RegExp(`/home/${conversationId}\\?e2e=search-mode$`));
   const inlineCitations = page.getByTestId('search-citation');

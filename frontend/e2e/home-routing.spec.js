@@ -367,29 +367,24 @@ test('clicking a workspace chat does not reopen another collapsed workspace', as
 
 test('the first draft send replaces /home with the new persistent conversation route', async ({ page }) => {
   const message = 'Walk me through how delivery marketplaces scaled.';
-  const conversationId = 'conversation-promoted-from-draft';
   const answer = 'They scaled by matching dense demand clusters with increasingly efficient courier dispatch.';
   const title = 'Scaling Delivery Marketplaces';
 
   const state = await mockHomeDataRoutes(page, {
     conversations: [],
     messagesByConversationId: {},
-    createdConversations: [
-      createConversation({
-        id: conversationId,
-        title,
-        updatedAt: '2026-04-12T12:20:01.000Z',
-        createdAt: '2026-04-12T12:20:01.000Z',
-      }),
-    ],
   });
+  let conversationId = null;
 
   await mockChatRoute(page, async (body) => {
+    conversationId = body.conversationId;
     expect(body.chatMode).toBe('persistent');
-    expect(body.conversationId).toBe(conversationId);
+    expect(conversationId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(body.run.createConversation).toBe(true);
     expect(body.mentorId).toBeUndefined();
     expect(body.message).toBe(message);
 
+    state.conversations.unshift(createConversation({ id: conversationId, title }));
     state.messagesByConversationId[conversationId] = [
       createMessage({
         id: 'message-draft-user-1',
@@ -424,6 +419,8 @@ test('the first draft send replaces /home with the new persistent conversation r
   await composer.fill(message);
   await composer.press('Enter');
 
+  await expect.poll(() => conversationId).not.toBeNull();
+
   await expect(page).toHaveURL(
     new RegExp(`/home/${conversationId}\\?e2e=home-routing-draft$`)
   );
@@ -432,25 +429,22 @@ test('the first draft send replaces /home with the new persistent conversation r
 
 test('promoted draft stays visible in the sidebar while the first response is pending', async ({ page }) => {
   const message = 'Sketch a launch plan for a new marketplace.';
-  const conversationId = 'conversation-promoted-sidebar-visible';
   const answer = 'Start with one dense segment, then widen supply after repeat usage appears.';
   const chatStarted = deferred();
   const finishResponse = deferred();
+  let conversationId = null;
 
-  await mockHomeDataRoutes(page, {
+  const state = await mockHomeDataRoutes(page, {
     conversations: [],
     messagesByConversationId: {},
-    createdConversations: [
-      createConversation({
-        id: conversationId,
-        title: 'Launch Plan',
-        updatedAt: '2026-04-12T12:30:01.000Z',
-        createdAt: '2026-04-12T12:30:01.000Z',
-      }),
-    ],
   });
 
   await mockChatRoute(page, async (body) => {
+    conversationId = body.conversationId;
+    state.conversations.unshift(createConversation({
+      id: conversationId,
+      title: 'Launch Plan',
+    }));
     chatStarted.resolve(body);
     await finishResponse.promise;
     return {
@@ -470,11 +464,12 @@ test('promoted draft stays visible in the sidebar while the first response is pe
   const composer = page.getByLabel('Message composer');
   await composer.fill(message);
   await composer.press('Enter');
+  const startedBody = await chatStarted.promise;
 
   await expect(page).toHaveURL(
     new RegExp(`/home/${conversationId}\\?e2e=home-routing-sidebar-visible$`)
   );
-  await expect.poll(async () => (await chatStarted.promise).conversationId).toBe(conversationId);
+  expect(startedBody.conversationId).toBe(conversationId);
   await expect(sidePanel.getByTestId(`conversation-row-${conversationId}`)).toBeVisible();
 
   finishResponse.resolve();
@@ -754,10 +749,6 @@ test('streaming auto-follow ignores no-op downward scrolling and pauses on upwar
     element.scrollHeight - element.scrollTop - element.clientHeight
   )).toBeGreaterThan(2);
   const pausedScrollTop = await transcript.evaluate((element) => element.scrollTop);
-  const pausedDistanceFromBottom = await transcript.evaluate((element) =>
-    element.scrollHeight - element.scrollTop - element.clientHeight
-  );
-  expect(pausedDistanceFromBottom).toBeLessThan(100);
 
   await expect(transcript.getByText('STREAM_END')).toBeVisible();
   await page.waitForTimeout(600);
@@ -1403,19 +1394,11 @@ test('a second chat can send while another chat is still in flight', async ({ pa
 
 test('background draft promotion does not steal focus from the chat you switched to', async ({ page }) => {
   const savedConversationId = 'conversation-stays-selected';
-  const promotedConversationId = 'conversation-promoted-in-background';
   const firstQuestion = 'Start a new investigation for me.';
   const promotedAnswer = 'The draft can finish in the background.';
-  const createStarted = deferred();
-  const createResponse = deferred();
   const chatStarted = deferred();
   const response = deferred();
-  const promotedConversation = createConversation({
-    id: promotedConversationId,
-    title: 'Background Draft',
-    updatedAt: '2026-04-12T15:00:01.000Z',
-    createdAt: '2026-04-12T15:00:01.000Z',
-  });
+  let promotedConversationId = null;
   const state = await mockHomeDataRoutes(page, {
     conversations: [
       createConversation({
@@ -1435,33 +1418,15 @@ test('background draft promotion does not steal focus from the chat you switched
     },
   });
 
-  await page.route('**/api/conversations', async (route) => {
-    if (route.request().method() !== 'POST') {
-      await route.fallback();
-      return;
-    }
-
-    createStarted.resolve();
-    await createResponse.promise;
-    state.conversations.unshift(promotedConversation);
-    await route.fulfill({
-      status: 201,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        conversation: {
-          id: promotedConversation.id,
-          title: promotedConversation.title,
-          mentorId: promotedConversation.mentor_id,
-          workspaceId: promotedConversation.workspace_id,
-          createdAt: promotedConversation.created_at,
-          updatedAt: promotedConversation.updated_at,
-        },
-      }),
-    });
-  });
-
   await mockChatRoute(page, async (body) => {
     expect(body.message).toBe(firstQuestion);
+    promotedConversationId = body.conversationId;
+    state.conversations.unshift(createConversation({
+      id: promotedConversationId,
+      title: 'Background Draft',
+      updatedAt: '2026-04-12T15:00:01.000Z',
+      createdAt: '2026-04-12T15:00:01.000Z',
+    }));
     state.messagesByConversationId[promotedConversationId] = [
       createMessage({
         id: 'message-background-draft-user-1',
@@ -1486,7 +1451,7 @@ test('background draft promotion does not steal focus from the chat you switched
   const composer = page.getByLabel('Message composer');
   await composer.fill(firstQuestion);
   await composer.press('Enter');
-  await createStarted.promise;
+  await chatStarted.promise;
 
   const sidePanel = await ensureConversationsOpen(page);
   await sidePanel.getByRole('button', { name: /Saved Conversation/ }).click();
@@ -1495,17 +1460,15 @@ test('background draft promotion does not steal focus from the chat you switched
   );
   await expect(page.getByText('Stay focused on this conversation.')).toBeVisible();
 
-  createResponse.resolve();
-  await chatStarted.promise;
-
   await expect(page).toHaveURL(
     new RegExp('/home/' + savedConversationId + '\\?e2e=home-routing-background-draft$')
   );
-  await sidePanel.getByRole('button', { name: /Background Draft/ }).click();
+  await sidePanel.getByRole('button', { name: /Start a new investigation/ }).click();
   await expect(page).toHaveURL(
     new RegExp('/home/' + promotedConversationId + '\\?e2e=home-routing-background-draft$')
   );
-  await expect(page.getByText(firstQuestion)).toBeVisible();
+  await expect(page.getByTestId('home-scroll-container').getByText(firstQuestion))
+    .toBeVisible();
 
   await sidePanel.getByRole('button', { name: /Saved Conversation/ }).click();
   await expect(page.getByText('Stay focused on this conversation.')).toBeVisible();

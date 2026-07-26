@@ -319,6 +319,20 @@ export function useHomeData() {
     setMentorGroups(buildSidebarGroups(mentors, nextConversations));
   }, [mentors, workspaces]);
 
+  const removeSidebarConversation = useCallback((conversationId: string) => {
+    const nextConversations = conversationsRef.current.filter(
+      (entry) => entry.id !== conversationId
+    );
+    if (nextConversations.length === conversationsRef.current.length) {
+      return;
+    }
+
+    conversationsRef.current = nextConversations;
+    setConversations(nextConversations);
+    setWorkspaceGroups(buildWorkspaceGroups(workspaces, nextConversations));
+    setMentorGroups(buildSidebarGroups(mentors, nextConversations));
+  }, [mentors, workspaces]);
+
   const loadConversationMessages = useCallback(async (nextConversationId: string) => {
     const messagesRequest = supabase
       .from('messages')
@@ -488,6 +502,7 @@ export function useHomeData() {
     setListError,
     refreshSidebarData,
     upsertSidebarConversation,
+    removeSidebarConversation,
     loadConversationById,
     loadConversationMessages,
   };

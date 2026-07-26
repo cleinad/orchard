@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Fraunces, Newsreader } from "next/font/google";
 import BodyFontSync from "@/app/components/BodyFontSync";
+import { ChatRunCoordinator } from "@/app/components/ChatRunCoordinator";
 import { SidePanelProvider } from "@/app/home/components/SidePanelContext";
 import {
   BODY_FONT_STACK,
@@ -60,7 +61,9 @@ export default function RootLayout({
           }}
         />
         <BodyFontSync />
-        <SidePanelProvider>{children}</SidePanelProvider>
+        <ChatRunCoordinator>
+          <SidePanelProvider>{children}</SidePanelProvider>
+        </ChatRunCoordinator>
       </body>
     </html>
   );

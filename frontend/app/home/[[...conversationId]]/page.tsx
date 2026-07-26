@@ -10,6 +10,7 @@ import {
   type SetStateAction,
 } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { useChatRunCoordinator } from '@/app/components/ChatRunCoordinator';
 import {
   useHomeDataContext,
   type SelectedChat,
@@ -35,7 +36,11 @@ import {
   clearInitialSendHandoff,
   readInitialSendHandoff,
 } from '@/app/home/components/initialSendHandoff';
-import type { PersistentThreadRuntimeRecord } from '@/app/home/components/persistentThreadRuntime';
+import {
+  addThreadMetaToMap,
+  removeThreadMetaFromMap,
+  type PersistentThreadRuntimeRecord,
+} from '@/app/home/components/persistentThreadRuntime';
 import {
   type PersistentConversationTranscript,
 } from '@/app/home/components/persistentConversationCache';
@@ -69,7 +74,7 @@ import {
 } from '@/app/home/components/useChatImageComposerState';
 import type {
   ThreadMeta,
-  ThreadSession,
+  ThreadSource,
 } from '@/app/home/components/threadTypes';
 import {
   DEFAULT_CHAT_MODEL_ID,
@@ -137,6 +142,7 @@ export default function HomePage() {
 }
 
 function HomePageInner() {
+  const chatRunCoordinator = useChatRunCoordinator();
   const [selectedModelId, setSelectedModelId] = usePersistedString<ChatModelId>(
     CHAT_MODEL_STORAGE_KEY,
     DEFAULT_CHAT_MODEL_ID,
@@ -267,6 +273,7 @@ function HomePageInner() {
     setListError,
     refreshSidebarData,
     upsertSidebarConversation,
+    rollbackProvisionalChatPromotion,
     loadConversationById,
     loadConversationMessages,
     getOrCreateDraft,
@@ -327,14 +334,25 @@ function HomePageInner() {
     [updateActivePersistentConversationTranscript]
   );
 
-  const setPersistentThreadsMap = useCallback(
-    (action: SetStateAction<Map<string, ThreadMeta[]>>) => {
-      updateActivePersistentConversationTranscript((transcript) => ({
+  const upsertPersistentThreadMeta = useCallback(
+    (
+      conversationId: string,
+      threadId: string,
+      source: ThreadSource,
+      previousThreadId?: string
+    ) => {
+      updatePersistentConversationTranscript(conversationId, (transcript) => ({
         ...transcript,
-        threadsMap: resolveStateAction(action, transcript.threadsMap),
+        threadsMap: addThreadMetaToMap(
+          previousThreadId && previousThreadId !== threadId
+            ? removeThreadMetaFromMap(transcript.threadsMap, previousThreadId)
+            : transcript.threadsMap,
+          threadId,
+          source
+        ),
       }));
     },
-    [updateActivePersistentConversationTranscript]
+    [updatePersistentConversationTranscript]
   );
 
   const params = useParams<{ conversationId?: string[] }>();
@@ -374,6 +392,7 @@ function HomePageInner() {
     activeSession,
     threadPanelOpen,
     threadSessionsById,
+    threadSessionsRef,
     resetThreadUi,
     dismissPopover,
     handlePointerUp,
@@ -508,19 +527,16 @@ function HomePageInner() {
   const selectedDraftChatRef = useRef<PersistentDraftChat | null>(null);
   const persistentThreadRuntimesRef = useRef<PersistentThreadRuntimeRecord>({});
   const temporaryChatsRef = useRef<TemporaryChatSession[]>([]);
-  const threadSessionsRef = useRef<Record<string, ThreadSession>>({});
-
   useEffect(() => {
     // Thread handlers read these latest values from callbacks.
     persistentThreadRuntimesRef.current = persistentThreadRuntimes;
     temporaryChatsRef.current = temporaryChats;
-    threadSessionsRef.current = threadSessionsById;
   }, [
     persistentThreadRuntimes,
     temporaryChats,
-    threadSessionsById,
   ]);
   const {
+    hydratedRouteConversationId,
     hydratedRouteConversationIdRef,
     routeConversationError,
     shouldShowRouteConversationError,
@@ -613,7 +629,8 @@ function HomePageInner() {
     if (storagePaths.length > 0) {
       void supabase.storage.from(CHAT_IMAGE_BUCKET).remove(storagePaths);
     }
-  }, []);
+    void chatRunCoordinator.closeTemporaryChat(tempChatId);
+  }, [chatRunCoordinator]);
 
   const previousSelectedChatKeyRef = useRef<string | null>(selectedChatKey);
   useEffect(() => {
@@ -681,7 +698,6 @@ function HomePageInner() {
     persistentThreadRuntimes,
     persistentThreadRuntimesRef,
     selectedChat,
-    selectedChatRef,
     selectedModelId,
     selectedModelEffort: selectedModelEffortOverride,
     thinkingEnabled: thinkingEnabledOverride,
@@ -689,7 +705,7 @@ function HomePageInner() {
     searchMode: activeSearchMode,
     selectedTemporaryChat,
     setPersistentThreadRuntimes,
-    setPersistentThreadsMap,
+    upsertPersistentThreadMeta,
     storageKey: PERSISTENT_THREAD_RUNTIME_STORAGE_KEY,
     threadSessionsRef,
     updateTemporaryChat,
@@ -746,6 +762,7 @@ function HomePageInner() {
     clearPendingChatRequestForSelection,
     clearSearchStateForSelection,
     getOrCreateDraft,
+    hydratedRouteConversationId,
     hydratedRouteConversationIdRef,
     isHomeE2eFixture,
     loadConversationMessages,
@@ -776,6 +793,8 @@ function HomePageInner() {
     setPersistentConversationTranscript,
     updatePersistentConversationTranscript,
     replacePersistentConversationUrl,
+    rollbackProvisionalChatPromotion,
+    setComposerInputForSelection,
     setSearchStateForSelection,
     setSelectedChat,
     setUserHasScrolledState,
@@ -1099,6 +1118,23 @@ function HomePageInner() {
           onToggleWideLayout={() => setIsChatWideLayout((current) => !current)}
           onTemporaryMemoryModeChange={updateSelectedTemporaryMemoryMode}
           onSubmit={handleSubmit}
+          onStop={() => {
+            const chatId = selectedChat?.kind === 'persistent'
+              ? selectedChat.conversationId
+              : selectedChat?.kind === 'temporary'
+                ? selectedChat.tempChatId
+                : selectedChat?.kind === 'draft'
+                  ? selectedChat.draftId
+                : null;
+            if (!chatId) return;
+            const run = [...chatRunCoordinator.getSnapshotsForChat(chatId)]
+              .reverse()
+              .find((candidate) =>
+                candidate.target.kind !== 'thread'
+                && !['completed', 'failed', 'cancelled'].includes(candidate.status)
+              );
+            if (run) void chatRunCoordinator.stop(run.runId);
+          }}
           onKeyDown={handleKeyDown}
         />
 
@@ -1129,6 +1165,23 @@ function HomePageInner() {
         onWidthChange={setThreadPanelWidthPx}
         onInputChange={handleThreadPanelInputChange}
         onSend={handleSendThreadMessage}
+        onStop={() => {
+          if (!activeSession?.threadId) return;
+          const chatId = selectedChat?.kind === 'persistent'
+            ? selectedChat.conversationId
+            : selectedChat?.kind === 'temporary'
+              ? selectedChat.tempChatId
+              : selectedChat?.kind === 'draft'
+                ? selectedChat.draftId
+              : null;
+          if (!chatId) return;
+          const run = chatRunCoordinator.getSnapshotsForChat(chatId)
+            .find((candidate) =>
+              candidate.target.threadId === activeSession.threadId
+              && !['completed', 'failed', 'cancelled'].includes(candidate.status)
+            );
+          if (run) void chatRunCoordinator.stop(run.runId);
+        }}
         onClose={closeThreadPanel}
       />
 

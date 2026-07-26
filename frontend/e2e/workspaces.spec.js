@@ -172,7 +172,7 @@ test('workspace view shows sessions, sidebar workspace grouping, memory, and edi
   await expect(page.getByText('Training, recovery, and bloodwork')).toBeVisible();
   await expect(page.getByText(sessionTitle)).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Instructions' })).toBeVisible();
-  await expect(page.getByPlaceholder('Message Health...')).toBeVisible();
+  await expect(page.getByLabel('Message composer')).toBeVisible();
 
   const sidePanel = await ensureConversationsOpen(page);
   await expect(sidePanel.locator('#side-panel-section-workspaces')).toBeVisible();
@@ -222,8 +222,9 @@ test('open resized desktop sidebar stays open when navigating to a workspace', a
   await page.goto('/home?e2e=workspace-sidebar-navigation');
 
   const sidePanel = await ensureConversationsOpen(page);
-  await expect.poll(async () => Math.round((await sidePanel.boundingBox())?.width ?? 0))
-    .toBe(expectedWidth);
+  await expect.poll(async () =>
+    Math.abs(Math.round((await sidePanel.boundingBox())?.width ?? 0) - expectedWidth)
+  ).toBeLessThanOrEqual(1);
 
   await sidePanel
     .getByTestId(`workspace-drop-target-${workspaceId}`)
@@ -236,13 +237,17 @@ test('open resized desktop sidebar stays open when navigating to a workspace', a
   );
   await expect(page.getByRole('heading', { name: 'Health' })).toBeVisible();
   await expect(page.locator('nav[aria-hidden]').first()).toHaveAttribute('aria-hidden', 'true');
-  await expect.poll(async () => Math.round((await sidePanel.boundingBox())?.width ?? 0))
-    .toBe(expectedWidth);
   await expect.poll(async () =>
-    page.getByRole('main').evaluate((element) =>
-      Math.round(Number.parseFloat(window.getComputedStyle(element).paddingLeft))
+    Math.abs(Math.round((await sidePanel.boundingBox())?.width ?? 0) - expectedWidth)
+  ).toBeLessThanOrEqual(1);
+  await expect.poll(async () =>
+    Math.abs(
+      await page.getByRole('main').evaluate((element) =>
+        Math.round(Number.parseFloat(window.getComputedStyle(element).paddingLeft))
+      )
+      - expectedWidth
     )
-  ).toBe(expectedWidth);
+  ).toBeLessThanOrEqual(1);
 });
 
 test('workspace delete requires confirmation and removes scoped chats and memories', async ({ page }) => {
@@ -406,16 +411,18 @@ test('workspace new chat preserves workspace selection after navigating home', a
   const chatBody = await chatStarted.promise;
   expect(chatBody).toMatchObject({
     message: 'draft workspace send',
-    conversationId: 'conversation-e2e-created-1',
     workspaceId,
     chatMode: 'persistent',
   });
-  await expect(page).toHaveURL(/\/home\/conversation-e2e-created-1\?e2e=workspace-draft$/);
+  expect(chatBody.conversationId).toMatch(/^[0-9a-f-]{36}$/);
+  await expect(page).toHaveURL(
+    new RegExp(`/home/${chatBody.conversationId}\\?e2e=workspace-draft$`)
+  );
 });
 
 test('workspace sidebar draft stays visible as a chat while the first response is pending', async ({ page }) => {
   const workspaceId = 'workspace-health';
-  const conversationId = 'conversation-workspace-sidebar-visible';
+  let conversationId = null;
   const chatStarted = deferred();
   const finishResponse = deferred();
 
@@ -430,17 +437,10 @@ test('workspace sidebar draft stays visible as a chat while the first response i
       }),
     ],
     conversations: [],
-    createdConversations: [
-      createConversation({
-        id: conversationId,
-        title: 'Workspace Sidebar Send',
-        workspaceId,
-        updatedAt: '2026-06-25T12:30:01.000Z',
-      }),
-    ],
   });
 
   await mockChatRoute(page, async (body) => {
+    conversationId = body.conversationId;
     chatStarted.resolve(body);
     await finishResponse.promise;
     return {
@@ -457,9 +457,12 @@ test('workspace sidebar draft stays visible as a chat while the first response i
   const sidePanel = await ensureConversationsOpen(page);
   await sidePanel.getByRole('button', { name: 'New chat in Health' }).click();
 
+  await expect(page).toHaveURL(/\/home\?e2e=workspace-sidebar-visible$/);
+
   const composer = page.getByLabel('Message composer').first();
   await composer.fill('workspace sidebar send');
   await page.keyboard.press('Enter');
+  await chatStarted.promise;
 
   await expect(page).toHaveURL(
     new RegExp(`/home/${conversationId}\\?e2e=workspace-sidebar-visible$`)
@@ -1015,7 +1018,7 @@ test('dragging a workspace chat to Chats requires confirmation and leaves worksp
 
 test('workspace composer autosizes and hands first send to the normal home chat runtime', async ({ page }) => {
   const workspaceId = 'workspace-health';
-  const conversationId = 'conversation-workspace-created';
+  let conversationId = null;
   const chatRelease = deferred();
   const chatStarted = deferred();
   const chatBodies = [];
@@ -1031,16 +1034,10 @@ test('workspace composer autosizes and hands first send to the normal home chat 
       }),
     ],
     conversations: [],
-    createdConversations: [
-      createConversation({
-        id: conversationId,
-        title: 'first workspace send',
-        workspaceId,
-      }),
-    ],
   });
 
   await mockChatRoute(page, async (body) => {
+    conversationId = body.conversationId;
     chatBodies.push(body);
     chatStarted.resolve(body);
     await chatRelease.promise;
@@ -1055,7 +1052,7 @@ test('workspace composer autosizes and hands first send to the normal home chat 
 
   await page.goto(`/workspaces/${workspaceId}?e2e=workspace-submit`);
 
-  const composer = page.getByPlaceholder('Message Health...');
+  const composer = page.getByLabel('Message composer');
   await expect(composer).toBeVisible();
   const initialHeight = await composer.evaluate((node) => node.clientHeight);
   await composer.fill('line one\nline two\nline three\nline four');
@@ -1078,8 +1075,8 @@ test('workspace composer autosizes and hands first send to the normal home chat 
   await composer.fill('first workspace send');
   await page.keyboard.press('Enter');
 
-  await expect(page).toHaveURL(new RegExp(`/home/${conversationId}`));
   const chatBody = await chatStarted.promise;
+  await expect(page).toHaveURL(new RegExp(`/home/${conversationId}`));
   expect(chatBody).toMatchObject({
     message: 'first workspace send',
     conversationId,

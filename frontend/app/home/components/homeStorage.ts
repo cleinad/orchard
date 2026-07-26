@@ -5,6 +5,7 @@ export interface StoredMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
+  isError?: boolean;
   attachments?: Message['attachments'];
   timestamp: string;
   searchMetadata?: Message['searchMetadata'];
@@ -24,6 +25,7 @@ export function toStoredMessage(message: Message): StoredMessage {
     id: message.id,
     role: message.role,
     content: message.content,
+    isError: message.isError,
     attachments: message.attachments ?? [],
     timestamp: message.timestamp.toISOString(),
     searchMetadata: message.searchMetadata ?? null,
@@ -36,6 +38,7 @@ export function fromStoredMessage(message: StoredMessage): Message {
     id: message.id,
     role: message.role,
     content: message.content,
+    isError: message.isError,
     attachments: message.attachments ?? [],
     timestamp: new Date(message.timestamp),
     searchMetadata: message.searchMetadata ?? null,

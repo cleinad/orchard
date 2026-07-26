@@ -20,7 +20,9 @@ export async function GET(
 
     const { data: thread, error: threadError } = await supabase
       .from("threads")
-      .select("id")
+      .select(
+        "id, conversation_id, source_message_id, highlighted_text, start_offset, end_offset, selection_stream_version"
+      )
       .eq("id", threadId)
       .eq("user_id", user.id)
       .single();
@@ -39,7 +41,18 @@ export async function GET(
       return NextResponse.json({ error: messagesError.message }, { status: 500 });
     }
 
-    return NextResponse.json({ messages: messages || [] });
+    return NextResponse.json({
+      thread: {
+        threadId: thread.id,
+        conversationId: thread.conversation_id,
+        sourceMessageId: thread.source_message_id,
+        highlightedText: thread.highlighted_text,
+        startOffset: thread.start_offset,
+        endOffset: thread.end_offset,
+        selectionStreamVersion: thread.selection_stream_version,
+      },
+      messages: messages || [],
+    });
   } catch (error) {
     console.error("Thread messages API error:", error);
     return NextResponse.json(

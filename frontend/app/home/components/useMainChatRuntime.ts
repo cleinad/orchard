@@ -45,6 +45,23 @@ import {
 import { getBrowserTimeZone } from '@/lib/browser-timezone';
 import type { ChatModelEffortLevel, ChatModelId } from '@/lib/chat-models';
 import type { ResponseStyle } from '@/lib/response-style';
+import { useOptionalChatRunCoordinator } from '@/app/components/ChatRunCoordinator';
+import {
+  createChatRunIdentifiers,
+  createQueuedChatRunSnapshot,
+  isSettledChatRunSnapshot,
+  isTerminalChatRunStatus,
+  type ChatRunSnapshot,
+} from '@/lib/chat-runs/protocol';
+import { mergeThreadsMaps } from '@/app/home/components/persistentThreadRuntime';
+import {
+  getDraftSelectionForPromotion,
+  isDefinitivePreAcceptanceFailure,
+  loadProvisionalChatPromotion,
+  removeProvisionalChatPromotion,
+  storeProvisionalChatPromotion,
+  type ProvisionalChatPromotion,
+} from '@/app/home/components/provisionalChatPromotion';
 
 export interface ChatResponse {
   message?: string;
@@ -60,18 +77,7 @@ export interface ChatResponse {
   search?: SearchMetadata;
   searchActivity?: SearchActivitySummary | null;
   error?: string;
-}
-
-interface CreateConversationResponse {
-  conversation?: {
-    id?: string;
-    title?: string | null;
-    mentorId?: string | null;
-    workspaceId?: string | null;
-    createdAt?: string | null;
-    updatedAt?: string | null;
-  };
-  error?: string;
+  cancelled?: boolean;
 }
 
 interface ReadChatStreamOptions {
@@ -354,6 +360,7 @@ interface MainChatRuntimeParams {
   clearPendingChatRequestForSelection: (selection: SelectedChat) => void;
   clearSearchStateForSelection: (selection: SelectedChat | null) => void;
   getOrCreateDraft: (mentorId: string | null, workspaceId?: string | null) => PersistentDraftChat;
+  hydratedRouteConversationId: string | null;
   hydratedRouteConversationIdRef: MutableRefObject<string | null>;
   isHomeE2eFixture: boolean;
   loadConversationMessages: (id: string) => Promise<LoadedConversationMessages>;
@@ -414,6 +421,14 @@ interface MainChatRuntimeParams {
     ) => PersistentConversationTranscript
   ) => void;
   replacePersistentConversationUrl: (id: string) => void;
+  rollbackProvisionalChatPromotion: (runId: string) => Extract<
+    SelectedChat,
+    { kind: 'draft' }
+  > | null;
+  setComposerInputForSelection: (
+    selection: SelectedChat | null,
+    value: string
+  ) => void;
   setSearchStateForSelection: (selection: SelectedChat | null, state: SearchMetadata | null) => void;
   setSelectedChat: Dispatch<SetStateAction<SelectedChat | null>>;
   setUserHasScrolledState: (nextValue: boolean) => void;
@@ -442,11 +457,201 @@ function mapUploadedAttachments(
 }
 
 export function useMainChatRuntime(params: MainChatRuntimeParams) {
+  const chatRunCoordinator = useOptionalChatRunCoordinator();
   const paramsRef = useRef(params);
+  const appliedRunVersionsRef = useRef(new Set<string>());
 
   useEffect(() => {
     paramsRef.current = params;
   }, [params]);
+
+  useEffect(() => {
+    // Route hydration can replace a locally recovered placeholder. Re-apply
+    // the latest authoritative run snapshot after that hydration boundary.
+    if (params.hydratedRouteConversationId) {
+      appliedRunVersionsRef.current.clear();
+    }
+  }, [params.hydratedRouteConversationId]);
+
+  useEffect(() => {
+    if (!chatRunCoordinator) return;
+    const selected = params.selectedChat;
+    const chatId = selected?.kind === 'persistent'
+      ? selected.conversationId
+      : selected?.kind === 'temporary'
+        ? selected.tempChatId
+        : selected?.kind === 'draft'
+          ? selected.draftId
+          : null;
+    if (!chatId) return;
+
+    const applySnapshot = (run: ChatRunSnapshot) => {
+      if (run.acceptedAt) {
+        removeProvisionalChatPromotion(run.runId);
+      }
+      const current = paramsRef.current;
+      if (isDefinitivePreAcceptanceFailure(run)) {
+        const promotion = loadProvisionalChatPromotion(run.runId);
+        if (promotion) {
+          const promotedSelection: SelectedChat = {
+            kind: 'persistent',
+            conversationId: promotion.conversationId,
+            mentorId: promotion.draft.mentorId,
+            workspaceId: promotion.draft.workspaceId,
+          };
+          const promotionKey = getSelectedChatKey(promotedSelection);
+          const wasLocallySubmitting = Boolean(
+            promotionKey
+            && current.pendingChatRequestsRef.current[promotionKey]
+          );
+          const wasViewingPromotion = window.location.pathname
+            === `/home/${encodeURIComponent(promotion.conversationId)}`;
+          const draftSelection =
+            current.rollbackProvisionalChatPromotion(run.runId)
+            ?? getDraftSelectionForPromotion(promotion);
+          current.moveResponseStyleBetweenSelections(
+            promotedSelection,
+            draftSelection
+          );
+          current.setComposerInputForSelection(draftSelection, promotion.prompt);
+          if (wasViewingPromotion && !wasLocallySubmitting) {
+            current.setListError(run.errorMessage ?? 'The request was not accepted.');
+          }
+          chatRunCoordinator.dismiss(run.runId);
+          return;
+        }
+      }
+      if (run.target.chatId !== chatId || run.target.kind === 'thread') return;
+      if (
+        run.mode === 'persistent'
+        && current.selectedChat?.kind === 'persistent'
+        && current.hydratedRouteConversationIdRef.current !== chatId
+      ) {
+        return;
+      }
+      const versionKey = `${run.runId}:${run.status}:${run.updatedAt}`;
+      if (appliedRunVersionsRef.current.has(versionKey)) return;
+      appliedRunVersionsRef.current.add(versionKey);
+
+      if (run.mode === 'temporary') {
+        current.updateTemporaryChat(chatId, (chat) => {
+          const existingAssistant = chat.messages.find(
+            (message) => message.id === run.assistantMessageId
+          );
+          const withoutAssistant = chat.messages.filter(
+            (message) => message.id !== run.assistantMessageId
+          );
+          if (run.status === 'cancelled') {
+            return { ...chat, messages: withoutAssistant };
+          }
+          const assistant: Message = {
+            id: run.assistantMessageId,
+            renderId: run.assistantMessageId,
+            role: 'assistant',
+            content: run.response
+              ?? (run.status === 'failed' || run.status === 'interrupted'
+                ? run.errorMessage ?? 'The temporary response was interrupted.'
+                : existingAssistant?.content ?? ''),
+            timestamp: new Date(run.updatedAt),
+            previousMessageId: run.userMessageId,
+            isStreaming: !isSettledChatRunSnapshot(run),
+            isError: run.status === 'failed' || run.status === 'interrupted',
+            searchMetadata: run.search?.metadata ?? null,
+            searchActivity: run.searchActivity,
+          };
+          return {
+            ...chat,
+            title: run.title.value ?? chat.title,
+            messages: [...withoutAssistant, assistant],
+            updatedAt: run.updatedAt,
+          };
+        });
+        return;
+      }
+
+      if (
+        run.mode === 'persistent'
+        && run.status !== 'interrupted'
+        && !isTerminalChatRunStatus(run.status)
+      ) {
+        current.updatePersistentConversationTranscript(chatId, (transcript) => {
+          const existingAssistant = transcript.messages.find(
+            (message) => message.id === run.assistantMessageId
+          );
+          const nextAssistant: Message = {
+            id: run.assistantMessageId,
+            renderId: existingAssistant?.renderId ?? run.assistantMessageId,
+            role: 'assistant',
+            content: run.response
+              ?? (existingAssistant?.isError ? '' : existingAssistant?.content ?? ''),
+            timestamp: new Date(run.updatedAt),
+            previousMessageId: run.userMessageId,
+            isStreaming: true,
+            isError: false,
+          };
+          return {
+            ...transcript,
+            messages: [
+              ...transcript.messages.filter(
+                (message) => message.id !== run.assistantMessageId
+              ),
+              nextAssistant,
+            ],
+          };
+        });
+        return;
+      }
+
+      if (run.status === 'completed') {
+        void current.loadConversationMessages(chatId).then((loaded) => {
+          current.updatePersistentConversationTranscript(chatId, (transcript) => ({
+            ...transcript,
+            messages: mergeReloadedMessagesForRender({
+              loadedMessages: loaded.messages,
+              currentMessages: transcript.messages.filter(
+                (message) => message.id !== run.assistantMessageId || !message.isStreaming
+              ),
+            }),
+            branches: loaded.branches,
+            selectedBranchIds: loaded.selectedBranchIds,
+            threadsMap: mergeThreadsMaps(loaded.threadsMap, transcript.threadsMap),
+          }));
+          void current.refreshSidebarData();
+        }).catch(() => null);
+        return;
+      }
+
+      current.updatePersistentConversationTranscript(chatId, (transcript) => {
+        const withoutPlaceholder = transcript.messages.filter(
+          (message) => message.id !== run.assistantMessageId
+        );
+        if (run.status === 'cancelled') {
+          return { ...transcript, messages: withoutPlaceholder };
+        }
+        return {
+          ...transcript,
+          messages: [
+            ...withoutPlaceholder,
+            {
+              id: run.assistantMessageId,
+              renderId: run.assistantMessageId,
+              role: 'assistant',
+              content: run.errorMessage ?? 'Something went wrong.',
+              timestamp: new Date(run.updatedAt),
+              previousMessageId: run.userMessageId,
+              isError: true,
+            },
+          ],
+        };
+      });
+    };
+
+    return chatRunCoordinator.subscribeAll(applySnapshot);
+  }, [
+    chatRunCoordinator,
+    params.hydratedRouteConversationId,
+    params.selectedChat,
+  ]);
 
   return useCallback(async (
     content: string,
@@ -480,6 +685,9 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
       params.activeMessages[params.activeMessages.length - 1]?.id ?? null;
     const previousMessageId = effectivePendingBranch?.sourceMessageId ?? activePathTailMessageId;
     const branchSourceMessageId = effectivePendingBranch?.sourceMessageId ?? null;
+    const runIdentifiers = createChatRunIdentifiers(
+      branchSourceMessageId ? 'branch' : 'main'
+    );
 
     if (!effectiveSelection) {
       const blankSelection = params.selectedChat;
@@ -505,10 +713,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
     }
 
     const userMessage: Message = {
-      id:
-        effectiveSelection.kind === 'temporary'
-          ? createTemporaryId('message')
-          : Date.now().toString(),
+      id: runIdentifiers.userMessageId,
       renderId: createTemporaryId('render'),
       role: 'user',
       content: messageText,
@@ -525,6 +730,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
             selectedBranchIds: effectiveTempChat.selectedBranchIds,
             pendingBranch: effectivePendingBranch,
             userMessage,
+            newBranchId: runIdentifiers.branchId,
           })
         : null;
     let persistentNextTree =
@@ -535,6 +741,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
             selectedBranchIds: params.persistentSelectedBranchIds,
             pendingBranch: effectivePendingBranch,
             userMessage,
+            newBranchId: runIdentifiers.branchId,
           })
         : null;
     let draftNextTree =
@@ -545,6 +752,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
             selectedBranchIds: effectiveDraft.selectedBranchIds,
             pendingBranch: effectivePendingBranch,
             userMessage,
+            newBranchId: runIdentifiers.branchId,
           })
         : null;
     const pendingBranchSelectionId =
@@ -720,91 +928,67 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
     }
 
     let rejectedSendRestoreSelection: SelectedChat | null = null;
+    let createConversationForRun = false;
+    let provisionalPromotion: ProvisionalChatPromotion | null = null;
 
     if (effectiveSelection.kind === 'draft' && effectiveDraft) {
       const draftSelection = effectiveSelection;
       const promotedDraftId = effectiveDraft.id;
+      const promotedSelection: SelectedChat = {
+        kind: 'persistent',
+        conversationId: crypto.randomUUID(),
+        mentorId: draftSelection.mentorId,
+        workspaceId: draftSelection.workspaceId,
+      };
+      const shouldFocusPromotedDraft = isSameSelectedChat(
+        params.selectedChatRef.current,
+        draftSelection
+      );
+      provisionalPromotion = {
+        runId: runIdentifiers.runId,
+        conversationId: promotedSelection.conversationId,
+        prompt: messageText,
+        draft: effectiveDraft,
+      };
+      storeProvisionalChatPromotion(provisionalPromotion);
 
-      try {
-        const createResponse = await fetch('/api/conversations', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            initialMessage: messageText || 'Image question',
-            mentorId: draftSelection.mentorId ?? null,
-            workspaceId: draftSelection.workspaceId ?? null,
-          }),
-        });
-        const createData = (await createResponse.json()) as CreateConversationResponse;
-        const conversationId = createData.conversation?.id;
+      params.movePendingChatRequestBetweenSelections(draftSelection, promotedSelection);
+      params.moveResponseStyleBetweenSelections(draftSelection, promotedSelection);
+      params.clearSearchStateForSelection(draftSelection);
+      params.setPersistentConversationTranscript(promotedSelection.conversationId, {
+        messages: draftNextTree?.messages ?? effectiveDraft.messages,
+        branches: draftNextTree?.branches ?? effectiveDraft.branches,
+        selectedBranchIds:
+          draftNextTree?.selectedBranchIds ?? effectiveDraft.selectedBranchIds,
+        threadsMap: new Map(),
+      });
 
-        if (!createResponse.ok || !conversationId) {
-          throw new Error(createData.error || 'Failed to create conversation.');
-        }
-
-        const promotedSelection: SelectedChat = {
-          kind: 'persistent',
-          conversationId,
-          mentorId: createData.conversation?.mentorId ?? draftSelection.mentorId,
-          workspaceId: createData.conversation?.workspaceId ?? draftSelection.workspaceId,
-        };
-        const shouldFocusPromotedDraft = isSameSelectedChat(
-          params.selectedChatRef.current,
-          draftSelection
-        );
-
-        params.movePendingChatRequestBetweenSelections(draftSelection, promotedSelection);
-        params.moveResponseStyleBetweenSelections(draftSelection, promotedSelection);
-        params.clearSearchStateForSelection(draftSelection);
-
-        params.setPersistentConversationTranscript(promotedSelection.conversationId, {
-          messages: draftNextTree?.messages ?? effectiveDraft.messages,
-          branches: draftNextTree?.branches ?? effectiveDraft.branches,
-          selectedBranchIds:
-            draftNextTree?.selectedBranchIds ?? effectiveDraft.selectedBranchIds,
-          threadsMap: new Map(),
-        });
-
-        if (shouldFocusPromotedDraft) {
-          params.hydratedRouteConversationIdRef.current = promotedSelection.conversationId;
-          params.selectedChatRef.current = promotedSelection;
-          params.setSelectedChat(promotedSelection);
-          params.replacePersistentConversationUrl(promotedSelection.conversationId);
-        }
-
-        params.upsertSidebarConversation({
-          id: promotedSelection.conversationId,
-          title: createData.conversation?.title ?? effectiveDraft.title,
-          mentorId: promotedSelection.mentorId,
-          workspaceId: promotedSelection.workspaceId,
-          createdAt: createData.conversation?.createdAt ?? effectiveDraft.createdAt,
-          updatedAt: createData.conversation?.updatedAt ?? nextUpdatedAt,
-        });
-        params.setDraftChats((prev) =>
-          prev.filter((draft) => draft.id !== promotedDraftId)
-        );
-
-        effectiveSelection = promotedSelection;
-        effectiveDraft = null;
-        rejectedSendRestoreSelection = promotedSelection;
-      } catch (error) {
-        const restoreComposerSelection = restoreBeforeOptimisticUserMessage();
-        params.clearPendingChatRequestForSelection(draftSelection);
-        return {
-          accepted: false,
-          completed: false,
-          error: error instanceof Error ? error.message : 'Failed to create conversation.',
-          restoreComposerSelection,
-          uploadedAttachments,
-          cleanupUploadedAttachments: uploadedAttachments,
-        };
+      if (shouldFocusPromotedDraft) {
+        params.hydratedRouteConversationIdRef.current = promotedSelection.conversationId;
+        params.selectedChatRef.current = promotedSelection;
+        params.setSelectedChat(promotedSelection);
+        params.replacePersistentConversationUrl(promotedSelection.conversationId);
       }
+
+      params.upsertSidebarConversation({
+        id: promotedSelection.conversationId,
+        title: fallbackChatTitleFromMessage(messageText || 'Image question'),
+        mentorId: promotedSelection.mentorId,
+        workspaceId: promotedSelection.workspaceId,
+        createdAt: effectiveDraft.createdAt,
+        updatedAt: nextUpdatedAt,
+      });
+      params.setDraftChats((prev) =>
+        prev.filter((draft) => draft.id !== promotedDraftId)
+      );
+
+      effectiveSelection = promotedSelection;
+      effectiveDraft = null;
+      rejectedSendRestoreSelection = promotedSelection;
+      createConversationForRun = true;
     }
 
-    const streamingMessageId =
-      effectiveSelection.kind === 'temporary'
-        ? createTemporaryId('message')
-        : `streaming-${Date.now()}`;
+    const streamingMessageId = runIdentifiers.assistantMessageId;
     const streamingMessage: Message = {
       id: streamingMessageId,
       renderId: streamingMessageId,
@@ -982,6 +1166,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
         content: `Something went wrong. ${errorText || ''}`.trim(),
         timestamp: new Date(),
         previousMessageId: userMessage.id,
+        isError: true,
       };
 
       if (effectiveSelection.kind === 'temporary') {
@@ -1045,103 +1230,158 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
     };
 
     let requestAccepted = false;
+    const runMode = effectiveSelection.kind === 'temporary'
+      ? 'temporary' as const
+      : 'persistent' as const;
+    const runTarget = {
+      kind: branchSourceMessageId ? 'branch' as const : 'main' as const,
+      chatId: effectiveSelection.kind === 'temporary'
+        ? effectiveSelection.tempChatId
+        : effectiveSelection.kind === 'persistent'
+          ? effectiveSelection.conversationId
+          : effectiveSelection.draftId,
+      conversationId: effectiveSelection.kind === 'persistent'
+        ? effectiveSelection.conversationId
+        : null,
+      threadId: null,
+      branchId: runIdentifiers.branchId ?? null,
+      branchSourceMessageId,
+      sourceMessageId: null,
+      expectedPredecessorId: previousMessageId,
+    };
+    const initialRunSnapshot = createQueuedChatRunSnapshot({
+      identifiers: runIdentifiers,
+      mode: runMode,
+      target: runTarget,
+      fallbackTitle: fallbackChatTitleFromMessage(messageText, params.tempChatTitle),
+    });
+    const requestBody = {
+      message: messageText,
+      conversationId:
+        effectiveSelection.kind === 'persistent'
+          ? effectiveSelection.conversationId
+          : undefined,
+      mentorId:
+        effectiveSelection.kind === 'temporary'
+          ? undefined
+          : effectiveSelection.mentorId ?? undefined,
+      workspaceId:
+        effectiveSelection.kind === 'temporary'
+          ? undefined
+          : effectiveSelection.workspaceId ?? undefined,
+      modelId: requestModelId,
+      ...(requestModelEffort ? { modelEffort: requestModelEffort } : {}),
+      ...(requestThinkingEnabled !== null
+        ? { thinkingEnabled: requestThinkingEnabled }
+        : {}),
+      previousMessageId,
+      branchSourceMessageId: branchSourceMessageId ?? undefined,
+      searchMode: requestSearchMode,
+      responseStyle: requestResponseStyle,
+      attachments: uploadedAttachments.map((attachment) => ({
+        storagePath: attachment.storagePath,
+        fileName: attachment.fileName,
+        mimeType: attachment.mimeType,
+        sizeBytes: attachment.sizeBytes,
+        width: attachment.width,
+        height: attachment.height,
+        cleanupOnFailure: true,
+      })),
+      timezone: getBrowserTimeZone(),
+      chatMode: runMode,
+      run: {
+        ...runIdentifiers,
+        temporarySessionId:
+          effectiveSelection.kind === 'temporary'
+            ? effectiveSelection.tempChatId
+            : undefined,
+        newBranchId: runIdentifiers.branchId,
+        createConversation: createConversationForRun,
+        target: runTarget,
+      },
+      ...(effectiveSelection.kind === 'temporary'
+        ? {
+            memoryMode:
+              effectiveTempChat?.memoryMode ?? DEFAULT_TEMPORARY_MEMORY_MODE,
+            history: toChatHistory(params.activeMessages),
+          }
+        : {}),
+    };
 
     try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: messageText,
-          conversationId:
-            effectiveSelection.kind === 'persistent'
-              ? effectiveSelection.conversationId
-              : undefined,
-          mentorId:
-            effectiveSelection.kind === 'temporary'
-              ? undefined
-              : effectiveSelection.mentorId ?? undefined,
-          workspaceId:
-            effectiveSelection.kind === 'temporary'
-              ? undefined
-              : effectiveSelection.workspaceId ?? undefined,
-          modelId: requestModelId,
-          ...(requestModelEffort
-            ? { modelEffort: requestModelEffort }
-            : {}),
-          ...(requestThinkingEnabled !== null
-            ? { thinkingEnabled: requestThinkingEnabled }
-            : {}),
-          previousMessageId,
-          branchSourceMessageId: branchSourceMessageId ?? undefined,
-          searchMode: requestSearchMode,
-          responseStyle: requestResponseStyle,
-          attachments: uploadedAttachments.map((attachment) => ({
-            storagePath: attachment.storagePath,
-            fileName: attachment.fileName,
-            mimeType: attachment.mimeType,
-            sizeBytes: attachment.sizeBytes,
-            width: attachment.width,
-            height: attachment.height,
-            cleanupOnFailure: true,
-          })),
-          timezone: getBrowserTimeZone(),
-          chatMode:
-            effectiveSelection.kind === 'temporary' ? 'temporary' : 'persistent',
-          ...(effectiveSelection.kind === 'temporary'
-            ? {
-                memoryMode:
-                  effectiveTempChat?.memoryMode ?? DEFAULT_TEMPORARY_MEMORY_MODE,
-                history: toChatHistory(params.activeMessages),
-              }
-            : {}),
-        }),
-      });
-
-      if (!response.ok) {
-        const data = (await response.json()) as ChatResponse;
-        if (uploadedAttachments.length > 0 || displayAttachments.length > 0) {
-          removeStreamingMessage();
-          const restoreComposerSelection =
-            rejectedSendRestoreSelection ?? restoreBeforeOptimisticUserMessage();
+      let data: ChatResponse;
+      if (chatRunCoordinator) {
+        requestAccepted = !provisionalPromotion;
+        const run = await chatRunCoordinator.start({
+          request: requestBody,
+          initialSnapshot: initialRunSnapshot,
+          onDelta: appendChunk,
+          onSearchActivity: updateSearchActivity,
+        });
+        requestAccepted = Boolean(run.acceptedAt);
+        if (run.acceptedAt) {
+          removeProvisionalChatPromotion(run.runId);
+        }
+        if (
+          provisionalPromotion
+          && isDefinitivePreAcceptanceFailure(run)
+        ) {
           return {
             accepted: false,
             completed: false,
-            error: data.error || 'Failed to send message.',
-            restoreComposerSelection,
+            error: run.errorMessage ?? 'The request was not accepted.',
+            restoreComposerSelection:
+              getDraftSelectionForPromotion(provisionalPromotion),
             uploadedAttachments,
             cleanupUploadedAttachments: uploadedAttachments,
           };
         }
-
-        showErrorMessage(data.error || '');
-        return {
-          accepted: false,
-          completed: false,
-          restoreComposerSelection: rejectedSendRestoreSelection,
-          uploadedAttachments,
+        data = {
+          message: run.response ?? undefined,
+          conversationId: run.target.conversationId ?? undefined,
+          conversationTitle: run.title.value,
+          userMessageId: run.userMessageId,
+          assistantMessageId: run.assistantMessageId,
+          threadId: run.createdThreadId,
+          search: run.search ?? undefined,
+          searchActivity: run.searchActivity,
+          ...(run.status === 'failed' || run.status === 'interrupted'
+            ? { error: run.errorMessage ?? 'Chat run failed.' }
+            : {}),
+          cancelled: run.status === 'cancelled',
         };
+      } else {
+        const response = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(requestBody),
+        });
+        if (!response.ok) {
+          const failed = (await response.json()) as ChatResponse;
+          throw new Error(failed.error || 'Failed to send message.');
+        }
+        requestAccepted = true;
+        data = await readChatStream(response, appendChunk, {
+          onSearchActivity: updateSearchActivity,
+          onTextEnd: (content) => {
+            if (canApplyTemporaryResponseForSelection(effectiveSelection)) {
+              finalizeVisibleAssistant(content || latestStreamedContent);
+            }
+          },
+        });
       }
-
-      requestAccepted = true;
-
-      const data = await readChatStream(response, appendChunk, {
-        onSearchActivity: updateSearchActivity,
-        onTextEnd: (content) => {
-          const canApplyTemporaryResponse =
-            canApplyTemporaryResponseForSelection(effectiveSelection);
-
-          if (canApplyTemporaryResponse) {
-            finalizeVisibleAssistant(content || latestStreamedContent);
-          }
-        },
-      });
       logResolvedChatModel(data, 'composer');
+
+      if (data.cancelled) {
+        removeStreamingMessage();
+        return { accepted: true, completed: false, uploadedAttachments };
+      }
 
       const canApplyTemporaryResponse =
         canApplyTemporaryResponseForSelection(effectiveSelection);
 
       if (data.error) {
-        showErrorMessage(data.error);
+        if (!chatRunCoordinator) showErrorMessage(data.error);
         return { accepted: true, completed: false, error: data.error, uploadedAttachments };
       }
 
@@ -1291,7 +1531,10 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
                     }),
                     branches: loadedConversation.branches,
                     selectedBranchIds: mergedSelections,
-                    threadsMap: loadedConversation.threadsMap,
+                    threadsMap: mergeThreadsMaps(
+                      loadedConversation.threadsMap,
+                      transcript.threadsMap
+                    ),
                   };
                 }
               );
@@ -1318,7 +1561,39 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
       );
 
       return { accepted: true, completed: true, uploadedAttachments };
-    } catch {
+    } catch (error) {
+      const coordinatedRun = chatRunCoordinator
+        ? chatRunCoordinator.getSnapshot(runIdentifiers.runId)
+        : null;
+      const definitiveSubmissionError =
+        error instanceof Error
+        && (
+          error.name === 'ChatRunConflictError'
+          || error.name === 'ChatRunSubmissionError'
+        );
+      if (coordinatedRun?.acceptedAt) {
+        requestAccepted = true;
+        removeProvisionalChatPromotion(coordinatedRun.runId);
+      }
+      if (
+        provisionalPromotion
+        && (
+          (coordinatedRun && isDefinitivePreAcceptanceFailure(coordinatedRun))
+          || (!coordinatedRun && definitiveSubmissionError)
+        )
+      ) {
+        return {
+          accepted: false,
+          completed: false,
+          error:
+            coordinatedRun?.errorMessage
+            ?? (error instanceof Error ? error.message : 'The request was not accepted.'),
+          restoreComposerSelection:
+            getDraftSelectionForPromotion(provisionalPromotion),
+          uploadedAttachments,
+          cleanupUploadedAttachments: uploadedAttachments,
+        };
+      }
       if (!requestAccepted && (uploadedAttachments.length > 0 || displayAttachments.length > 0)) {
         removeStreamingMessage();
         const restoreComposerSelection =
@@ -1336,6 +1611,15 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
       const canApplyTemporaryResponse =
         canApplyTemporaryResponseForSelection(effectiveSelection);
 
+      if (chatRunCoordinator) {
+        return {
+          accepted: true,
+          completed: false,
+          error: error instanceof Error ? error.message : 'The chat run failed.',
+          uploadedAttachments,
+        };
+      }
+
       if (canApplyTemporaryResponse) {
         replaceStreamingMessage({
           id:
@@ -1347,11 +1631,12 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
           content: 'Sorry, there was an error processing your message.',
           timestamp: new Date(),
           previousMessageId: userMessage.id,
+          isError: true,
         });
       }
       return { accepted: true, completed: false, uploadedAttachments };
     } finally {
       params.clearPendingChatRequestForSelection(effectiveSelection);
     }
-  }, []);
+  }, [chatRunCoordinator]);
 }

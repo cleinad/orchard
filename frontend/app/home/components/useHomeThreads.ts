@@ -26,6 +26,7 @@ export function useHomeThreads(
   const [threadPanelOpen, setThreadPanelOpen] = useState(false);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [threadSessionsById, setThreadSessionsById] = useState<Record<string, ThreadSession>>({});
+  const threadSessionsRef = useRef<Record<string, ThreadSession>>({});
   const selectionResolveTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -46,6 +47,7 @@ export function useHomeThreads(
     setHighlightSource(null);
     setThreadPanelOpen(false);
     setActiveSessionId(null);
+    threadSessionsRef.current = {};
     setThreadSessionsById({});
   }, []);
 
@@ -162,10 +164,12 @@ export function useHomeThreads(
 
   const createThreadSession = useCallback(
     (session: ThreadSession, options?: CreateThreadSessionOptions) => {
-      setThreadSessionsById((prev) => ({
-        ...prev,
+      const nextSessions = {
+        ...threadSessionsRef.current,
         [session.sessionId]: session,
-      }));
+      };
+      threadSessionsRef.current = nextSessions;
+      setThreadSessionsById(nextSessions);
 
       if (options?.makeActive) {
         setActiveSessionId(session.sessionId);
@@ -184,22 +188,22 @@ export function useHomeThreads(
       sessionId: string,
       updater: (session: ThreadSession) => ThreadSession
     ) => {
-      setThreadSessionsById((prev) => {
-        const existing = prev[sessionId];
-        if (!existing) {
-          return prev;
-        }
+      const existing = threadSessionsRef.current[sessionId];
+      if (!existing) {
+        return;
+      }
 
-        const nextSession = updater(existing);
-        if (nextSession === existing) {
-          return prev;
-        }
+      const nextSession = updater(existing);
+      if (nextSession === existing) {
+        return;
+      }
 
-        return {
-          ...prev,
-          [sessionId]: nextSession,
-        };
-      });
+      const nextSessions = {
+        ...threadSessionsRef.current,
+        [sessionId]: nextSession,
+      };
+      threadSessionsRef.current = nextSessions;
+      setThreadSessionsById(nextSessions);
     },
     []
   );
@@ -239,6 +243,7 @@ export function useHomeThreads(
     activeSession,
     threadPanelOpen,
     threadSessionsById,
+    threadSessionsRef,
     resetThreadUi,
     dismissPopover,
     handlePointerUp,

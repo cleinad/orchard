@@ -146,6 +146,7 @@ export function applyUserMessageToTree(params: {
   selectedBranchIds: BranchSelectionMap;
   pendingBranch: PendingBranchTarget | null;
   userMessage: Message;
+  newBranchId?: string;
 }) {
   const nextMessages = [...params.messages, params.userMessage];
 
@@ -179,7 +180,7 @@ export function applyUserMessageToTree(params: {
   }
 
   const nextPosition = getActualBranchesForSource(nextBranches, sourceMessageId).length;
-  const newBranchId = createTemporaryId('branch');
+  const newBranchId = params.newBranchId ?? createTemporaryId('branch');
 
   nextBranches.push({
     id: newBranchId,

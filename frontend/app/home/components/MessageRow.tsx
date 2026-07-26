@@ -344,8 +344,13 @@ function MessageRow({
     <>
       <ChatMessageFrame
         data-message-id={message.id}
+        data-message-error={message.isError ? 'true' : undefined}
         messageRole={message.role}
-        onPointerUp={message.role === 'assistant' ? onAssistantPointerUp : undefined}
+        onPointerUp={
+          message.role === 'assistant' && !message.isError
+            ? onAssistantPointerUp
+            : undefined
+        }
         surfaceClassName={
           isPendingBranchSource
             ? 'bg-foreground/[0.03] px-3 py-3 ring-1 ring-foreground/[0.08]'
@@ -498,7 +503,7 @@ function MessageRow({
           </>
         )}
 
-        {!message.isStreaming && message.role === 'assistant' && (
+        {!message.isStreaming && message.role === 'assistant' && !message.isError && (
           <div
             className="mt-3 flex flex-wrap items-center gap-1.5"
             onPointerUp={(event) => event.stopPropagation()}

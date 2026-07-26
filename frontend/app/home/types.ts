@@ -13,6 +13,7 @@ export interface Message {
   searchActivity?: SearchActivitySummary | null;
   previousMessageId: string | null;
   isStreaming?: boolean;
+  isError?: boolean;
 }
 
 export interface ConversationBranch {

@@ -29,6 +29,7 @@ interface ThreadPanelProps {
   onWidthChange: (widthPx: number) => void;
   onInputChange: (sessionId: string, value: string) => void;
   onSend: (sessionId: string, overrideContent?: string) => void;
+  onStop?: (sessionId: string) => void;
   onClose: () => void;
 }
 
@@ -60,6 +61,7 @@ export default function ThreadPanel({
   onWidthChange,
   onInputChange,
   onSend,
+  onStop,
   onClose,
 }: ThreadPanelProps) {
   const [openSourceTray, setOpenSourceTray] = useState<{
@@ -447,17 +449,20 @@ export default function ThreadPanel({
               {/* Centered on the composer height: bottom-1.5 looked low vs one-line text (no mic column). */}
               <div className="pointer-events-none absolute inset-y-0 right-2 flex w-7 items-center justify-center">
                 <button
-                  type="submit"
+                  type={isBusy ? "button" : "submit"}
+                  onClick={isBusy && session ? () => onStop?.(session.sessionId) : undefined}
                   data-testid="thread-panel-send"
-                  aria-label="Send"
-                  disabled={!canSend}
+                  aria-label={isBusy ? "Stop response" : "Send"}
+                  disabled={isBusy ? !onStop : !canSend}
                   className={cx(
                     "pointer-events-auto flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md p-0",
                     buttonStyles.primary,
                     buttonStyles.focus
                   )}
                 >
-                  <svg
+                  {isBusy ? (
+                    <span className="h-2.5 w-2.5 rounded-[2px] bg-current" />
+                  ) : <svg
                     className="h-3 w-3"
                     fill="none"
                     stroke="currentColor"
@@ -470,7 +475,7 @@ export default function ThreadPanel({
                       strokeLinejoin="round"
                       d="M5 10l7-7m0 0l7 7m-7-7v18"
                     />
-                  </svg>
+                  </svg>}
                 </button>
               </div>
             </div>

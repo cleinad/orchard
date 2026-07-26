@@ -10,7 +10,7 @@ At any moment, the user has exactly one selected chat, but that selected chat ca
 
 - a persistent conversation stored in Supabase
 - a local persistent draft that has not been sent yet
-- a temporary session chat that never touches the database
+- a temporary session chat stored only in the browser session
 
 This is the canonical feature doc for the current home chat navigation model. It supersedes the older one-conversation-per-mentor and global temporary-mode mental model.
 
@@ -77,8 +77,9 @@ Rules:
 - they are visually labeled `Temp`
 - they can be closed directly from the sidebar
 - they persist across reloads in the same browser tab via `sessionStorage`
-- they disappear when closed or when the tab or session ends
-- they are never written to `conversations`, `messages`, or `threads`
+- active runs continue while the root coordinator and live connection remain available
+- they disappear when closed or when the browser tab or session ends
+- they never write chat content or run state to Supabase Postgres
 - they cannot be converted into persistent chats in the current version
 
 ### Draft behavior
@@ -89,7 +90,8 @@ Rules:
 
 - clicking `+` creates or reuses a local draft
 - the first submitted message creates the real `conversations` row
-- after the first successful exchange, the draft is promoted into a normal persistent conversation
+- first send assigns the future conversation ID client-side and the coordinated chat request creates it idempotently
+- the draft is promoted immediately while generation continues independently
 - after that promotion, the client replaces `/home` with `/home/<conversationId>`
 - if the user switches away from an empty draft without sending anything, that draft is removed
 
@@ -113,13 +115,13 @@ Rules:
 Persistent chats:
 
 - before the first exchange: `New chat`
-- after the first assistant response: generate a short title
+- title generation starts in parallel from the first prompt and is reconciled with the first response
 - if title generation fails: fall back to the first user message, truncated
 
 Temporary chats:
 
 - before the first message: `Temporary chat`
-- after the first assistant response: use the returned generated title when available
+- title generation starts in parallel and is retained in the local session
 - if no generated title is returned: fall back to the first user message, truncated
 
 ### Deep links from `/mentors`
@@ -242,13 +244,15 @@ When `conversationId` is provided:
 
 When the selected chat is a local draft:
 
-- the client sends no `conversationId`
-- the route creates a new `conversations` row
+- the client assigns a UUID and sends it with `createConversation = true`
+- the route creates that exact `conversations` row idempotently
 - the first exchange becomes the start of the new persistent conversation
 - the route may generate a short title for that first exchange
 - the client swaps selection from draft to persistent conversation
 
-The route does not search for an existing conversation by `mentorId`. Missing `conversationId` means "create a new persistent conversation."
+The route does not search for an existing conversation by `mentorId`.
+
+Run ownership, retry behavior, and mode-specific persistence are specified in [Chat Run Lifecycle](./chat-run-lifecycle.md).
 
 ### Temporary chat
 
@@ -262,7 +266,7 @@ When `chatMode = 'temporary'`:
 - do not schedule memory extraction
 - use sanitized client-provided history and optional thread history to answer
 
-For the first top-level exchange in a temporary chat, the route can still generate a title and return it to the client, but that title is never saved to the database.
+For the first top-level exchange in a temporary chat, the route generates a title in parallel and returns it to the local session. It is never written to a conversation or run table.
 
 ## Database Impact
 

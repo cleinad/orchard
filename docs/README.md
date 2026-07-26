@@ -50,6 +50,7 @@ If docs conflict, prefer:
 - [features/memory.md](./features/memory.md): memory system architecture, read/write paths, schema, and API shape
 - [features/mentors.md](./features/mentors.md): built-in and custom mentors, data model, prompt construction, and API integration
 - [features/multi-chat-home.md](./features/multi-chat-home.md): multi-conversation home behavior, persistent conversation URLs, route hydration including the routed-history loading placeholder, non-persistent handoff back to `/home`, sidebar model, runtime state, and database impact
+- [features/chat-run-lifecycle.md](./features/chat-run-lifecycle.md): shared persistent/temporary run coordination, idempotency, cancellation, reconciliation, transient buffering, cleanup, and title provenance
 - [features/temporary-chat.md](./features/temporary-chat.md): temporary chat behavior, memory modes, URL-less `/home` behavior, first-click handoff from routed conversations, and chat route behavior
 - [features/workspaces.md](./features/workspaces.md): workspace grouping, dedicated workspace pages, workspace context, and scoped memory behavior
 
