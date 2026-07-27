@@ -1,60 +1,107 @@
 # Workspaces
 
-Workspaces group related conversations around a subject such as Health, Math 337, Finances, or a project. They sit above Keen in the sidebar and have a dedicated page at `/workspaces/:workspaceId`.
+Workspaces group persistent chats around a subject or project. Each workspace
+has a dedicated page, shared instructions, and its own memory scope.
 
-## User Model
+## User model
 
 A workspace contains:
 
-- sessions, which are conversations scoped to the workspace
-- workspace memory, learned only from chats in that workspace
-- workspace context and notes, written by the user and applied to every chat in the workspace
+- a name, optional description, icon, and accent color
+- persistent chats
+- instructions applied to every chat in the workspace
+- memory learned from workspace chats
 
-Files and links are intentionally deferred.
+The workspace page is `/workspaces/<workspaceId>`. The sidebar can expand each
+workspace and create a workspace-scoped draft.
 
-## Sidebar Behavior
+## Instructions
 
-The sidebar keeps existing mentor behavior and adds Workspaces above Keen.
+Workspace instructions are editable from the workspace page and stored in the
+workspace `context` field. They are added to the system prompt for every chat in
+that workspace.
 
-- Clicking a workspace row opens `/workspaces/:workspaceId`.
-- Clicking its chevron expands or collapses nested workspace chats.
-- Clicking its plus button starts a workspace-scoped draft chat.
-- Existing default chats stay under Keen.
-- Existing mentor chats stay under their mentor groups.
+They are appropriate for subject background, learning goals, constraints,
+preferred notation, or recurring project context.
 
-## Memory Semantics
+## Memory
 
-Default Keen chats read and write global memory.
+Workspace chats:
 
-Workspace chats read global memory plus memory owned by the active workspace. Extracted memories from workspace chats are written only to that workspace with:
+- read global memory plus memory owned by the workspace
+- write extracted memory to the workspace
 
-- `owner_type = 'workspace'`
-- `owner_id = workspace id`
+Workspace memory is not exposed to general chats or other workspaces.
 
-Workspace memory does not appear in default chats, mentor chats, or other workspaces. Automatic promotion from workspace memory to global memory is not part of v1.
+`memory_item_sources` tracks which conversations support a memory item. That
+provenance determines what happens when chats move.
 
-Use workspace context as a place for global instructions you want every chat in that space to share (tone, constraints, recurring preferences, and project notes).
+## Moving chats
 
-## Data Model
+Persistent chats can be dragged between the general Chats section and
+workspaces, or between workspaces.
 
-`workspaces` stores the workspace name, description, context, icon, accent color, and owner.
+The current conservative memory policy is:
 
-`conversations.workspace_id` associates a chat with a workspace. A conversation cannot have both `mentor_id` and `workspace_id`.
+- Moving into a workspace also moves active source-scope memories supported only
+  by that chat.
+- A memory supported by other conversations stays in its original scope.
+- Moving out of a workspace never promotes workspace memory to global memory.
+- Future messages and extracted memories use the chat's new context.
 
-`memory_items.owner_type` supports `global`, `mentor`, and `workspace`.
+Moving a workspace chat back to general Chats requires confirmation because its
+existing workspace memories remain scoped to the workspace.
 
-## Routes And APIs
+The move is performed by
+`PATCH /api/conversations/<conversationId>/context` and the
+`move_conversation_context` database function.
 
-Workspace view:
+## Deletion
 
-- `/workspaces/:workspaceId`
+Deleting a workspace requires confirmation and permanently removes:
 
-Workspace API:
+- the workspace
+- its conversations, main messages, branches, and inline threads
+- workspace-owned memory
+- attachment metadata associated with deleted messages
+
+The deletion function returns Storage paths, and the route then attempts to
+remove those private image objects. Global memory is not changed.
+
+After success, local workspace drafts and selected state are cleared, sidebar
+data is refreshed, and navigation returns to `/home`.
+
+## API
 
 - `GET /api/workspaces`
 - `POST /api/workspaces`
-- `GET /api/workspaces/:workspaceId`
-- `PATCH /api/workspaces/:workspaceId`
-- `DELETE /api/workspaces/:workspaceId`
+- `GET /api/workspaces/<workspaceId>`
+- `PATCH /api/workspaces/<workspaceId>`
+- `DELETE /api/workspaces/<workspaceId>`
+- `PATCH /api/conversations/<conversationId>/context`
 
-Conversation creation accepts optional `workspaceId` and rejects requests with both `mentorId` and `workspaceId`.
+All routes authenticate with Supabase and scope operations to the current user.
+
+## Key implementation
+
+- `frontend/app/workspaces/[workspaceId]/page.tsx`
+- `frontend/app/api/workspaces/route.ts`
+- `frontend/app/api/workspaces/[workspaceId]/route.ts`
+- `frontend/app/api/conversations/[conversationId]/context/route.ts`
+- `frontend/app/home/components/SidePanel.tsx`
+- `frontend/lib/workspaces.ts`
+- `supabase/migrations/20260719001000_production_schema_baseline.sql`
+
+## Verification
+
+- `frontend/e2e/workspaces.spec.js`
+- `frontend/__tests__/app/workspaces-route.test.ts`
+- `frontend/__tests__/supabase/workspaces-migration.test.ts`
+- `supabase/tests/database.sql`
+
+## Related docs
+
+- [Multi-chat home](./multi-chat-home.md)
+- [Memory](./memory.md)
+- [Image attachments](./image-attachments.md)
+- [Authentication](./auth-and-route-protection.md)

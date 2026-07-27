@@ -1,437 +1,202 @@
-# Keen Design Language
+# Design Language
 
-## Purpose
+Orchard uses a calm editorial interface that keeps the material being learned
+ahead of the product chrome.
 
-This document captures the current visual philosophy for Keen.
+This is the current visual and interaction direction. Implemented variables and
+utilities are listed in [Design tokens](./tokens.md).
 
-Use it when designing or refactoring frontend surfaces so future work stays aligned with the product direction and does not drift back toward generic AI SaaS patterns.
+## Desired character
 
-This is a current design reference, not a historical plan.
-
-**Implementation tokens** (CSS variables and Tailwind class names) live in [tokens.md](./tokens.md).
-
-## What To Call It
-
-The clearest name for this style is:
-
-**Quiet editorial research UI**
-
-That means:
-
-- editorial in typography and composition
-- quiet in tone, restraint, and color
-- research-oriented in seriousness and clarity
-- still a UI, not a magazine layout or art project
-
-Another acceptable shorthand is:
-
-**editorial minimalism for research tools**
-
-## Core Feel
-
-Keen should feel like:
+Orchard should feel:
 
 - calm
-- serious
 - intelligent
+- readable
 - spacious
-- focused
 - deliberate
 - curious without being playful
 
-It should not feel like:
+It should not feel like a futuristic AI dashboard, a card-heavy productivity
+suite, or a product trying to prove its intelligence through motion and jargon.
 
-- a glossy startup landing page
-- a futuristic AI dashboard
-- a glassmorphism experiment
-- a productivity app full of cards
-- a luxury brand with dramatic black-on-black styling
-- a “magic assistant” product trying to impress with motion and jargon
+## Principles
 
-The product should feel like a place to think carefully, not a place that is begging for attention.
+### Keep one dominant task
 
-## Style Thesis
+Each surface should make its main action obvious:
 
-Keen combines editorial typography with practical product utility.
+- landing page: understand the promise and enter the app
+- auth page: sign in or create an account
+- chat: read, ask, thread, and branch
+- workspace: orient within a subject and continue learning
 
-The visual system should make the product feel more like a serious research environment and less like a feature-marketed AI wrapper.
+Secondary controls should not compete with the content.
 
-The best mental model is:
+### Let typography carry identity
 
-- homepage = a cover page
-- login/auth = a working surface with the same atmosphere
-- app surfaces = practical tools shaped by the same restraint
+Use scale, measure, spacing, and contrast before adding decorative containers.
+Long responses need a comfortable reading rhythm; compact controls need a
+stable product voice.
 
-## Non-Negotiable Principles
+### Prefer low chrome
 
-### 1. One strong idea per screen
+Do not introduce a card merely to group every section. Use enclosure when it
+clarifies an input, modal decision, source tray, or dense control group.
 
-Each screen should have one dominant idea.
+Borders and shadows should establish hierarchy without making every region look
+detachable.
 
-Examples:
+### Preserve the learner's place
 
-- landing page: the product promise
-- login page: complete the sign-in task
-- workspace page: continue the investigation
+Threads, branches, maps, and side panels must make context easier to follow.
+Transitions should maintain transcript position and make the active path clear.
 
-If multiple sections are competing for attention, the page is probably too busy.
+### Keep atmosphere subordinate
 
-### 2. Typography does most of the work
+The public Orchard surfaces use the orchard-at-dusk image and dark overlays as a
+quiet setting for the product promise. Inside the application, theme colors and
+subtle surfaces should support reading rather than recreate a marketing hero.
 
-Keen should get much of its personality from type, spacing, and proportion rather than decorative UI devices.
+## Typography
 
-Prefer:
+### Fraunces
 
-- strong headline scale
-- careful line length
-- disciplined spacing
-- quiet contrast
+Use `font-heading` for the wordmark and major display headings. Fraunces should
+add warmth and authority, not decorate every section title.
 
-Avoid:
+### User-selected reading font
 
-- decorative pills
-- excessive iconography
-- heavy card grids
-- stacked marketing sections that all say the same thing
+Normal reading content follows `--font-body` through `font-reading` or ordinary
+body inheritance. The current choices are Satoshi and Newsreader.
 
-### 3. Atmosphere should be subtle
+Use it for chat responses, explanatory copy, and other reading surfaces.
 
-Backgrounds can carry a very soft atmospheric wash, usually in the `blizzard` family of pale blue-whites.
+### Fixed Satoshi
 
-That atmosphere should:
+Use `font-sans` for compact product chrome that should remain stable regardless
+of the reading preference:
 
-- support the typography
-- make the page feel slightly more composed than flat white
-- remain subtle enough that the content still feels primary
-
-It should not become:
-
-- a loud gradient hero
-- a colorful illustration substitute
-- a visual centerpiece fighting the text
-
-### 4. Interfaces should stay low-chrome
-
-Keen should avoid unnecessary framing.
-
-Default posture:
-
-- no cards by default
-- no hero cards by default
-- no boxed central container unless the interaction truly needs it
-- no thick shadows or ornamental borders
-
-Use enclosure only when it helps the task.
-
-### 5. Product copy should be outcome-first
-
-Write about the work the product helps the user do.
-
-Prefer:
-
-- research
-- exploration
-- continuity
-- understanding
-- branching
-
-Avoid:
-
-- AI hype
-- assistant/copilot language
-- generic “unlock your productivity” copy
-- vague abstractions with no product meaning
-
-## Typography Rules
-
-### Primary display face: `Fraunces`
-
-Use `Fraunces` for:
-
-- the wordmark
-- major landing-page headlines
-- major auth-page headlines
-- selective section headings that need gravitas
-
-Traits:
-
-- generous size
-- tight tracking
-- compact line-height
-- sparing use
-
-`Fraunces` should create authority, not ornament.
-
-In code, use the **`font-heading`** utility (see [tokens.md](./tokens.md)).
-
-### Reading voice (user-selected body font)
-
-Most long-form and in-app reading should follow the **user’s reading font** (Satoshi or Newsreader from settings). In implementation that is **`font-reading`**, backed by **`--font-body`**. The global `body` rule already applies this, so you often need no extra class.
-
-Use for chat transcripts, markdown, settings paragraphs, and any surface where comfort and the user’s preference should win.
-
-### Fixed product sans: `Satoshi`
-
-Use **`font-sans`** when the piece of UI must **always** be Satoshi, independent of reading-font setting: compact chrome, form labels, buttons, status lines, and marketing lines that should stay in the geometric sans voice.
-
-### Fixed editorial serif: `Newsreader`
-
-Use **`font-serif`** only when a component must **always** render as Newsreader (for example a deliberate editorial pull quote). If the user has chosen Newsreader as their reading font, normal text still uses **`font-reading`** / **`--font-body`**, not an ad hoc `font-serif` class.
-
-If in doubt between `font-serif` and `font-reading`, prefer **`font-reading`** for body-scale copy.
-
-### Practical note
-
-The full mapping of CSS variables and Tailwind utilities (`font-reading`, `font-sans`, `font-serif`, `font-heading`) is documented in [tokens.md](./tokens.md).
-
-### Product chrome stays in sentence case
-
-Do not use full caps in Keen product UI.
-
-This applies to:
-
-- headers
-- section labels
-- metadata
 - buttons
-- navigation chrome
-- empty states
+- form labels
+- metadata
+- menus
+- status text
 
-If a label needs more clarity or emphasis, solve it with spacing, weight, contrast, or position instead of capitalization.
+### Fixed Newsreader
 
-## Color And Surface Rules
+Use `font-serif` only for a deliberate editorial passage that must always use
+Newsreader. Do not use it as a substitute for the configurable reading font.
 
-### Default tone
+### Sentence case
 
-The baseline light atmosphere should stay in the `blizzard` family:
+Product labels, section headings, buttons, and empty states use sentence case.
+Use position, weight, spacing, and contrast for emphasis instead of all caps.
 
-- near-white base
-- pale blue wash
-- blue-gray text accents
-- restrained dark CTA contrast
+## Color and surfaces
 
-### Surface behavior
+The application supports four implemented themes:
+
+- Blizzard — cool light
+- Dune — warm light
+- Stellar — neutral dark
+- Twilight — blue dark
+
+Use semantic theme tokens instead of embedding a theme's literal colors in
+ordinary application components.
 
 Prefer:
 
-- pale backgrounds
-- translucent or lightly tinted white inputs
+- restrained accents
 - subtle borders
-- dark text and dark CTA buttons
+- surfaces close to the page background
+- readable foreground contrast
+- one obvious primary action
 
 Avoid:
 
-- saturated accents
-- multiple competing colors
+- multiple competing accent colors
 - thick outlines
-- dramatic gradients
 - heavy shadow stacks
+- translucent effects that reduce readability
+- color as the only indicator of state
 
-### Practical implementation note
+The landing and auth artwork is an intentional exception with explicit dark
+values; it is not the default component palette.
 
-For pages where visual stability matters, use explicit light values rather than depending entirely on theme token blending.
+## Layout
 
-This is especially useful on landing and auth pages where the atmosphere needs to be dependable and quiet.
+- Keep long-form reading measures controlled.
+- Let the transcript own most of the viewport.
+- Keep headers simple and place navigation near the true page edges.
+- Use whitespace to establish hierarchy.
+- Increase density only where comparison or repeated controls require it.
 
-Semantic color tokens are listed in [tokens.md](./tokens.md).
+On narrow screens, side surfaces may become overlays, but they should include a
+clear route back to the main chat.
 
-## Layout Rules
-
-### Header
-
-Headers should be simple and full-width.
-
-Default:
-
-- wordmark on the left
-- one secondary action on the right, or nothing
-- items sit near the true page edges, not clustered in a narrow central container
-
-Avoid:
-
-- crowded header controls
-- multiple competing actions
-- nav bars that feel heavier than the page itself
-
-### Content width
-
-Keep the main text measure narrow.
-
-Good default ranges:
-
-- hero copy: narrow and centered
-- auth/task forms: around `26rem` wide
-- supporting body copy: readable, not sprawling
-
-### Whitespace
-
-Use whitespace to create seriousness.
-
-Do not rush to “fill” empty space with:
-
-- feature blocks
-- decorative cards
-- secondary taglines
-- product screenshots that are not necessary
-
-## Component Guidance
+## Components
 
 ### Buttons
 
-Primary buttons should feel firm and simple.
-
-Prefer:
-
-- dark fill
-- light text
-- rounded-full or softly rounded corners
-- no extra icon unless it improves clarity
+Use the shared button styles and icon tooltips. Primary actions should be firm
+and simple; secondary actions should stay quiet until hovered or focused.
 
 ### Inputs
 
-Inputs should feel precise, not bulky.
+Inputs should have clear labels, thin borders, visible focus treatment, and
+enough height for touch without becoming oversized.
 
-Prefer:
+### Messages
 
-- slightly shorter height than typical default SaaS forms
-- soft rounding
-- thin borders
-- gentle focus ring
-- low visual noise
+User messages use a quiet bubble. Assistant responses remain visually open so
+the content reads like a document rather than a stack of cards.
 
-Avoid:
+Thread highlights must remain legible across prose, code, math, and tables.
+Branch controls should reveal structure without interrupting reading flow.
 
-- oversized padded fields
-- thick outlines
-- dark form surfaces on light pages
+### Feedback
 
-### Alerts And Messaging
+Place errors, warnings, loading states, and confirmations near the action they
+govern. Destructive confirmations must state what will be removed.
 
-Errors and success states should appear inline and stay restrained.
+## Copy
 
-They should be readable, but not louder than the task itself.
+Copy should be clear, direct, and specific about the learning action.
 
-## Page Archetypes
+Prefer terms such as:
 
-### 1. Cover page
+- chat
+- thread
+- branch
+- response
+- source
+- workspace
 
-Use for the marketing homepage.
+Avoid AI hype, vague productivity promises, and language that treats the product
+as a magical persona.
 
-Rules:
+## Review checklist
 
-- one centered idea
-- one clear CTA
-- minimal header
-- no product snippet unless absolutely necessary
-- no feature grid by default
+Before shipping a surface:
 
-### 2. Task page
+1. Is its dominant task clear?
+2. Can any container or control be removed?
+3. Does the type hierarchy do enough of the work?
+4. Does the layout preserve reading context?
+5. Are focus, hover, loading, error, and destructive states clear?
+6. Does it still feel like Orchard in both light and dark themes?
 
-Use for login and similar focused flows.
-
-Rules:
-
-- same atmosphere as the homepage
-- tighter column
-- more practical spacing
-- supporting text in a simpler, clearer voice
-- the form becomes the main object
-
-### 3. Workspace page
-
-Use for the product itself.
-
-Rules:
-
-- keep the restraint
-- increase utility density carefully
-- prioritize orientation, reading flow, and working state
-- do not convert the app into a mosaic of cards
-
-Internal pages can be more practical than the homepage, but they should still feel like they belong to the same product.
-
-## Copy Guidance
-
-Keen copy should sound:
-
-- clear
-- serious
-- contemporary
-- lightly editorial
-
-It should not sound:
-
-- breathless
-- mystical
-- overbranded
-- “AI-native”
-- startup-demo polished
-
-Good copy tends to be:
-
-- short
-- specific
-- outcome-first
-- free of jargon
-
-## What Future Agents Should Avoid
-
-Do not reintroduce:
-
-- hero cards
-- dashboard-card landing pages
-- floating product mockups by default
-- generic feature strips
-- pill-heavy interface chrome
-- glassmorphism
-- oversized shadows
-- multi-accent palettes
-- assistant/copilot language when designing research-facing surfaces
-
-If a proposal starts to look like “normal AI SaaS,” it is probably wrong for Keen.
-
-## Current Reference Surfaces
-
-Use these files as concrete examples of the current direction:
+## Current references
 
 - `frontend/app/page.tsx`
-- `frontend/app/login/page.tsx`
+- `frontend/app/components/AuthPage.tsx`
+- `frontend/app/home/[[...conversationId]]/page.tsx`
+- `frontend/app/home/components/MessageRow.tsx`
+- `frontend/app/home/components/ThreadPanel.tsx`
 
-These are not the whole design system, but they are the clearest current examples of the desired tone.
+## Related docs
 
-## Agent Checklist
-
-Before shipping a new UI surface, check:
-
-1. Is there one dominant idea on the screen?
-2. Could the page work with less chrome?
-3. Are cards being used only when they are truly necessary?
-4. Is the typography carrying enough of the visual identity?
-5. Does the page feel like a serious research tool rather than a generic AI product?
-6. Are the actions minimal and clearly prioritized?
-7. Is the background atmospheric but still subordinate to the content?
-8. If this were reduced by 20%, would it likely get better? If yes, reduce it.
-
-## When To Deviate
-
-Deviation is fine when the task genuinely requires it.
-
-Examples:
-
-- dense workspace controls
-- tables or inspectors
-- source-heavy research views
-- more explicit status surfaces
-
-But even then:
-
-- keep the palette restrained
-- keep type hierarchy strong
-- keep chrome low
-- avoid adding decorative complexity
-
-The rule is not “everything must look like the homepage.”
-
-The rule is:
-
-**everything should feel like it belongs to the same calm, editorial, research-first product.**
+- [Design tokens](./tokens.md)
+- [Product](../product.md)
+- [Inline threads](../features/inline-threads.md)

@@ -1,254 +1,97 @@
 # Conversation Branching
 
-## What This Doc Covers
+Conversation branches let a user start an alternate path from an earlier
+assistant response without discarding the path they were already following.
 
-This doc describes transcript-native conversation branching on `/home`.
+Branches are part of the main chat's message tree. Inline threads are separate
+side conversations attached to selected text.
 
-It covers:
+## User flow
 
-- how full-reply branches differ from inline threads
-- how branch creation and branch switching work in the transcript
-- how the conversation map works across desktop and mobile
-- how branch state is represented in client state and persisted data
-- which runtime invariants must hold to avoid context bleed and UI confusion
+1. Choose the branch action on an assistant response.
+2. Orchard marks that response as the pending branch source.
+3. Send a new prompt from the main composer.
+4. The new user message becomes the first message on an alternate path.
+5. Use branch chips or the conversation map to switch between paths.
 
-This is the current source of truth for the shipped branching feature. Use the dated spec files only for historical rationale and future scope.
+Starting a branch never deletes the existing continuation. Cancelling before
+sending returns to the current path without creating branch state.
 
-## Overview
+## Message tree
 
-Conversation branching turns one chat into a tree-shaped workspace while keeping the reading experience linear.
+Every main-chat message can point to its predecessor through
+`messages.previous_message_id`. That makes the transcript a tree instead of a
+single chronological list.
 
-Core model:
+The active transcript is the path selected through that tree:
 
-- the sidebar still shows one chat item per conversation
-- branches live inside a chat, not as separate sidebar entries
-- only assistant replies can become branch points
-- the user creates branches explicitly with `+ Branch`
-- the transcript always shows one active path at a time
-- switching a branch changes only the transcript below that fork point
+- messages outside the active path remain persisted but hidden from the
+  transcript
+- a reply continues from the tail of the active path
+- switching a branch changes the visible path and the context sent on the next
+  request
 
-This is intentionally different from inline threads.
+`conversation_branches` stores the branch identity, source assistant message,
+entry user message, and whether the branch is the original path.
 
-- **Conversation branch**
-  - alternate continuation from a full assistant reply
-  - becomes part of the main conversation tree
-  - affects prompt assembly for future top-level replies
-- **Inline thread**
-  - side discussion anchored to a selected text span
-  - remains a separate learning-mode interaction
-  - does not replace the active top-level conversation path
+## Branch chips
 
-## User-Facing Behavior
+When an assistant response has more than one continuation, a chip beside that
+response shows the active choice and allows switching.
 
-### Branch creation
+Branch labels use the first user prompt on each path. The original continuation
+is represented as the main path; alternate branches have their own IDs.
 
-The user creates a branch from an assistant reply by clicking `+ Branch`.
+## Conversation map
 
-Behavior:
+The map visualizes the complete conversation tree:
 
-- clicking `+ Branch` arms a pending branch target from that assistant reply
-- the bottom composer stays in place
-- the source reply gets a subtle targeted state
-- a pending branch chip appears selected
-- the next submitted message becomes the first user turn in that branch
+- each prompt and response pair becomes a node
+- branches form separate lanes
+- the active route is visually distinct
+- selecting a node updates the active branch choices and navigates to the
+  corresponding transcript message
 
-On the first real fork from an assistant reply:
+On desktop the map can share the screen with the chat and has a resizable split.
+On smaller screens it opens as an overlay. Map pan, zoom, follow behavior, split
+ratio, and active route are client-side view state.
 
-- the existing continuation is preserved as `Main`
-- the new branch is created as a sibling continuation
-- the new branch title is derived from the first branch prompt, with `New branch` as fallback
+## Persistence modes
 
-Current limitation:
+Persistent chats store branch records and predecessor links in Supabase.
+Temporary chats keep the same logical tree in browser session state.
 
-- branch titles are auto-generated from the branch prompt
-- branch rename UI is not implemented yet
+A draft chat can build a local branch tree. Its first successful persistent send
+promotes the draft to a conversation while preserving the selected path and
+stable client-generated identifiers.
 
-### Branch switching in the transcript
+## Context isolation
 
-Assistant replies with alternate continuations show branch chips directly under the message.
+The server reconstructs only the path leading to the submitted user message.
+Messages from sibling paths must not leak into the prompt, search planning, or
+memory extraction for the active path.
 
-Rules:
+Memory is conversation-scoped at extraction time rather than branch-scoped.
+Branch isolation therefore protects immediate model context; it does not create
+separate long-term memory namespaces.
 
-- chips only render on assistant replies that actually have branches
-- the active chip is visually distinct
-- clicking a chip swaps the transcript after that reply to the selected branch
-- content above that reply does not change
-- older assistant replies can be forked later, not just the current head
+## Key implementation
 
-### Conversation map
+- `frontend/app/home/components/conversationTree.ts`
+- `frontend/app/home/components/conversationMapModel.ts`
+- `frontend/app/home/components/ConversationMap.tsx`
+- `frontend/app/home/components/useConversationMapRuntime.ts`
+- `frontend/app/home/components/useMainChatRuntime.ts`
+- `frontend/app/api/chat/route.ts`
 
-Conversations with at least one mapped turn expose a `Map` control in the top-right of the chat pane.
+## Verification
 
-Availability:
+- `frontend/e2e/conversation-map.spec.js`
+- `frontend/__tests__/app/home/conversation-map-model.test.ts`
+- branch cases in `frontend/__tests__/app/chat-route.test.ts`
 
-- appears when the selected conversation has at least one mapped turn, even if it is still linear
-- stays available while the transcript scrolls
-- keeps per-conversation camera position and pane width in local state
+## Related docs
 
-Desktop behavior:
-
-- opens as a split pane beside the transcript
-- the divider can be resized horizontally
-- the map renders the full conversation tree, not just the current active path
-- turn depth stays vertically stable while horizontal spacing adapts to subtree growth
-- sibling branches spread symmetrically around the main route instead of reusing rigid fixed columns
-- changing the active branch or clicking another already-formed node updates highlight state only; it does not reshuffle existing node positions
-- map geometry only reflows when the underlying conversation tree changes, such as when new turns or new branches are added
-- connector lines are softly diagonal or curved so the tree can expand without stacked right-angle elbows
-- each visible node is one merged turn card that combines the user prompt and assistant reply
-- prompt context stays visible in the card, while the assistant preview remains the dominant content
-- branch titles are not shown in the map UI
-- zoom changes scale only; it does not collapse turns into summary placeholders
-- the current transcript position is highlighted while scrolling
-
-Mobile behavior:
-
-- opens as a full-screen takeover
-- closes after route navigation so focus returns to the transcript
-
-Navigation behavior:
-
-- clicking any node activates the full route needed to reach that message
-- route activation updates all fork selections between the root and the target node
-- after activation, the transcript scrolls to the corresponding turn in the transcript
-- route activation must not rebound the transcript back to the live bottom after that explicit navigation jump
-- desktop hover and keyboard focus show a local floating preview beside the node
-- the preview closes as soon as the pointer leaves the node
-- the floating preview renders markdown visually but is not an interactive reading surface
-- the map and inline-thread panel are mutually exclusive surfaces
-- opening inline-thread UI closes the map to avoid overlapping navigation surfaces
-
-### Sidebar and navigation boundaries
-
-Branching does not change the sidebar mental model.
-
-Rules:
-
-- a conversation tree is still one chat in the sidebar
-- branches do not appear as nested sidebar items
-- branch switching happens inside the conversation UI
-- inline threads remain visually and behaviorally separate from branches
-
-### Persistent, draft, and temporary chats
-
-The same branching model works across all home chat types.
-
-- **Persistent conversations**
-  - branches are loaded from and saved to Supabase
-- **Local drafts**
-  - branches exist in local state until the first successful send promotes the draft
-- **Temporary chats**
-  - branches exist only in session-local state and are never persisted
-
-## Runtime Model
-
-### Active path projection
-
-The client stores the full message tree for the selected chat, then projects one active path at a time.
-
-Key concepts:
-
-- `selectedBranchIds`
-  - map keyed by assistant `source_message_id`
-  - determines which branch is active at each fork point
-- `pendingBranch`
-  - temporary branch target created by `+ Branch`
-  - makes the next send go to a new continuation from a specific assistant reply
-- `activeMessages`
-  - one visible transcript path derived from the message tree plus `selectedBranchIds`
-
-The canonical tree helpers live in `frontend/app/home/components/conversationTree.ts` and `frontend/app/home/components/conversationMapModel.ts`.
-
-### Prompt and response isolation
-
-Branching is only useful if context is isolated by path.
-
-Required invariants:
-
-- prompt history for top-level replies is built from the active path only
-- sibling branches must never be included in model context
-- the loading or thinking indicator must only appear for the branch or chat that owns the in-flight request
-- late responses must not overwrite whichever branch or chat the user navigated to afterward
-
-The home page now scopes pending request state to the originating branch/chat instead of using one global loading flag.
-
-### Persistence model
-
-Full-reply branches are intentionally separate from inline threads.
-
-Top-level path structure:
-
-- `messages.previous_message_id`
-  - records the actual predecessor in the top-level conversation tree
-- `conversation_branches`
-  - stores branch metadata for each fork choice
-  - `source_message_id` = assistant reply being forked from
-  - `entry_message_id` = first user message in that branch
-  - `is_main` = preserved original continuation
-  - `position` = chip ordering for siblings
-
-Important boundary:
-
-- inline threads still use `threads` plus thread-scoped `messages.parent_message_id`
-- full-reply branches use `conversation_branches` plus `messages.previous_message_id`
-- these systems must not be merged semantically
-
-### First-fork materialization
-
-Before branching, a normal linear conversation does not need explicit branch rows.
-
-When the first alternate branch is created from assistant reply `A`:
-
-- the existing continuation from `A` is materialized as `Main` if needed
-- the new branch points at the new user message being created
-- future top-level replies continue down the selected branch path
-
-## Memory Guardrails
-
-Branch exploration should not poison long-term memory.
-
-Current behavior:
-
-- memory extraction can still run after branched conversations
-- extraction is limited to user-stated facts, preferences, constraints, decisions, and commitments
-- assistant-generated ideas and speculative branch exploration should not be stored unless the user clearly adopts them
-
-## Key Files
-
-| File | Role |
-|------|------|
-| `frontend/app/home/[[...conversationId]]/page.tsx` | Home-screen orchestration for branch state, active path projection, map layout, transcript sync, and branch-scoped loading |
-| `frontend/app/home/components/conversationTree.ts` | Canonical tree helpers for transcript path projection, chip derivation, and optimistic branch creation |
-| `frontend/app/home/components/conversationMapModel.ts` | Pure conversation-tree projection for merged turn cards, edges, active-path state, and route selection patches |
-| `frontend/app/home/components/ConversationMap.tsx` | Hybrid SVG + HTML renderer for the tree, pan/zoom camera, local hover preview, and node selection UI |
-| `frontend/app/home/components/ConversationMapToggle.tsx` | Home header entry point for opening the map |
-| `frontend/app/home/components/useConversationMapState.ts` | Per-conversation map open state, split ratio, and camera persistence |
-| `frontend/app/home/components/ConversationView.tsx` | Transcript rendering, branch chip UI, and pending branch highlighting |
-| `frontend/app/home/components/useHomeData.ts` | Loads `previous_message_id` and `conversation_branches` for persistent conversations |
-| `frontend/app/api/chat/route.ts` | Branch-aware request handling, `Main` materialization, branch row creation, and active-path prompt assembly |
-| `frontend/lib/memory-agent.ts` | Memory extraction rules that avoid storing speculative branch exploration as facts |
-| `supabase/migrations/20260719001000_production_schema_baseline.sql` | Production-derived schema for `messages.previous_message_id` and `conversation_branches` |
-
-## Database Impact
-
-Branching is present in the production-derived baseline:
-
-- [`20260719001000_production_schema_baseline.sql`](../../supabase/migrations/20260719001000_production_schema_baseline.sql)
-
-That baseline:
-
-- adds `messages.previous_message_id`
-- creates `conversation_branches`
-- adds indexes for branch loading
-- adds RLS policies for branch metadata
-- backfills `previous_message_id` for existing top-level message history
-
-## Intentional Limits
-
-These are current limits, not bugs:
-
-- branch rename UI is not implemented yet
-- branches do not appear in the sidebar
-- the map is navigation-only and does not support branch rename or editing flows
-- branch titles remain internal metadata and are not surfaced in the map UI
-- the map closes when inline-thread UI opens instead of coexisting side by side
+- [Inline threads](./inline-threads.md)
+- [Multi-chat home](./multi-chat-home.md)
+- [Chat run lifecycle](./chat-run-lifecycle.md)

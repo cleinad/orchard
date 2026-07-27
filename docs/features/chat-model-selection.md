@@ -1,168 +1,85 @@
-# Chat Model Selection
+# Model Selection
 
-## Overview
+The chat composer exposes a server-derived catalog of configured models.
+Selection applies to main replies, conversation branches, and inline threads.
 
-Main chat now supports a user-selectable model dropdown in the composer. The selection applies across:
+## Availability
 
-- Keen
-- Mentor conversations
-- Inline thread follow-ups
-- Text-selection popover follow-ups
+`frontend/lib/chat-models.ts` is the catalog source of truth. Each concrete
+model specifies:
 
-The current curated options are:
+- provider and API model ID
+- required server-side environment variable
+- image support
+- optional effort levels and thinking controls
+- display metadata
 
-- **Auto** → resolves server-side to the first configured Chinese provider target
-- **GPT-5.5** → OpenAI `gpt-5.5`
-- **GPT-5.4** → OpenAI `gpt-5.4`
-- **Gemini 3.1 Pro** → Google `gemini-3.1-pro-preview`
-- **Claude Sonnet 4.6** → Anthropic `claude-sonnet-4-6`
-- **Claude Opus 4.8** → Anthropic `claude-opus-4-8`
-- **Gemini 3 Flash** → Google `gemini-3-flash-preview`
-- **DeepSeek V4 Flash** → DeepSeek `deepseek-v4-flash`
-- **DeepSeek V4 Pro** → DeepSeek `deepseek-v4-pro`
-- **Qwen 3.7 Plus** → Alibaba `qwen3.7-plus`
-- **Kimi K2.7 Code** → Moonshot `kimi-k2.7-code`
+The server marks a model available only when its provider key is configured.
+The browser does not receive provider secrets.
 
-This is intentionally a **catalog-based** system rather than a hardcoded single `CHAT_MODEL`. Labels, provider ids, API model ids, availability, and fallback logic are now centralized so future model expansion is straightforward.
+Current provider families are OpenAI, Anthropic, Google, DeepSeek, Alibaba, and
+Moonshot.
 
-## User Experience
+## Auto
 
-- The model picker lives under the main composer, to the right of the search-mode control and response-style picker. Voice controls are intentionally hidden.
-- The selected model is stored in `localStorage` under `keen-chat-model`.
-- The selected effort level is stored in `localStorage` under `keen-chat-model-effort`.
-- The thinking toggle is stored in `localStorage` under `keen-chat-thinking-enabled`.
-- Changing the model affects the **next turn only**.
-- Switching models does **not** reset the conversation, create a new chat, or alter thread state.
-- If a provider is not configured on the server, that option is shown as unavailable and disabled in the dropdown.
-- Effort controls appear only for models with provider-supported effort or thinking options.
+Auto is the default selection. It resolves to the first configured target in
+its ordered catalog list. If none of Auto's targets are configured, normal
+fallback resolution chooses the first configured concrete model.
 
-## Roadmap
+The resolved concrete model is returned with the run metadata for debugging and
+verification.
 
-- Add grouped model sections by provider
-- Add an optional per-mentor persistent model preference in the mentor settings UI
-- Add admin or debug UI for surfacing the final resolved model in the app itself
+## Selection and fallback
 
-## Implementation
+For each request:
 
-### Architecture
+1. Use the requested catalog entry when it is valid and configured.
+2. Resolve Auto to an available concrete target.
+3. Otherwise try the configured default.
+4. Otherwise use the first configured concrete model.
+5. If no provider is configured, return a clear configuration error.
 
-There are now three layers:
+An unavailable or stale browser selection never causes the server to instantiate
+an unconfigured provider.
 
-1. **Catalog layer** — static model definitions, ids, labels, providers
-2. **Resolver layer** — server-side availability + fallback logic
-3. **Request layer** — frontend sends `modelId`, optional effort, and optional thinking state; chat route resolves the final model used for generation
+## Effort and thinking
 
-### Data Flow
+Models may expose `minimal`, `low`, `medium`, `high`, or `max` effort levels.
+The supported subset and default are model-specific.
 
-```text
-User picks model in composer dropdown
-    |
-    v
-selectedModelId state — frontend/app/home/[[...conversationId]]/page.tsx
-    |
-    v
-Persisted to localStorage key "keen-chat-model"
-    |
-    v
-POST /api/chat body includes { modelId, modelEffort?, thinkingEnabled? }
-    |
-    v
-Chat route validates modelId
-    |
-    v
-resolveChatModelSelection(modelId ?? mentor.model_id ?? null)
-    |
-    +--- requested model configured ------> use requested model
-    |
-    +--- requested model unavailable -----> fall back to default available model
-    |
-    +--- nothing configured --------------> return 503
-    |
-    v
-streamText()/generateText() use resolved provider/model + providerOptions
-    |
-    v
-Response includes resolvedModelId + resolvedProvider
-    |
-    v
-Frontend logs resolved selection in dev mode
-```
+Some providers also expose a thinking toggle. Provider adapters translate the
+shared controls into provider-native options, such as reasoning effort,
+thinking level, adaptive thinking, or a thinking budget.
 
-### Resolution Rules
+The selected model is a global browser preference. Effort and thinking choices
+are stored per model so switching models restores each model's last compatible
+settings.
 
-Current precedence:
+## Images
 
-1. `modelId` from the request body
-2. `mentor.model_id` from the database, if present
-3. Default configured chat model
+The catalog declares whether a model can receive images. The composer prevents
+image submission to a text-only selection, and the server validates the same
+constraint.
 
-Today, the user-facing main path is the global dropdown. The `mentor.model_id` fallback exists primarily for future extensibility and manual/server-side use; it is not yet exposed as a mentor settings control in the frontend.
+## Key implementation
 
-### Availability Rules
+- `frontend/lib/chat-models.ts`
+- `frontend/lib/models.ts`
+- `frontend/app/api/chat/models/route.ts`
+- `frontend/app/home/components/ChatModelPicker.tsx`
+- `frontend/app/home/components/useChatModelCatalog.ts`
+- `frontend/app/home/components/chatPreferencePersistence.ts`
 
-Provider availability is derived from env vars:
+## Verification
 
-- `OPENAI_API_KEY`
-- `ANTHROPIC_API_KEY`
-- `GOOGLE_GENERATIVE_AI_API_KEY`
-- `DEEPSEEK_API_KEY`
-- `ALIBABA_API_KEY`
-- `MOONSHOT_API_KEY`
+- `frontend/__tests__/lib/chat-models.test.ts`
+- `frontend/__tests__/lib/models.test.ts`
+- model cases in `frontend/__tests__/app/chat-route.test.ts`
+- model persistence cases in `frontend/e2e/home-routing.spec.js`
 
-Only configured providers are considered available at runtime. If the preferred default (`Auto`) has no configured Chinese-provider target, the resolver falls back to the first available concrete catalog option.
+## Related docs
 
-### Auto Mode
-
-`Auto` is a virtual model id. It is selectable only when at least one auto target is configured. It resolves in this order:
-
-1. DeepSeek V4 Flash
-2. Qwen 3.7 Plus
-3. Kimi K2.7 Code
-4. DeepSeek V4 Pro
-
-The response metadata reports the resolved concrete model id and provider, not `auto`.
-
-### Effort And Thinking
-
-The UI uses a normalized effort vocabulary, but the server maps it per provider:
-
-- OpenAI: `reasoningEffort`
-- Anthropic: adaptive thinking plus `effort`
-- Google Gemini 3: `thinkingConfig.thinkingLevel`
-- DeepSeek: `thinking` and `reasoningEffort`
-- Alibaba/Qwen: `enableThinking` and `thinkingBudget`
-- Moonshot/Kimi K2.7 Code: no effort control; the model thinks by default and the app does not send a `thinking` parameter
-
-### Verification Metadata
-
-The `/api/chat` response now returns:
-
-- `resolvedModelId`
-- `resolvedProvider`
-
-This exists so model resolution can be verified in:
-
-- browser Network tab (`/api/chat` response payload)
-- browser console logs during development
-
-### Key Files
-
-| File | Role |
-|------|------|
-| `frontend/lib/chat-models.ts` | Static catalog of model ids, labels, providers, env binding, default id |
-| `frontend/lib/models.ts` | Runtime resolver, provider instantiation, availability checks, fallback logic |
-| `frontend/app/api/chat/models/route.ts` | Authenticated endpoint returning available chat model list for the frontend |
-| `frontend/app/api/chat/route.ts` | Validates request `modelId`, resolves final model, returns verification metadata |
-| `frontend/app/home/[[...conversationId]]/page.tsx` | Stores selected model, loads model list, sends `modelId`, logs resolved selection |
-| `frontend/app/home/components/ChatComposer.tsx` | Dropdown UI below the composer |
-| `frontend/app/home/components/TextSelectionPopover.tsx` | Passes the active `modelId` for selection follow-ups |
-| `frontend/app/home/components/ThreadPanel.tsx` | Passes the active `modelId` for thread follow-ups |
-| `frontend/app/home/components/usePersistedString.ts` | Reusable persisted string state helper |
-| `frontend/app/home/components/logResolvedChatModel.ts` | Dev-only debug logging for resolved model metadata |
-| `docs/testing/chat-model-selection.md` | Manual + automated testing reference for this feature |
-
-## Testing
-
-See [chat-model-selection.md](../testing/chat-model-selection.md) for focused commands, automated coverage, and manual verification.
-
-The current automated boundary covers catalog data, resolver behavior, providerOptions mapping, and route payload handling. Browser dropdown behavior, localStorage persistence, and dev console logs are still verified manually or through e2e smoke tests.
+- [Response style](./response-style.md)
+- [Image attachments](./image-attachments.md)
+- [Chat run lifecycle](./chat-run-lifecycle.md)
+- [Local setup](../development/setup.md)

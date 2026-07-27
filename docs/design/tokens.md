@@ -1,75 +1,29 @@
-# Design tokens (Keen frontend)
+# Design Tokens
 
-This document lists **design tokens that exist in the repo** today: CSS custom properties, Tailwind theme mappings, and where they are defined.
-
-Source of truth for implementation: `frontend/app/globals.css`, `frontend/app/layout.tsx` (Next.js font variables), and `frontend/lib/body-font.ts` (user reading-font preference).
-
----
+This document records design tokens implemented in
+`frontend/app/globals.css`, `frontend/app/layout.tsx`,
+`frontend/lib/theme.ts`, and `frontend/lib/body-font.ts`.
 
 ## Typography
 
-### User reading font (default body text)
+| Token or utility | Role |
+|---|---|
+| `--font-body`, `font-reading` | User-selected reading font |
+| `--font-stack-sans`, `--font-sans`, `font-sans` | Fixed Satoshi stack |
+| `--font-stack-serif`, `--font-serif`, `font-serif` | Fixed Newsreader stack |
+| `--font-heading`, `font-heading` | Fraunces display face |
 
-| Token | Role |
-|--------|------|
-| `--font-body` | The user’s **reading font** (Satoshi or Newsreader), set from settings and synced to `document.documentElement` with `!important` in `lib/body-font.ts`. |
+The body inherits `--font-body`. The current reading-font choices are Satoshi
+and Newsreader, with Satoshi as the default.
 
-| Tailwind | Maps to |
-|----------|---------|
-| `font-reading` | `var(--font-body)` |
+Markdown code uses the system monospace stack defined in `globals.css`.
 
-**Default:** `body` uses `font-family: var(--font-body)` so most UI inherits the reading font without adding a class.
+## Semantic colors
 
-The name **`font-reading`** avoids clashing with Tailwind’s generic `font-body` naming; it explicitly means “the user-selected body/reading stack.”
+Each theme defines:
 
-### Fixed sans stack (always Satoshi)
-
-| Token | Role |
-|--------|------|
-| `--font-stack-sans` | Literal Satoshi stack (single canonical definition). |
-| `--font-sans` | Alias: `var(--font-stack-sans)`. |
-
-| Tailwind | Maps to |
-|----------|---------|
-| `font-sans` | `var(--font-stack-sans)` |
-
-Use when the surface should **always** use Satoshi (for example marketing chrome, buttons, or labels that must stay geometric sans regardless of reading-font setting).
-
-### Fixed serif stack (always Newsreader)
-
-| Token | Role |
-|--------|------|
-| `--font-stack-serif` | Newsreader stack via Next.js variable + fallbacks. |
-| `--font-serif` | Alias: `var(--font-stack-serif)`. |
-
-| Tailwind | Maps to |
-|----------|---------|
-| `font-serif` | `var(--font-stack-serif)` |
-
-Use for **always-Newsreader** editorial moments (pull quotes, special sections). Do not confuse with the user’s reading font when they have chosen Newsreader: that is still `--font-body` / `font-reading`.
-
-### Display / heading face (Fraunces)
-
-| Token | Source |
-|--------|--------|
-| `--font-heading` | Next.js `Fraunces` in `app/layout.tsx` (`next/font/google`). |
-
-| Class | Role |
-|-------|------|
-| `font-heading` | Defined in `globals.css`; uses `var(--font-heading)` with a Georgia fallback. |
-
-### Monospace
-
-Markdown and inline code use a **system monospace stack** in `globals.css` (not a branded token): `ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace`.
-
----
-
-## Color and surface (semantic)
-
-These are defined per theme on `:root` and `:root[data-theme="…"]` in `globals.css`. Tailwind maps them under `@theme inline` as:
-
-| Tailwind color token | CSS variable |
-|----------------------|--------------|
+| Tailwind color | CSS variable |
+|---|---|
 | `background` | `--background` |
 | `foreground` | `--foreground` |
 | `surface` | `--surface` |
@@ -77,44 +31,56 @@ These are defined per theme on `:root` and `:root[data-theme="…"]` in `globals
 | `accent` | `--accent` |
 | `border-subtle` | `--border-subtle` |
 
-### Theme IDs
+Use these semantic names in application components. Theme-specific literals
+belong in the theme definitions.
 
-| `data-theme` | Notes |
-|--------------|--------|
-| `blizzard` | Default light; paired with `:root` in CSS. |
-| `dune` | Light, warm. |
-| `stellar` | Dark. |
-| `twilight` | Dark. |
+## Themes
 
-Theme selection is handled separately from typography; see theme scripts in `app/layout.tsx` and `lib/theme`.
+| ID | Mode | Character |
+|---|---|---|
+| `blizzard` | light | cool neutral |
+| `dune` | light | warm neutral |
+| `stellar` | dark | near-black neutral |
+| `twilight` | dark | blue dark |
 
----
+Blizzard is the default light theme. Stellar is the default dark theme.
+`frontend/lib/theme.ts` owns IDs, display labels, modes, and theme persistence.
 
-## Markdown and code blocks
+Theme selection and reading-font selection are independent.
 
-Syntax-highlighting and code-panel colors are **theme-scoped** variables in `globals.css`, for example:
+## Markdown
 
-- `--markdown-inline-code-bg`, `--markdown-inline-code-border`
-- `--markdown-code-panel-bg`, `--markdown-code-header-bg`, `--markdown-code-panel-border`, `--markdown-code-panel-divider`, `--markdown-code-panel-shadow`
-- `--markdown-code-button-*`, `--markdown-code-text`, `--markdown-code-muted`, `--markdown-code-comment`
-- `--markdown-code-keyword`, `--markdown-code-string`, `--markdown-code-number`, `--markdown-code-function`, `--markdown-code-type`, `--markdown-code-accent`, `--markdown-code-love`, `--markdown-code-gold`, `--markdown-code-foam`
+`.markdown-content` owns the shared response typography and spacing for:
 
-These are consumed by `.markdown-content` and related classes, not exposed as Tailwind color aliases by default.
+- headings and paragraphs
+- lists
+- tables
+- blockquotes
+- links
+- inline and block code
+- KaTeX math
+- inline citations and thread markers
 
----
+Code-panel and syntax colors are theme-scoped variables beginning with
+`--markdown-`. They are consumed by Markdown classes rather than exported as
+general Tailwind colors.
 
-## Atmospheric (marketing / home backdrop)
+## Thread highlights
 
-Used for soft background washes (see `frontend/lib/marketing-backdrop` and `globals.css`):
+Thread overlay and fallback marker colors derive from semantic foreground,
+accent, and surface variables. The overlay implementation owns geometry; CSS
+tokens should not change marker text order or layout.
 
-- `--ambient-cursor-glow`
-- `--ambient-blob-a`
-- `--ambient-blob-b`
+See [Inline-thread rendering](../implementation/inline-thread-rendering.md)
+before changing highlight markup or selection-affecting styles.
 
----
+## Public surfaces
+
+The landing and auth pages intentionally use explicit dark values over
+`frontend/app/assets/orchard-dusk-backdrop.png`. Those values are local to the
+public artwork treatment and are not general application tokens.
 
 ## Related docs
 
-- [design-language.md](./design-language.md) — product-facing typography and layout philosophy.
-- `frontend/lib/body-font.ts` — `BODY_FONT_STORAGE_KEY`, `BodyFontId`, `applyBodyFont`.
-- `frontend/app/components/BodyFontSync.tsx` — reapplies stored font after hydration.
+- [Design language](./design-language.md)
+- [Inline-thread rendering](../implementation/inline-thread-rendering.md)
