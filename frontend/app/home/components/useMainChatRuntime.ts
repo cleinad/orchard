@@ -214,7 +214,7 @@ export async function readChatStream(
   return metadata;
 }
 
-function mergeReloadedBranchSelections(params: {
+export function mergeReloadedBranchSelections(params: {
   loadedSelectedBranchIds: BranchSelectionMap;
   latestSelectedBranchIds: BranchSelectionMap;
   loadedBranches: ConversationBranch[];
@@ -613,7 +613,13 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
               ),
             }),
             branches: loaded.branches,
-            selectedBranchIds: loaded.selectedBranchIds,
+            selectedBranchIds: mergeReloadedBranchSelections({
+              loadedSelectedBranchIds: loaded.selectedBranchIds,
+              latestSelectedBranchIds: transcript.selectedBranchIds,
+              loadedBranches: loaded.branches,
+              branchSourceMessageId: run.target.branchSourceMessageId,
+              pendingBranchSelectionId: run.target.branchId,
+            }),
             threadsMap: mergeThreadsMaps(loaded.threadsMap, transcript.threadsMap),
           }));
           void current.refreshSidebarData();

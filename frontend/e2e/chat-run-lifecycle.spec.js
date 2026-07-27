@@ -92,6 +92,20 @@ async function createTemporaryChat(page, prompt) {
   await page.getByLabel('Message composer').press('Enter');
 }
 
+async function ensureConversationsOpen(page) {
+  const rail = page.locator('nav[aria-hidden]').first();
+  const sidePanel = page.locator(
+    '[role="region"][aria-label="Conversations and sections"]'
+  ).first();
+
+  if ((await rail.getAttribute('aria-hidden')) !== 'true') {
+    await page.getByRole('button', { name: 'Open conversations' }).first().click();
+    await expect(rail).toHaveAttribute('aria-hidden', 'true');
+  }
+
+  return sidePanel;
+}
+
 test('new persistent submission does not reconcile before server acknowledgement', async ({ page }) => {
   let reconciliationCalls = 0;
   await mockHomeDataRoutes(page, { conversations: [], messagesByConversationId: {} });
@@ -566,6 +580,212 @@ test('persistent generation continues across in-app navigation', async ({ page }
   releaseResponse();
   await page.goBack();
   await expect(page.getByText('Persistent work finished off-screen')).toBeVisible();
+});
+
+test('completed persistent branch run preserves its selection across chat navigation', async ({
+  page,
+}) => {
+  const branchedConversationId = 'conversation-persistent-branch-navigation';
+  const otherConversationId = 'conversation-persistent-branch-navigation-other';
+  const rootAssistantId = 'branch-navigation-root-assistant';
+  const alternateAssistantId = 'branch-navigation-alternate-assistant';
+  const completedResponse = 'The alternate route finished while another chat was open.';
+  const now = '2026-07-26T18:00:00.000Z';
+  let releaseResponse;
+  const responseGate = new Promise((resolve) => {
+    releaseResponse = resolve;
+  });
+  let markResponseDelivered;
+  const responseDelivered = new Promise((resolve) => {
+    markResponseDelivered = resolve;
+  });
+  const state = await mockHomeDataRoutes(page, {
+    conversations: [
+      {
+        id: branchedConversationId,
+        title: 'Branched Navigation',
+        mentor_id: null,
+        workspace_id: null,
+        created_at: now,
+        updated_at: now,
+      },
+      {
+        id: otherConversationId,
+        title: 'Other Conversation',
+        mentor_id: null,
+        workspace_id: null,
+        created_at: now,
+        updated_at: now,
+      },
+    ],
+    messagesByConversationId: {
+      [branchedConversationId]: [
+        {
+          id: 'branch-navigation-root-user',
+          role: 'user',
+          content: 'Show me two routes.',
+          previous_message_id: null,
+          created_at: '2026-07-26T18:00:00.000Z',
+          search_metadata: null,
+        },
+        {
+          id: rootAssistantId,
+          role: 'assistant',
+          content: 'Choose the main route or the alternate route.',
+          previous_message_id: 'branch-navigation-root-user',
+          created_at: '2026-07-26T18:00:01.000Z',
+          search_metadata: null,
+        },
+        {
+          id: 'branch-navigation-main-user',
+          role: 'user',
+          content: 'Take the main route.',
+          previous_message_id: rootAssistantId,
+          created_at: '2026-07-26T18:00:02.000Z',
+          search_metadata: null,
+        },
+        {
+          id: 'branch-navigation-main-assistant',
+          role: 'assistant',
+          content: 'This content belongs only to the main route.',
+          previous_message_id: 'branch-navigation-main-user',
+          created_at: '2026-07-26T18:00:03.000Z',
+          search_metadata: null,
+        },
+        {
+          id: 'branch-navigation-alternate-user',
+          role: 'user',
+          content: 'Take the alternate route.',
+          previous_message_id: rootAssistantId,
+          created_at: '2026-07-26T18:00:04.000Z',
+          search_metadata: null,
+        },
+        {
+          id: alternateAssistantId,
+          role: 'assistant',
+          content: 'This content belongs only to the alternate route.',
+          previous_message_id: 'branch-navigation-alternate-user',
+          created_at: '2026-07-26T18:00:05.000Z',
+          search_metadata: null,
+        },
+      ],
+      [otherConversationId]: [
+        {
+          id: 'branch-navigation-other-user',
+          role: 'user',
+          content: 'Keep this other conversation visible.',
+          previous_message_id: null,
+          created_at: now,
+          search_metadata: null,
+        },
+        {
+          id: 'branch-navigation-other-assistant',
+          role: 'assistant',
+          content: 'The other conversation remains selected.',
+          previous_message_id: 'branch-navigation-other-user',
+          created_at: '2026-07-26T18:00:01.000Z',
+          search_metadata: null,
+        },
+      ],
+    },
+    branchesByConversationId: {
+      [branchedConversationId]: [
+        {
+          id: 'branch-navigation-main',
+          source_message_id: rootAssistantId,
+          entry_message_id: 'branch-navigation-main-user',
+          title: 'Main',
+          is_main: true,
+          position: 0,
+        },
+        {
+          id: 'branch-navigation-alternate',
+          source_message_id: rootAssistantId,
+          entry_message_id: 'branch-navigation-alternate-user',
+          title: 'Alternate route',
+          is_main: false,
+          position: 1,
+        },
+      ],
+    },
+  });
+
+  await page.route('**/api/chat', async (route) => {
+    const body = route.request().postDataJSON();
+    expect(body.previousMessageId).toBe(alternateAssistantId);
+    await responseGate;
+
+    const run = persistentRunSnapshot(body, {
+      response: completedResponse,
+      title: 'Branched Navigation',
+    });
+    const createdAt = new Date().toISOString();
+    state.messagesByConversationId[branchedConversationId] = [
+      ...state.messagesByConversationId[branchedConversationId],
+      {
+        id: run.userMessageId,
+        role: 'user',
+        content: body.message,
+        previous_message_id: alternateAssistantId,
+        created_at: createdAt,
+        search_metadata: null,
+      },
+      {
+        id: run.assistantMessageId,
+        role: 'assistant',
+        content: run.response,
+        previous_message_id: run.userMessageId,
+        created_at: createdAt,
+        search_metadata: null,
+      },
+    ];
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream',
+      body: streamBody(body, {
+        response: run.response,
+        title: run.title.value,
+        titleSource: run.title.source,
+        conversationId: branchedConversationId,
+        run,
+      }),
+    });
+    markResponseDelivered();
+  });
+
+  await page.goto(
+    `/home/${branchedConversationId}?e2e=chat-run-lifecycle`
+  );
+  await page.getByRole('button', { name: 'Alternate route', exact: true }).click();
+  await expect(
+    page.getByText('This content belongs only to the alternate route.')
+  ).toBeVisible();
+
+  await page.getByLabel('Message composer').fill('Continue this alternate route.');
+  await page.getByLabel('Message composer').press('Enter');
+  await expect(page.getByRole('button', { name: 'Stop response' })).toBeVisible();
+
+  let sidePanel = await ensureConversationsOpen(page);
+  await sidePanel.getByRole('button', { name: /Other Conversation/ }).click();
+  await expect(page).toHaveURL(
+    new RegExp(`/home/${otherConversationId}\\?e2e=chat-run-lifecycle$`)
+  );
+  await expect(page.getByText('The other conversation remains selected.')).toBeVisible();
+
+  releaseResponse();
+  await responseDelivered;
+
+  sidePanel = await ensureConversationsOpen(page);
+  await sidePanel.getByRole('button', { name: /Branched Navigation/ }).click();
+
+  await expect(page.getByText(completedResponse)).toBeVisible();
+  await expect(
+    page.getByText('This content belongs only to the alternate route.')
+  ).toBeVisible();
+  await expect(
+    page.getByText('This content belongs only to the main route.')
+  ).toHaveCount(0);
 });
 
 test('completed temporary response and generated title restore locally after reload', async ({ page }) => {
