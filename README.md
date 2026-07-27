@@ -1,59 +1,45 @@
-# Keen
+# Orchard
 
-A voice-native AI thinking partner with specialized mentors, persistent memory, and explicit search mode for live web retrieval.
+Orchard is a conversational learning tool for understanding anything.
 
-## Documentation
+Highlight part of a response to explore it in an inline thread, or branch a
+conversation when a question deserves its own path. The main chat stays intact
+while you follow the details that matter.
 
-Start with [docs/README.md](./docs/README.md) for the product overview and the full documentation map.
+## What makes Orchard different
 
-## Project Structure
+- **Inline threads** turn any selected passage into a focused side conversation.
+- **Conversation branches** let one chat hold multiple paths without mixing
+  their context.
+- **Persistent chats and workspaces** keep longer learning projects organized.
 
-```
-frontend/    Next.js app — UI, API routes, chat, memory, mentors
-docs/        Product docs, feature specs, architecture
-```
+Orchard also supports temporary chats, persistent memory, image attachments,
+model selection, response-style controls, and optional live search.
 
-The Next.js app serves as both the frontend and the API server. Browser voice input uses a short-lived Deepgram token minted by a Next.js API route.
+## Run locally
 
-## Setup
-
-### Frontend (`frontend/.env.local`)
-
-```bash
-# Supabase (required)
-# Get these from: https://app.supabase.com/project/_/settings/api
-NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key          # use the anon key, NOT the service role key
-
-# LLM — Chat responses (required)
-GOOGLE_GENERATIVE_AI_API_KEY=your_google_api_key               # Gemini — primary chat model
-
-# LLM — Memory extraction (required)
-ANTHROPIC_API_KEY=your_anthropic_api_key                       # Claude Haiku — background memory agent
-
-# LLM — Memory embeddings (required for semantic memory recall)
-OPENAI_API_KEY=your_openai_api_key                             # text-embedding-3-small for memory embeddings
-
-# Live web search (optional — search mode works without it but returns "unavailable")
-BRAVE_API_KEY=your_brave_api_key
-EXA_API_KEY=your_exa_api_key
-
-# Voice — Text-to-speech (optional)
-ELEVENLABS_API_KEY=your_elevenlabs_api_key
-ELEVENLABS_VOICE_ID=your_elevenlabs_voice_id
-
-# Voice — Speech-to-text (optional)
-DEEPGRAM_API_KEY=your_deepgram_api_key
-```
-
-**Note:** Only `NEXT_PUBLIC_*` variables are exposed to the browser. All other keys are server-only (used in Next.js API routes). Never put secret keys in `NEXT_PUBLIC_*` variables.
-
-## Running
+The application requires a compatible Supabase project and at least one
+configured chat-model provider.
 
 ```bash
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
 
-Opens at [http://localhost:3000](http://localhost:3000).
+Open [http://localhost:3000](http://localhost:3000).
+
+See [Local setup](./docs/development/setup.md) for environment variables,
+database expectations, and verification commands.
+
+## Repository map
+
+```text
+frontend/    Next.js application, API routes, tests, and browser tests
+supabase/    Active database migrations, legacy migrations, seeds, and SQL tests
+docs/        Product, architecture, feature, design, and development documentation
+```
+
+Start with the [documentation map](./docs/README.md) to find the relevant
+document. Planned work, bugs, and product ideas live in the
+[backlog](./docs/backlog.md).

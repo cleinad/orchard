@@ -1,64 +1,100 @@
-# Keen Architecture
+# Architecture
 
-## Tech Stack
+Orchard is a Next.js application whose route handlers also provide the
+application API. Supabase owns authentication and durable product state.
 
-| Layer | Technology | Why |
-|-------|------------|-----|
-| App + API | Next.js | Shared TypeScript surface for UI, route handlers, auth, and AI orchestration |
-| Database | Supabase (Postgres) | Auth, persistence, RLS, and pgvector-backed memory |
-| Chat Models | AI SDK providers | Common streaming interface across Google, Anthropic, and OpenAI models |
-| Search | Brave / Exa | Optional live retrieval behind auto, required, or off search modes |
-| STT (dormant) | Deepgram | Hidden token route retained for a future voice redesign |
-| TTS (dormant) | ElevenLabs | Hidden spoken-response route retained for a future voice redesign |
+## Runtime
 
-## Runtime Shape
-
-```
-Browser (Next.js UI)
-  |-- chat/search/memory/mentors --> Next.js API routes
-  |-- dormant text-to-speech route --> Next.js /api/tts --> ElevenLabs
-  |-- dormant STT token route ------> Next.js /api/deepgram/token
-
-Next.js API routes
-  |-- auth/session -------------> Supabase Auth
-  |-- persistence --------------> Supabase Postgres
-  |-- chat/memory/search -------> AI/search providers
+```text
+Browser
+  ├─ Next.js pages and client state
+  ├─ Supabase browser client for authenticated storage uploads
+  └─ Next.js route handlers
+       ├─ Supabase Auth and Postgres
+       ├─ configured chat-model providers
+       └─ optional Brave and Exa search providers
 ```
 
-## Voice Pipeline
+The main application is under `frontend/app/`. Shared server and client logic is
+under `frontend/lib/`. There is no separate application backend.
 
-Voice controls are intentionally hidden in the current composer. There is no visible UI path for microphone capture, transcription auto-send, or spoken assistant playback. The old home-screen voice orchestration hooks were removed; the remaining dormant pieces are server routes and data fields that can be reused or replaced by a future voice redesign.
+## Main chat flow
 
-### Input
+1. The client resolves the selected chat, active conversation path, model,
+   search mode, response style, and attachments.
+2. It creates stable identifiers for the run and optimistic messages.
+3. Persistent submissions are accepted into `chat_runs`; temporary submissions
+   remain session-scoped on the client.
+4. `POST /api/chat` authenticates the request, loads the relevant conversation
+   path and memory, optionally retrieves search sources, and streams the model
+   response.
+5. Persistent messages, branches, thread metadata, attachments, and search
+   metadata are completed atomically.
+6. The client reconciles the streamed result with durable state and can recover
+   accepted persistent runs after navigation or reload.
 
-```
-Future mic capture
-  -> POST /api/deepgram/token
-  -> future STT client integration
-  -> submitted text sent to /api/chat
-```
+See [Chat run lifecycle](./features/chat-run-lifecycle.md) for the execution
+contract.
 
-The Deepgram API key stays server-side in `frontend/.env.local`. The current route mints a short-lived token, but no composer UI calls it.
+## Conversation structure
 
-Note: the Deepgram path has unit coverage for token minting only. Browser microphone capture and realtime transcription need to be redesigned before being exposed again.
+Messages form a tree through `messages.previous_message_id`.
+`conversation_branches` records named branch choices rooted at an assistant
+message. The UI derives the active transcript from the selected branch at each
+fork and exposes the full shape through branch chips and the conversation map.
 
-### Output
-
-```
-Assistant text
-  -> POST /api/tts
-  -> ElevenLabs audio stream
-  -> future playback client
-```
+Inline threads use separate `threads` and `thread_messages` records. A thread is
+anchored to selected text in a source message with normalized offsets and a
+selection-stream version. This keeps a focused side conversation separate from
+the main message tree.
 
 ## Persistence
 
-Supabase owns durable product state:
+The active migration set in `supabase/migrations/` defines the database source
+of truth. Major persisted areas include:
 
-- `conversations` and `messages` for persisted chat history
-- `conversation_branches` and message `previous_message_id` for branching
-- `threads` for inline thread persistence
-- `memory_items` and related memory tables for structured memory
-- `mentors` and storage-backed avatar metadata for mentor configuration
+- accounts and profiles
+- workspaces and workspace-scoped instructions
+- conversations, messages, and branches
+- inline threads and thread messages
+- memory items, embeddings, and provenance
+- message attachment metadata and private Storage objects
+- durable chat runs
 
-The Python/FastAPI backend has been removed; new server behavior should be implemented as Next.js route handlers unless it requires a long-lived non-serverless process.
+Row-level security scopes product data to the authenticated user. Chat images
+live in the private `chat-images` bucket and are served through an authenticated
+route.
+
+Temporary chats are serialized to browser `sessionStorage`. Their prompts still
+transit the application server and selected model provider, but their chat
+content is not written to the application database.
+
+## Models and search
+
+The AI SDK provides a common streaming interface across configured OpenAI,
+Anthropic, Google, DeepSeek, Alibaba, and Moonshot models. Availability is
+derived from server-side provider configuration.
+
+Live search has `Off`, `Auto`, and `Always search` modes. When a search runs, the
+server classifies the query, retrieves candidates from configured providers,
+reranks accepted sources, and stores citation metadata with the response.
+
+## Memory
+
+Memory has separate read and write paths:
+
+- The read path ranks relevant active memory items and injects a bounded context
+  block before generation.
+- After a persistent response, the write path extracts candidate memories,
+  merges or supersedes existing items, and updates embeddings when configured.
+
+Workspace chats can read global and workspace memory but write new memories only
+to their workspace scope.
+
+## Related docs
+
+- [Product](./product.md)
+- [Inline threads](./features/inline-threads.md)
+- [Conversation branching](./features/conversation-branching.md)
+- [Memory](./features/memory.md)
+- [Local setup](./development/setup.md)

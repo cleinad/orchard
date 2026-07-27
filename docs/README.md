@@ -1,115 +1,76 @@
-# Docs
+# Orchard Documentation
 
-This directory is the central documentation entrypoint for Keen.
+This is the map for Orchard's current product and implementation
+documentation. Product and feature documents describe shipped behavior.
+Unshipped work belongs in the [backlog](./backlog.md).
 
-Start here if you need to understand what the app is, how the product is organized, and which docs are the current source of truth for behavior, architecture, testing, and implementation constraints.
+## Understand Orchard
 
-## What Keen Is
+- [Product](./product.md) — purpose, defining interactions, vocabulary, and
+  product principles
+- [Architecture](./architecture.md) — runtime, persistence, providers, and
+  request flows
+- [Backlog](./backlog.md) — bugs, improvements, feature ideas, and long-term
+  directions
 
-Keen is a chat-first workspace for research and exploration centered on:
+## Understand a feature
 
-- ongoing conversations around a subject
-- multi-chat navigation for returning to previous investigations
-- transcript-native conversation branching inside a chat
-- auto/required/off search modes for current or external information
-- continuity across conversations so users can build understanding over time
+### Core learning interactions
 
-Additional product surfaces like inline threads, temporary chats, and mentors build on top of that core model.
+- [Inline threads](./features/inline-threads.md) — highlight a passage and open
+  a focused side conversation
+- [Conversation branching](./features/conversation-branching.md) — create and
+  navigate alternate paths inside a chat
+- [Inline-thread rendering](./implementation/inline-thread-rendering.md) —
+  selection offsets, markdown structure, and highlight invariants
 
-## How To Use These Docs
+### Chats and organization
 
-Use the docs in this order:
+- [Multi-chat home](./features/multi-chat-home.md) — persistent chats, drafts,
+  routing, and sidebar behavior
+- [Temporary chats](./features/temporary-chat.md) — session-only chat behavior
+  and privacy boundaries
+- [Chat run lifecycle](./features/chat-run-lifecycle.md) — execution,
+  cancellation, persistence, and recovery
+- [Workspaces](./features/workspaces.md) — grouped chats, scoped instructions,
+  memory, moves, and deletion
 
-1. Read [outline.md](./outline.md) for product vision, workspace model, principles, and MVP scope.
-2. Read [architecture.md](./architecture.md) for the system overview and major technical building blocks.
-3. Read the relevant file in [features](./features/) for the current product behavior of a specific area.
-4. Read [implementation](./implementation/) docs when a feature has non-obvious engineering invariants.
-5. Read [testing/README.md](./testing/README.md) before changing sensitive behavior, then follow the linked suite docs.
+### Chat capabilities
 
-If docs conflict, prefer:
+- [Model selection](./features/chat-model-selection.md) — configured providers,
+  Auto resolution, effort, and thinking controls
+- [Response style](./features/response-style.md) — per-chat answer length,
+  assumed knowledge, and custom guidance
+- [Live search](./features/live-search.md) — search modes, retrieval, citations,
+  and failure behavior
+- [Memory](./features/memory.md) — extraction, retrieval, scoping, and user
+  controls
+- [Image attachments](./features/image-attachments.md) — upload, storage,
+  validation, and model context
+- [Authentication](./features/auth-and-route-protection.md) — public and
+  protected routes, session handling, and API authorization
 
-1. `docs/features/`
-2. `docs/implementation/`
-3. current code
+## Develop and verify Orchard
 
-## Core Docs
+- [Local setup](./development/setup.md) — dependencies, environment variables,
+  Supabase expectations, and startup
+- [Testing](./testing/README.md) — Vitest, Playwright, focused checks, and test
+  locations
+- [Search tuning](./testing/search-tuning-playbook.md) — manual live-provider
+  evaluation
+- [Design language](./design/design-language.md) — visual and interaction
+  principles
+- [Design tokens](./design/tokens.md) — implemented typography, colors, themes,
+  and surfaces
 
-- [outline.md](./outline.md): product vision, user problems, core concepts, principles, MVP scope, and roadmap
-- [architecture.md](./architecture.md): technical architecture, data flow, and system model
-- [design/design-language.md](./design/design-language.md): visual philosophy, typography rules, composition guidance, and UI constraints for future frontend work
-- [design/tokens.md](./design/tokens.md): CSS variables and Tailwind design tokens used in the frontend (typography, color, themes)
+## Source-of-truth rules
 
-## Feature Reference
+- Current behavior: implementation plus the closest feature document
+- Database shape: active files in `supabase/migrations/`
+- Visual rules: `docs/design/`
+- Unshipped work: `docs/backlog.md`
+- Substantial active implementation plans: `docs/plans/`
 
-- [features/auth-and-route-protection.md](./features/auth-and-route-protection.md): auth model, protected routes including `/home/[conversationId]`, proxy rules, and testing coverage
-- [features/chat-model-selection.md](./features/chat-model-selection.md): model picker behavior across routed home chats, resolution rules, availability rules, and verification
-- [features/conversation-branching.md](./features/conversation-branching.md): branch chips, conversation map, tree state, persistence model, and runtime isolation rules
-- [features/image-attachments.md](./features/image-attachments.md): image paste/drop/upload behavior, Supabase Storage flow, model-native vision handling, validation, and cleanup boundaries
-- [features/inline-threads.md](./features/inline-threads.md): text selection, popover behavior, thread panel rules, keyboard behavior, and edge cases across `/home` and `/home/[conversationId]`
-- [features/live-search.md](./features/live-search.md): search-mode behavior, provider-backed retrieval pipeline, persisted source metadata, and safety constraints
-- [features/memory.md](./features/memory.md): memory system architecture, read/write paths, schema, and API shape
-- [features/mentors.md](./features/mentors.md): built-in and custom mentors, data model, prompt construction, and API integration
-- [features/multi-chat-home.md](./features/multi-chat-home.md): multi-conversation home behavior, persistent conversation URLs, route hydration including the routed-history loading placeholder, non-persistent handoff back to `/home`, sidebar model, runtime state, and database impact
-- [features/chat-run-lifecycle.md](./features/chat-run-lifecycle.md): shared persistent/temporary run coordination, idempotency, cancellation, reconciliation, transient buffering, cleanup, and title provenance
-- [features/temporary-chat.md](./features/temporary-chat.md): temporary chat behavior, memory modes, URL-less `/home` behavior, first-click handoff from routed conversations, and chat route behavior
-- [features/workspaces.md](./features/workspaces.md): workspace grouping, dedicated workspace pages, workspace context, and scoped memory behavior
-
-## Current Search Status
-
-Search mode has shipped its first provider-backed slice:
-
-- auto/required/off search selector
-- deterministic internal routing with no extra model hop
-- `Brave + Exa` retrieval pipeline
-- persisted v2 source metadata with a larger reply-attached source tray
-- structured server-side search telemetry for route, provider, and pipeline events
-
-Still left to do:
-
-- validate and tune the live provider stack with real `BRAVE_API_KEY` and `EXA_API_KEY`
-- add caching and durable telemetry only if structured server logs stop being enough
-- add `X`-backed retrieval for explicit reaction or sentiment queries
-- revisit storage only if message-level `search_metadata` becomes too limiting
-
-See [features/live-search.md](./features/live-search.md) for the current search behavior and the active follow-up list.
-
-## Implementation Notes
-
-- [implementation/inline-thread-rendering.md](./implementation/inline-thread-rendering.md): durable inline-thread rendering rules and renderer invariants
-
-Use implementation docs when the feature doc tells you what should happen, but the engineering mechanics are easy to break during refactors.
-
-## Testing Docs
-
-- [testing/README.md](./testing/README.md): central test map, runner commands, focused canaries, and test inventory
-- [testing/home-routing-e2e.md](./testing/home-routing-e2e.md): routed home-chat browser coverage, mocks, and regression targets including delayed `/home/[conversationId]` hydration and `/home/[conversationId]` to `/home` draft/temporary transitions
-- [testing/inline-threads-e2e.md](./testing/inline-threads-e2e.md): inline-thread end-to-end coverage, fixtures, and regression cases
-- [testing/search-citations-and-source-ui.md](./testing/search-citations-and-source-ui.md): search-mode citation coverage, focused canary, manual checks, and current gaps
-- [testing/search-tuning-playbook.md](./testing/search-tuning-playbook.md): manual live-provider validation, telemetry review, and search-quality tuning workflow
-- [testing/chat-model-selection.md](./testing/chat-model-selection.md): automated and manual verification for model selection
-- [testing/memory.md](./testing/memory.md): memory test suite map, coverage philosophy, and remaining gaps
-- [features/auth-and-route-protection.md](./features/auth-and-route-protection.md): auth and route-protection testing coverage plus focused command
-
-## Database Reference
-
-Supabase migrations in [`supabase/migrations`](../supabase/migrations/) are the database source of truth.
-
-Feature docs describe the current product-facing schema impact:
-
-- [features/memory.md](./features/memory.md): memory tables and retrieval/write paths
-- [features/multi-chat-home.md](./features/multi-chat-home.md): conversation and sidebar persistence model
-- [features/conversation-branching.md](./features/conversation-branching.md): branch metadata and `messages.previous_message_id`
-- [features/inline-threads.md](./features/inline-threads.md): thread persistence model
-
-## For Coding Agents
-
-If you are making changes in this repo:
-
-- start from this file
-- read [design/design-language.md](./design/design-language.md) and [design/tokens.md](./design/tokens.md) before changing the landing page, auth pages, typography tokens, or any major visual surface
-- use `docs/features/` as the default behavior reference
-- read [features/multi-chat-home.md](./features/multi-chat-home.md) before changing `/home` route hydration, draft/temporary selection, or handoff from `/home/[conversationId]` back to `/home`
-- read [features/conversation-branching.md](./features/conversation-branching.md) before changing `messages.previous_message_id`, `conversation_branches`, branch chips, or conversation-map routing/state
-- check `docs/implementation/` before refactoring sensitive rendering or state logic
-- check test docs before changing memory, model selection, auth, or inline-thread behavior
-- update the relevant feature or testing doc when you change user-visible behavior or important invariants
+If implementation and documentation disagree, verify the behavior before
+changing either. A code path's presence does not by itself mean the capability
+is enabled or shipped.
