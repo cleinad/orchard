@@ -62,6 +62,15 @@ function expectNoMemoryDatabaseAccess(tracker: MutationTracker) {
   expect(tracker.rpcs.filter(({ fn }) => fn.includes('memory'))).toEqual([]);
 }
 
+function expectNoChatRunMemoryStatus(tracker: MutationTracker) {
+  for (const mutation of tracker.mutations.filter(({ table }) => table === 'chat_runs')) {
+    expect(mutation.args).not.toHaveProperty('memory_status');
+  }
+  for (const query of tracker.queries.filter(({ table }) => table === 'chat_runs')) {
+    expect(String(query.args)).not.toContain('memory_status');
+  }
+}
+
 vi.mock('next/server', async (importOriginal) => {
   const actual = await importOriginal<typeof import('next/server')>();
   return {
@@ -1657,13 +1666,7 @@ describe('chat route run lifecycle', () => {
     expect(tracker.updates('chat_runs').some((mutation) =>
       (mutation.args as { status?: string }).status === 'completed'
     )).toBe(false);
-    expect(tracker.updates('chat_runs').some((mutation) =>
-      (mutation.args as { memory_status?: string }).memory_status === 'skipped'
-    )).toBe(true);
-    expect(tracker.updates('chat_runs').some((mutation) => {
-      const status = (mutation.args as { memory_status?: string }).memory_status;
-      return status != null && status !== 'skipped';
-    })).toBe(false);
+    expectNoChatRunMemoryStatus(tracker);
     expectNoMemoryDatabaseAccess(tracker);
   });
 
@@ -1727,8 +1730,10 @@ describe('chat route run lifecycle', () => {
 
     expect(response.status).toBe(200);
     expect((body.run as { response?: string }).response).toBe('Existing reply');
+    expect((body.run as { subsystems?: object }).subsystems).not.toHaveProperty('memory');
     expect(mockStreamText).not.toHaveBeenCalled();
     expect(tracker.inserts('messages')).toHaveLength(0);
+    expectNoChatRunMemoryStatus(tracker);
   });
 
   it('rejects a conflicting payload for the same run id', async () => {
@@ -2163,9 +2168,7 @@ describe('chat route run lifecycle', () => {
     expect(tracker.updates('chat_runs').some((mutation) =>
       (mutation.args as { title_status?: string }).title_status === 'failed'
     )).toBe(true);
-    expect(tracker.updates('chat_runs').some((mutation) =>
-      (mutation.args as { memory_status?: string }).memory_status === 'skipped'
-    )).toBe(true);
+    expectNoChatRunMemoryStatus(tracker);
     expect(tracker.rpcs.find((rpc) =>
       rpc.fn === 'commit_persistent_chat_run_response'
     )?.args).toMatchObject({ p_run_search_status: 'skipped' });
@@ -2287,9 +2290,7 @@ describe('chat route run lifecycle', () => {
     expect(tracker.inserts('chat_run_events').some((mutation) =>
       (mutation.args as { event?: string }).event === 'assistant_committed'
     )).toBe(false);
-    expect(tracker.updates('chat_runs').some((mutation) =>
-      (mutation.args as { memory_status?: string }).memory_status === 'skipped'
-    )).toBe(true);
+    expectNoChatRunMemoryStatus(tracker);
     expectNoMemoryDatabaseAccess(tracker);
   });
 });

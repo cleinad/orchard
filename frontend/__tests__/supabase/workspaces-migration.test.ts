@@ -48,11 +48,14 @@ describe('workspaces migration', () => {
     expect(baselineSql).toContain('auth.uid() = user_id');
   });
 
-  it('defines a conservative conversation move RPC that protects workspace memory', () => {
+  it('keeps the current move RPC callable when the app omits its legacy policy argument', () => {
     expect(baselineSql).toContain(
       'create or replace function public.move_conversation_context'
     );
     expect(baselineSql).toContain('p_memory_policy text default');
+  });
+
+  it('defines the current conservative conversation move behavior', () => {
     expect(baselineSql).toContain("p_memory_policy is distinct from 'conservative'");
     expect(baselineSql).toContain('for update');
     expect(baselineSql).toContain("error', 'mentor_context_unsupported'");

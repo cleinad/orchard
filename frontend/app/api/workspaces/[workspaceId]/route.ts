@@ -38,7 +38,6 @@ async function getAuthenticatedUser(
 interface DeleteWorkspaceResult {
   workspace_deleted: boolean;
   conversation_count: number;
-  memory_item_count: number;
   storage_paths: string[];
 }
 
@@ -48,14 +47,12 @@ function parseDeleteWorkspaceResult(value: unknown): DeleteWorkspaceResult | nul
   const {
     workspace_deleted: workspaceDeleted,
     conversation_count: conversationCount,
-    memory_item_count: memoryItemCount,
     storage_paths: storagePaths,
   } = value;
 
   if (
     typeof workspaceDeleted !== 'boolean'
     || typeof conversationCount !== 'number'
-    || typeof memoryItemCount !== 'number'
     || !Array.isArray(storagePaths)
   ) {
     return null;
@@ -64,7 +61,6 @@ function parseDeleteWorkspaceResult(value: unknown): DeleteWorkspaceResult | nul
   return {
     workspace_deleted: workspaceDeleted,
     conversation_count: conversationCount,
-    memory_item_count: memoryItemCount,
     storage_paths: storagePaths.filter((path): path is string => typeof path === 'string'),
   };
 }
@@ -219,7 +215,6 @@ export async function DELETE(
       deleted: {
         workspace: 1,
         conversations: result.conversation_count,
-        memoryItems: result.memory_item_count,
       },
     });
   } catch (error) {

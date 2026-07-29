@@ -46,7 +46,6 @@ export interface ChatRunSubsystems {
   response: ChatRunSubsystemStatus;
   title: ChatRunSubsystemStatus;
   search: ChatRunSubsystemStatus;
-  memory: ChatRunSubsystemStatus;
 }
 
 export interface ChatRunTitleSnapshot {
@@ -257,7 +256,6 @@ export function createQueuedChatRunSnapshot(params: {
       response: 'pending',
       title: 'pending',
       search: 'pending',
-      memory: params.mode === 'temporary' ? 'skipped' : 'pending',
     },
     errorCode: null,
     errorMessage: null,

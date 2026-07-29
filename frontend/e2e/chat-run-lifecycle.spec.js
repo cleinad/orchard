@@ -68,7 +68,6 @@ function persistentRunSnapshot(body, {
       response: completed ? 'completed' : cancelled ? 'cancelled' : 'running',
       title: completed ? 'completed' : cancelled ? 'cancelled' : 'running',
       search: 'skipped',
-      memory: completed ? 'completed' : cancelled ? 'cancelled' : 'pending',
     },
     errorCode: null,
     errorMessage: null,

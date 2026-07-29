@@ -41,7 +41,6 @@ function persistentThreadRunSnapshot(run, status = 'completed') {
       response: completed ? 'completed' : 'running',
       title: 'skipped',
       search: 'skipped',
-      memory: completed ? 'completed' : 'running',
     },
     errorCode: null,
     errorMessage: null,

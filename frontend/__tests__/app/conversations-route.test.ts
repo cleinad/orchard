@@ -325,7 +325,6 @@ describe('conversations route', () => {
       'conversation-1',
       {
         workspaceId: 'workspace-1',
-        memoryPolicy: 'conservative',
       },
       {
         move_conversation_context: {
@@ -361,11 +360,6 @@ describe('conversations route', () => {
         createdAt: '2026-06-27T12:00:00.000Z',
         updatedAt: '2026-06-27T12:01:00.000Z',
       },
-      memory: {
-        moved: 1,
-        copied: 0,
-        leftInPlace: 2,
-      },
     });
     expect(tracker.rpcs).toEqual([
       {
@@ -373,7 +367,6 @@ describe('conversations route', () => {
         args: {
           p_conversation_id: 'conversation-1',
           p_workspace_id: 'workspace-1',
-          p_memory_policy: 'conservative',
         },
       },
     ]);

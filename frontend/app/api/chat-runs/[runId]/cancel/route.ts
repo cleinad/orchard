@@ -80,9 +80,6 @@ export async function POST(
         search_status: ['completed', 'failed', 'skipped'].includes(run.subsystems.search)
           ? run.subsystems.search
           : 'cancelled',
-        memory_status: ['completed', 'failed', 'skipped'].includes(run.subsystems.memory)
-          ? run.subsystems.memory
-          : 'cancelled',
         cancelled_at: now,
         completed_at: now,
         updated_at: now,

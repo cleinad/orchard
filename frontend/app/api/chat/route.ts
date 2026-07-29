@@ -1684,7 +1684,6 @@ export async function POST(request: NextRequest) {
           runId: activeRunId,
           values: {
             status: 'submitting',
-            memory_status: 'skipped',
           },
         });
       }
@@ -2431,7 +2430,6 @@ export async function POST(request: NextRequest) {
           response_status: 'running',
           title_status: shouldGenerateTitle ? 'running' : 'skipped',
           search_status: searchMode === 'off' ? 'skipped' : 'running',
-          memory_status: 'skipped',
         },
       });
       if (!streamingStarted) {

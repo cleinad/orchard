@@ -275,7 +275,6 @@ function HomeShell({ children }: { children: ReactNode }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           workspaceId: targetWorkspaceId,
-          memoryPolicy: 'conservative',
         }),
       }
     );
