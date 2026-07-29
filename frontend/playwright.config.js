@@ -74,7 +74,7 @@ module.exports = defineConfig({
         : []),
       {
         command: `npm run dev -- --hostname ${HOST} --port ${PORT}`,
-        url: `${BASE_URL}/home`,
+        url: `${BASE_URL}/home?e2e=playwright-ready`,
         reuseExistingServer: !process.env.CI,
         timeout: 120000,
         env: {
