@@ -27,7 +27,6 @@ const baseRow = {
   response_status: 'running',
   title_status: 'running',
   search_status: 'skipped',
-  memory_status: 'pending',
   response_text: null,
   title: 'Fallback',
   title_source: 'fallback',
@@ -77,6 +76,12 @@ describe('persistent chat run reconciliation routes', () => {
 
     expect(response.status).toBe(200);
     expect(data.run).toMatchObject({ mode: 'persistent', response: 'Done' });
+    expect(data.run.subsystems).toEqual({
+      response: 'running',
+      title: 'running',
+      search: 'skipped',
+    });
+    expect(String(tracker.selects('chat_runs')[0].args)).not.toContain('memory_status');
     expect(tracker.inserts('chat_run_events')[0].args).toMatchObject({
       run_id: runId,
       event: 'client_reconciled',
@@ -106,8 +111,8 @@ describe('persistent chat run reconciliation routes', () => {
       response_status: 'cancelled',
       title_status: 'cancelled',
       search_status: 'skipped',
-      memory_status: 'cancelled',
     });
+    expect(tracker.updates('chat_runs')[0].args).not.toHaveProperty('memory_status');
     expect(tracker.updates('chat_runs')[0].filters).toMatchObject({
       'in:status': ['queued', 'submitting', 'streaming', 'finalizing', 'interrupted'],
       'neq:response_status': 'completed',

@@ -62,8 +62,6 @@ async function mockHomeDataRoutes(page, state) {
     viewer: DEFAULT_VIEWER,
     mentors: [],
     workspaces: [],
-    memoryItems: [],
-    memoryItemSources: [],
     conversations: [],
     messagesByConversationId: {},
     attachmentsByMessageId: {},
@@ -133,20 +131,12 @@ async function mockHomeDataRoutes(page, state) {
       const conversationIds = resolvedState.conversations
         .filter((conversation) => conversation.workspace_id === workspaceId)
         .map((conversation) => conversation.id);
-      const memoryIds = resolvedState.memoryItems
-        .filter(
-          (item) => item.owner_type === 'workspace' && item.owner_id === workspaceId
-        )
-        .map((item) => item.id);
 
       resolvedState.workspaces = resolvedState.workspaces.filter(
         (entry) => entry.id !== workspaceId
       );
       resolvedState.conversations = resolvedState.conversations.filter(
         (conversation) => conversation.workspace_id !== workspaceId
-      );
-      resolvedState.memoryItems = resolvedState.memoryItems.filter(
-        (item) => !(item.owner_type === 'workspace' && item.owner_id === workspaceId)
       );
 
       for (const conversationId of conversationIds) {
@@ -160,28 +150,12 @@ async function mockHomeDataRoutes(page, state) {
         deleted: {
           workspace: 1,
           conversations: conversationIds.length,
-          memoryItems: memoryIds.length,
         },
       });
       return;
     }
 
     await fulfillJson(route, { workspace });
-  });
-
-  await page.route('**/api/memory/items*', async (route) => {
-    const url = new URL(route.request().url());
-    const scope = url.searchParams.get('scope') || 'all';
-    const items =
-      scope.startsWith('workspace:')
-        ? resolvedState.memoryItems.filter(
-            (item) =>
-              item.owner_type === 'workspace' &&
-              item.owner_id === scope.replace(/^workspace:/, '')
-          )
-        : resolvedState.memoryItems;
-
-    await fulfillJson(route, { items });
   });
 
   await page.route('**/api/conversations', async (route) => {
@@ -265,50 +239,6 @@ async function mockHomeDataRoutes(page, state) {
       return;
     }
 
-    const sourceWorkspaceId = conversation.workspace_id ?? null;
-    const sourceOwnerType = sourceWorkspaceId ? 'workspace' : 'global';
-    const sourceOwnerId = sourceWorkspaceId;
-    let movedMemoryCount = 0;
-    let leftMemoryCount = 0;
-
-    const sourceConversationIdsForMemory = (memoryItem) => {
-      const sourceRows = resolvedState.memoryItemSources.filter(
-        (source) => source.memory_item_id === memoryItem.id && source.conversation_id
-      );
-      if (sourceRows.length > 0) {
-        return sourceRows.map((source) => source.conversation_id);
-      }
-      return memoryItem.source_conversation_id ? [memoryItem.source_conversation_id] : [];
-    };
-
-    if (targetWorkspaceId) {
-      for (const item of resolvedState.memoryItems) {
-        if (item.status !== 'active') continue;
-        if (item.owner_type !== sourceOwnerType) continue;
-        if (sourceOwnerType === 'global' && item.owner_id !== null) continue;
-        if (sourceOwnerType === 'workspace' && item.owner_id !== sourceOwnerId) continue;
-
-        const sourceConversationIds = sourceConversationIdsForMemory(item);
-        if (!sourceConversationIds.includes(conversationId)) continue;
-
-        const hasOtherSource = sourceConversationIds.some((id) => id !== conversationId);
-        if (hasOtherSource) {
-          leftMemoryCount += 1;
-          continue;
-        }
-
-        item.owner_type = 'workspace';
-        item.owner_id = targetWorkspaceId;
-        movedMemoryCount += 1;
-      }
-    } else {
-      leftMemoryCount = resolvedState.memoryItems.filter((item) => {
-        if (item.status !== 'active') return false;
-        if (item.owner_type !== 'workspace' || item.owner_id !== sourceWorkspaceId) return false;
-        return sourceConversationIdsForMemory(item).includes(conversationId);
-      }).length;
-    }
-
     conversation.workspace_id = targetWorkspaceId;
     conversation.mentor_id = null;
     conversation.updated_at = new Date().toISOString();
@@ -321,11 +251,6 @@ async function mockHomeDataRoutes(page, state) {
         workspaceId: conversation.workspace_id,
         createdAt: conversation.created_at,
         updatedAt: conversation.updated_at,
-      },
-      memory: {
-        moved: movedMemoryCount,
-        copied: 0,
-        leftInPlace: leftMemoryCount,
       },
     });
   });

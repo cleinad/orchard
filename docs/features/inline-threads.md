@@ -57,8 +57,8 @@ The first thread request includes:
 Later thread turns use their own thread-message history. They do not become
 messages in the main conversation tree.
 
-Model, response-style, search, and temporary-memory settings are inherited from
-the active chat when a thread request is submitted.
+Model, response-style, and search settings are inherited from the active chat
+when a thread request is submitted.
 
 ## Persistent and temporary threads
 

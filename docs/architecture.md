@@ -26,8 +26,7 @@ under `frontend/lib/`. There is no separate application backend.
 3. Persistent submissions are accepted into `chat_runs`; temporary submissions
    remain session-scoped on the client.
 4. `POST /api/chat` authenticates the request, loads the relevant conversation
-   path and memory, optionally retrieves search sources, and streams the model
-   response.
+   path, optionally retrieves search sources, and streams the model response.
 5. Persistent messages, branches, thread metadata, attachments, and search
    metadata are completed atomically.
 6. The client reconciles the streamed result with durable state and can recover
@@ -57,7 +56,6 @@ of truth. Major persisted areas include:
 - workspaces and workspace-scoped instructions
 - conversations, messages, and branches
 - inline threads and thread messages
-- memory items, embeddings, and provenance
 - message attachment metadata and private Storage objects
 - durable chat runs
 
@@ -79,22 +77,9 @@ Live search has `Off`, `Auto`, and `Always search` modes. When a search runs, th
 server classifies the query, retrieves candidates from configured providers,
 reranks accepted sources, and stores citation metadata with the response.
 
-## Memory
-
-Memory has separate read and write paths:
-
-- The read path ranks relevant active memory items and injects a bounded context
-  block before generation.
-- After a persistent response, the write path extracts candidate memories,
-  merges or supersedes existing items, and updates embeddings when configured.
-
-Workspace chats can read global and workspace memory but write new memories only
-to their workspace scope.
-
 ## Related docs
 
 - [Product](./product.md)
 - [Inline threads](./features/inline-threads.md)
 - [Conversation branching](./features/conversation-branching.md)
-- [Memory](./features/memory.md)
 - [Local setup](./development/setup.md)

@@ -98,7 +98,6 @@ import type {
 } from '@/app/home/types';
 import { getHomeE2eFixture } from '@/app/home/e2eFixtures';
 import { CHAT_IMAGE_BUCKET, type ChatImageAttachment } from '@/lib/chat-attachments';
-import type { TemporaryMemoryMode } from '@/lib/chat-session';
 import { supabase } from '@/lib/supabase';
 
 const COMPOSER_DRAFT_INPUTS_STORAGE_KEY = 'keen-home-composer-draft-inputs-v1';
@@ -476,7 +475,6 @@ function HomePageInner() {
     activeConversationId,
     activeConversationMessages,
     activeMessages,
-    activeTemporaryMemoryMode,
     activeThreadMarkersMap,
     branchChipsByMessageId,
     conversationTitle,
@@ -691,7 +689,6 @@ function HomePageInner() {
   } = useInlineThreadRuntime({
     activeConversationId,
     activeMessages,
-    activeTemporaryMemoryMode,
     activateThreadSession,
     createThreadSession,
     findThreadSessionId,
@@ -711,20 +708,6 @@ function HomePageInner() {
     updateTemporaryChat,
     updateThreadSession,
   });
-
-  const updateSelectedTemporaryMemoryMode = useCallback(
-    (mode: TemporaryMemoryMode) => {
-      if (selectedChat?.kind !== 'temporary') {
-        return;
-      }
-
-      updateTemporaryChat(selectedChat.tempChatId, (chat) => ({
-        ...chat,
-        memoryMode: mode,
-      }));
-    },
-    [selectedChat, updateTemporaryChat]
-  );
 
   const {
     handleCreateBranch,
@@ -996,7 +979,6 @@ function HomePageInner() {
           <HomeHeader
             conversationTitle={conversationTitle}
             isTemporaryChat={isTemporaryChat}
-            temporaryMemoryMode={activeTemporaryMemoryMode}
             loadingLists={loadingLists}
             onCreateTemporaryChat={handleCreateTemporaryChat}
             conversationMapNodeCount={conversationMapModel.nodes.length}
@@ -1098,9 +1080,6 @@ function HomePageInner() {
           thinkingEnabledOverrides={thinkingEnabledOverrides}
           searchMode={activeSearchMode}
           isWideLayout={isChatWideLayout}
-          temporaryChatEnabled={isTemporaryChat}
-          showTemporaryIntro={isTemporaryChat && activeMessages.length === 0}
-          temporaryMemoryMode={activeTemporaryMemoryMode}
           searchWarning={activeSearchState?.warning ?? null}
           imageWarning={imageWarning}
           textareaRef={textareaRef}
@@ -1116,7 +1095,6 @@ function HomePageInner() {
           }
           onSearchModeChange={(mode) => setSearchModeForSelection(composerStateSelection, mode)}
           onToggleWideLayout={() => setIsChatWideLayout((current) => !current)}
-          onTemporaryMemoryModeChange={updateSelectedTemporaryMemoryMode}
           onSubmit={handleSubmit}
           onStop={() => {
             const chatId = selectedChat?.kind === 'persistent'

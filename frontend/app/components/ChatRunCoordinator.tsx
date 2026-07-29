@@ -337,9 +337,6 @@ export function ChatRunCoordinator({ children }: { children: ReactNode }) {
                 response: 'completed' as const,
                 title: metadata.titleStatus ?? 'completed' as const,
                 search: metadata.search ? 'completed' as const : 'skipped' as const,
-                memory: initialSnapshot.mode === 'temporary'
-                  ? 'skipped' as const
-                  : 'running' as const,
               },
               updatedAt: new Date().toISOString(),
               completedAt: new Date().toISOString(),

@@ -316,6 +316,6 @@ test('off mode sends off and search mode is restored per composer session', asyn
   await expect(page.getByRole('button', { name: 'Search mode off' })).toBeVisible();
 
   const composer = page.getByLabel('Message composer');
-  await composer.fill('Answer from memory');
+  await composer.fill('Answer from context');
   await composer.press('Enter');
 });

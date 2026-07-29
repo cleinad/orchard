@@ -14,6 +14,7 @@ right now?"
 
 - [ ] Finish replacing the old product identity in user-facing application
   copy and default-chat language.
+- [ ] Add global preferences similar to the Codex app.
 
 ## Bugs
 
@@ -24,17 +25,14 @@ is not obvious.
 
 - [ ] Add server-side cleanup for image uploads that are abandoned before a
   message is saved.
-- [ ] Improve memory retrieval and embedding quality using measured examples.
-- [ ] Add memory search, filtering, provenance, pinning, and "never use"
-  controls.
 - [ ] Validate and tune live search against real provider traffic.
 
 ## Feature ideas
 
 - [ ] Add optional study presets such as "Teach me," "Deep study," and "Quiz
   me" on top of the existing response-style controls.
-- [ ] Add OCR or image summaries when images need to participate in search,
-  memory, or later turns beyond the current model-native context window.
+- [ ] Add OCR or image summaries when images need to participate in search or
+  later turns beyond the current model-native context window.
 - [ ] Add richer source handling if message-level search metadata becomes too
   limiting.
 

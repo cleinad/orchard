@@ -79,14 +79,6 @@ export default function SettingsPage() {
 
       <SettingsGroup title="Data & session" id="session">
         <SettingsRow
-          label="Memories"
-          action={
-            <ActionButton onClick={() => router.push('/memory')}>
-              Open
-            </ActionButton>
-          }
-        />
-        <SettingsRow
           label="Sign out"
           action={
             <ActionButton onClick={handleSignOut} disabled={signingOut}>
@@ -141,7 +133,7 @@ function SettingsRow({
   hint?: string;
   action?: ReactNode;
 }) {
-  // Omit empty value column when only an action is shown (e.g. Memories, Sign out).
+  // Omit empty value columns for action-only rows such as Sign out.
   const showValue = value !== undefined && value !== '';
 
   return (

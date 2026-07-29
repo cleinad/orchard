@@ -31,8 +31,8 @@ queued → submitting → streaming → finalizing → completed
 
 They may instead become `failed`, `cancelled`, or `interrupted`.
 
-Response, title, search, and memory are tracked as separate subsystems because
-the visible answer may finish before background work.
+Response, title, and search are tracked as separate subsystems because the
+visible answer may finish before background work.
 
 ## Persistent runs
 
@@ -75,9 +75,7 @@ The first prompt creates a fallback title immediately. Generated titles carry
 run provenance and a version so older completion work cannot overwrite a newer
 or user-owned title.
 
-Search metadata is finalized with the assistant response. Persistent memory
-extraction runs after the visible response and updates the run's memory
-subsystem status.
+Search metadata is finalized with the assistant response.
 
 ## Key implementation
 

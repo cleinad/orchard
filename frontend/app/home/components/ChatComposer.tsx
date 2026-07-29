@@ -11,13 +11,11 @@ import {
   type ReactElement,
   type RefObject,
 } from 'react';
-import IconTooltip from '@/app/components/IconTooltip';
 import Tooltip from '@/app/components/Tooltip';
 import ChatModelPicker from '@/app/home/components/ChatModelPicker';
 import ResponseStylePicker from '@/app/home/components/ResponseStylePicker';
 import type { PendingChatImageAttachment } from '@/app/home/components/chatImageUploads';
 import { MAX_CHAT_IMAGE_ATTACHMENTS } from '@/lib/chat-attachments';
-import type { TemporaryMemoryMode } from '@/lib/chat-session';
 import type { SearchMode } from '@/lib/chat-search';
 import {
   type ChatModelEffortOverrides,
@@ -42,9 +40,6 @@ interface ChatComposerProps {
   thinkingEnabledOverrides: ChatModelThinkingOverrides;
   searchMode: SearchMode;
   isWideLayout?: boolean;
-  temporaryChatEnabled: boolean;
-  showTemporaryIntro: boolean;
-  temporaryMemoryMode: TemporaryMemoryMode;
   searchWarning: string | null;
   imageWarning: string | null;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
@@ -58,7 +53,6 @@ interface ChatComposerProps {
   onResponseStyleChange: (value: ResponseStyle) => void;
   onSearchModeChange: (mode: SearchMode) => void;
   onToggleWideLayout?: () => void;
-  onTemporaryMemoryModeChange: (mode: TemporaryMemoryMode) => void;
   onSubmit: FormEventHandler<HTMLFormElement>;
   onStop?: () => void;
   onKeyDown: KeyboardEventHandler<HTMLTextAreaElement>;
@@ -77,9 +71,6 @@ export default function ChatComposer({
   thinkingEnabledOverrides,
   searchMode,
   isWideLayout = false,
-  temporaryChatEnabled,
-  showTemporaryIntro,
-  temporaryMemoryMode,
   searchWarning,
   imageWarning,
   textareaRef,
@@ -93,7 +84,6 @@ export default function ChatComposer({
   onResponseStyleChange,
   onSearchModeChange,
   onToggleWideLayout,
-  onTemporaryMemoryModeChange,
   onSubmit,
   onStop,
   onKeyDown,
@@ -373,65 +363,6 @@ export default function ChatComposer({
   return (
     <div className="mx-auto w-full max-w-2xl px-4">
       <div className="shrink-0 pb-2 pt-2">
-        {temporaryChatEnabled && showTemporaryIntro && (
-          <div
-            className="mb-2 flex items-center gap-2 rounded-lg border border-border-subtle bg-foreground/[0.02] px-3 py-2 font-sans text-foreground"
-            role="region"
-            aria-label="Temporary chat settings"
-          >
-            {/* Segmented control: left off (default), right opt-in */}
-            <div
-              className="flex min-h-9 min-w-0 flex-1 rounded-lg bg-foreground/[0.06] p-0.5 sm:min-w-[14rem]"
-              role="group"
-              aria-label="Memory for this chat"
-            >
-              <button
-                type="button"
-                onClick={() => onTemporaryMemoryModeChange('off')}
-                className={cx(
-                  'flex flex-1 cursor-pointer items-center justify-center rounded-md px-2 py-1.5 text-xs font-medium',
-                  buttonStyles.transition,
-                  buttonStyles.focus,
-                  temporaryMemoryMode === 'off'
-                    ? buttonStyles.segmentSelected
-                    : buttonStyles.segmentInactive
-                )}
-              >
-                No memory
-              </button>
-              <button
-                type="button"
-                onClick={() => onTemporaryMemoryModeChange('use_existing')}
-                className={cx(
-                  'flex flex-1 cursor-pointer items-center justify-center rounded-md px-2 py-1.5 text-xs font-medium',
-                  buttonStyles.transition,
-                  buttonStyles.focus,
-                  temporaryMemoryMode === 'use_existing'
-                    ? buttonStyles.segmentSelected
-                    : buttonStyles.segmentInactive
-                )}
-              >
-                Use memories
-              </button>
-            </div>
-            <IconTooltip
-              side="top"
-              ariaLabel="Temporary memory details"
-              content={(
-                <span>
-                  <span className="font-medium">No memory:</span>
-                  {' '}
-                  Saved memory is not read or updated.
-                  <br />
-                  <span className="font-medium">Use memories:</span>
-                  {' '}
-                  Saved memories may inform replies; this chat isn&apos;t stored.
-                </span>
-              )}
-            />
-          </div>
-        )}
-
         <form
           onSubmit={onSubmit}
           onPaste={handlePaste}

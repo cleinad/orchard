@@ -19,7 +19,6 @@ import {
   type ResolvedChatModelSelection,
 } from '@/lib/chat-models';
 
-export const MEMORY_MODEL = anthropic('claude-haiku-4-5-20251001');
 export const SEARCH_PLANNER_MODEL_ID =
   process.env.SEARCH_PLANNER_MODEL || 'qwen/qwen-2.5-7b-instruct';
 export const SEARCH_PLANNER_PROVIDER = 'openrouter';

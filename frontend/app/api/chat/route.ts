@@ -8,8 +8,6 @@ import {
   type ModelMessage,
 } from 'ai';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
-import { loadMemoryContextV2 } from '@/lib/memory-reader';
-import { processMemoryV2 } from '@/lib/memory-agent';
 import { isChatModelEffortLevel, isChatModelId } from '@/lib/chat-models';
 import {
   getChatModel,
@@ -59,10 +57,8 @@ import { buildMentorPrompt } from '@/lib/mentors/prompts';
 import type {
   ChatHistoryMessage,
   ChatMode,
-  TemporaryMemoryMode,
 } from '@/lib/chat-session';
 import {
-  DEFAULT_TEMPORARY_MEMORY_MODE,
   fallbackChatTitleFromMessage,
   isUuid,
   sanitizeGeneratedChatTitle,
@@ -73,7 +69,6 @@ import {
   getChatRun,
   logChatRunEvent,
   updateActiveChatRun,
-  updateChatRun,
   updateUncancelledChatRun,
   validateChatRunMetadata,
   type ChatRunRequestMetadata,
@@ -88,13 +83,9 @@ const BASE_SYSTEM_PROMPT = `You are Keen, a thinking partner. You explain things
 
 Core traits:
 - You remember context from the conversation and reference it only if the user brings up the same or a closely related topic.
-- You do not force connections to prior conversation context or memory.
+- You do not force connections to unrelated prior conversation context.
 - You avoid fluff, generic advice, and unnecessary preamble.
 - You match the requested response style and the user's assumed familiarity for the current chat.`;
-
-const MEMORY_USE_POLICY = `Use memory only when it directly improves the answer: continuing an existing thread or project, applying a known preference or constraint, resolving ambiguity, or avoiding asking for context the user already gave.
-Do not use memory to personalize examples, make analogies, or connect the current topic to unrelated interests unless the user asks for that kind of connection.
-If a memory is not relevant to the user's latest message, ignore it silently.`;
 
 const RESPONSE_FORMATTING_PROMPT =
   'Use KaTeX Markdown for math: inline `$...$`; display math with `$$` fences on their own lines. Do not use `\\(...\\)`, `\\[...\\]`, or plain square brackets as math delimiters. In matrices, separate rows with `\\\\`.';
@@ -176,7 +167,6 @@ interface ChatRequest {
   responseStyle?: unknown;
   timezone?: string;
   chatMode?: ChatMode;
-  memoryMode?: TemporaryMemoryMode;
   history?: ChatHistoryMessage[];
   threadHistory?: ChatHistoryMessage[];
   attachments?: ChatImageAttachmentRequest[];
@@ -589,41 +579,15 @@ function appendReplyContext(basePrompt: string, replyContext: ReplyContext) {
 ${formatReplyContext(replyContext)}`;
 }
 
-function buildSystemPrompt(memoryContext: string, replyContext: ReplyContext): string {
-  if (!memoryContext.trim()) return appendReplyContext(BASE_SYSTEM_PROMPT, replyContext);
-
-  return appendReplyContext(
-    `${BASE_SYSTEM_PROMPT}
-
-You have memory about this user from previous conversations. Use it naturally: reference what you know as if you simply remember. Never announce that you are reading from memory or mention your memory system. 
-Only use it if it makes sense in context and if it's an appropriate time. Don't force connections between unrelated things.
-${MEMORY_USE_POLICY}
-
-<user_memory>
-${memoryContext}
-</user_memory>`,
-    replyContext
-  );
+function buildSystemPrompt(replyContext: ReplyContext): string {
+  return appendReplyContext(BASE_SYSTEM_PROMPT, replyContext);
 }
 
 function buildMentorSystemPrompt(
   basePrompt: string,
-  memoryContext: string,
   replyContext: ReplyContext
 ): string {
-  if (!memoryContext.trim()) return appendReplyContext(basePrompt, replyContext);
-
-  return appendReplyContext(
-    `${basePrompt}
-
-Use the user's memory naturally. Keep it implicit and never mention a memory system.
-${MEMORY_USE_POLICY}
-
-<user_memory>
-${memoryContext}
-</user_memory>`,
-    replyContext
-  );
+  return appendReplyContext(basePrompt, replyContext);
 }
 
 function appendWorkspaceContext(basePrompt: string, workspaceContext: string | null): string {
@@ -1272,7 +1236,6 @@ export async function POST(request: NextRequest) {
       responseStyle: responseStyleFromBody,
       timezone,
       chatMode = 'persistent',
-      memoryMode: memoryModeFromBody,
       history,
       threadHistory,
       attachments: attachmentInput,
@@ -1295,10 +1258,6 @@ export async function POST(request: NextRequest) {
     const messageForTitle = messageText || 'Image question';
     const isTemporaryChat = chatMode === 'temporary';
     isTemporaryRequest = isTemporaryChat;
-    // Temporary chats default to no memory when omitted; persistent chats keep prior behavior.
-    const memoryMode: TemporaryMemoryMode =
-      memoryModeFromBody ??
-      (isTemporaryChat ? DEFAULT_TEMPORARY_MEMORY_MODE : 'use_existing');
     const sanitizedHistory = sanitizeHistoryMessages(history, 50, user.id);
     const sanitizedThreadHistory = sanitizeHistoryMessages(threadHistory, 30, user.id);
     const responseStyle = sanitizeResponseStyle(responseStyleFromBody);
@@ -1723,7 +1682,9 @@ export async function POST(request: NextRequest) {
         await updateActiveChatRun({
           supabase,
           runId: activeRunId,
-          values: { status: 'submitting' },
+          values: {
+            status: 'submitting',
+          },
         });
       }
     }
@@ -2275,22 +2236,6 @@ export async function POST(request: NextRequest) {
     }
 
     const isMentorConversation = !!mentor;
-    const isWorkspaceConversation = !!workspace;
-    const shouldLoadMemory = !isTemporaryChat || memoryMode === 'use_existing';
-    const memoryContext = shouldLoadMemory
-      ? await loadMemoryContextV2(supabase, user.id, {
-          actor: isMentorConversation
-            ? 'mentor'
-            : isWorkspaceConversation
-              ? 'workspace'
-              : 'default',
-          mentorId: mentor?.id ?? null,
-          workspaceId: workspace?.id ?? null,
-          query: messageForPrompt,
-          tokenBudget: isMentorConversation ? 900 : 1100,
-          maxItems: isMentorConversation ? 24 : 30,
-        })
-      : '';
     const normalizedTimeZone = normalizeTimeZone(timezone);
     const requestTimestamp = new Date();
     const replyContext: ReplyContext = {
@@ -2304,12 +2249,8 @@ export async function POST(request: NextRequest) {
     });
 
     let baseSystemPrompt = isMentorConversation
-      ? buildMentorSystemPrompt(
-          buildMentorPrompt(mentor!),
-          memoryContext,
-          replyContext
-        )
-      : buildSystemPrompt(memoryContext, replyContext);
+      ? buildMentorSystemPrompt(buildMentorPrompt(mentor!), replyContext)
+      : buildSystemPrompt(replyContext);
 
     baseSystemPrompt = appendWorkspaceContext(baseSystemPrompt, workspace?.context ?? null);
 
@@ -2474,7 +2415,6 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const capturedMessages = messages;
     const shouldGenerateTitle =
       !activeThreadId &&
       ((isTemporaryChat && sanitizedHistory.length === 0) ||
@@ -2490,7 +2430,6 @@ export async function POST(request: NextRequest) {
           response_status: 'running',
           title_status: shouldGenerateTitle ? 'running' : 'skipped',
           search_status: searchMode === 'off' ? 'skipped' : 'running',
-          memory_status: 'pending',
         },
       });
       if (!streamingStarted) {
@@ -2805,10 +2744,6 @@ export async function POST(request: NextRequest) {
                 ? stripInvalidCitationMarkers(assistantText, capturedPersistedSearchMetadata)
                 : assistantText;
             const assistantResponse = applySearchDisclosure(normalizedText, capturedSearch);
-            const cleanAssistantResponse = sanitizeAssistantContentForReuse(
-              assistantResponse,
-              capturedPersistedSearchMetadata
-            );
             const finalSearchStatus = searchMode === 'off'
               ? 'skipped'
               : capturedSearch.status === 'missing_config'
@@ -2881,57 +2816,6 @@ export async function POST(request: NextRequest) {
                   event: 'assistant_committed',
                 });
               }
-            }
-
-            if (!isTemporaryChat && assistantWasCommitted) {
-              const memoryMessages = capturedMessages.map(({ role, content }) => ({ role, content }));
-              if (activeRunId) {
-                await updateChatRun({
-                  supabase,
-                  runId: activeRunId,
-                  values: { memory_status: 'running' },
-                });
-              }
-              after(async () => {
-                try {
-                  await processMemoryV2(supabase, user.id, memoryMessages, cleanAssistantResponse, {
-                    conversationId: activeConversationId,
-                    mentorId: mentor?.id ?? null,
-                    workspaceId: workspace?.id ?? null,
-                    sourceMessageId: latestUserMessageId,
-                    sourceRole: 'user',
-                  });
-                  if (activeRunId) {
-                    await updateChatRun({
-                      supabase,
-                      runId: activeRunId,
-                      values: { memory_status: 'completed' },
-                    });
-                  }
-                } catch (err) {
-                  console.error('[Memory V2] Error:', err);
-                  if (activeRunId) {
-                    await updateChatRun({
-                      supabase,
-                      runId: activeRunId,
-                      values: { memory_status: 'failed' },
-                    });
-                    await logChatRunEvent({
-                      supabase,
-                      userId: user.id,
-                      runId: activeRunId,
-                      event: 'failed',
-                      detailCode: 'memory_failed',
-                    });
-                  }
-                }
-              });
-            } else if (!isTemporaryChat && activeRunId) {
-              await updateChatRun({
-                supabase,
-                runId: activeRunId,
-                values: { memory_status: 'skipped' },
-              });
             }
 
             // A title is auxiliary work. The assistant response must reach a

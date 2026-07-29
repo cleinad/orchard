@@ -62,7 +62,11 @@ describe('chat run protocol', () => {
     });
     const cancelled = chatRunReducer(queued, { type: 'cancelled' });
     expect(chatRunReducer(cancelled, { type: 'streaming' })).toBe(cancelled);
-    expect(cancelled.subsystems.memory).toBe('skipped');
+    expect(cancelled.subsystems).toEqual({
+      response: 'cancelled',
+      title: 'pending',
+      search: 'pending',
+    });
   });
 
   it('hashes semantically identical payload objects identically', async () => {

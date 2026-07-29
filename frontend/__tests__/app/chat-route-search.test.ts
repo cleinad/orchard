@@ -7,8 +7,6 @@ const mockGenerateText = vi.fn();
 const mockGenerateObject = vi.fn();
 const mockStreamText = vi.fn();
 const mockCreateSupabaseServerClient = vi.fn();
-const mockLoadMemoryContextV2 = vi.fn();
-const mockProcessMemoryV2 = vi.fn();
 const mockBuildMentorPrompt = vi.fn();
 const mockRunSearchPipeline = vi.fn();
 
@@ -112,14 +110,6 @@ vi.mock('@/lib/supabase-server', () => ({
   createSupabaseServerClient: () => mockCreateSupabaseServerClient(),
 }));
 
-vi.mock('@/lib/memory-reader', () => ({
-  loadMemoryContextV2: (...args: unknown[]) => mockLoadMemoryContextV2(...args),
-}));
-
-vi.mock('@/lib/memory-agent', () => ({
-  processMemoryV2: (...args: unknown[]) => mockProcessMemoryV2(...args),
-}));
-
 vi.mock('@/lib/models', () => ({
   getChatModel: vi.fn(() => 'mock-chat-model'),
   getSearchPlannerModel: vi.fn(() => null),
@@ -212,8 +202,6 @@ describe('chat route search citations', () => {
         query: null,
       },
     });
-    mockLoadMemoryContextV2.mockResolvedValue('');
-    mockProcessMemoryV2.mockResolvedValue(undefined);
     mockBuildMentorPrompt.mockReturnValue('Mentor base prompt');
     mockRunSearchPipeline.mockResolvedValue({
       status: 'success',
@@ -703,16 +691,9 @@ describe('chat route search citations', () => {
         }),
       ],
     });
-    expect(mockProcessMemoryV2).toHaveBeenCalledWith(
-      expect.anything(),
-      'user-1',
-      [{ role: 'user', content: 'What changed this week?' }],
-      'Grounded answer',
-      expect.objectContaining({
-        conversationId: 'conv-1',
-        sourceMessageId: 'msg-user-1',
-      })
-    );
+    expect(tracker.queries.some(({ table }) => table.startsWith('memory_'))).toBe(false);
+    expect(tracker.mutations.some(({ table }) => table.startsWith('memory_'))).toBe(false);
+    expect(tracker.rpcs.some(({ fn }) => fn.includes('memory'))).toBe(false);
     expect(mockStreamText).toHaveBeenCalledWith(
       expect.objectContaining({
         system: expect.stringContaining(

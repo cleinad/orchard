@@ -76,7 +76,7 @@ describe('proxy auth protection', () => {
     const supabase = createSupabaseClient({ id: 'user-1' });
     mockCreateServerClient.mockReturnValue(supabase);
 
-    const response = await proxy(createRequest('/memory'));
+    const response = await proxy(createRequest('/settings'));
 
     expect(response.status).toBe(200);
     expect(response.headers.get('location')).toBeNull();

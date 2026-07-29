@@ -28,15 +28,6 @@ Temporary chats survive navigation within the same tab because they are
 serialized to `sessionStorage`. They disappear when that browser session ends
 or its storage is cleared.
 
-## Memory modes
-
-Each temporary chat chooses one of two modes:
-
-- **Use existing memories:** relevant stored memory may be read into the prompt.
-- **No memory:** stored memory is not read.
-
-Neither mode writes new memories from the temporary conversation.
-
 ## Supported chat behavior
 
 Temporary chats support:

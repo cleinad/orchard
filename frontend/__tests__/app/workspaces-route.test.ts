@@ -194,7 +194,6 @@ describe('workspaces route', () => {
           data: {
             workspace_deleted: false,
             conversation_count: 0,
-            memory_item_count: 0,
             storage_paths: [],
           },
           error: null,
@@ -229,7 +228,6 @@ describe('workspaces route', () => {
           data: {
             workspace_deleted: true,
             conversation_count: 2,
-            memory_item_count: 2,
             storage_paths: ['user-1/photo-a.png', 'user-1/photo-b.png'],
           },
           error: null,
@@ -253,7 +251,6 @@ describe('workspaces route', () => {
       deleted: {
         workspace: 1,
         conversations: 2,
-        memoryItems: 2,
       },
     });
 
@@ -263,8 +260,6 @@ describe('workspaces route', () => {
         args: { p_workspace_id: 'workspace-1' },
       },
     ]);
-    expect(tracker.deletes('memory_item_embeddings')).toHaveLength(0);
-    expect(tracker.deletes('memory_items')).toHaveLength(0);
     expect(tracker.deletes('conversations')).toHaveLength(0);
     expect(tracker.deletes('workspaces')).toHaveLength(0);
     expect(mockStorageRemove).toHaveBeenCalledWith([
@@ -273,14 +268,13 @@ describe('workspaces route', () => {
     ]);
   });
 
-  it('deletes an empty workspace without embedding or storage cleanup', async () => {
+  it('deletes an empty workspace without attachment or storage cleanup', async () => {
     const { supabase, tracker } = createRouteSupabase({
       rpcResults: {
         delete_workspace_cascade: {
           data: {
             workspace_deleted: true,
             conversation_count: 0,
-            memory_item_count: 0,
             storage_paths: [],
           },
           error: null,
@@ -302,9 +296,7 @@ describe('workspaces route', () => {
     expect(body.deleted).toEqual({
       workspace: 1,
       conversations: 0,
-      memoryItems: 0,
     });
-    expect(tracker.deletes('memory_item_embeddings')).toHaveLength(0);
     expect(tracker.selects('messages')).toHaveLength(0);
     expect(tracker.deletes('workspaces')).toHaveLength(0);
     expect(mockStorageRemove).not.toHaveBeenCalled();
@@ -318,7 +310,6 @@ describe('workspaces route', () => {
           data: {
             workspace_deleted: true,
             conversation_count: 1,
-            memory_item_count: 0,
             storage_paths: ['user-1/photo.png'],
           },
           error: null,
@@ -340,7 +331,6 @@ describe('workspaces route', () => {
     expect(body.deleted).toEqual({
       workspace: 1,
       conversations: 1,
-      memoryItems: 0,
     });
     expect(tracker.deletes('conversations')).toHaveLength(0);
     expect(tracker.deletes('workspaces')).toHaveLength(0);

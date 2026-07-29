@@ -1,6 +1,7 @@
 const { test, expect } = require('@playwright/test');
 const { deferred, mockChatRoute, mockStreamingChatRoute } = require('./helpers/chatMocks');
 const { mockHomeDataRoutes } = require('./helpers/homeRouteMocks');
+const { createAuthenticatedCookie } = require('./helpers/supabaseAuthFixture');
 
 function createConversation({
   id,
@@ -81,6 +82,26 @@ async function ensureConversationsOpen(page) {
 
 const TINY_PNG_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=';
+
+test('removed memory page and API routes return ordinary 404s', async ({ page }) => {
+  for (const pathname of [
+    '/api/memory',
+    '/api/memory/items',
+    '/api/memory/items/memory-1',
+  ]) {
+    const response = await page.request.get(pathname);
+    expect(response.status(), pathname).toBe(404);
+  }
+
+  if (!process.env.PLAYWRIGHT_AUTH_STORAGE_STATE) {
+    await page.context().addCookies([createAuthenticatedCookie()]);
+  }
+  const response = await page.goto('/memory');
+
+  expect(response).not.toBeNull();
+  expect(response.status()).toBe(404);
+  await expect(page).toHaveURL(/\/memory$/);
+});
 
 test('hydrates a persistent conversation on direct /home/[conversationId] entry', async ({ page }) => {
   const conversationId = 'conversation-direct-route';
