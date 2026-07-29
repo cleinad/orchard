@@ -119,7 +119,7 @@ async function dropFilesIntoComposer(page, files, options = {}) {
   }, { files, exposeFiles: options.exposeFiles ?? false });
 }
 
-test('workspace view shows sessions, sidebar workspace grouping, memory, and editable context', async ({ page }) => {
+test('workspace view shows sessions, sidebar grouping, and editable context without memory UI', async ({ page }) => {
   const workspaceId = 'workspace-health';
   const sessionTitle = 'Zone 2 training plan';
   const state = await mockHomeDataRoutes(page, {
@@ -143,27 +143,6 @@ test('workspace view shows sessions, sidebar workspace grouping, memory, and edi
         title: 'Default Keen chat',
       }),
     ],
-    memoryItems: [
-      {
-        id: 'memory-health-1',
-        user_id: 'e2e-user-1',
-        owner_type: 'workspace',
-        owner_id: workspaceId,
-        type: 'goal',
-        text: 'User is rebuilding aerobic base.',
-        normalized_text: 'user rebuilding aerobic base',
-        confidence: 0.9,
-        salience: 80,
-        stability: 'stable',
-        sensitivity: 'normal',
-        status: 'active',
-        source_conversation_id: null,
-        source_message_id: null,
-        source_role: null,
-        created_at: '2026-06-25T12:00:00.000Z',
-        updated_at: '2026-06-25T12:00:00.000Z',
-      },
-    ],
   });
 
   await page.goto(`/workspaces/${workspaceId}?e2e=workspace-view`);
@@ -183,8 +162,7 @@ test('workspace view shows sessions, sidebar workspace grouping, memory, and edi
   await expect(sidePanel.getByRole('button', { name: new RegExp(sessionTitle) })).toBeVisible();
   await page.keyboard.press('Escape');
 
-  await page.getByRole('button', { name: 'Memory' }).click();
-  await expect(page.getByText('User is rebuilding aerobic base.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Memory' })).toHaveCount(0);
 
   await page.getByRole('button', {
     name: 'Edit workspace instructions',
@@ -250,7 +228,7 @@ test('open resized desktop sidebar stays open when navigating to a workspace', a
   ).toBeLessThanOrEqual(1);
 });
 
-test('workspace delete requires confirmation and removes scoped chats and memories', async ({ page }) => {
+test('workspace delete requires confirmation and removes scoped data', async ({ page }) => {
   const workspaceId = 'workspace-health';
   const state = await mockHomeDataRoutes(page, {
     workspaces: [
@@ -335,7 +313,7 @@ test('workspace delete requires confirmation and removes scoped chats and memori
   const dialog = page.getByRole('dialog', { name: 'Delete this workspace?' });
   await expect(dialog).toBeVisible();
   await expect(dialog).toContainText('all chats in it');
-  await expect(dialog).toContainText('Global memory will not be changed.');
+  await expect(dialog).not.toContainText(/memor/i);
 
   await dialog.getByRole('button', { name: 'Cancel' }).click();
   await expect(dialog).not.toBeVisible();
@@ -944,7 +922,7 @@ test('dragging a workspace chat to another workspace moves the chat and single-s
   await expect(sidePanel.getByTestId(`conversation-row-${conversationId}`)).toBeVisible();
 });
 
-test('dragging a workspace chat to Chats requires confirmation and leaves workspace memory scoped', async ({ page }) => {
+test('dragging a workspace chat to Chats moves immediately and leaves legacy memory scoped', async ({ page }) => {
   const workspaceId = 'workspace-health';
   const conversationId = 'conversation-workspace-drag-out';
   const state = await mockHomeDataRoutes(page, {
@@ -995,21 +973,10 @@ test('dragging a workspace chat to Chats requires confirmation and leaves worksp
   const chatsRow = sidePanel.getByTestId('global-drop-target');
 
   await chatRow.dragTo(chatsRow);
-  const dialog = page.getByRole('dialog', { name: 'Move this chat to Chats?' });
-  await expect(dialog).toBeVisible();
-  await expect(dialog).toContainText('Existing workspace memories');
-  await dialog.getByRole('button', { name: 'Cancel' }).click();
-  await expect(dialog).not.toBeVisible();
-  expect(state.conversations.find((conversation) => conversation.id === conversationId).workspace_id)
-    .toBe(workspaceId);
-
-  await chatRow.dragTo(chatsRow);
-  await expect(dialog).toBeVisible();
-  await dialog.getByRole('button', { name: 'Move chat' }).click();
-  await expect(dialog).not.toBeVisible();
-
-  expect(state.conversations.find((conversation) => conversation.id === conversationId).workspace_id)
-    .toBeNull();
+  await expect(page.getByRole('dialog', { name: 'Move this chat to Chats?' })).toHaveCount(0);
+  await expect.poll(
+    () => state.conversations.find((conversation) => conversation.id === conversationId).workspace_id
+  ).toBeNull();
   expect(state.memoryItems.find((item) => item.id === 'memory-workspace-local').owner_type)
     .toBe('workspace');
   expect(state.memoryItems.find((item) => item.id === 'memory-workspace-local').owner_id)

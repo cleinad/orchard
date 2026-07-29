@@ -11,9 +11,6 @@ import type { PendingBranchTarget } from '@/app/home/components/conversationTree
 import type { ThreadMeta } from '@/app/home/components/threadTypes';
 import type { ThreadMetaRecord } from '@/app/home/components/persistentThreadRuntime';
 import type { PersistentConversationTranscriptInput } from '@/app/home/components/persistentConversationCache';
-import {
-  DEFAULT_TEMPORARY_MEMORY_MODE,
-} from '@/lib/chat-session';
 
 function buildFixtureThreadsMap(threads: ThreadMeta[]) {
   const next = new Map<string, ThreadMeta[]>();
@@ -93,7 +90,6 @@ export function useHomeFixtureRuntime({
         {
           id: fixtureChatId,
           title: tempChatTitle,
-          memoryMode: DEFAULT_TEMPORARY_MEMORY_MODE,
           createdAt: now,
           updatedAt: now,
           messages: fixture.messages,

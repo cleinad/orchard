@@ -29,8 +29,6 @@ import type {
   Message,
 } from '@/app/home/types';
 import type { MentorListItem } from '@/lib/mentors/types';
-import type { TemporaryMemoryMode } from '@/lib/chat-session';
-import { DEFAULT_TEMPORARY_MEMORY_MODE } from '@/lib/chat-session';
 
 const EMPTY_MESSAGES: Message[] = [];
 const EMPTY_BRANCHES: ConversationBranch[] = [];
@@ -113,8 +111,6 @@ export function useActiveConversationModel({
       activeMentorId ? mentors.find((mentor) => mentor.id === activeMentorId) || null : null,
     [activeMentorId, mentors]
   );
-  const activeTemporaryMemoryMode: TemporaryMemoryMode =
-    selectedTemporaryChat?.memoryMode ?? DEFAULT_TEMPORARY_MEMORY_MODE;
   const activeConversationId =
     selectedChat?.kind === 'persistent' ? selectedChat.conversationId : null;
   const activeConversationMessages = useMemo(
@@ -289,7 +285,6 @@ export function useActiveConversationModel({
     activeConversationMessages,
     activeMessages,
     activeSelectedBranchIds,
-    activeTemporaryMemoryMode,
     activeThreadMarkersMap,
     branchChipsByMessageId,
     conversationTitle,

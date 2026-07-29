@@ -33,8 +33,6 @@ import {
   IMAGE_MODEL_UNSUPPORTED_MESSAGE,
   useChatImageComposerState,
 } from '@/app/home/components/useChatImageComposerState';
-import MemoryEntry from '@/app/home/components/MemoryEntry';
-import { useMemory } from '@/app/home/components/useMemory';
 import {
   DEFAULT_CHAT_MODEL_ID,
   isChatModelId,
@@ -48,8 +46,6 @@ import { DEFAULT_SEARCH_MODE, type SearchMode } from '@/lib/chat-search';
 import type { WorkspaceListItem } from '@/lib/workspaces';
 import { CHAT_IMAGE_BUCKET } from '@/lib/chat-attachments';
 import { supabase } from '@/lib/supabase';
-
-type TabKey = 'sessions' | 'memory';
 
 function formatDate(input: string): string {
   const date = new Date(input);
@@ -124,19 +120,10 @@ export default function WorkspacePage() {
     setSelectedChat,
     setDraftChats,
   } = useHomeDataContext();
-  const memory = useMemory();
-  const {
-    entries: memoryEntries,
-    loading: memoryLoading,
-    load: loadMemory,
-    updateEntry,
-    deleteEntry,
-  } = memory;
 
   const [workspace, setWorkspace] = useState<WorkspaceListItem | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<TabKey>('sessions');
   const [contextDraft, setContextDraft] = useState('');
   const [editingContext, setEditingContext] = useState(false);
   const [savingContext, setSavingContext] = useState(false);
@@ -262,12 +249,6 @@ export default function WorkspacePage() {
       cancelled = true;
     };
   }, [workspaceId]);
-
-  useEffect(() => {
-    if (activeTab === 'memory') {
-      void loadMemory({ scope: `workspace:${workspaceId}` });
-    }
-  }, [activeTab, loadMemory, workspaceId]);
 
   useEffect(() => {
     if (!renamingWorkspace) return;
@@ -650,7 +631,7 @@ export default function WorkspacePage() {
                 )}
               </div>
               <p className="mt-1 max-w-2xl text-sm leading-6 text-muted">
-                {workspace?.description || 'All chats and files share memory in this workspace'}
+                {workspace?.description || 'Chats share the instructions set for this workspace'}
               </p>
             </div>
           </div>
@@ -702,74 +683,34 @@ export default function WorkspacePage() {
 
         <div className="grid border-t border-border-subtle lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_22.5rem]">
           <section className="flex flex-col overflow-visible lg:min-h-0 lg:overflow-hidden lg:pr-6">
-            <nav className="flex gap-6 border-b border-border-subtle" aria-label="Workspace tabs">
-              {(['sessions', 'memory'] as TabKey[]).map((tab) => (
-                <button
-                  key={tab}
-                  type="button"
-                  onClick={() => setActiveTab(tab)}
-                  className={`border-b-2 py-4 text-sm font-medium capitalize transition ${
-                    activeTab === tab
-                      ? 'border-foreground text-foreground'
-                      : 'border-transparent text-muted hover:text-foreground'
-                  }`}
-                >
-                  {tab}
-                </button>
-              ))}
-            </nav>
-
             <div className="py-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
-              {activeTab === 'sessions' && (
-                <div className="space-y-1">
-                  {workspaceConversations.length === 0 ? (
-                    <div className="rounded-lg border border-dashed border-border-subtle p-5 text-sm text-muted">
-                      No sessions yet. Start the first chat in {workspaceName}.
-                    </div>
-                  ) : (
-                    workspaceConversations.map((conversation) => (
-                      <button
-                        key={conversation.id}
-                        type="button"
-                        onClick={() => handleSelectConversation(conversation)}
-                        className={`flex w-full items-center justify-between gap-4 rounded-lg px-3 py-3 text-left transition ${
-                          activeConversationId === conversation.id
-                            ? 'bg-foreground/[0.06]'
-                            : 'hover:bg-foreground/[0.04]'
-                        }`}
-                      >
-                        <span className="min-w-0 truncate font-sans text-sm font-medium text-foreground">
-                          {conversation.title}
-                        </span>
-                        <span className="flex-shrink-0 font-sans text-xs text-muted">
-                          {formatDate(conversation.updated_at)}
-                        </span>
-                      </button>
-                    ))
-                  )}
-                </div>
-              )}
-
-              {activeTab === 'memory' && (
-                <div className="space-y-3">
-                  {memoryLoading ? (
-                    <div className="text-sm text-muted">Loading memory...</div>
-                  ) : memoryEntries.length === 0 ? (
-                    <div className="rounded-lg border border-dashed border-border-subtle p-5 text-sm text-muted">
-                      Workspace memory is learned from chats in {workspaceName} and stays inside this workspace.
-                    </div>
-                  ) : (
-                    memoryEntries.map((entry) => (
-                      <MemoryEntry
-                        key={entry.id}
-                        entry={entry}
-                        onUpdate={updateEntry}
-                        onDelete={deleteEntry}
-                      />
-                    ))
-                  )}
-                </div>
-              )}
+              <div className="space-y-1">
+                {workspaceConversations.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-border-subtle p-5 text-sm text-muted">
+                    No sessions yet. Start the first chat in {workspaceName}.
+                  </div>
+                ) : (
+                  workspaceConversations.map((conversation) => (
+                    <button
+                      key={conversation.id}
+                      type="button"
+                      onClick={() => handleSelectConversation(conversation)}
+                      className={`flex w-full items-center justify-between gap-4 rounded-lg px-3 py-3 text-left transition ${
+                        activeConversationId === conversation.id
+                          ? 'bg-foreground/[0.06]'
+                          : 'hover:bg-foreground/[0.04]'
+                      }`}
+                    >
+                      <span className="min-w-0 truncate font-sans text-sm font-medium text-foreground">
+                        {conversation.title}
+                      </span>
+                      <span className="flex-shrink-0 font-sans text-xs text-muted">
+                        {formatDate(conversation.updated_at)}
+                      </span>
+                    </button>
+                  ))
+                )}
+              </div>
             </div>
 
             <div className="border-t border-border-subtle py-3">
@@ -785,9 +726,6 @@ export default function WorkspacePage() {
                 modelEffortOverrides={modelEffortOverrides}
                 thinkingEnabledOverrides={thinkingEnabledOverrides}
                 searchMode={searchMode}
-                temporaryChatEnabled={false}
-                showTemporaryIntro={false}
-                temporaryMemoryMode="off"
                 searchWarning={composerWarning}
                 imageWarning={imageWarning}
                 textareaRef={textareaRef}
@@ -800,7 +738,6 @@ export default function WorkspacePage() {
                 onThinkingEnabledChange={updateThinkingEnabled}
                 onResponseStyleChange={setResponseStyle}
                 onSearchModeChange={setSearchMode}
-                onTemporaryMemoryModeChange={() => {}}
                 onSubmit={handleComposerSubmit}
                 onKeyDown={handleComposerKeyDown}
               />
@@ -967,8 +904,7 @@ export default function WorkspacePage() {
               Delete this workspace?
             </h2>
             <p className="mt-2 font-sans text-sm leading-6 text-muted">
-              This will permanently delete the workspace, all chats in it, and
-              all memories saved to it. Global memory will not be changed.
+              This will permanently delete the workspace and all chats in it.
             </p>
             <div className="mt-4 flex items-center justify-end gap-2">
               <button

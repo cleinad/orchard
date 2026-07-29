@@ -13,11 +13,7 @@ import {
 import { flushSync } from 'react-dom';
 import { usePathname, useRouter } from 'next/navigation';
 import { useHomeData } from '@/app/home/components/useHomeData';
-import {
-  createTemporaryId,
-  DEFAULT_TEMPORARY_MEMORY_MODE,
-  type TemporaryMemoryMode,
-} from '@/lib/chat-session';
+import { createTemporaryId } from '@/lib/chat-session';
 import type {
   ConversationListItem,
   SidebarMentorGroup,
@@ -89,7 +85,6 @@ export interface PersistentDraftChat {
 export interface TemporaryChatSession {
   id: string;
   title: string;
-  memoryMode: TemporaryMemoryMode;
   createdAt: string;
   updatedAt: string;
   messages: Message[];
@@ -111,7 +106,6 @@ const HOME_SELECTION_HANDOFF_STORAGE_KEY = 'keen-home-selection-handoff-v1';
 interface StoredTemporaryChatSession {
   id: string;
   title: string;
-  memoryMode: TemporaryMemoryMode;
   createdAt: string;
   updatedAt: string;
   messages: StoredMessage[];
@@ -205,30 +199,44 @@ function mergeHydratedTranscriptWithLocalRunState(
   };
 }
 
-function deserializeTemporaryChats(raw: string): TemporaryChatSession[] {
+export function deserializeTemporaryChats(raw: string): TemporaryChatSession[] {
   const stored = JSON.parse(raw) as StoredTemporaryChatSession[];
   return stored.map((chat) => ({
-    ...chat,
+    id: chat.id,
+    title: chat.title,
+    createdAt: chat.createdAt,
+    updatedAt: chat.updatedAt,
     messages: chat.messages.map(fromStoredMessage),
+    branches: chat.branches,
+    selectedBranchIds: chat.selectedBranchIds,
+    threadsMap: chat.threadsMap,
     threadMessages: Object.fromEntries(
       Object.entries(chat.threadMessages).map(([threadId, msgs]) => [
         threadId,
         msgs.map(fromStoredThreadMessage),
       ])
     ),
+    threadStatuses: chat.threadStatuses,
   }));
 }
 
-function serializeTemporaryChats(chats: TemporaryChatSession[]): string {
+export function serializeTemporaryChats(chats: TemporaryChatSession[]): string {
   const stored: StoredTemporaryChatSession[] = chats.map((chat) => ({
-    ...chat,
+    id: chat.id,
+    title: chat.title,
+    createdAt: chat.createdAt,
+    updatedAt: chat.updatedAt,
     messages: chat.messages.map(toStoredMessage),
+    branches: chat.branches,
+    selectedBranchIds: chat.selectedBranchIds,
+    threadsMap: chat.threadsMap,
     threadMessages: Object.fromEntries(
       Object.entries(chat.threadMessages).map(([threadId, msgs]) => [
         threadId,
         msgs.map(toStoredThreadMessage),
       ])
     ),
+    threadStatuses: chat.threadStatuses,
   }));
   return JSON.stringify(stored);
 }
@@ -1010,7 +1018,6 @@ export function HomeDataProvider({
     const chat: TemporaryChatSession = {
       id: crypto.randomUUID(),
       title: TEMP_CHAT_TITLE,
-      memoryMode: DEFAULT_TEMPORARY_MEMORY_MODE,
       createdAt: now,
       updatedAt: now,
       messages: [],

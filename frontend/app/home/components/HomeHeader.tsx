@@ -7,12 +7,10 @@ import {
   headerIconBase,
   headerIconOff,
 } from "@/app/home/components/homeHeaderToolbar";
-import type { TemporaryMemoryMode } from "@/lib/chat-session";
 
 type HomeHeaderProps = {
   conversationTitle: string;
   isTemporaryChat: boolean;
-  temporaryMemoryMode: TemporaryMemoryMode;
   loadingLists: boolean;
   onCreateTemporaryChat: () => void;
   conversationMapNodeCount: number;
@@ -23,16 +21,12 @@ type HomeHeaderProps = {
 export default function HomeHeader({
   conversationTitle,
   isTemporaryChat,
-  temporaryMemoryMode,
   loadingLists,
   onCreateTemporaryChat,
   conversationMapNodeCount,
   conversationMapOpen,
   onToggleConversationMap,
 }: HomeHeaderProps) {
-  const temporaryMemoryModeLabel =
-    temporaryMemoryMode === "use_existing" ? "With memory" : "No memory";
-
   return (
     <header className="flex h-16 items-center justify-between">
       <div className="flex min-w-0 items-center gap-3">
@@ -40,11 +34,6 @@ export default function HomeHeader({
           <div className="truncate font-heading text-xl text-foreground">
             {isTemporaryChat ? "Temporary Chat" : conversationTitle}
           </div>
-          {isTemporaryChat && (
-            <div className="mt-0.5 font-sans text-[11px] font-medium text-muted">
-              {temporaryMemoryModeLabel}
-            </div>
-          )}
         </div>
       </div>
 

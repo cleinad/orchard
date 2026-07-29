@@ -38,7 +38,6 @@ import type { SearchMetadata, SearchMode } from '@/lib/chat-search';
 import type { SearchActivitySummary } from '@/lib/search/types';
 import {
   createTemporaryId,
-  DEFAULT_TEMPORARY_MEMORY_MODE,
   fallbackChatTitleFromMessage,
   toChatHistory,
 } from '@/lib/chat-session';
@@ -1307,8 +1306,6 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
       },
       ...(effectiveSelection.kind === 'temporary'
         ? {
-            memoryMode:
-              effectiveTempChat?.memoryMode ?? DEFAULT_TEMPORARY_MEMORY_MODE,
             history: toChatHistory(params.activeMessages),
           }
         : {}),

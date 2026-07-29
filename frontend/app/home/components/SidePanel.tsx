@@ -179,10 +179,6 @@ export default function SidePanel({
   const [movingConversationId, setMovingConversationId] = useState<string | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
   const [expandedSections, setExpandedSections] = useState(DEFAULT_EXPANDED_SECTIONS);
-  const [pendingMove, setPendingMove] = useState<{
-    conversation: ConversationListItem;
-    targetWorkspaceId: string | null;
-  } | null>(null);
   const lastAutoExpandedWorkspaceSelectionRef = useRef<string | null>(null);
   const manuallyCollapsedWorkspaceSelectionRef = useRef<Record<string, string>>({});
   const { viewer } = useViewerIdentity();
@@ -339,7 +335,6 @@ export default function SidePanel({
           const workspaceKey = getWorkspaceKey(targetWorkspaceId);
           setExpandedWorkspaces((prev) => ({ ...prev, [workspaceKey]: true }));
         }
-        setPendingMove(null);
       } catch (error) {
         setMoveError(error instanceof Error ? error.message : 'Could not move chat.');
       } finally {
@@ -497,13 +492,6 @@ export default function SidePanel({
     const conversation = draggedConversation;
     if (!conversation || !canDropConversation(conversation, targetWorkspaceId)) {
       setActiveDropTarget(null);
-      return;
-    }
-
-    if (targetWorkspaceId === null && conversation.workspace_id) {
-      setPendingMove({ conversation, targetWorkspaceId });
-      setActiveDropTarget(null);
-      setDraggedConversation(null);
       return;
     }
 
@@ -936,94 +924,6 @@ export default function SidePanel({
 
   return (
     <>
-      {pendingMove && (
-        <div
-          className="fixed inset-0 z-[90] flex items-center justify-center bg-foreground/[0.18] px-4 backdrop-blur-sm"
-          role="presentation"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget && !movingConversationId) {
-              setPendingMove(null);
-            }
-          }}
-          onKeyDown={(event) => {
-            event.stopPropagation();
-            if (event.key === 'Escape' && !movingConversationId) {
-              setPendingMove(null);
-            }
-          }}
-        >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="move-chat-title"
-            className="w-full max-w-sm rounded-lg border border-border-subtle bg-background p-4 shadow-2xl"
-          >
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h2 id="move-chat-title" className="font-sans text-base font-semibold text-foreground">
-                  Move this chat to Chats?
-                </h2>
-                <p className="mt-2 font-sans text-sm leading-5 text-muted">
-                  Existing workspace memories from this chat will stay in the workspace and will not
-                  become global.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setPendingMove(null)}
-                disabled={movingConversationId !== null}
-                className={cx(
-                  'inline-flex h-8 w-8 items-center justify-center rounded-md',
-                  buttonStyles.transition,
-                  buttonStyles.focus,
-                  buttonStyles.ghost,
-                  buttonStyles.disabled
-                )}
-                aria-label="Close"
-              >
-                <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.7" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-
-            <div className="mt-4 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setPendingMove(null)}
-                disabled={movingConversationId !== null}
-                className={cx(
-                  'rounded-lg border border-border-subtle bg-surface px-3 py-2 font-sans text-sm font-semibold text-foreground',
-                  buttonStyles.transition,
-                  buttonStyles.focus,
-                  buttonStyles.navRowHover,
-                  buttonStyles.disabled
-                )}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() =>
-                  void performConversationMove(
-                    pendingMove.conversation,
-                    pendingMove.targetWorkspaceId
-                  )
-                }
-                disabled={movingConversationId !== null}
-                className={cx(
-                  'rounded-lg px-3 py-2 font-sans text-sm font-semibold',
-                  buttonStyles.primaryText,
-                  buttonStyles.focus
-                )}
-              >
-                {movingConversationId ? 'Moving...' : 'Move chat'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       <div
         className={`side-panel-backdrop fixed inset-0 z-40 bg-foreground/[0.06] backdrop-blur-sm transition-opacity duration-300 dark:bg-black/40 ${
           isOpen ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'
