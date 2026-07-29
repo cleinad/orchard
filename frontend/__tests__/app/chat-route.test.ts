@@ -1708,7 +1708,6 @@ describe('chat route run lifecycle', () => {
       response_status: 'completed',
       title_status: 'completed',
       search_status: 'skipped',
-      memory_status: 'completed',
       response_text: 'Existing reply',
       title: 'Existing title',
       title_source: 'generated',

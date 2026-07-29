@@ -339,11 +339,6 @@ describe('conversations route', () => {
               created_at: '2026-06-27T12:00:00.000Z',
               updated_at: '2026-06-27T12:01:00.000Z',
             },
-            memory: {
-              moved: 1,
-              copied: 0,
-              leftInPlace: 2,
-            },
           },
           error: null,
         },

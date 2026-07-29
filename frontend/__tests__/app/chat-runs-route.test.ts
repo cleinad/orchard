@@ -27,7 +27,6 @@ const baseRow = {
   response_status: 'running',
   title_status: 'running',
   search_status: 'skipped',
-  memory_status: 'pending',
   response_text: null,
   title: 'Fallback',
   title_source: 'fallback',

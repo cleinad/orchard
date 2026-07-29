@@ -228,7 +228,6 @@ describe('workspaces route', () => {
           data: {
             workspace_deleted: true,
             conversation_count: 2,
-            memory_item_count: 2,
             storage_paths: ['user-1/photo-a.png', 'user-1/photo-b.png'],
           },
           error: null,
@@ -269,7 +268,7 @@ describe('workspaces route', () => {
     ]);
   });
 
-  it('deletes an empty workspace without embedding or storage cleanup', async () => {
+  it('deletes an empty workspace without attachment or storage cleanup', async () => {
     const { supabase, tracker } = createRouteSupabase({
       rpcResults: {
         delete_workspace_cascade: {
