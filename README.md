@@ -13,7 +13,7 @@ while you follow the details that matter.
   their context.
 - **Persistent chats and workspaces** keep longer learning projects organized.
 
-Orchard also supports temporary chats, persistent memory, image attachments,
+Orchard also supports temporary chats, image attachments,
 model selection, response-style controls, and optional live search.
 
 ## Run locally

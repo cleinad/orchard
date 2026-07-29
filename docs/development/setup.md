@@ -61,10 +61,6 @@ SEARCH_PLANNER_API_KEY=your_search_planner_key
 SEARCH_PLANNER_MODEL=your_model_id
 ```
 
-Memory extraction uses the configured Anthropic provider. Semantic memory
-embeddings use the configured OpenAI provider; lexical retrieval remains
-available when embeddings are not configured.
-
 Only variables prefixed with `NEXT_PUBLIC_` are exposed to browser code. Keep
 all provider keys server-side.
 

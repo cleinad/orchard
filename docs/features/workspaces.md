@@ -1,7 +1,7 @@
 # Workspaces
 
 Workspaces group persistent chats around a subject or project. Each workspace
-has a dedicated page, shared instructions, and its own memory scope.
+has a dedicated page and shared instructions.
 
 ## User model
 
@@ -10,7 +10,6 @@ A workspace contains:
 - a name, optional description, icon, and accent color
 - persistent chats
 - instructions applied to every chat in the workspace
-- memory learned from workspace chats
 
 The workspace page is `/workspaces/<workspaceId>`. The sidebar can expand each
 workspace and create a workspace-scoped draft.
@@ -24,33 +23,14 @@ that workspace.
 They are appropriate for subject background, learning goals, constraints,
 preferred notation, or recurring project context.
 
-## Memory
-
-Workspace chats:
-
-- read global memory plus memory owned by the workspace
-- write extracted memory to the workspace
-
-Workspace memory is not exposed to general chats or other workspaces.
-
-`memory_item_sources` tracks which conversations support a memory item. That
-provenance determines what happens when chats move.
-
 ## Moving chats
 
 Persistent chats can be dragged between the general Chats section and
 workspaces, or between workspaces.
 
-The current conservative memory policy is:
-
-- Moving into a workspace also moves active source-scope memories supported only
-  by that chat.
-- A memory supported by other conversations stays in its original scope.
-- Moving out of a workspace never promotes workspace memory to global memory.
-- Future messages and extracted memories use the chat's new context.
-
-Moving a workspace chat back to general Chats requires confirmation because its
-existing workspace memories remain scoped to the workspace.
+Moving a chat changes its workspace context. Future messages use the shared
+instructions for that context; moving a chat back to general Chats clears the
+workspace context.
 
 The move is performed by
 `PATCH /api/conversations/<conversationId>/context` and the
@@ -62,11 +42,10 @@ Deleting a workspace requires confirmation and permanently removes:
 
 - the workspace
 - its conversations, main messages, branches, and inline threads
-- workspace-owned memory
 - attachment metadata associated with deleted messages
 
 The deletion function returns Storage paths, and the route then attempts to
-remove those private image objects. Global memory is not changed.
+remove those private image objects.
 
 After success, local workspace drafts and selected state are cleared, sidebar
 data is refreshed, and navigation returns to `/home`.
@@ -102,6 +81,5 @@ All routes authenticate with Supabase and scope operations to the current user.
 ## Related docs
 
 - [Multi-chat home](./multi-chat-home.md)
-- [Memory](./memory.md)
 - [Image attachments](./image-attachments.md)
 - [Authentication](./auth-and-route-protection.md)

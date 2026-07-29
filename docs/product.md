@@ -23,9 +23,7 @@ small point that does not deserve a separate chat.
 - A **chat** is the main persistent conversation.
 - A **temporary chat** is kept only for the current browser session and is not
   written to the application database.
-- A **workspace** groups chats around a subject and adds shared instructions and
-  scoped memory.
-- **Memory** lets later chats reuse relevant facts and preferences.
+- A **workspace** groups chats around a subject and adds shared instructions.
 - **Live search** optionally grounds a response in current external sources.
 
 The supporting features should make learning more convenient, but they are not

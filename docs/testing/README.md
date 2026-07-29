@@ -33,7 +33,7 @@ npx vitest run __tests__/lib/response-style.test.ts
 Major groups:
 
 - `__tests__/app/` — API routes, proxy behavior, and home runtime helpers
-- `__tests__/lib/` — models, memory, search, Markdown, and chat-run logic
+- `__tests__/lib/` — models, search, Markdown, and chat-run logic
 - `__tests__/supabase/` — static migration and database-contract checks
 
 Route tests use mocked Supabase and provider boundaries. They do not prove that
@@ -72,7 +72,7 @@ Current browser suites:
 - `chat-run-lifecycle.spec.js` — execution, navigation, cancellation, and
   reconciliation
 - `search-mode.spec.js` — search controls, citations, and source tray
-- `workspaces.spec.js` — workspaces, memory scope, moves, deletion, and uploads
+- `workspaces.spec.js` — workspaces, moves, deletion, and uploads
 
 ## Focused checks
 
@@ -100,16 +100,6 @@ npm test -- \
   __tests__/lib/chat-run-protocol.test.ts \
   __tests__/lib/chat-run-reconciliation.test.ts
 npx playwright test e2e/home-routing.spec.js e2e/chat-run-lifecycle.spec.js
-```
-
-### Memory
-
-```bash
-npm test -- \
-  __tests__/app/memory-items-routes.test.ts \
-  __tests__/lib/memory-items.test.ts \
-  __tests__/lib/memory-integration.test.ts \
-  __tests__/app/chat-route.test.ts
 ```
 
 ### Search

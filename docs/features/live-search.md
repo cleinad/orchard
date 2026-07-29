@@ -40,8 +40,8 @@ Accepted sources store:
 
 Assistant citation markers map to those source IDs. The transcript renders
 inline citation controls and a response-attached source tray. Raw citation
-markers are stripped before assistant text is reused for memory, previews, and
-later model context.
+markers are stripped before assistant text is reused for previews and later
+model context.
 
 ## Failure behavior
 
@@ -84,5 +84,4 @@ not write it to the database.
 ## Related docs
 
 - [Local setup](../development/setup.md)
-- [Memory](./memory.md)
 - [Temporary chats](./temporary-chat.md)

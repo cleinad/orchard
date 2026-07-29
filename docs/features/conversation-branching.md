@@ -68,12 +68,8 @@ stable client-generated identifiers.
 ## Context isolation
 
 The server reconstructs only the path leading to the submitted user message.
-Messages from sibling paths must not leak into the prompt, search planning, or
-memory extraction for the active path.
-
-Memory is conversation-scoped at extraction time rather than branch-scoped.
-Branch isolation therefore protects immediate model context; it does not create
-separate long-term memory namespaces.
+Messages from sibling paths must not leak into the prompt or search planning for
+the active path.
 
 ## Key implementation
 

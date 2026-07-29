@@ -32,8 +32,8 @@ Unshipped work belongs in the [backlog](./backlog.md).
   and privacy boundaries
 - [Chat run lifecycle](./features/chat-run-lifecycle.md) — execution,
   cancellation, persistence, and recovery
-- [Workspaces](./features/workspaces.md) — grouped chats, scoped instructions,
-  memory, moves, and deletion
+- [Workspaces](./features/workspaces.md) — grouped chats, shared instructions,
+  moves, and deletion
 
 ### Chat capabilities
 
@@ -43,8 +43,6 @@ Unshipped work belongs in the [backlog](./backlog.md).
   assumed knowledge, and custom guidance
 - [Live search](./features/live-search.md) — search modes, retrieval, citations,
   and failure behavior
-- [Memory](./features/memory.md) — extraction, retrieval, scoping, and user
-  controls
 - [Image attachments](./features/image-attachments.md) — upload, storage,
   validation, and model context
 - [Authentication](./features/auth-and-route-protection.md) — public and
