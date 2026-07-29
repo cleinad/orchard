@@ -2,9 +2,11 @@
  * Chainable mock Supabase client for testing.
  *
  * Usage:
- *   const { client, tracker } = createMockSupabase({ memory_items: [...] });
+ *   const { client, tracker } = createMockSupabase({
+ *     tables: { conversations: { rows: [] } },
+ *   });
  *   // ...call code under test...
- *   expect(tracker.inserts('memory_items')).toHaveLength(1);
+ *   expect(tracker.inserts('conversations')).toHaveLength(1);
  */
 
 type MockRow = object;

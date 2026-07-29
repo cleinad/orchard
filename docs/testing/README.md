@@ -56,6 +56,11 @@ The config starts a development server on `127.0.0.1:3005` unless
 auth bypass and mocked application requests; API authorization still has
 separate Vitest coverage.
 
+When `PLAYWRIGHT_NO_WEB_SERVER` is set, provide an authenticated Playwright
+storage-state file through `PLAYWRIGHT_AUTH_STORAGE_STATE`. Managed runs use a
+local Auth fixture by default; custom `NEXT_PUBLIC_SUPABASE_URL` runs also
+require an authenticated storage-state file.
+
 Current browser suites:
 
 - `home-routing.spec.js` — routed hydration, sidebar navigation, drafts, and
