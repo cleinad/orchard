@@ -3,12 +3,41 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(83);
+select plan(92);
 
 select has_table('public', 'conversations', 'production baseline contains conversations');
 select has_table('public', 'chat_runs', 'chat-run migration creates persistent runs');
 select has_table('public', 'chat_run_events', 'chat-run migration creates lifecycle events');
 select has_column('public', 'conversations', 'title_source', 'title provenance is present');
+select has_column(
+  'public',
+  'profiles',
+  'global_instructions',
+  'profiles store global instructions'
+);
+select col_not_null(
+  'public',
+  'profiles',
+  'global_instructions',
+  'global instructions are never null'
+);
+select col_default_is(
+  'public',
+  'profiles',
+  'global_instructions',
+  '',
+  'global instructions default to an empty string'
+);
+select ok(
+  exists (
+    select 1
+    from pg_constraint
+    where conrelid = 'public.profiles'::regclass
+      and conname = 'profiles_global_instructions_length_check'
+      and pg_get_constraintdef(oid) ilike '%char_length(global_instructions) <= 4000%'
+  ),
+  'global instructions enforce the 4,000-character limit'
+);
 select hasnt_table('public', 'temporary_chat_runs', 'temporary runs are never database-backed');
 select ok(
   not has_table_privilege('anon', 'public.chat_runs', 'SELECT'),
@@ -252,6 +281,104 @@ select ok(
     'EXECUTE'
   ),
   'service role can execute workspace deletion'
+);
+
+select ok(
+  exists (
+    select 1
+    from pg_proc
+    where oid = 'public.handle_new_user()'::regprocedure
+      and prosecdef
+      and coalesce(proconfig @> array['search_path=""'], false)
+  ),
+  'profile provisioning uses a locked security-definer function'
+);
+select ok(
+  not has_function_privilege(
+    'anon',
+    'public.handle_new_user()',
+    'EXECUTE'
+  )
+  and not has_function_privilege(
+    'authenticated',
+    'public.handle_new_user()',
+    'EXECUTE'
+  ),
+  'API roles cannot execute the profile trigger function directly'
+);
+select ok(
+  exists (
+    select 1
+    from pg_trigger as trigger
+    join pg_proc as function on function.oid = trigger.tgfoid
+    where trigger.tgrelid = 'auth.users'::regclass
+      and trigger.tgname = 'on_auth_user_created'
+      and not trigger.tgisinternal
+      and trigger.tgenabled = 'O'
+      and function.oid = 'public.handle_new_user()'::regprocedure
+      and pg_get_triggerdef(trigger.oid) ilike '%after insert%'
+  ),
+  'Auth user inserts invoke the enabled profile-provisioning trigger'
+);
+
+insert into auth.users (
+  instance_id,
+  id,
+  aud,
+  role,
+  email,
+  encrypted_password,
+  email_confirmed_at,
+  raw_app_meta_data,
+  raw_user_meta_data,
+  created_at,
+  updated_at,
+  confirmation_token,
+  recovery_token,
+  email_change,
+  email_change_token_new
+)
+values (
+  '00000000-0000-0000-0000-000000000000',
+  '55555555-5555-4555-8555-555555555555',
+  'authenticated',
+  'authenticated',
+  'profile-trigger@example.test',
+  '',
+  '2026-07-30 12:00:00+00',
+  '{"provider":"email","providers":["email"]}',
+  '{"full_name":"Profile Trigger Test"}',
+  '2026-07-30 12:00:00+00',
+  '2026-07-30 12:00:00+00',
+  '',
+  '',
+  '',
+  ''
+);
+
+select results_eq(
+  $$
+    select concat_ws(
+      '|',
+      email,
+      full_name,
+      created_at::text,
+      global_instructions
+    )
+    from public.profiles
+    where id = '55555555-5555-4555-8555-555555555555'
+  $$,
+  array['profile-trigger@example.test|Profile Trigger Test|2026-07-30 12:00:00+00|'],
+  'a new Auth user receives a populated profile in the same transaction'
+);
+select is_empty(
+  $$
+    select users.id
+    from auth.users as users
+    left join public.profiles as profiles on profiles.id = users.id
+    where profiles.id is null
+  $$,
+  'every Auth user has a matching profile'
 );
 
 insert into public.workspaces (id, user_id, name)
