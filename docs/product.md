@@ -23,6 +23,8 @@ small point that does not deserve a separate chat.
 - A **chat** is the main persistent conversation.
 - A **temporary chat** is kept only for the current browser session and is not
   written to the application database.
+- **Global instructions** apply a user's standing guidance to every
+  conversational response.
 - A **workspace** groups chats around a subject and adds shared instructions.
 - **Live search** optionally grounds a response in current external sources.
 
@@ -55,4 +57,5 @@ in the [backlog](./backlog.md), not in this description of the current product.
 
 - [Inline threads](./features/inline-threads.md)
 - [Conversation branching](./features/conversation-branching.md)
+- [Global instructions](./features/global-instructions.md)
 - [Architecture](./architecture.md)

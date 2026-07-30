@@ -58,6 +58,7 @@ default unless its initial-send handoff already contains a style.
 
 ## Related docs
 
+- [Global instructions](./global-instructions.md)
 - [Model selection](./chat-model-selection.md)
 - [Multi-chat home](./multi-chat-home.md)
 - [Inline threads](./inline-threads.md)
