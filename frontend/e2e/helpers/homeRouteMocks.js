@@ -22,6 +22,7 @@ const DEFAULT_VIEWER = {
   id: 'e2e-user-1',
   email: 'e2e@example.com',
   fullName: 'E2E User',
+  globalInstructions: '',
 };
 
 function parseEqFilter(value) {
@@ -59,7 +60,8 @@ async function fulfillJson(route, json, status = 200) {
 
 async function mockHomeDataRoutes(page, state) {
   const resolvedState = {
-    viewer: DEFAULT_VIEWER,
+    viewer: { ...DEFAULT_VIEWER },
+    profileExists: true,
     mentors: [],
     workspaces: [],
     conversations: [],
@@ -277,8 +279,38 @@ async function mockHomeDataRoutes(page, state) {
 
   await page.route('**/rest/v1/profiles*', async (route) => {
     const viewer = resolvedState.viewer;
+    const method = route.request().method();
 
-    await fulfillJson(route, viewer ? { full_name: viewer.fullName } : null);
+    if (method === 'PATCH' && viewer) {
+      if (!resolvedState.profileExists) {
+        await fulfillJson(
+          route,
+          {
+            code: 'PGRST116',
+            message: 'JSON object requested, multiple (or no) rows returned',
+          },
+          406
+        );
+        return;
+      }
+
+      const body = route.request().postDataJSON();
+      viewer.globalInstructions = body?.global_instructions ?? '';
+      await fulfillJson(route, {
+        global_instructions: viewer.globalInstructions,
+      });
+      return;
+    }
+
+    await fulfillJson(
+      route,
+      viewer && resolvedState.profileExists
+        ? {
+            full_name: viewer.fullName,
+            global_instructions: viewer.globalInstructions,
+          }
+        : null
+    );
   });
 
   await page.route('**/rest/v1/conversations*', async (route) => {
