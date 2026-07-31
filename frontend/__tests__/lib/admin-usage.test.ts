@@ -189,6 +189,7 @@ describe('admin usage query service', () => {
       direction: 'asc',
       page: 2,
       pageSize: 50,
+      filtersNormalized: false,
       start: '2026-07-25T00:00:00.000Z',
       end: '2026-08-01T00:00:00.000Z',
     });
@@ -205,6 +206,7 @@ describe('admin usage query service', () => {
       direction: 'desc',
       page: 1,
       pageSize: 25,
+      filtersNormalized: true,
       start: '2026-07-02T00:00:00.000Z',
       end: '2026-08-01T00:00:00.000Z',
     });

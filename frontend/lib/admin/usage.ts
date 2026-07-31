@@ -28,6 +28,7 @@ export interface AdminUsageQuery {
   direction: AdminUsageDirection;
   page: number;
   pageSize: number;
+  filtersNormalized: boolean;
   start: string;
   end: string;
 }
@@ -168,6 +169,13 @@ function parsePositiveInteger(value: unknown, fallback: number, maximum: number)
   return Number.isSafeInteger(parsed) && parsed <= maximum ? parsed : fallback;
 }
 
+function isValidPositiveInteger(value: unknown, maximum: number) {
+  return typeof value === 'string'
+    && /^[1-9]\d*$/.test(value)
+    && Number.isSafeInteger(Number(value))
+    && Number(value) <= maximum;
+}
+
 function nextUtcDay(now: Date) {
   return new Date(Date.UTC(
     now.getUTCFullYear(),
@@ -188,6 +196,15 @@ export function parseAdminUsageQuery(
     isOneOf(input.direction, ADMIN_USAGE_DIRECTIONS) ? input.direction : 'desc';
   const page = parsePositiveInteger(input.page, 1, 10_000);
   const pageSize = parsePositiveInteger(input.pageSize, 25, 100);
+  const filtersNormalized =
+    (input.range !== undefined && !isOneOf(input.range, ADMIN_USAGE_PRESETS))
+    || (input.sort !== undefined && !isOneOf(input.sort, ADMIN_USAGE_SORTS))
+    || (
+      input.direction !== undefined
+      && !isOneOf(input.direction, ADMIN_USAGE_DIRECTIONS)
+    )
+    || (input.page !== undefined && !isValidPositiveInteger(input.page, 10_000))
+    || (input.pageSize !== undefined && !isValidPositiveInteger(input.pageSize, 100));
   const end = nextUtcDay(now);
   const start = preset === 'all'
     ? new Date(0)
@@ -199,6 +216,7 @@ export function parseAdminUsageQuery(
     direction,
     page,
     pageSize,
+    filtersNormalized,
     start: start.toISOString(),
     end: end.toISOString(),
   };
