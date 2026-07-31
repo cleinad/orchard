@@ -9,6 +9,15 @@ const mockStreamText = vi.fn();
 const mockCreateSupabaseServerClient = vi.fn();
 const mockBuildMentorPrompt = vi.fn();
 const mockRunSearchPipeline = vi.fn();
+const mockGetSearchPlannerModel = vi.fn(() => null as unknown);
+const mockGetSearchDecisionModelConfig = vi.fn(() => ({
+  primary: null,
+  fallback: null,
+}));
+const mockRecordModelUsage = vi.fn();
+const mockStartDeferredModelUsageCall = vi.fn((context: unknown) => (
+  terminal: unknown
+) => mockRecordModelUsage(context, terminal));
 
 vi.mock('next/server', async (importOriginal) => {
   const actual = await importOriginal<typeof import('next/server')>();
@@ -112,11 +121,8 @@ vi.mock('@/lib/supabase-server', () => ({
 
 vi.mock('@/lib/models', () => ({
   getChatModel: vi.fn(() => 'mock-chat-model'),
-  getSearchPlannerModel: vi.fn(() => null),
-  getSearchDecisionModelConfig: vi.fn(() => ({
-    primary: null,
-    fallback: null,
-  })),
+  getSearchPlannerModel: () => mockGetSearchPlannerModel(),
+  getSearchDecisionModelConfig: () => mockGetSearchDecisionModelConfig(),
   SEARCH_PLANNER_MODEL_ID: 'qwen/qwen-2.5-7b-instruct',
   SEARCH_PLANNER_PROVIDER: 'openrouter',
   getChatModelProviderOptions: vi.fn(() => undefined),
@@ -131,6 +137,11 @@ vi.mock('@/lib/models', () => ({
 
 vi.mock('@/lib/search/pipeline', () => ({
   runSearchPipeline: (...args: unknown[]) => mockRunSearchPipeline(...args),
+}));
+
+vi.mock('@/lib/telemetry/deferred', () => ({
+  startDeferredModelUsageCall: (context: unknown) =>
+    mockStartDeferredModelUsageCall(context),
 }));
 
 vi.mock('@/lib/mentors/prompts', () => ({
@@ -188,6 +199,11 @@ async function runChatRequest(
 describe('chat route search citations', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGetSearchPlannerModel.mockReturnValue(null);
+    mockGetSearchDecisionModelConfig.mockReturnValue({
+      primary: null,
+      fallback: null,
+    });
     mockStreamText.mockImplementation(({ onFinish }: { onFinish?: (result: { text: string }) => Promise<void> }) => {
       return {
         toUIMessageStream: () => ({
@@ -229,6 +245,68 @@ describe('chat route search citations', () => {
         },
       ],
     });
+  });
+
+  it('attributes temporary search-model calls to the initiating request without content', async () => {
+    const usage = {
+      inputTokens: 18,
+      outputTokens: 9,
+      totalTokens: 27,
+    };
+    const runId = '10000000-0000-4000-8000-000000000001';
+    mockGetSearchPlannerModel.mockReturnValue('search-planner-model');
+    mockGenerateObject.mockResolvedValue({
+      object: {
+        resolvedIntent: 'Current provider status.',
+        queries: ['current provider status'],
+        topicEntities: ['provider'],
+        sourceStrategy: 'official',
+        freshnessNeeded: true,
+        reusePriorSources: false,
+      },
+      finishReason: 'stop',
+      usage,
+    });
+
+    const { response } = await runChatRequest({
+      message: 'Search for current provider status',
+      searchMode: 'required',
+      chatMode: 'temporary',
+      run: {
+        runId,
+        userMessageId: '20000000-0000-4000-8000-000000000001',
+        assistantMessageId: '30000000-0000-4000-8000-000000000001',
+        temporarySessionId: '40000000-0000-4000-8000-000000000001',
+      },
+    });
+
+    expect(response.status).toBe(200);
+    const searchContext = mockStartDeferredModelUsageCall.mock.calls
+      .map(([context]) => context as Record<string, unknown>)
+      .find(({ callKind }) => callKind === 'search_plan');
+    expect(searchContext).toEqual(expect.objectContaining({
+      requestId: runId,
+      runId: null,
+      callKind: 'search_plan',
+      attempt: 0,
+      chatMode: 'temporary',
+      surface: 'main',
+      requestedModelId: null,
+      resolvedModelId: null,
+      provider: 'openrouter',
+      providerModelId: 'qwen/qwen-2.5-7b-instruct',
+    }));
+    expect(searchContext).not.toHaveProperty('prompt');
+    expect(searchContext).not.toHaveProperty('query');
+    expect(searchContext).not.toHaveProperty('url');
+    expect(mockRecordModelUsage).toHaveBeenCalledWith(
+      expect.objectContaining({ callKind: 'search_plan' }),
+      {
+        status: 'completed',
+        finishReason: 'stop',
+        usage,
+      }
+    );
   });
 
   afterEach(() => {

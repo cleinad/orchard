@@ -15,6 +15,10 @@ const mockConsumeStream = vi.fn(async ({ stream }: { stream: ReadableStream }) =
 const mockCreateSupabaseServerClient = vi.fn();
 const mockBuildMentorPrompt = vi.fn();
 const mockRunSearchPipeline = vi.fn();
+const mockRecordModelUsage = vi.fn();
+const mockStartDeferredModelUsageCall = vi.fn((context: unknown) => (
+  terminal: unknown
+) => mockRecordModelUsage(context, terminal));
 const mockStorageDownload = vi.fn();
 const mockStorageRemove = vi.fn();
 const mockGetChatModel = vi.fn(() => 'mock-chat-model');
@@ -23,6 +27,7 @@ const mockResolveChatModelSelection = vi.fn((modelId?: string | null) => {
 
   return {
     id: 'gpt-5-mini',
+    requestedId: 'auto',
     label: 'GPT 5 Mini',
     provider: 'openai',
     apiModelId: 'gpt-5-mini',
@@ -44,6 +49,7 @@ type TestMutationOperation = 'insert' | 'update' | 'upsert' | 'delete';
 
 type TestTableConfig = {
   rows: object[];
+  queryError?: unknown;
   returnOnMutate?: object[];
   mutateError?: unknown | ((operation: TestMutationOperation, args: unknown) => unknown);
 };
@@ -197,6 +203,11 @@ vi.mock('@/lib/search/pipeline', () => ({
   runSearchPipeline: (...args: unknown[]) => mockRunSearchPipeline(...args),
 }));
 
+vi.mock('@/lib/telemetry/deferred', () => ({
+  startDeferredModelUsageCall: (context: unknown) =>
+    mockStartDeferredModelUsageCall(context),
+}));
+
 vi.mock('@/lib/mentors/prompts', () => ({
   buildMentorPrompt: (...args: unknown[]) => mockBuildMentorPrompt(...args),
 }));
@@ -308,6 +319,7 @@ describe('chat route contract', () => {
     mockStorageRemove.mockResolvedValue({ data: null, error: null });
     mockResolveChatModelSelection.mockReturnValue({
       id: 'gpt-5-mini',
+      requestedId: 'auto',
       label: 'GPT 5 Mini',
       provider: 'openai',
       apiModelId: 'gpt-5-mini',
@@ -366,6 +378,29 @@ describe('chat route contract', () => {
       title_version: 1,
       title_run_id: null,
     });
+    const usageCalls = mockStartDeferredModelUsageCall.mock.calls
+      .map(([context]) => context as Record<string, unknown>);
+    expect(usageCalls.map(({ callKind }) => callKind).sort()).toEqual([
+      'chat_response',
+      'conversation_title',
+    ]);
+    expect(new Set(usageCalls.map(({ requestId }) => requestId)).size).toBe(1);
+    expect(usageCalls).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        callKind: 'conversation_title',
+        runId: null,
+        surface: 'main',
+      }),
+      expect.objectContaining({
+        callKind: 'chat_response',
+        runId: null,
+        surface: 'main',
+      }),
+    ]));
+    for (const call of usageCalls) {
+      expect(call).not.toHaveProperty('prompt');
+      expect(call).not.toHaveProperty('conversationId');
+    }
   });
 
   it('does not retitle existing conversations that already have messages', async () => {
@@ -1066,14 +1101,38 @@ describe('chat route contract', () => {
   });
 
   it('retries with generateText when the streamed response is empty', async () => {
-    mockStreamText.mockImplementation(({ onFinish }: { onFinish?: (result: { text: string }) => Promise<void> }) => {
+    const streamUsage = {
+      inputTokens: 20,
+      outputTokens: 0,
+      totalTokens: 20,
+    };
+    const retryUsage = {
+      inputTokens: 20,
+      outputTokens: 5,
+      totalTokens: 25,
+    };
+    mockStreamText.mockImplementation(({ onFinish }: {
+      onFinish?: (result: {
+        text: string;
+        totalUsage: typeof streamUsage;
+        finishReason: string;
+      }) => Promise<void>;
+    }) => {
       return {
         toUIMessageStream: () => ({
-          __pending: onFinish?.({ text: '   ' }) ?? Promise.resolve(),
+          __pending: onFinish?.({
+            text: '   ',
+            totalUsage: streamUsage,
+            finishReason: 'stop',
+          }) ?? Promise.resolve(),
         }),
       };
     });
-    mockGenerateText.mockResolvedValue({ text: 'Recovered reply' });
+    mockGenerateText.mockResolvedValue({
+      text: 'Recovered reply',
+      totalUsage: retryUsage,
+      finishReason: 'stop',
+    });
 
     const { response, body } = await runChatRequest({
       message: 'Hello',
@@ -1086,6 +1145,62 @@ describe('chat route contract', () => {
       expect.objectContaining({
         system: expect.stringContaining('Do not return an empty response.'),
       })
+    );
+    const responseCalls = mockStartDeferredModelUsageCall.mock.calls
+      .map(([context]) => context as Record<string, unknown>)
+      .filter(({ callKind }) =>
+        callKind === 'chat_response' || callKind === 'chat_response_retry'
+      );
+    expect(responseCalls).toEqual([
+      expect.objectContaining({
+        callKind: 'chat_response',
+        attempt: 0,
+      }),
+      expect.objectContaining({
+        callKind: 'chat_response_retry',
+        attempt: 1,
+      }),
+    ]);
+    expect(new Set(responseCalls.map(({ requestId }) => requestId)).size).toBe(1);
+    expect(mockRecordModelUsage.mock.calls).toEqual(expect.arrayContaining([
+      [
+        expect.objectContaining({ callKind: 'chat_response' }),
+        {
+          status: 'completed',
+          finishReason: 'stop',
+          usage: streamUsage,
+        },
+      ],
+      [
+        expect.objectContaining({ callKind: 'chat_response_retry' }),
+        {
+          status: 'completed',
+          finishReason: 'stop',
+          usage: retryUsage,
+        },
+      ],
+    ]));
+  });
+
+  it('records a cancelled response when the stream aborts', async () => {
+    mockStreamText.mockImplementation(({ onAbort }: {
+      onAbort?: () => void;
+    }) => ({
+      toUIMessageStream: () => {
+        onAbort?.();
+        return {};
+      },
+    }));
+
+    const { response } = await runChatRequest({
+      message: 'Stop this response',
+      chatMode: 'temporary',
+    });
+
+    expect(response.status).toBe(200);
+    expect(mockRecordModelUsage).toHaveBeenCalledWith(
+      expect.objectContaining({ callKind: 'chat_response' }),
+      { status: 'cancelled' }
     );
   });
 
@@ -1288,6 +1403,7 @@ describe('chat route contract', () => {
   it('rejects image attachments when the resolved model cannot read images', async () => {
     mockResolveChatModelSelection.mockReturnValue({
       id: 'gpt-5-mini',
+      requestedId: 'auto',
       label: 'Text Model',
       provider: 'openai',
       apiModelId: 'gpt-5-mini',
@@ -1616,6 +1732,7 @@ describe('chat route run lifecycle', () => {
     mockGenerateText.mockResolvedValue({ text: 'Coordinated Title' });
     mockResolveChatModelSelection.mockReturnValue({
       id: 'gpt-5-mini',
+      requestedId: 'auto',
       label: 'GPT 5 Mini',
       provider: 'openai',
       apiModelId: 'gpt-5-mini',
@@ -1668,6 +1785,18 @@ describe('chat route run lifecycle', () => {
     )).toBe(false);
     expectNoChatRunMemoryStatus(tracker);
     expectNoMemoryDatabaseAccess(tracker);
+    expect(mockStartDeferredModelUsageCall).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'user-1',
+        requestId: run.runId,
+        runId: run.runId,
+        callKind: 'chat_response',
+        attempt: 0,
+        requestedModelId: 'auto',
+        resolvedModelId: 'gpt-5-mini',
+        surface: 'main',
+      })
+    );
   });
 
   it('constructs the model before accepting a durable run', async () => {
@@ -1687,6 +1816,7 @@ describe('chat route run lifecycle', () => {
     expect(tracker.rpcs).toHaveLength(0);
     expect(tracker.mutations).toHaveLength(0);
     expect(mockStreamText).not.toHaveBeenCalled();
+    expect(mockStartDeferredModelUsageCall).not.toHaveBeenCalled();
   });
 
   it('reattaches an identical accepted run without another model call', async () => {
@@ -1731,6 +1861,7 @@ describe('chat route run lifecycle', () => {
     expect((body.run as { response?: string }).response).toBe('Existing reply');
     expect((body.run as { subsystems?: object }).subsystems).not.toHaveProperty('memory');
     expect(mockStreamText).not.toHaveBeenCalled();
+    expect(mockStartDeferredModelUsageCall).not.toHaveBeenCalled();
     expect(tracker.inserts('messages')).toHaveLength(0);
     expectNoChatRunMemoryStatus(tracker);
   });
@@ -2024,6 +2155,14 @@ describe('chat route run lifecycle', () => {
     });
     expect(tracker.mutations).toHaveLength(0);
     expect(tracker.rpcs).toHaveLength(0);
+    expect(mockStartDeferredModelUsageCall).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestId: run.runId,
+        runId: null,
+        chatMode: 'temporary',
+        surface: 'main',
+      })
+    );
     expect(mockConsumeStream).not.toHaveBeenCalled();
   });
 
@@ -2047,6 +2186,14 @@ describe('chat route run lifecycle', () => {
     });
     expect(tracker.mutations).toHaveLength(0);
     expect(tracker.rpcs).toHaveLength(0);
+    expect(mockStartDeferredModelUsageCall).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestId: run.runId,
+        runId: null,
+        chatMode: 'temporary',
+        surface: 'main',
+      })
+    );
   });
 
   it('preserves temporary branch targeting without database mutations', async () => {
@@ -2070,6 +2217,14 @@ describe('chat route run lifecycle', () => {
     });
     expect(tracker.mutations).toHaveLength(0);
     expect(tracker.rpcs).toHaveLength(0);
+    expect(mockStartDeferredModelUsageCall).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestId: run.runId,
+        runId: null,
+        chatMode: 'temporary',
+        surface: 'branch',
+      })
+    );
   });
 
   it('preserves temporary inline-thread targeting without database mutations', async () => {
@@ -2099,6 +2254,14 @@ describe('chat route run lifecycle', () => {
     });
     expect(tracker.mutations).toHaveLength(0);
     expect(tracker.rpcs).toHaveLength(0);
+    expect(mockStartDeferredModelUsageCall).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestId: run.runId,
+        runId: null,
+        chatMode: 'temporary',
+        surface: 'inline_thread',
+      })
+    );
   });
 
   it('does not let a delayed generated title overwrite a manual title version', async () => {
@@ -2255,6 +2418,61 @@ describe('chat route run lifecycle', () => {
       return args.response_status === 'failed' && args.error_code === 'response_stream_failed';
     })).toBe(true);
     expect(tracker.inserts('messages')).toHaveLength(1);
+  });
+
+  it('records provider completion when durable run finalization cannot load the run', async () => {
+    const usage = {
+      inputTokens: 30,
+      outputTokens: 12,
+      totalTokens: 42,
+    };
+    mockStreamText.mockImplementation(({ onFinish }: {
+      onFinish?: (result: {
+        text: string;
+        totalUsage: typeof usage;
+        finishReason: string;
+      }) => Promise<void>;
+    }) => ({
+      toUIMessageStream: () => ({
+        __pending: onFinish?.({
+          text: 'Provider finished',
+          totalUsage: usage,
+          finishReason: 'stop',
+        }) ?? Promise.resolve(),
+      }),
+    }));
+
+    await expect(runChatRequest(
+      { message: 'Finish even if persistence fails', conversationId, previousMessageId: null, run },
+      {
+        conversations: {
+          rows: [{
+            id: conversationId,
+            mentor_id: null,
+            workspace_id: null,
+            title_source: 'generated',
+            title_version: 1,
+          }],
+        },
+        messages: { rows: [] },
+        chat_runs: {
+          rows: [],
+          queryError: { message: 'run lookup unavailable' },
+        },
+      },
+      {
+        accept_chat_run: { data: { disposition: 'accepted', run_id: run.runId } },
+      }
+    )).rejects.toThrow();
+
+    expect(mockRecordModelUsage).toHaveBeenCalledWith(
+      expect.objectContaining({ callKind: 'chat_response' }),
+      {
+        status: 'completed',
+        finishReason: 'stop',
+        usage,
+      }
+    );
   });
 
   it('does not report completion when the assistant message commit fails', async () => {

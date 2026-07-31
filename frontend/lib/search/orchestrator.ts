@@ -10,6 +10,7 @@ import {
   decideSearchNecessity,
   planSearchAction,
   type PlannerLogger,
+  type SearchModelTelemetry,
   type SearchPlannerMessage,
 } from '@/lib/search/query-planner';
 import { assessSearchResults, buildRepairQuery } from '@/lib/search/relevance';
@@ -251,6 +252,7 @@ export async function runConversationalSearch(
     searchPipeline?: typeof runSearchPipeline;
     activityWriter?: (activity: SearchActivitySummary) => void;
     logger?: PlannerLogger;
+    modelTelemetry?: SearchModelTelemetry;
   } = {}
 ): Promise<ConversationalSearchRun> {
   const events: SearchActivityEvent[] = [
@@ -345,6 +347,9 @@ export async function runConversationalSearch(
           ? { fallbackProvider: dependencies.fallbackDecisionProvider }
           : {}),
         ...(dependencies.logger ? { logger: dependencies.logger } : {}),
+        ...(dependencies.modelTelemetry
+          ? { modelTelemetry: dependencies.modelTelemetry }
+          : {}),
       }
     );
 
@@ -411,6 +416,7 @@ export async function runConversationalSearch(
       ...(dependencies.plannerModelId ? { plannerModelId: dependencies.plannerModelId } : {}),
       ...(dependencies.plannerProvider ? { plannerProvider: dependencies.plannerProvider } : {}),
       ...(dependencies.logger ? { logger: dependencies.logger } : {}),
+      ...(dependencies.modelTelemetry ? { modelTelemetry: dependencies.modelTelemetry } : {}),
     }
   );
 
