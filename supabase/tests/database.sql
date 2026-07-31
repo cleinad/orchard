@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(83);
+select plan(127);
 
 select has_table('public', 'conversations', 'production baseline contains conversations');
 select has_table('public', 'chat_runs', 'chat-run migration creates persistent runs');
@@ -1094,6 +1094,453 @@ select is_empty(
 select is_empty(
   $$update public.conversations set title = 'Cross-user overwrite' where id = '11111111-aaaa-4111-8111-111111111111' returning id$$,
   'RLS prevents a cross-user title overwrite'
+);
+
+reset role;
+
+select has_table('public', 'model_usage_calls', 'telemetry migration creates provider-call accounting');
+select results_eq(
+  $$select relrowsecurity from pg_class where oid = 'public.model_usage_calls'::regclass$$,
+  array[true],
+  'telemetry rows have RLS enabled'
+);
+select is_empty(
+  $$select policyname from pg_policies where schemaname = 'public' and tablename = 'model_usage_calls'$$,
+  'telemetry rows have no browser-facing RLS policy'
+);
+select ok(
+  not has_table_privilege('anon', 'public.model_usage_calls', 'SELECT'),
+  'anonymous users cannot read telemetry'
+);
+select ok(
+  not has_table_privilege('anon', 'public.model_usage_calls', 'INSERT'),
+  'anonymous users cannot forge telemetry'
+);
+select ok(
+  not has_table_privilege('anon', 'public.model_usage_calls', 'UPDATE'),
+  'anonymous users cannot rewrite telemetry'
+);
+select ok(
+  not has_table_privilege('anon', 'public.model_usage_calls', 'DELETE'),
+  'anonymous users cannot delete telemetry'
+);
+select ok(
+  not has_table_privilege('authenticated', 'public.model_usage_calls', 'SELECT'),
+  'authenticated users cannot read telemetry'
+);
+select ok(
+  not has_table_privilege('authenticated', 'public.model_usage_calls', 'INSERT'),
+  'authenticated users cannot forge telemetry'
+);
+select ok(
+  not has_table_privilege('authenticated', 'public.model_usage_calls', 'UPDATE'),
+  'authenticated users cannot rewrite telemetry'
+);
+select ok(
+  not has_table_privilege('authenticated', 'public.model_usage_calls', 'DELETE'),
+  'authenticated users cannot delete telemetry'
+);
+select ok(
+  has_table_privilege('service_role', 'public.model_usage_calls', 'INSERT'),
+  'service role can insert telemetry'
+);
+select ok(
+  has_table_privilege('service_role', 'public.model_usage_calls', 'SELECT'),
+  'service role can read telemetry for aggregation'
+);
+
+select ok(
+  not has_function_privilege('authenticated', 'public.admin_model_usage_overview(timestamptz,timestamptz)', 'EXECUTE'),
+  'authenticated users cannot execute the overview aggregate'
+);
+select ok(
+  not has_function_privilege('authenticated', 'public.admin_model_usage_daily(timestamptz,timestamptz)', 'EXECUTE'),
+  'authenticated users cannot execute the daily aggregate'
+);
+select ok(
+  not has_function_privilege('authenticated', 'public.admin_model_usage_models(timestamptz,timestamptz)', 'EXECUTE'),
+  'authenticated users cannot execute the model aggregate'
+);
+select ok(
+  not has_function_privilege('authenticated', 'public.admin_model_usage_users(timestamptz,timestamptz,text,text,integer,integer)', 'EXECUTE'),
+  'authenticated users cannot execute the user aggregate'
+);
+select ok(
+  not has_function_privilege('anon', 'public.admin_model_usage_overview(timestamptz,timestamptz)', 'EXECUTE'),
+  'anonymous users cannot execute the overview aggregate'
+);
+select ok(
+  not has_function_privilege('anon', 'public.admin_model_usage_daily(timestamptz,timestamptz)', 'EXECUTE'),
+  'anonymous users cannot execute the daily aggregate'
+);
+select ok(
+  not has_function_privilege('anon', 'public.admin_model_usage_models(timestamptz,timestamptz)', 'EXECUTE'),
+  'anonymous users cannot execute the model aggregate'
+);
+select ok(
+  not has_function_privilege('anon', 'public.admin_model_usage_users(timestamptz,timestamptz,text,text,integer,integer)', 'EXECUTE'),
+  'anonymous users cannot execute the user aggregate'
+);
+select ok(
+  has_function_privilege('service_role', 'public.admin_model_usage_overview(timestamptz,timestamptz)', 'EXECUTE'),
+  'service role can execute the overview aggregate'
+);
+select ok(
+  has_function_privilege('service_role', 'public.admin_model_usage_daily(timestamptz,timestamptz)', 'EXECUTE'),
+  'service role can execute the daily aggregate'
+);
+select ok(
+  has_function_privilege('service_role', 'public.admin_model_usage_models(timestamptz,timestamptz)', 'EXECUTE'),
+  'service role can execute the model aggregate'
+);
+select ok(
+  has_function_privilege('service_role', 'public.admin_model_usage_users(timestamptz,timestamptz,text,text,integer,integer)', 'EXECUTE'),
+  'service role can execute the user aggregate'
+);
+
+set local role anon;
+select throws_ok(
+  $$select count(*) from public.model_usage_calls$$,
+  '42501'::char(5),
+  'permission denied for table model_usage_calls',
+  'anonymous execution cannot read telemetry'
+);
+reset role;
+
+set local role authenticated;
+select throws_ok(
+  $$
+    insert into public.model_usage_calls (
+      id, user_id, request_id, call_kind, attempt, chat_mode, surface,
+      provider, provider_model_id, status, duration_ms, cost_status,
+      started_at, completed_at
+    ) values (
+      'cccccccc-0000-4000-8000-000000000003',
+      '11111111-1111-4111-8111-111111111111',
+      'cccccccc-1111-4000-8000-000000000003',
+      'search_decision', 0, 'persistent', 'main',
+      'openai', 'gpt-5.5', 'completed', 1, 'missing_usage', now(), now()
+    )
+  $$,
+  '42501'::char(5),
+  'permission denied for table model_usage_calls',
+  'authenticated execution cannot forge telemetry'
+);
+select throws_ok(
+  $$select * from public.admin_model_usage_overview(now() - interval '1 hour', now())$$,
+  '42501'::char(5),
+  'permission denied for function admin_model_usage_overview',
+  'authenticated execution cannot run telemetry aggregates'
+);
+reset role;
+
+set local role service_role;
+insert into public.model_usage_calls (
+  id, user_id, request_id, call_kind, attempt, chat_mode, surface,
+  provider, provider_model_id, status, duration_ms, cost_status,
+  started_at, completed_at
+) values (
+  'cccccccc-0000-4000-8000-000000000004',
+  '11111111-1111-4111-8111-111111111111',
+  'cccccccc-1111-4000-8000-000000000004',
+  'search_decision', 0, 'persistent', 'main',
+  'openai', 'gpt-5.5', 'completed', 1, 'missing_usage',
+  '2026-07-30 10:00:00+00', '2026-07-30 10:00:00.001+00'
+);
+select results_eq(
+  $$select count(*) from public.model_usage_calls where id = 'cccccccc-0000-4000-8000-000000000004'$$,
+  array[1::bigint],
+  'service-role execution can insert and read telemetry'
+);
+select results_eq(
+  $$
+    select provider_calls
+    from public.admin_model_usage_overview(
+      '2026-07-30 00:00:00+00', '2026-07-31 00:00:00+00'
+    )
+  $$,
+  array[1::bigint],
+  'service-role execution can run telemetry aggregates'
+);
+reset role;
+
+insert into public.model_usage_calls (
+  id, user_id, request_id, call_kind, attempt, chat_mode, surface,
+  provider, provider_model_id, status, input_tokens, total_tokens,
+  duration_ms, cost_status, started_at, completed_at
+) values (
+  'cccccccc-0000-4000-8000-000000000005',
+  '11111111-1111-4111-8111-111111111111',
+  'cccccccc-1111-4000-8000-000000000005',
+  'search_decision', 0, 'persistent', 'main',
+  'openai', 'partial-usage-fixture', 'completed', 10, 10,
+  1, 'missing_usage',
+  '2026-07-29 10:00:00+00', '2026-07-29 10:00:00.001+00'
+);
+select results_eq(
+  $$
+    select concat_ws(
+      '|', completed_calls, usage_reported_calls, billable_usage_calls,
+      missing_usage_calls
+    )
+    from public.admin_model_usage_overview(
+      '2026-07-29 00:00:00+00', '2026-07-30 00:00:00+00'
+    )
+  $$,
+  array['1|0|0|1'],
+  'partial input-only usage remains outside the billable coverage numerator'
+);
+select results_eq(
+  $$
+    select concat_ws(
+      '|', completed_calls, usage_reported_calls, billable_usage_calls
+    )
+    from public.admin_model_usage_users(
+      '2026-07-29 00:00:00+00', '2026-07-30 00:00:00+00',
+      'estimated_cost', 'desc', 100, 0
+    )
+    where user_id = '11111111-1111-4111-8111-111111111111'
+  $$,
+  array['1|0|0'],
+  'per-user coverage excludes partial input-only usage from billable calls'
+);
+
+select throws_ok(
+  $$
+    insert into public.model_usage_calls (
+      id, user_id, request_id, call_kind, attempt, chat_mode, surface,
+      provider, provider_model_id, status, duration_ms, cost_status,
+      started_at, completed_at
+    ) values (
+      'cccccccc-0000-4000-8000-000000000001',
+      '11111111-1111-4111-8111-111111111111',
+      'cccccccc-1111-4000-8000-000000000001',
+      'prompt_preview', 0, 'persistent', 'main',
+      'openai', 'gpt-5.5', 'completed', 1, 'missing_usage', now(), now()
+    )
+  $$,
+  '23514'::char(5),
+  'new row for relation "model_usage_calls" violates check constraint "model_usage_calls_call_kind_check"',
+  'invalid call kinds are rejected'
+);
+select throws_ok(
+  $$
+    insert into public.model_usage_calls (
+      id, user_id, request_id, call_kind, attempt, chat_mode, surface,
+      provider, provider_model_id, status, input_tokens, duration_ms,
+      cost_status, started_at, completed_at
+    ) values (
+      'cccccccc-0000-4000-8000-000000000002',
+      '11111111-1111-4111-8111-111111111111',
+      'cccccccc-1111-4000-8000-000000000002',
+      'chat_response', 0, 'persistent', 'main',
+      'openai', 'gpt-5.5', 'completed', -1, 1,
+      'missing_usage', now(), now()
+    )
+  $$,
+  '23514'::char(5),
+  'new row for relation "model_usage_calls" violates check constraint "model_usage_calls_token_values_check"',
+  'negative token counts are rejected'
+);
+
+insert into public.model_usage_calls (
+  id, user_id, request_id, run_id, call_kind, attempt, chat_mode, surface,
+  requested_model_id, resolved_model_id, provider, provider_model_id,
+  status, finish_reason, input_tokens, no_cache_input_tokens,
+  cache_read_tokens, output_tokens, reasoning_tokens, total_tokens,
+  duration_ms, estimated_cost_nanousd, pricing_version, cost_status,
+  started_at, completed_at
+) values
+  (
+    'cccccccc-0000-4000-8000-000000000010',
+    '11111111-1111-4111-8111-111111111111',
+    'cccccccc-1111-4000-8000-000000000010',
+    'aaaaaaaa-0000-4000-8000-000000000001',
+    'chat_response', 0, 'persistent', 'main', 'auto', 'gpt-5.5',
+    'openai', 'gpt-5.5', 'completed', 'stop', 10, 8, 2, 5, 2, 15,
+    50, 100, 'test-price-v1', 'priced',
+    '2026-07-31 10:00:00+00', '2026-07-31 10:00:00.050+00'
+  ),
+  (
+    'cccccccc-0000-4000-8000-000000000011',
+    '11111111-1111-4111-8111-111111111111',
+    'cccccccc-1111-4000-8000-000000000010',
+    null,
+    'chat_response', 0, 'persistent', 'main', 'auto', 'gpt-5.5',
+    'openai', 'gpt-5.5', 'completed', 'stop', 10, 10, 0, 5, 2, 15,
+    50, 100, 'test-price-v1', 'priced',
+    '2026-07-31 10:00:01+00', '2026-07-31 10:00:01.050+00'
+  ),
+  (
+    'cccccccc-0000-4000-8000-000000000012',
+    '11111111-1111-4111-8111-111111111111',
+    'cccccccc-1111-4000-8000-000000000010',
+    null,
+    'conversation_title', 0, 'persistent', 'main', null, 'gpt-5.5',
+    'openai', 'gpt-5.5', 'completed', 'stop', 4, 4, 0, 2, 0, 6,
+    20, 50, 'test-price-v1', 'priced',
+    '2026-07-31 10:00:02+00', '2026-07-31 10:00:02.020+00'
+  ),
+  (
+    'cccccccc-0000-4000-8000-000000000013',
+    '11111111-1111-4111-8111-111111111111',
+    'cccccccc-1111-4000-8000-000000000010',
+    null,
+    'chat_response_retry', 1, 'persistent', 'main', null, 'gpt-5.5',
+    'openai', 'gpt-5.5', 'completed', 'stop', 8, 8, 0, 4, 1, 12,
+    30, 75, 'test-price-v1', 'priced',
+    '2026-07-31 10:00:03+00', '2026-07-31 10:00:03.030+00'
+  ),
+  (
+    'cccccccc-0000-4000-8000-000000000014',
+    '11111111-1111-4111-8111-111111111111',
+    'cccccccc-1111-4000-8000-000000000014',
+    null,
+    'mentor_generation', 0, null, 'mentor', null, 'gpt-5.5',
+    'openai', 'gpt-5.5', 'completed', 'stop', 10, 10, 0, 5, 2, 15,
+    40, 100, 'test-price-v1', 'priced',
+    '2026-07-31 10:00:04+00', '2026-07-31 10:00:04.040+00'
+  ),
+  (
+    'cccccccc-0000-4000-8000-000000000015',
+    '11111111-1111-4111-8111-111111111111',
+    'cccccccc-1111-4000-8000-000000000010',
+    null,
+    'search_plan', 0, 'persistent', 'main', null, 'gpt-5.5',
+    'openai', 'gpt-5.5', 'failed', 'error', 4, 4, 0, 2, 0, 6,
+    20, 25, 'test-price-v1', 'priced',
+    '2026-07-31 10:00:05+00', '2026-07-31 10:00:05.020+00'
+  );
+
+insert into public.model_usage_calls
+select calls.*
+from public.model_usage_calls
+  as calls
+where calls.id = 'cccccccc-0000-4000-8000-000000000010'
+on conflict (id) do nothing;
+
+select results_eq(
+  $$select count(*) from public.model_usage_calls where id = 'cccccccc-0000-4000-8000-000000000010'$$,
+  array[1::bigint],
+  'repeating the same provider-call ID is idempotent'
+);
+select results_eq(
+  $$
+    select count(*)
+    from public.model_usage_calls
+    where request_id = 'cccccccc-1111-4000-8000-000000000010'
+      and call_kind = 'chat_response'
+      and attempt = 0
+  $$,
+  array[2::bigint],
+  'distinct provider-call IDs remain separately billable under one logical attempt'
+);
+select results_eq(
+  $$
+    select concat_ws('|', total_users, user_id, provider_calls)
+    from public.admin_model_usage_users(
+      '2026-07-31 00:00:00+00', '2026-08-01 00:00:00+00',
+      'estimated_cost', 'desc', 100, 0
+    )
+    where user_id = '22222222-2222-4222-8222-222222222222'
+  $$,
+  array['2|22222222-2222-4222-8222-222222222222|0'],
+  'registered users with zero telemetry remain visible'
+);
+
+insert into public.model_usage_calls (
+  id, user_id, request_id, call_kind, attempt, chat_mode, surface,
+  requested_model_id, resolved_model_id, provider, provider_model_id,
+  status, input_tokens, no_cache_input_tokens, output_tokens, total_tokens,
+  duration_ms, estimated_cost_nanousd, pricing_version, cost_status,
+  started_at, completed_at
+) values (
+  'cccccccc-0000-4000-8000-000000000020',
+  '22222222-2222-4222-8222-222222222222',
+  'cccccccc-1111-4000-8000-000000000020',
+  'chat_response', 0, 'persistent', 'main', 'gpt-5.4', 'gpt-5.4',
+  'openai', 'gpt-5.4', 'completed', 30, 30, 20, 50,
+  80, null, null, 'missing_price',
+  '2026-07-31 11:00:00+00', '2026-07-31 11:00:00.080+00'
+);
+
+select results_eq(
+  $$
+    select concat_ws('|', responses, provider_calls, estimated_cost_nanousd, estimated_chat_cost_nanousd)
+    from public.admin_model_usage_overview(
+      '2026-07-31 00:00:00+00', '2026-08-01 00:00:00+00'
+    )
+  $$,
+  array['2|7|450|350'],
+  'overview counts responses once while including auxiliary and repeated provider calls in cost'
+);
+select results_eq(
+  $$
+    select concat_ws(
+      '|', usage_reported_calls, billable_usage_calls, priced_calls,
+      missing_usage_calls, missing_price_calls
+    )
+    from public.admin_model_usage_overview(
+      '2026-07-31 00:00:00+00', '2026-08-01 00:00:00+00'
+    )
+  $$,
+  array['6|7|6|0|1'],
+  'overview keeps usage and pricing coverage denominators separate'
+);
+select results_eq(
+  $$
+    select concat_ws(
+      '|', primary_responses, auxiliary_calls, estimated_cost_nanousd,
+      billable_usage_calls, priced_calls
+    )
+    from public.admin_model_usage_models(
+      '2026-07-31 00:00:00+00', '2026-08-01 00:00:00+00'
+    )
+    where model_key = 'gpt-5.5'
+  $$,
+  array['1|4|450|6|6'],
+  'model aggregates separate primary response actions from auxiliary calls'
+);
+select results_eq(
+  $$
+    select concat_ws(
+      '|', completed_calls, usage_reported_calls, billable_usage_calls,
+      priced_calls, missing_price_calls
+    )
+    from public.admin_model_usage_users(
+      '2026-07-31 00:00:00+00', '2026-08-01 00:00:00+00',
+      'estimated_cost', 'desc', 100, 0
+    )
+    where user_id = '11111111-1111-4111-8111-111111111111'
+  $$,
+  array['5|5|6|6|0'],
+  'user coverage separates completed usage reporting from all billable calls'
+);
+select throws_ok(
+  $$
+    select * from public.admin_model_usage_users(
+      '2026-07-31 00:00:00+00', '2026-08-01 00:00:00+00',
+      'user_supplied_sql', 'desc', 50, 0
+    )
+  $$,
+  '22023'::char(5),
+  'invalid usage sort',
+  'user aggregate rejects non-allowlisted sort keys'
+);
+
+delete from public.chat_runs
+where id = 'aaaaaaaa-0000-4000-8000-000000000001';
+select results_eq(
+  $$select run_id is null from public.model_usage_calls where id = 'cccccccc-0000-4000-8000-000000000010'$$,
+  array[true],
+  'deleting a run nulls only the optional telemetry correlation'
+);
+
+delete from auth.users
+where id = '22222222-2222-4222-8222-222222222222';
+select is_empty(
+  $$select id from public.model_usage_calls where user_id = '22222222-2222-4222-8222-222222222222'$$,
+  'deleting an account removes its telemetry attribution'
 );
 
 select * from finish();
