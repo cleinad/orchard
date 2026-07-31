@@ -77,9 +77,47 @@ Live search has `Off`, `Auto`, and `Always search` modes. When a search runs, th
 server classifies the query, retrieves candidates from configured providers,
 reranks accepted sources, and stores citation metadata with the response.
 
+## Usage telemetry
+
+Every server-side model-provider invocation finishes through a bounded,
+best-effort telemetry recorder. Calls caused by the same user action share a
+stable request ID while retaining unique provider-call IDs:
+
+```text
+authenticated user action
+  └─ stable request ID
+       ├─ search decision or plan, when used
+       ├─ primary response
+       ├─ fallback response, when used
+       └─ conversation title, when used
+            ↓
+       model_usage_calls
+            ↓
+       service-role-only aggregate functions
+            ↓
+       authorized, server-rendered /admin
+```
+
+Mentor generation uses the same contract with its own request ID and surface.
+The writer and admin reader are separate `server-only` modules. They may use the
+same service-role credential, but neither exports an unrestricted elevated
+client. The admin page authenticates and checks its UUID allowlist before it
+creates the reader.
+
+Telemetry contains normalized identifiers, status, timing, token counts, and an
+immutable call-time price estimate. It contains no prompt, response, title,
+search query, source URL, raw error, or raw provider metadata. Browser roles
+cannot read or write the table or execute its aggregates. Telemetry failure is
+outside the generation failure boundary, and the no-store admin page consumes
+aggregate function results rather than raw call rows.
+
+See [Usage telemetry and administration](./features/telemetry-and-admin.md) for
+metric definitions, exclusions, pricing maintenance, and retention behavior.
+
 ## Related docs
 
 - [Product](./product.md)
 - [Inline threads](./features/inline-threads.md)
 - [Conversation branching](./features/conversation-branching.md)
+- [Usage telemetry and administration](./features/telemetry-and-admin.md)
 - [Local setup](./development/setup.md)

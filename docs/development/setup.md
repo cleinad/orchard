@@ -64,6 +64,41 @@ SEARCH_PLANNER_MODEL=your_model_id
 Only variables prefixed with `NEXT_PUBLIC_` are exposed to browser code. Keep
 all provider keys server-side.
 
+### Telemetry and admin access
+
+Model-call telemetry uses the elevated Supabase key only inside narrow
+`server-only` writer and aggregate-reader modules:
+
+```bash
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+
+# Optional: comma-separated Supabase Auth user UUIDs allowed to open /admin
+ORCHARD_ADMIN_USER_IDS=11111111-1111-4111-8111-111111111111
+```
+
+Keep both values server-side. Never prefix them with `NEXT_PUBLIC_`, place them
+in client code, or print them while checking configuration. Without the service
+role key, normal generation remains available but telemetry writes and admin
+aggregate reads are unavailable. Without a valid allowlist, `/admin` fails
+closed for every signed-in user.
+
+Use the exact Supabase Auth UUID, not an email address. On an environment where
+you already have authorized database access, look up only the intended account
+with a parameterized query rather than listing all users:
+
+```sql
+select id
+from auth.users
+where lower(email) = lower(:'admin_email');
+```
+
+For example, `psql` can bind `admin_email` with
+`-v admin_email='admin@example.com'`. Do not place a database URL, service-role
+key, or user list in shell history or documentation.
+
+See [Usage telemetry and administration](../features/telemetry-and-admin.md)
+for the stored-data, access, pricing, and failure contracts.
+
 ## Supabase environments
 
 The checked-in `supabase/config.toml` uses the canonical local project identity

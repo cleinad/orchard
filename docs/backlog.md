@@ -26,6 +26,9 @@ is not obvious.
 - [ ] Add server-side cleanup for image uploads that are abandoned before a
   message is saved.
 - [ ] Validate and tune live search against real provider traffic.
+- [ ] Add invoice-grade provider reconciliation and retained anonymized spend
+  only if Orchard introduces billing that requires totals to survive account
+  deletion.
 
 ## Feature ideas
 

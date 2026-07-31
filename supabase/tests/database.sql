@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(127);
+select plan(133);
 
 select has_table('public', 'conversations', 'production baseline contains conversations');
 select has_table('public', 'chat_runs', 'chat-run migration creates persistent runs');
@@ -1148,6 +1148,26 @@ select ok(
   has_table_privilege('service_role', 'public.model_usage_calls', 'SELECT'),
   'service role can read telemetry for aggregation'
 );
+select ok(
+  not has_table_privilege('service_role', 'public.model_usage_calls', 'UPDATE'),
+  'service role cannot rewrite telemetry'
+);
+select ok(
+  not has_table_privilege('service_role', 'public.model_usage_calls', 'DELETE'),
+  'service role cannot delete telemetry'
+);
+select ok(
+  not has_table_privilege('service_role', 'public.model_usage_calls', 'TRUNCATE'),
+  'service role cannot truncate telemetry'
+);
+select ok(
+  not has_table_privilege('service_role', 'public.model_usage_calls', 'REFERENCES'),
+  'service role cannot create references to telemetry'
+);
+select ok(
+  not has_table_privilege('service_role', 'public.model_usage_calls', 'TRIGGER'),
+  'service role cannot create telemetry triggers'
+);
 
 select ok(
   not has_function_privilege('authenticated', 'public.admin_model_usage_overview(timestamptz,timestamptz)', 'EXECUTE'),
@@ -1410,6 +1430,26 @@ insert into public.model_usage_calls (
     'openai', 'gpt-5.5', 'failed', 'error', 4, 4, 0, 2, 0, 6,
     20, 25, 'test-price-v1', 'priced',
     '2026-07-31 10:00:05+00', '2026-07-31 10:00:05.020+00'
+  ),
+  (
+    'cccccccc-0000-4000-8000-000000000030',
+    '11111111-1111-4111-8111-111111111111',
+    'cccccccc-1111-4000-8000-000000000030',
+    null,
+    'chat_response', 0, 'temporary', 'main', 'gpt-5.4', 'gpt-5.4',
+    'openai', 'gpt-5.4', 'completed', 'stop', 3, 3, 0, 2, 0, 5,
+    15, 10, 'test-price-v1', 'priced',
+    '2026-07-31 10:00:06+00', '2026-07-31 10:00:06.015+00'
+  ),
+  (
+    'cccccccc-0000-4000-8000-000000000031',
+    '11111111-1111-4111-8111-111111111111',
+    'cccccccc-1111-4000-8000-000000000030',
+    null,
+    'search_decision', 0, 'temporary', 'main', null, null,
+    'openai', 'gpt-5.4', 'completed', 'stop', 1, 1, 0, 1, 0, 2,
+    5, 5, 'test-price-v1', 'priced',
+    '2026-07-31 10:00:07+00', '2026-07-31 10:00:07.005+00'
   );
 
 insert into public.model_usage_calls
@@ -1466,13 +1506,26 @@ insert into public.model_usage_calls (
 
 select results_eq(
   $$
-    select concat_ws('|', responses, provider_calls, estimated_cost_nanousd, estimated_chat_cost_nanousd)
+    select concat_ws(
+      '|', responses, provider_calls, total_tokens,
+      estimated_cost_nanousd, estimated_chat_cost_nanousd
+    )
     from public.admin_model_usage_overview(
       '2026-07-31 00:00:00+00', '2026-08-01 00:00:00+00'
     )
   $$,
-  array['2|7|450|350'],
-  'overview counts responses once while including auxiliary and repeated provider calls in cost'
+  array['3|9|126|465|365'],
+  'overview reconciles multi-surface responses, provider calls, tokens, and costs'
+);
+select results_eq(
+  $$
+    select count(distinct call_kind)
+    from public.model_usage_calls
+    where started_at >= '2026-07-31 00:00:00+00'
+      and started_at < '2026-08-01 00:00:00+00'
+  $$,
+  array[6::bigint],
+  'integrated telemetry fixture spans every instrumented call kind'
 );
 select results_eq(
   $$
@@ -1484,7 +1537,7 @@ select results_eq(
       '2026-07-31 00:00:00+00', '2026-08-01 00:00:00+00'
     )
   $$,
-  array['6|7|6|0|1'],
+  array['8|9|8|0|1'],
   'overview keeps usage and pricing coverage denominators separate'
 );
 select results_eq(
@@ -1513,7 +1566,7 @@ select results_eq(
     )
     where user_id = '11111111-1111-4111-8111-111111111111'
   $$,
-  array['5|5|6|6|0'],
+  array['7|7|8|8|0'],
   'user coverage separates completed usage reporting from all billable calls'
 );
 select throws_ok(

@@ -144,6 +144,29 @@ npm test -- \
 npm test -- __tests__/lib/auth-redirect.test.ts __tests__/proxy.test.ts
 ```
 
+### Usage telemetry and administration
+
+```bash
+npm test -- \
+  __tests__/lib/model-usage.test.ts \
+  __tests__/lib/model-pricing.test.ts \
+  __tests__/lib/telemetry-server.test.ts \
+  __tests__/lib/telemetry-deferred.test.ts \
+  __tests__/app/admin-dashboard.test.ts \
+  __tests__/app/admin-page.test.ts \
+  __tests__/lib/admin-authorization.test.ts \
+  __tests__/lib/admin-usage.test.ts \
+  __tests__/supabase/model-usage-migration.test.ts \
+  __tests__/supabase/model-usage-grants-migration.test.ts
+npx playwright test e2e/admin-access.spec.js
+```
+
+These suites cover normalization and pricing, every instrumented model-call
+surface, best-effort write failure, aggregate mapping, unknown-versus-zero
+semantics, admin authorization, and the migration contract. The executable
+database suite remains required for grants, RLS, constraints, and real aggregate
+behavior.
+
 ## Database checks
 
 `supabase/tests/database.sql` and `supabase/tests/billing_rpc_privileges.sql`
