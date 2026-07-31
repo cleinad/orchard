@@ -61,6 +61,18 @@ describe('proxy auth protection', () => {
     expect(new URL(location!).searchParams.get('redirect')).toBe('/home');
   });
 
+  it('redirects unauthenticated admin access through the normal login flow', async () => {
+    mockCreateServerClient.mockReturnValue(createSupabaseClient(null));
+
+    const response = await proxy(createRequest('/admin?range=7d'));
+    const location = response.headers.get('location');
+
+    expect(response.status).toBe(307);
+    expect(location).not.toBeNull();
+    expect(new URL(location!).pathname).toBe('/login');
+    expect(new URL(location!).searchParams.get('redirect')).toBe('/admin?range=7d');
+  });
+
   it('preserves the original query string in the login redirect', async () => {
     mockCreateServerClient.mockReturnValue(createSupabaseClient(null));
 
