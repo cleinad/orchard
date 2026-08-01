@@ -14,6 +14,8 @@ right now?"
 
 - [ ] Finish replacing the old product identity in user-facing application
   copy and default-chat language.
+- [ ] Add bring your own api key
+- [ ] Open source it?
 
 ## Bugs
 
@@ -25,9 +27,7 @@ is not obvious.
 - [ ] Add server-side cleanup for image uploads that are abandoned before a
   message is saved.
 - [ ] Validate and tune live search against real provider traffic.
-- [ ] Add invoice-grade provider reconciliation and retained anonymized spend
-  only if Orchard introduces billing that requires totals to survive account
-  deletion.
+- [ ] More keyboard shortcuts
 
 ## Feature ideas
 
@@ -37,6 +37,7 @@ is not obvious.
   later turns beyond the current model-native context window.
 - [ ] Add richer source handling if message-level search metadata becomes too
   limiting.
+- [ ] PDF handling
 
 ## Long-term directions
 
