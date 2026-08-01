@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generateObject } from 'ai';
 import { z } from 'zod';
-import { getChatModel } from '@/lib/models';
+import { getChatModel, resolveChatModelSelection } from '@/lib/models';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
+import { startDeferredModelUsageCall } from '@/lib/telemetry/deferred';
 import {
   sanitizeDescription,
   sanitizeMentorName,
@@ -69,21 +70,56 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { object } = await generateObject({
-      model: getChatModel(),
-      system: MENTOR_GENERATOR_SYSTEM_PROMPT,
-      prompt: `User request:\n${parsed.data.prompt.trim()}`,
-      schema: GeneratedMentorSchema,
+    const modelSelection = resolveChatModelSelection(null);
+    if (!modelSelection) {
+      throw new Error('No chat model is configured.');
+    }
+    const model = getChatModel(modelSelection.id);
+    const recordTerminal = startDeferredModelUsageCall({
+      userId: user.id,
+      requestId: crypto.randomUUID(),
+      runId: null,
+      callKind: 'mentor_generation',
+      attempt: 0,
+      chatMode: null,
+      surface: 'mentor',
+      requestedModelId: null,
+      resolvedModelId: modelSelection.id,
+      provider: modelSelection.provider,
+      providerModelId: modelSelection.apiModelId,
     });
+    try {
+      const result = await generateObject({
+        model,
+        system: MENTOR_GENERATOR_SYSTEM_PROMPT,
+        prompt: `User request:\n${parsed.data.prompt.trim()}`,
+        schema: GeneratedMentorSchema,
+      });
+      recordTerminal({
+        status: 'completed',
+        finishReason: result.finishReason,
+        usage: result.usage,
+      });
+      const { object } = result;
 
-    return NextResponse.json({
-      name: sanitizeMentorName(object.name),
-      tagline: sanitizeTagline(object.tagline),
-      description: sanitizeDescription(object.description),
-      base_system_prompt: sanitizePrompt(object.base_system_prompt),
-    });
+      return NextResponse.json({
+        name: sanitizeMentorName(object.name),
+        tagline: sanitizeTagline(object.tagline),
+        description: sanitizeDescription(object.description),
+        base_system_prompt: sanitizePrompt(object.base_system_prompt),
+      });
+    } catch (error) {
+      recordTerminal({ status: failedModelUsageStatus(error) });
+      throw error;
+    }
   } catch (error) {
     console.error('Mentors generate POST error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
+}
+
+function failedModelUsageStatus(error: unknown) {
+  return error instanceof Error && error.name === 'AbortError'
+    ? 'cancelled' as const
+    : 'failed' as const;
 }

@@ -637,4 +637,150 @@ describe('search query planner', () => {
       });
     }
   );
+
+  it('records a content-free terminal event for model-backed search planning', async () => {
+    const terminals: Array<{ call: unknown; terminal: unknown }> = [];
+    const modelTelemetry = {
+      start: vi.fn((call: unknown) => (terminal: unknown) => {
+        terminals.push({ call, terminal });
+      }),
+    };
+    const usage = {
+      inputTokens: 20,
+      outputTokens: 10,
+      totalTokens: 30,
+    };
+    mockGenerateObject.mockResolvedValue({
+      object: {
+        resolvedIntent: 'Official OpenAI pricing.',
+        queries: ['official OpenAI API pricing'],
+        topicEntities: ['OpenAI'],
+        sourceStrategy: 'official',
+        freshnessNeeded: false,
+        reusePriorSources: false,
+      },
+      finishReason: 'stop',
+      usage,
+    });
+
+    await planSearchAction(
+      {
+        latestMessage: 'official OpenAI pricing',
+        recentMessages: [],
+        currentTime: '2026-06-19 10:00 (America/Vancouver)',
+        currentDateLabel: '2026-06-19',
+        searchMode: 'required',
+      },
+      {
+        model: 'planner-model' as never,
+        plannerModelId: 'runtime-planner',
+        plannerProvider: 'openrouter',
+        modelTelemetry,
+      }
+    );
+
+    expect(terminals).toEqual([{
+      call: {
+        callKind: 'search_plan',
+        attempt: 0,
+        provider: 'openrouter',
+        providerModelId: 'runtime-planner',
+      },
+      terminal: {
+        status: 'completed',
+        finishReason: 'stop',
+        usage,
+      },
+    }]);
+  });
+
+  it('records failed primary and successful fallback search decisions separately', async () => {
+    const terminals: Array<{ call: unknown; terminal: unknown }> = [];
+    const modelTelemetry = {
+      start: vi.fn((call: unknown) => (terminal: unknown) => {
+        terminals.push({ call, terminal });
+      }),
+    };
+    const fallbackUsage = {
+      inputTokens: 12,
+      outputTokens: 4,
+      totalTokens: 16,
+    };
+    mockGenerateObject
+      .mockRejectedValueOnce(new Error('primary unavailable'))
+      .mockResolvedValueOnce({
+        object: {
+          shouldSearch: true,
+          reason: 'Sources improve coverage.',
+          confidence: 0.81,
+          freshnessRisk: 'low',
+        },
+        finishReason: 'stop',
+        usage: fallbackUsage,
+      });
+
+    await decideSearchNecessity(
+      searchPlannerInput({
+        latestMessage: 'give me the top semiconductor equipment companies',
+      }),
+      {
+        model: 'primary-model' as never,
+        plannerModelId: 'primary-model-id',
+        provider: 'primary-provider',
+        fallbackModel: 'fallback-model' as never,
+        fallbackPlannerModelId: 'fallback-model-id',
+        fallbackProvider: 'fallback-provider',
+        modelTelemetry,
+      }
+    );
+
+    expect(terminals).toEqual([
+      {
+        call: {
+          callKind: 'search_decision',
+          attempt: 0,
+          provider: 'primary-provider',
+          providerModelId: 'primary-model-id',
+        },
+        terminal: { status: 'failed' },
+      },
+      {
+        call: {
+          callKind: 'search_decision',
+          attempt: 1,
+          provider: 'fallback-provider',
+          providerModelId: 'fallback-model-id',
+        },
+        terminal: {
+          status: 'completed',
+          finishReason: 'stop',
+          usage: fallbackUsage,
+        },
+      },
+    ]);
+  });
+
+  it('records an aborted search model call as cancelled', async () => {
+    const terminals: unknown[] = [];
+    const abortError = new Error('request aborted');
+    abortError.name = 'AbortError';
+    mockGenerateObject.mockRejectedValueOnce(abortError);
+
+    await decideSearchNecessity(
+      searchPlannerInput({
+        latestMessage: 'Find current release notes',
+      }),
+      {
+        model: 'planner-model' as never,
+        plannerModelId: 'runtime-planner',
+        provider: 'openrouter',
+        logger: { info: vi.fn(), warn: vi.fn() },
+        modelTelemetry: {
+          start: () => (terminal) => terminals.push(terminal),
+        },
+      }
+    );
+
+    expect(terminals).toEqual([{ status: 'cancelled' }]);
+  });
 });

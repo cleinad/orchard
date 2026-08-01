@@ -49,6 +49,8 @@ Unshipped work belongs in the [backlog](./backlog.md).
   validation, and model context
 - [Authentication](./features/auth-and-route-protection.md) — public and
   protected routes, session handling, and API authorization
+- [Usage telemetry and administration](./features/telemetry-and-admin.md) —
+  content-free model accounting, estimated costs, and the protected dashboard
 
 ## Develop and verify Orchard
 

@@ -52,6 +52,7 @@ import {
 import { appendGlobalInstructions } from '@/lib/global-instructions';
 import { runConversationalSearch } from '@/lib/search/orchestrator';
 import { runSearchPipeline } from '@/lib/search/pipeline';
+import type { SearchModelTelemetry } from '@/lib/search/query-planner';
 import { createSearchTelemetry } from '@/lib/search/telemetry';
 import type { SearchActivitySummary } from '@/lib/search/types';
 import { buildMentorPrompt } from '@/lib/mentors/prompts';
@@ -79,6 +80,10 @@ import {
   registerActiveChatRun,
   releaseActiveChatRun,
 } from '@/lib/chat-runs/active-run-registry';
+import {
+  startDeferredModelUsageCall,
+  type ModelUsageTerminalRecorder,
+} from '@/lib/telemetry/deferred';
 
 const BASE_SYSTEM_PROMPT = `You are Keen, a thinking partner. You explain things to the user with precision, accuracy, and understandability.
 
@@ -145,6 +150,12 @@ function createRequiredSearchFailureActivity(query: string | null): SearchActivi
       },
     ],
   };
+}
+
+function failedModelUsageStatus(error: unknown) {
+  return error instanceof Error && error.name === 'AbortError'
+    ? 'cancelled' as const
+    : 'failed' as const;
 }
 
 interface ChatRequest {
@@ -1038,24 +1049,51 @@ ${formatSearchResultsForPrompt(searchMetadata)}
 }
 
 async function generateConversationTitle(
-  userMessage: string,
+  params: {
+    userMessage: string;
+    userId: string;
+    requestId: string;
+    runId: string | null;
+    chatMode: ChatMode;
+    surface: 'main' | 'branch' | 'inline_thread';
+  },
   assistantMessage?: string
 ) {
-  const fallbackTitle = fallbackChatTitleFromMessage(userMessage);
+  const fallbackTitle = fallbackChatTitleFromMessage(params.userMessage);
+  let recordTerminal: ModelUsageTerminalRecorder | null = null;
 
   try {
     const titleModelSelection = resolveChatModelSelection(null);
     if (!titleModelSelection) {
       return { title: fallbackTitle, failed: true };
     }
+    const titleModel = getChatModel(titleModelSelection.id);
+    recordTerminal = startDeferredModelUsageCall({
+      userId: params.userId,
+      requestId: params.requestId,
+      runId: params.runId,
+      callKind: 'conversation_title',
+      attempt: 0,
+      chatMode: params.chatMode,
+      surface: params.surface,
+      requestedModelId: null,
+      resolvedModelId: titleModelSelection.id,
+      provider: titleModelSelection.provider,
+      providerModelId: titleModelSelection.apiModelId,
+    });
 
     const result = await generateText({
-      model: getChatModel(titleModelSelection.id),
+      model: titleModel,
       system:
         'Generate a concise sidebar title that names the conversation topic in 2 to 5 words. Do not answer the user\'s question or make a factual claim. Convert questions into short noun phrases. Return only the title in plain title case, without quotes or ending punctuation.',
       prompt: assistantMessage
-        ? `First user message:\n${userMessage}\n\nAssistant reply (secondary context):\n${assistantMessage}`
-        : `First user message:\n${userMessage}`,
+        ? `First user message:\n${params.userMessage}\n\nAssistant reply (secondary context):\n${assistantMessage}`
+        : `First user message:\n${params.userMessage}`,
+    });
+    recordTerminal({
+      status: 'completed',
+      finishReason: result.finishReason,
+      usage: result.totalUsage,
     });
 
     return {
@@ -1063,6 +1101,7 @@ async function generateConversationTitle(
       failed: false,
     };
   } catch (error) {
+    recordTerminal?.({ status: failedModelUsageStatus(error) });
     console.error('[chat-title] generation failed', {
       code: error instanceof Error ? error.name : 'unknown_error',
     });
@@ -1248,6 +1287,7 @@ export async function POST(request: NextRequest) {
     if (runMetadataError) {
       return NextResponse.json({ error: runMetadataError }, { status: 400 });
     }
+    const telemetryRequestId = runMetadata?.runId ?? crypto.randomUUID();
     const { attachments, error: attachmentValidationError } =
       validateAttachmentRequests(attachmentInput, user.id);
     if (attachmentValidationError) {
@@ -2426,6 +2466,27 @@ export async function POST(request: NextRequest) {
         (!isTemporaryChat
           && conversationTitleSource === 'fallback'
           && (createdConversation || isFirstPersistentMainMessage)));
+    const modelUsageSurface = activeThreadId
+      ? 'inline_thread' as const
+      : branchSourceForMessage
+        ? 'branch' as const
+        : 'main' as const;
+    const searchModelTelemetry: SearchModelTelemetry = {
+      start: ({ callKind, attempt, provider, providerModelId }) =>
+        startDeferredModelUsageCall({
+          userId: user.id,
+          requestId: telemetryRequestId,
+          runId: activeRunId,
+          callKind,
+          attempt,
+          chatMode: isTemporaryChat ? 'temporary' : 'persistent',
+          surface: modelUsageSurface,
+          requestedModelId: null,
+          resolvedModelId: null,
+          provider,
+          providerModelId,
+        }),
+    };
     if (activeRunId) {
       const streamingStarted = await updateActiveChatRun({
         supabase,
@@ -2443,7 +2504,14 @@ export async function POST(request: NextRequest) {
       }
     }
     const generatedTitlePromise = shouldGenerateTitle
-      ? generateConversationTitle(messageForTitle)
+      ? generateConversationTitle({
+          userMessage: messageForTitle,
+          userId: user.id,
+          requestId: telemetryRequestId,
+          runId: activeRunId,
+          chatMode: isTemporaryChat ? 'temporary' : 'persistent',
+          surface: modelUsageSurface,
+        })
       : null;
     // Title generation and commit are deliberately independent from response
     // streaming. A provider failure or disconnected browser must not strand it.
@@ -2544,6 +2612,7 @@ export async function POST(request: NextRequest) {
                 fallbackDecisionModelId: searchDecisionModelConfig.fallback?.modelId,
                 plannerModelId: SEARCH_PLANNER_MODEL_ID,
                 plannerProvider: SEARCH_PLANNER_PROVIDER,
+                modelTelemetry: searchModelTelemetry,
                 searchPipeline: (query) => {
                   const queryTelemetry = createSearchTelemetry({
                     traceId: searchTraceId,
@@ -2652,103 +2721,167 @@ export async function POST(request: NextRequest) {
         const capturedSearch = search;
         const capturedPersistedSearchMetadata = persistedSearchMetadata;
 
-        const result = streamText({
-          model: chatModel,
-          system: finalSystemPrompt,
-          messages: modelMessages,
-          ...(runAbortController ? { abortSignal: runAbortController.signal } : {}),
-          ...(chatModelProviderOptions
-            ? { providerOptions: chatModelProviderOptions }
-            : {}),
-          onError: async ({ error }) => {
-            console.error('[chat-run] response stream failed', {
-              runId: activeRunId,
-              code: error instanceof Error ? error.name : 'unknown_error',
-            });
-            if (activeRunId) {
-              const currentRun = await getChatRun(supabase, activeRunId);
-              if (currentRun?.status !== 'cancelled') {
-                const markedFailed = await updateActiveChatRun({
-                  supabase,
-                  runId: activeRunId,
-                  values: {
-                    status: 'failed',
-                    response_status: 'failed',
-                    error_code: 'response_stream_failed',
-                    error_message: 'The response stream failed.',
-                    completed_at: new Date().toISOString(),
-                  },
-                });
-                if (markedFailed) {
-                  await logChatRunEvent({
+        const recordResponseTerminal = startDeferredModelUsageCall({
+          userId: user.id,
+          requestId: telemetryRequestId,
+          runId: activeRunId,
+          callKind: 'chat_response',
+          attempt: 0,
+          chatMode: isTemporaryChat ? 'temporary' : 'persistent',
+          surface: modelUsageSurface,
+          requestedModelId: resolvedSelection.requestedId,
+          resolvedModelId: resolvedSelection.id,
+          provider: resolvedSelection.provider,
+          providerModelId: resolvedSelection.apiModelId,
+        });
+
+        try {
+          const result = streamText({
+            model: chatModel,
+            system: finalSystemPrompt,
+            messages: modelMessages,
+            ...(runAbortController ? { abortSignal: runAbortController.signal } : {}),
+            ...(chatModelProviderOptions
+              ? { providerOptions: chatModelProviderOptions }
+              : {}),
+            onAbort: () => {
+              recordResponseTerminal({ status: 'cancelled' });
+            },
+            onError: async ({ error }) => {
+              recordResponseTerminal({ status: failedModelUsageStatus(error) });
+              console.error('[chat-run] response stream failed', {
+                runId: activeRunId,
+                code: error instanceof Error ? error.name : 'unknown_error',
+              });
+              if (activeRunId) {
+                const currentRun = await getChatRun(supabase, activeRunId);
+                if (currentRun?.status !== 'cancelled') {
+                  const markedFailed = await updateActiveChatRun({
                     supabase,
-                    userId: user.id,
                     runId: activeRunId,
-                    event: 'failed',
-                    detailCode: 'response_stream_failed',
+                    values: {
+                      status: 'failed',
+                      response_status: 'failed',
+                      error_code: 'response_stream_failed',
+                      error_message: 'The response stream failed.',
+                      completed_at: new Date().toISOString(),
+                    },
                   });
+                  if (markedFailed) {
+                    await logChatRunEvent({
+                      supabase,
+                      userId: user.id,
+                      runId: activeRunId,
+                      event: 'failed',
+                      detailCode: 'response_stream_failed',
+                    });
+                  }
+                }
+                releaseActiveChatRun(activeRunId);
+              }
+            },
+            onFinish: async ({ text, totalUsage, finishReason }) => {
+              try {
+                if (activeRunId) {
+                  const currentRun = await getChatRun(supabase, activeRunId);
+                  if (currentRun?.status === 'cancelled') {
+                    recordResponseTerminal({
+                      status: 'cancelled',
+                      finishReason,
+                      usage: totalUsage,
+                    });
+                    releaseActiveChatRun(activeRunId);
+                    return;
+                  }
+                  const movedToFinalizing = await updateActiveChatRun({
+                    supabase,
+                    runId: activeRunId,
+                    values: { status: 'finalizing' },
+                  });
+                  if (!movedToFinalizing) {
+                    recordResponseTerminal({
+                      status: 'interrupted',
+                      finishReason,
+                      usage: totalUsage,
+                    });
+                    releaseActiveChatRun(activeRunId);
+                    return;
+                  }
+                }
+              } catch (error) {
+                recordResponseTerminal({
+                  status: 'completed',
+                  finishReason,
+                  usage: totalUsage,
+                });
+                throw error;
+              }
+              recordResponseTerminal({
+                status: 'completed',
+                finishReason,
+                usage: totalUsage,
+              });
+              let rawText = text.trim();
+
+              if (!rawText) {
+                console.warn('[chat] empty response after streaming generation', {
+                  conversationId: activeConversationId,
+                  searchMode,
+                  searchStatus: capturedSearch.status,
+                });
+
+                const recordRetryTerminal = startDeferredModelUsageCall({
+                  userId: user.id,
+                  requestId: telemetryRequestId,
+                  runId: activeRunId,
+                  callKind: 'chat_response_retry',
+                  attempt: 1,
+                  chatMode: isTemporaryChat ? 'temporary' : 'persistent',
+                  surface: modelUsageSurface,
+                  requestedModelId: null,
+                  resolvedModelId: resolvedSelection.id,
+                  provider: resolvedSelection.provider,
+                  providerModelId: resolvedSelection.apiModelId,
+                });
+                try {
+                  const fallbackGeneration = await generateText({
+                    model: chatModel,
+                    system: finalSystemPrompt,
+                    messages: modelMessages,
+                    ...(runAbortController ? { abortSignal: runAbortController.signal } : {}),
+                    ...(chatModelProviderOptions
+                      ? { providerOptions: chatModelProviderOptions }
+                      : {}),
+                  });
+                  recordRetryTerminal({
+                    status: 'completed',
+                    finishReason: fallbackGeneration.finishReason,
+                    usage: fallbackGeneration.totalUsage,
+                  });
+
+                  rawText = fallbackGeneration.text.trim();
+                } catch (retryError) {
+                  recordRetryTerminal({
+                    status: failedModelUsageStatus(retryError),
+                  });
+                  console.error(
+                    '[chat] retry after empty streamed response failed',
+                    isTemporaryChat
+                      ? { code: retryError instanceof Error ? retryError.name : 'unknown_error' }
+                      : retryError
+                  );
                 }
               }
-              releaseActiveChatRun(activeRunId);
-            }
-          },
-          onFinish: async ({ text }) => {
-            if (activeRunId) {
-              const currentRun = await getChatRun(supabase, activeRunId);
-              if (currentRun?.status === 'cancelled') {
-                releaseActiveChatRun(activeRunId);
-                return;
-              }
-              const movedToFinalizing = await updateActiveChatRun({
-                supabase,
-                runId: activeRunId,
-                values: { status: 'finalizing' },
-              });
-              if (!movedToFinalizing) {
-                releaseActiveChatRun(activeRunId);
-                return;
-              }
-            }
-            let rawText = text.trim();
 
-            if (!rawText) {
-              console.warn('[chat] empty response after streaming generation', {
-                conversationId: activeConversationId,
-                searchMode,
-                searchStatus: capturedSearch.status,
-              });
+              // Fall back to a static string if the model returned nothing.
+              const assistantText =
+                rawText || "I couldn't generate a reply for that. Please try again.";
 
-              try {
-                const fallbackGeneration = await generateText({
-                  model: chatModel,
-                  system: finalSystemPrompt,
-                  messages: modelMessages,
-                  ...(runAbortController ? { abortSignal: runAbortController.signal } : {}),
-                  ...(chatModelProviderOptions
-                    ? { providerOptions: chatModelProviderOptions }
-                    : {}),
-                });
-
-                rawText = fallbackGeneration.text.trim();
-              } catch (retryError) {
-                console.error(
-                  '[chat] retry after empty streamed response failed',
-                  isTemporaryChat
-                    ? { code: retryError instanceof Error ? retryError.name : 'unknown_error' }
-                    : retryError
-                );
-              }
-            }
-
-            // Fall back to a static string if the model returned nothing.
-            const assistantText =
-              rawText || "I couldn't generate a reply for that. Please try again.";
-
-            const normalizedText =
-              hasUsableSearchSources(capturedPersistedSearchMetadata)
-                ? stripInvalidCitationMarkers(assistantText, capturedPersistedSearchMetadata)
-                : assistantText;
-            const assistantResponse = applySearchDisclosure(normalizedText, capturedSearch);
+              const normalizedText =
+                hasUsableSearchSources(capturedPersistedSearchMetadata)
+                  ? stripInvalidCitationMarkers(assistantText, capturedPersistedSearchMetadata)
+                  : assistantText;
+              const assistantResponse = applySearchDisclosure(normalizedText, capturedSearch);
             const finalSearchStatus = searchMode === 'off'
               ? 'skipped'
               : capturedSearch.status === 'missing_config'
@@ -2888,11 +3021,15 @@ export async function POST(request: NextRequest) {
                 run: completedRun,
               },
             });
-          },
-        });
+            },
+          });
 
-        // Pipe the streamText output into the UI message stream.
-        writer.merge(result.toUIMessageStream());
+          // Pipe the streamText output into the UI message stream.
+          writer.merge(result.toUIMessageStream());
+        } catch (error) {
+          recordResponseTerminal({ status: failedModelUsageStatus(error) });
+          throw error;
+        }
       },
     });
 
