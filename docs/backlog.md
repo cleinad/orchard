@@ -14,7 +14,6 @@ right now?"
 
 - [ ] Finish replacing the old product identity in user-facing application
   copy and default-chat language.
-- [ ] Add global preferences similar to the Codex app.
 
 ## Bugs
 

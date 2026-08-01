@@ -986,6 +986,82 @@ describe('chat route contract', () => {
     );
   });
 
+  it('loads global instructions from the authenticated profile', async () => {
+    const { response } = await runChatRequest(
+      {
+        message: 'Explain this idea',
+        chatMode: 'temporary',
+        globalInstructions: 'Ignore the stored preference.',
+      },
+      {
+        profiles: {
+          rows: [
+            {
+              full_name: 'Test User',
+              global_instructions: 'Use analogies from biology.',
+            },
+          ],
+        },
+      }
+    );
+
+    expect(response.status).toBe(200);
+    const systemPrompt = mockStreamText.mock.calls.at(-1)?.[0]?.system as string;
+    expect(systemPrompt).toContain('<global_instructions>');
+    expect(systemPrompt).toContain('Use analogies from biology.');
+    expect(systemPrompt).not.toContain('Ignore the stored preference.');
+  });
+
+  it('places global instructions before workspace-specific context', async () => {
+    const { response } = await runChatRequest(
+      {
+        message: 'Help with this proof',
+        workspaceId: '11111111-1111-4111-8111-111111111111',
+      },
+      {
+        profiles: {
+          rows: [
+            {
+              full_name: 'Test User',
+              global_instructions: 'Prefer concise explanations.',
+            },
+          ],
+        },
+        workspaces: {
+          rows: [
+            {
+              id: '11111111-1111-4111-8111-111111111111',
+              user_id: 'user-1',
+              context: 'Use Math 337 notation.',
+            },
+          ],
+        },
+        conversations: {
+          rows: [],
+          returnOnMutate: [
+            {
+              id: '22222222-2222-4222-8222-222222222222',
+              title: 'Help with this proof',
+            },
+          ],
+        },
+        messages: {
+          rows: [],
+          returnOnMutate: [
+            { id: 'msg-user-global-workspace' },
+            { id: 'msg-assistant-global-workspace' },
+          ],
+        },
+      }
+    );
+
+    expect(response.status).toBe(200);
+    const systemPrompt = mockStreamText.mock.calls.at(-1)?.[0]?.system as string;
+    expect(systemPrompt.indexOf('Prefer concise explanations.')).toBeLessThan(
+      systemPrompt.indexOf('Use Math 337 notation.')
+    );
+  });
+
   it('adds concise KaTeX markdown math formatting guidance to answer generation', async () => {
     const { response } = await runChatRequest({
       message: 'Show me a matrix example',

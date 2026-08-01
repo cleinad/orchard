@@ -60,10 +60,11 @@ subtle surfaces should support reading rather than recreate a marketing hero.
 
 ## Typography
 
-### Fraunces
+### Fixed Newsreader
 
-Use `font-heading` for the wordmark and major display headings. Fraunces should
-add warmth and authority, not decorate every section title.
+Use `font-heading` for major display headings and `font-serif` for deliberate
+editorial passages. Both use Newsreader and should add warmth and authority
+without decorating every section title.
 
 ### User-selected reading font
 
@@ -82,11 +83,6 @@ of the reading preference:
 - metadata
 - menus
 - status text
-
-### Fixed Newsreader
-
-Use `font-serif` only for a deliberate editorial passage that must always use
-Newsreader. Do not use it as a substitute for the configurable reading font.
 
 ### Sentence case
 

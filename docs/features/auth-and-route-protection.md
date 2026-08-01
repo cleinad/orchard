@@ -25,6 +25,18 @@ authenticated Storage uploads.
 route handlers. The proxy refreshes auth cookies during protected page
 requests.
 
+## Profile provisioning
+
+Every `auth.users` row has a matching `public.profiles` row. The
+`on_auth_user_created` database trigger creates that profile in the same
+transaction as signup. Its security-definer function uses an empty search path,
+fully qualified relations, and is not executable by API roles.
+
+The profile-provisioning migration also backfills Auth users that are missing a
+profile without changing existing profile data. Settings updates the existing
+profile and treats a missing row as an invariant failure; the signup trigger is
+the sole profile-provisioning path.
+
 ## API authorization
 
 The page proxy excludes `/api`; each route handler must authenticate explicitly
@@ -55,12 +67,15 @@ the relevant requests. Production does not enable this path.
 - `frontend/lib/supabase-server.ts`
 - `frontend/lib/auth-redirect.ts`
 - `frontend/app/components/AuthPage.tsx`
+- `supabase/migrations/20260730120000_repair_profile_provisioning.sql`
 
 ## Verification
 
 - `frontend/__tests__/proxy.test.ts`
 - `frontend/__tests__/lib/auth-redirect.test.ts`
 - authorization cases in route tests under `frontend/__tests__/app/`
+- `frontend/__tests__/supabase/profile-provisioning-migration.test.ts`
+- profile invariants in `supabase/tests/database.sql`
 
 ## Related docs
 

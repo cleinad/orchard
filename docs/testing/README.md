@@ -73,6 +73,7 @@ Current browser suites:
   reconciliation
 - `search-mode.spec.js` — search controls, citations, and source tray
 - `workspaces.spec.js` — workspaces, moves, deletion, and uploads
+- `settings.spec.js` — global-instruction loading, saving, and error handling
 
 ## Focused checks
 
@@ -148,6 +149,19 @@ npm test -- __tests__/lib/auth-redirect.test.ts __tests__/proxy.test.ts
 
 `supabase/tests/database.sql` and `supabase/tests/billing_rpc_privileges.sql`
 exercise database invariants against a compatible disposable environment.
+
+`scripts/test-supabase-bootstrap.sh` builds an isolated Supabase database with
+no published host ports, applies every active migration, proves both profile
+backfill and post-signup provisioning, and can run the pgTAP database suite:
+
+```bash
+./scripts/test-supabase-bootstrap.sh
+SUPABASE_BOOTSTRAP_DATABASE_TESTS=true ./scripts/test-supabase-bootstrap.sh
+```
+
+The harness intentionally applies application migrations as `supabase_admin`.
+That role is reserved for migrations and maintenance because the active schema
+installs an Auth-owned trigger; Orchard's runtime never uses it.
 
 Do not run destructive reset commands against a durable environment. Follow the
 repository guidance for database setup, migrations, Auth, Storage, and live

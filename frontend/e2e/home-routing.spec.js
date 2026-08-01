@@ -103,6 +103,16 @@ test('removed memory page and API routes return ordinary 404s', async ({ page })
   await expect(page).toHaveURL(/\/memory$/);
 });
 
+test('a new chat centers the exploration prompt above the composer', async ({ page }) => {
+  await mockHomeDataRoutes(page, {});
+
+  await page.goto('/home?e2e=home-exploration-empty-state');
+
+  await expect(page.getByRole('heading', { name: "Let's explore" })).toBeVisible();
+  await expect(page.getByTestId('ascii-tesseract')).toBeVisible();
+  await expect(page.getByPlaceholder('Ask a question or add a thought...')).toBeVisible();
+});
+
 test('hydrates a persistent conversation on direct /home/[conversationId] entry', async ({ page }) => {
   const conversationId = 'conversation-direct-route';
   const question = 'How did early delivery logistics work?';

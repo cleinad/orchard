@@ -11,6 +11,10 @@ import {
   persistBodyFont,
   resolveBodyFontId,
 } from '@/lib/body-font';
+import {
+  MAX_GLOBAL_INSTRUCTIONS_CHARS,
+  sanitizeGlobalInstructions,
+} from '@/lib/global-instructions';
 import { supabase } from '@/lib/supabase';
 
 export default function SettingsPage() {
@@ -54,10 +58,11 @@ export default function SettingsPage() {
   }
 
   return (
-    // Body: fixed sans (Satoshi). Section titles use `font-heading` (Fraunces); page title is in `settings/layout`.
+    // Body: fixed sans (Satoshi). Section titles use `font-heading` (Newsreader); page title is in `settings/layout`.
     <div className="mx-auto w-full max-w-2xl space-y-8 font-sans">
       <p className="text-sm text-muted">
-        Account details and a few reading preferences. Theme is in the header.
+        Account details and preferences that apply across Orchard. Theme is in
+        the header.
       </p>
 
       <SettingsGroup title="Account" id="account">
@@ -74,6 +79,13 @@ export default function SettingsPage() {
           label="Body font"
           action={<BodyFontSelect />}
           hint="Applies to reading areas; code stays monospace."
+        />
+      </SettingsGroup>
+
+      <SettingsGroup title="Instructions" id="instructions">
+        <GlobalInstructionsEditor
+          userId={viewer.id}
+          initialValue={viewer.globalInstructions}
         />
       </SettingsGroup>
 
@@ -152,6 +164,127 @@ function SettingsRow({
           </span>
         ) : null}
         {action}
+      </div>
+    </div>
+  );
+}
+
+function GlobalInstructionsEditor({
+  userId,
+  initialValue,
+}: {
+  userId: string;
+  initialValue: string;
+}) {
+  const [savedValue, setSavedValue] = useState(initialValue);
+  const [draftValue, setDraftValue] = useState(initialValue);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [savedConfirmation, setSavedConfirmation] = useState(false);
+  const isDirty = draftValue !== savedValue;
+
+  function handleChange(event: React.ChangeEvent<HTMLTextAreaElement>) {
+    setDraftValue(event.target.value);
+    setSaveError(null);
+    setSavedConfirmation(false);
+  }
+
+  function handleDiscard() {
+    setDraftValue(savedValue);
+    setSaveError(null);
+    setSavedConfirmation(false);
+  }
+
+  async function handleSave() {
+    const normalized = sanitizeGlobalInstructions(draftValue);
+    setSaving(true);
+    setSaveError(null);
+    setSavedConfirmation(false);
+
+    const { data, error } = await supabase
+      .from('profiles')
+      .update({ global_instructions: normalized })
+      .eq('id', userId)
+      .select('global_instructions')
+      .single();
+
+    if (error) {
+      console.error('Failed to save global instructions:', error);
+      setSaveError('Could not save your instructions. Please try again.');
+      setSaving(false);
+      return;
+    }
+
+    const persistedValue = sanitizeGlobalInstructions(
+      data?.global_instructions ?? normalized
+    );
+    setSavedValue(persistedValue);
+    setDraftValue(persistedValue);
+    setSavedConfirmation(true);
+    setSaving(false);
+  }
+
+  return (
+    <div className="px-4 py-4">
+      <label
+        className="text-sm font-medium text-foreground"
+        htmlFor="settings-global-instructions"
+      >
+        Global instructions
+      </label>
+      <p
+        id="settings-global-instructions-description"
+        className="mt-0.5 text-sm leading-relaxed text-muted"
+      >
+        Applied to every conversational response. Workspace and chat-specific
+        guidance can refine them.
+      </p>
+
+      <textarea
+        id="settings-global-instructions"
+        value={draftValue}
+        onChange={handleChange}
+        maxLength={MAX_GLOBAL_INSTRUCTIONS_CHARS}
+        rows={8}
+        aria-describedby="settings-global-instructions-description settings-global-instructions-count"
+        aria-invalid={saveError ? true : undefined}
+        placeholder="For example: Use TypeScript in code examples, define unfamiliar terms, and point out meaningful tradeoffs."
+        className="mt-3 w-full resize-y rounded-xl border border-border-subtle bg-background px-3.5 py-3 text-sm leading-relaxed text-foreground outline-none transition placeholder:text-muted/60 focus:border-foreground/[0.2] focus:ring-2 focus:ring-foreground/10"
+      />
+
+      <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <p
+          id="settings-global-instructions-count"
+          className="text-xs tabular-nums text-muted"
+        >
+          {draftValue.length.toLocaleString()} of{' '}
+          {MAX_GLOBAL_INSTRUCTIONS_CHARS.toLocaleString()} characters
+        </p>
+
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <span
+            className="mr-1 text-xs text-muted"
+            role={saveError ? 'alert' : 'status'}
+          >
+            {saveError || (savedConfirmation ? 'Saved' : '')}
+          </span>
+          <button
+            type="button"
+            onClick={handleDiscard}
+            disabled={!isDirty || saving}
+            className="inline-flex min-h-9 cursor-pointer items-center justify-center rounded-full border border-border-subtle px-4 py-2 text-xs font-semibold text-foreground transition-colors hover:border-foreground/[0.12] hover:bg-foreground/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/10 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Discard
+          </button>
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={!isDirty || saving}
+            className="inline-flex min-h-9 cursor-pointer items-center justify-center rounded-full bg-foreground px-4 py-2 text-xs font-semibold text-background transition-opacity hover:opacity-85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/20 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+        </div>
       </div>
     </div>
   );
