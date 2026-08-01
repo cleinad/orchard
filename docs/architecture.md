@@ -25,8 +25,9 @@ under `frontend/lib/`. There is no separate application backend.
 2. It creates stable identifiers for the run and optimistic messages.
 3. Persistent submissions are accepted into `chat_runs`; temporary submissions
    remain session-scoped on the client.
-4. `POST /api/chat` authenticates the request, loads the relevant conversation
-   path, optionally retrieves search sources, and streams the model response.
+4. `POST /api/chat` authenticates the request, loads the profile's global
+   instructions and relevant conversation path, optionally retrieves search
+   sources, and streams the model response.
 5. Persistent messages, branches, thread metadata, attachments, and search
    metadata are completed atomically.
 6. The client reconciles the streamed result with durable state and can recover
@@ -52,7 +53,7 @@ the main message tree.
 The active migration set in `supabase/migrations/` defines the database source
 of truth. Major persisted areas include:
 
-- accounts and profiles
+- accounts, profiles, and global instructions
 - workspaces and workspace-scoped instructions
 - conversations, messages, and branches
 - inline threads and thread messages
@@ -117,6 +118,7 @@ metric definitions, exclusions, pricing maintenance, and retention behavior.
 ## Related docs
 
 - [Product](./product.md)
+- [Global instructions](./features/global-instructions.md)
 - [Inline threads](./features/inline-threads.md)
 - [Conversation branching](./features/conversation-branching.md)
 - [Usage telemetry and administration](./features/telemetry-and-admin.md)

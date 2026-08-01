@@ -110,6 +110,12 @@ Before database work, inspect the current environment and repository guidance.
 Do not apply migrations, reset a database, or start a competing local stack
 without confirming the target and recovery path.
 
+Apply Orchard migrations as the database-only `supabase_admin` role. The active
+migration set installs a trigger on the managed `auth.users` table, which a
+restricted runtime or ordinary `postgres` role does not own. Never use
+`supabase_admin` in the application runtime or expose its credentials to the
+browser.
+
 ## Verify the application
 
 From `frontend/`:

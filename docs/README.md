@@ -37,6 +37,8 @@ Unshipped work belongs in the [backlog](./backlog.md).
 
 ### Chat capabilities
 
+- [Global instructions](./features/global-instructions.md) — account-level
+  guidance applied to every conversational response
 - [Model selection](./features/chat-model-selection.md) — configured providers,
   Auto resolution, effort, and thinking controls
 - [Response style](./features/response-style.md) — per-chat answer length,

@@ -11,7 +11,7 @@ This document records design tokens implemented in
 | `--font-body`, `font-reading` | User-selected reading font |
 | `--font-stack-sans`, `--font-sans`, `font-sans` | Fixed Satoshi stack |
 | `--font-stack-serif`, `--font-serif`, `font-serif` | Fixed Newsreader stack |
-| `--font-heading`, `font-heading` | Fraunces display face |
+| `--font-heading`, `font-heading` | Fixed Newsreader display stack |
 
 The body inherits `--font-body`. The current reading-font choices are Satoshi
 and Newsreader, with Satoshi as the default.

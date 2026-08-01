@@ -80,6 +80,7 @@ All routes authenticate with Supabase and scope operations to the current user.
 
 ## Related docs
 
+- [Global instructions](./global-instructions.md)
 - [Multi-chat home](./multi-chat-home.md)
 - [Image attachments](./image-attachments.md)
 - [Authentication](./auth-and-route-protection.md)

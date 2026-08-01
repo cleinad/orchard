@@ -49,6 +49,7 @@ import {
   buildResponseStylePrompt,
   sanitizeResponseStyle,
 } from '@/lib/response-style';
+import { appendGlobalInstructions } from '@/lib/global-instructions';
 import { runConversationalSearch } from '@/lib/search/orchestrator';
 import { runSearchPipeline } from '@/lib/search/pipeline';
 import type { SearchModelTelemetry } from '@/lib/search/query-planner';
@@ -1393,7 +1394,7 @@ export async function POST(request: NextRequest) {
 
     const { data: profile } = await supabase
       .from('profiles')
-      .select('full_name')
+      .select('full_name, global_instructions')
       .eq('id', user.id)
       .maybeSingle();
 
@@ -2292,6 +2293,10 @@ export async function POST(request: NextRequest) {
       ? buildMentorSystemPrompt(buildMentorPrompt(mentor!), replyContext)
       : buildSystemPrompt(replyContext);
 
+    baseSystemPrompt = appendGlobalInstructions(
+      baseSystemPrompt,
+      profile?.global_instructions
+    );
     baseSystemPrompt = appendWorkspaceContext(baseSystemPrompt, workspace?.context ?? null);
 
     const threadContextMessage = buildThreadContextMessage(threadSourcePromptContext);
