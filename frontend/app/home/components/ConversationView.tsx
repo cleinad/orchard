@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useState, type RefObject } from 'react';
+import AsciiTesseract from '@/app/home/components/AsciiTesseract';
 import MessageRow from '@/app/home/components/MessageRow';
 import type { InlineThreadMarker, ThreadSource } from '@/app/home/components/threadTypes';
 import type { Message } from '@/app/home/types';
@@ -124,13 +125,14 @@ export default function ConversationView({
               </p>
             </div>
           ) : (
-            <div className="text-center">
-              <h1 className="font-heading text-3xl text-foreground sm:text-4xl">
-                {emptyTitle}
+            <div className="flex w-full max-w-2xl flex-col items-center text-center sm:mt-[clamp(5rem,12vh,10rem)]">
+              <h1 className="font-heading text-[clamp(1.65rem,2.5vw,2.25rem)] leading-[0.95] text-foreground">
+                Let&apos;s explore
               </h1>
-              <p className="mt-4 max-w-md font-sans text-md font-medium leading-relaxed text-muted">
-                {emptySubtitle}
-              </p>
+              <div className="mt-10 flex w-full justify-center sm:mt-14">
+                <AsciiTesseract />
+              </div>
+              <p className="sr-only">{emptyTitle}. {emptySubtitle}</p>
             </div>
           )}
         </div>
