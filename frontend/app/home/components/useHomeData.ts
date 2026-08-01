@@ -74,7 +74,7 @@ function buildSidebarGroups(
   const groups: SidebarMentorGroup[] = [
     {
       mentor_id: null,
-      mentor_name: 'Keen',
+      mentor_name: 'Orchard',
       mentor_accent_color: null,
       last_activity_at: null,
       conversations: [],
@@ -200,7 +200,7 @@ function mapConversationRowToListItem(
     workspace_id: row.workspace_id ?? null,
     updated_at: row.updated_at,
     created_at: row.created_at,
-    mentor_name: mentor?.name || 'Keen',
+    mentor_name: mentor?.name || 'Orchard',
     mentor_accent_color: mentor?.accent_color || null,
     workspace_name: workspace?.name || null,
     workspace_icon: workspace?.icon || null,

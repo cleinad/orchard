@@ -55,7 +55,7 @@ interface Props {
   onOpen: () => void;
   onToggleSidePanel: () => void;
   onSidePanelWidthChange: (widthPx: number) => void;
-  onNewChatKeen: () => void;
+  onNewChat: () => void;
   onOpenWorkspacesSection: () => void;
   onOpenTemporarySection: () => void;
   onCreateTemporaryChat: () => void;
@@ -148,7 +148,7 @@ export default function SidePanel({
   onOpen,
   onToggleSidePanel,
   onSidePanelWidthChange,
-  onNewChatKeen,
+  onNewChat,
   onOpenWorkspacesSection,
   onOpenTemporarySection,
   onCreateTemporaryChat,
@@ -879,12 +879,12 @@ export default function SidePanel({
           <SidebarPanelIcon className="h-5 w-5 text-foreground" />
         </button>
       </Tooltip>
-      <Tooltip content="New chat (Keen)" side="right">
+      <Tooltip content="New chat" side="right">
         <button
           type="button"
-          onClick={onNewChatKeen}
+          onClick={onNewChat}
           className={railIconButtonClass}
-          aria-label="New chat with Keen"
+          aria-label="New chat with Orchard"
         >
           <RailIconNewChat className="h-5 w-5 text-foreground" />
         </button>
@@ -990,8 +990,8 @@ export default function SidePanel({
                 <div id="side-panel-section-new" className="scroll-mt-2">
                   <button
                     type="button"
-                    onClick={onNewChatKeen}
-                    aria-label="New chat with Keen"
+                    onClick={onNewChat}
+                    aria-label="New chat with Orchard"
                     className={cx(
                       'flex h-10 w-full items-center text-left',
                       buttonStyles.transition,
@@ -1213,7 +1213,7 @@ export default function SidePanel({
                     </button>
                     <button
                       type="button"
-                      onClick={onNewChatKeen}
+                      onClick={onNewChat}
                       className={cx(
                         'ml-auto mr-3 inline-flex h-7 w-7 items-center justify-center rounded-full',
                         buttonStyles.transition,

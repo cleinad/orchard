@@ -755,7 +755,7 @@ export default function WorkspacePage() {
                     Instructions
                   </h2>
                   <p className="mt-1 text-sm leading-5 text-muted">
-                    Keen applies these only inside {workspaceName}.
+                    Orchard applies these only inside {workspaceName}.
                   </p>
                 </div>
                 <Tooltip content="Edit instructions">
@@ -821,7 +821,7 @@ export default function WorkspacePage() {
                   Edit instructions
                 </h2>
                 <p className="mt-1 text-sm leading-5 text-muted">
-                  These instructions apply when Keen is working in {workspaceName}.
+                  These instructions apply when Orchard is working in {workspaceName}.
                 </p>
               </div>
               <button
@@ -852,7 +852,7 @@ export default function WorkspacePage() {
               onChange={(event) => setContextDraft(event.target.value)}
               disabled={savingContext}
               className="mt-4 min-h-[16rem] w-full resize-y rounded-lg border border-border-subtle bg-surface px-3 py-3 font-sans text-sm leading-6 text-foreground outline-none transition focus:border-foreground/[0.24] disabled:opacity-70"
-              placeholder={`Add background, preferences, constraints, or anything Keen should keep in mind for ${workspaceName}.`}
+              placeholder={`Add background, preferences, constraints, or anything Orchard should keep in mind for ${workspaceName}.`}
             />
             <div className="mt-4 flex items-center justify-end gap-2">
               <button
