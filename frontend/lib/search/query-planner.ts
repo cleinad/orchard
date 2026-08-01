@@ -68,7 +68,18 @@ function failedModelUsageStatus(error: unknown) {
 
 const MAX_QUERY_LENGTH = 280;
 const DEFAULT_SEARCH_PLANNER_MODEL_ID =
-  process.env.SEARCH_PLANNER_MODEL || 'qwen/qwen-2.5-7b-instruct';
+  process.env.SEARCH_PLANNER_MODEL || 'deepseek/deepseek-v4-flash';
+// Bound malformed repetitive output so the deterministic fallback runs promptly.
+const SEARCH_MODEL_CALL_SETTINGS = {
+  maxOutputTokens: 512,
+  temperature: 0,
+  timeout: 10_000,
+  providerOptions: {
+    openai: {
+      reasoningEffort: 'none',
+    },
+  },
+} as const;
 const TOPIC_STOPWORDS = new Set([
   'about',
   'again',
@@ -633,6 +644,7 @@ async function runModelPlanner({
 
   try {
     const result = await generateObject({
+      ...SEARCH_MODEL_CALL_SETTINGS,
       model,
       schema: plannerSchema,
       prompt: `Plan conversational web search. Return JSON only.
@@ -711,6 +723,7 @@ async function runModelSearchDecision({
 
   try {
     const result = await generateObject({
+      ...SEARCH_MODEL_CALL_SETTINGS,
       model,
       schema: searchDecisionSchema,
       prompt: `Would online sources materially improve the answer to the latest user message? Return JSON only.

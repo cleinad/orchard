@@ -48,6 +48,23 @@ describe('model pricing', () => {
     });
   });
 
+  it('prices the OpenRouter search planner under its routed model identifier', () => {
+    expect(calculateModelCost({
+      provider: 'openrouter',
+      providerModelId: 'deepseek/deepseek-v4-flash',
+      startedAt: new Date('2026-08-01T00:00:00Z'),
+      usage: {
+        inputTokens: 1_000,
+        noCacheInputTokens: 1_000,
+        outputTokens: 100,
+      },
+    })).toEqual({
+      status: 'priced',
+      estimatedCostNanousd: BigInt(107_520),
+      pricingVersion: 'openrouter-2026-08-01',
+    });
+  });
+
   it('does not double-charge reasoning included in provider output totals', () => {
     expect(calculateModelCost({
       provider: 'google',

@@ -43,6 +43,8 @@ const OPENAI_GPT_5_4_SOURCE = 'https://developers.openai.com/api/docs/models/gpt
 const ANTHROPIC_SOURCE = 'https://platform.claude.com/docs/en/about-claude/pricing';
 const GOOGLE_SOURCE = 'https://ai.google.dev/gemini-api/docs/pricing';
 const DEEPSEEK_SOURCE = 'https://api-docs.deepseek.com/quick_start/pricing';
+const OPENROUTER_DEEPSEEK_V4_FLASH_SOURCE =
+  'https://openrouter.ai/deepseek/deepseek-v4-flash/api';
 const ALIBABA_SOURCE = 'https://help.aliyun.com/en/model-studio/model-pricing';
 const MOONSHOT_SOURCE = 'https://platform.moonshot.ai/docs';
 
@@ -175,6 +177,21 @@ export const MODEL_PRICE_REGISTRY = {
         inputUsdPerMillion: '0.14',
         cacheReadUsdPerMillion: '0.0028',
         outputUsdPerMillion: '0.28',
+      }],
+    }],
+  },
+  'openrouter:deepseek/deepseek-v4-flash': {
+    prices: [{
+      effectiveAt: '2026-08-01T00:00:00.000Z',
+      version: 'openrouter-2026-08-01',
+      sourceUrl: OPENROUTER_DEEPSEEK_V4_FLASH_SOURCE,
+      reviewedAt: '2026-08-01',
+      inputIncludesCachedTokens: true,
+      reasoningIncludedInOutputTokens: true,
+      tiers: [{
+        inputUsdPerMillion: '0.0896',
+        cacheReadUsdPerMillion: '0.01792',
+        outputUsdPerMillion: '0.1792',
       }],
     }],
   },
