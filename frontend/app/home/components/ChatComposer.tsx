@@ -645,7 +645,7 @@ export default function ChatComposer({
                     aria-label="Search mode"
                     className="absolute bottom-10 left-0 z-30 min-w-[11rem] rounded-[1.1rem] bg-background p-1.5 font-sans text-xs text-foreground shadow-[0_16px_36px_rgba(15,23,42,0.12)] ring-1 ring-black/[0.06] dark:shadow-[0_18px_40px_rgba(0,0,0,0.28)] dark:ring-white/[0.06]"
                   >
-                    {(['auto', 'required', 'off'] as const).map((mode) => (
+                    {(['required', 'off'] as const).map((mode) => (
                       <button
                         key={mode}
                         type="button"

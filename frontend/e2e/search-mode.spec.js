@@ -191,7 +191,11 @@ test('always search sends required search mode and renders a scalable source tra
 
   await page.goto('/home?e2e=search-mode');
 
-  await selectSearchMode(page, 'Always search');
+  await page.getByRole('button', { name: 'Search mode off' }).click();
+  await expect(page.getByRole('menuitemradio', { name: 'Auto' })).toHaveCount(0);
+  await expect(page.getByRole('menuitemradio', { name: 'Always search' })).toBeVisible();
+  await expect(page.getByRole('menuitemradio', { name: 'Off' })).toBeVisible();
+  await page.getByRole('menuitemradio', { name: 'Always search' }).click();
   await expect(page.getByRole('button', { name: 'Search mode always search' })).toBeVisible();
 
   const composer = page.getByLabel('Message composer');
