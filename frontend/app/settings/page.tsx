@@ -58,7 +58,7 @@ export default function SettingsPage() {
   }
 
   return (
-    // Body: fixed sans (Satoshi). Section titles use `font-heading` (Fraunces); page title is in `settings/layout`.
+    // Body: fixed sans (Satoshi). Section titles use `font-heading` (Newsreader); page title is in `settings/layout`.
     <div className="mx-auto w-full max-w-2xl space-y-8 font-sans">
       <p className="text-sm text-muted">
         Account details and preferences that apply across Orchard. Theme is in

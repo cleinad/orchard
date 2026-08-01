@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Fraunces, Newsreader } from "next/font/google";
+import { Newsreader } from "next/font/google";
 import BodyFontSync from "@/app/components/BodyFontSync";
 import { ChatRunCoordinator } from "@/app/components/ChatRunCoordinator";
 import { SidePanelProvider } from "@/app/home/components/SidePanelContext";
@@ -18,12 +18,6 @@ import {
 } from "@/lib/theme";
 import "katex/dist/katex.min.css";
 import "./globals.css";
-
-const fraunces = Fraunces({
-  variable: "--font-heading",
-  subsets: ["latin"],
-  display: "swap",
-});
 
 const newsreader = Newsreader({
   variable: "--font-body-newsreader",
@@ -49,7 +43,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={newsreader.variable} suppressHydrationWarning>
-      <body className={`${fraunces.variable} ${newsreader.variable} antialiased`}>
+      <body className={`${newsreader.variable} antialiased`}>
         <script
           dangerouslySetInnerHTML={{
             __html: themeBootstrapScript,
