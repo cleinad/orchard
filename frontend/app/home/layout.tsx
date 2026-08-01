@@ -215,7 +215,7 @@ function HomeShell({ children }: { children: ReactNode }) {
     requestAnimationFrame(() => requestAnimationFrame(run));
   }, [sidePanelOpen, sidePanelScrollRequest, clearSidePanelScrollRequest]);
 
-  const handleRailNewChatKeen = () => {
+  const handleRailNewChat = () => {
     handleCreateDraftSelection(null);
     openWithScroll('new');
   };
@@ -327,7 +327,7 @@ function HomeShell({ children }: { children: ReactNode }) {
         onOpen={handleOpenSidePanel}
         onToggleSidePanel={handleToggleSidePanel}
         onSidePanelWidthChange={setSidePanelWidthPx}
-        onNewChatKeen={handleRailNewChatKeen}
+        onNewChat={handleRailNewChat}
         onOpenWorkspacesSection={() => openWithScroll('workspaces')}
         onOpenTemporarySection={() => openWithScroll('temporary')}
         onCreateTemporaryChat={() => {

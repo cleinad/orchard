@@ -69,7 +69,7 @@ export default function ConversationsPanel({
                 Conversations
               </h2>
               <p className="mt-0.5 text-xs text-muted">
-                Unified history across Keen and mentors
+                Unified history across Orchard and mentors
               </p>
             </div>
             <button

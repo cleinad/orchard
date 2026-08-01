@@ -443,7 +443,7 @@ test('the first draft send replaces /home with the new persistent conversation r
   await page.goto('/home?e2e=home-routing-draft');
 
   const sidePanel = await ensureConversationsOpen(page);
-  await sidePanel.locator('#side-panel-section-new').getByRole('button', { name: 'New chat with Keen' }).click();
+  await sidePanel.locator('#side-panel-section-new').getByRole('button', { name: 'New chat with Orchard' }).click();
   await expect(page).toHaveURL(new RegExp('/home\\?e2e=home-routing-draft$'));
 
   const composer = page.getByLabel('Message composer');
@@ -490,7 +490,7 @@ test('promoted draft stays visible in the sidebar while the first response is pe
   await page.goto('/home?e2e=home-routing-sidebar-visible');
 
   const sidePanel = await ensureConversationsOpen(page);
-  await sidePanel.locator('#side-panel-section-new').getByRole('button', { name: 'New chat with Keen' }).click();
+  await sidePanel.locator('#side-panel-section-new').getByRole('button', { name: 'New chat with Orchard' }).click();
 
   const composer = page.getByLabel('Message composer');
   await composer.fill(message);

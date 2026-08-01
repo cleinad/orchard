@@ -143,9 +143,10 @@ export default function ThemePicker() {
         aria-haspopup="dialog"
         onClick={togglePopover}
         className={cx(
-          "inline-flex h-8 items-center gap-1.5 rounded-full border px-2.5 font-sans text-[13px] font-medium",
+          "inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 font-sans text-[13px] font-medium",
           buttonStyles.transition,
           buttonStyles.controlFocus,
+          buttonStyles.controlShadow,
           isOpen
             ? "border-black/[0.08] bg-foreground/[0.055] text-foreground dark:border-white/[0.08]"
             : buttonStyles.controlInactive
@@ -172,14 +173,14 @@ export default function ThemePicker() {
           setIsOpen(toggleEvent.newState === "open");
         }}
       >
-        <div className="w-[min(18.5rem,calc(100vw-1rem))] rounded-[1.2rem] bg-background p-1.5 font-sans text-foreground shadow-[0_16px_36px_rgba(15,23,42,0.12)] ring-1 ring-black/[0.06] dark:shadow-[0_18px_40px_rgba(0,0,0,0.28)] dark:ring-white/[0.06]">
+        <div className="w-[min(18rem,calc(100vw-1rem))] rounded-[1.1rem] bg-background p-1.5 font-sans text-foreground shadow-[0_16px_36px_rgba(15,23,42,0.12)] ring-1 ring-black/[0.06] dark:shadow-[0_18px_40px_rgba(0,0,0,0.28)] dark:ring-white/[0.06]">
           <div className="px-2.5 pb-1.5 pt-1">
             <p className="text-[11px] font-medium text-muted/75">
               Themes
             </p>
           </div>
 
-          <div className="space-y-1">
+          <div className="space-y-0.5">
             {THEME_OPTIONS.map((theme) => {
               const active = theme.id === themeId;
 
@@ -190,7 +191,7 @@ export default function ThemePicker() {
                   aria-pressed={active}
                   onClick={() => selectTheme(theme.id)}
                   className={cx(
-                    "flex w-full items-center justify-between rounded-[0.95rem] px-3 py-2 text-left",
+                    "flex min-h-10 w-full items-center justify-between rounded-xl px-2.5 py-1.5 text-left",
                     buttonStyles.transition,
                     buttonStyles.focus,
                     active ? buttonStyles.menuItemActive : buttonStyles.menuItemInactive
