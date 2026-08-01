@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(142);
+select plan(149);
 
 select has_table('public', 'conversations', 'production baseline contains conversations');
 select has_table('public', 'chat_runs', 'chat-run migration creates persistent runs');
@@ -39,6 +39,27 @@ select ok(
   'global instructions enforce the 4,000-character limit'
 );
 select hasnt_table('public', 'temporary_chat_runs', 'temporary runs are never database-backed');
+select hasnt_table('public', 'billing_customers', 'billing customers are removed');
+select hasnt_table('public', 'billing_entitlements', 'billing entitlements are removed');
+select hasnt_table('public', 'billing_subscriptions', 'billing subscriptions are removed');
+select hasnt_table('public', 'billing_webhook_events', 'billing webhook events are removed');
+select hasnt_table('public', 'chat_usage_events', 'legacy chat usage events are removed');
+select hasnt_table('public', 'usage_counters', 'legacy usage counters are removed');
+select is_empty(
+  $$
+    select p.oid
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.proname in (
+        'consume_chat_usage_limits',
+        'consume_model_usage',
+        'handle_billing_updated_at',
+        'upsert_billing_subscription_if_newer'
+      )
+  $$,
+  'no orphaned billing or quota routine remains'
+);
 select ok(
   not has_table_privilege('anon', 'public.chat_runs', 'SELECT'),
   'anonymous users have no direct chat-run access'
