@@ -1625,14 +1625,20 @@ select results_eq(
 );
 select results_eq(
   $$
-    select concat_ws('|', total_users, user_id, provider_calls)
+    select total_users, user_id, provider_calls
     from public.admin_model_usage_users(
       '2026-07-31 00:00:00+00', '2026-08-01 00:00:00+00',
       'estimated_cost', 'desc', 100, 0
     )
     where user_id = '22222222-2222-4222-8222-222222222222'
   $$,
-  array['2|22222222-2222-4222-8222-222222222222|0'],
+  $$
+    select
+      count(*)::bigint,
+      '22222222-2222-4222-8222-222222222222'::uuid,
+      0::bigint
+    from public.profiles
+  $$,
   'registered users with zero telemetry remain visible'
 );
 
