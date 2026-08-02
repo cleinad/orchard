@@ -338,6 +338,70 @@ async function fetchPersistentMainPathToMessage(
   return path.reverse();
 }
 
+async function persistentContextHasImage({
+  supabase,
+  userId,
+  conversationId,
+  previousMessageId,
+  threadId,
+  sourceMessageId,
+}: {
+  supabase: SupabaseServerClient;
+  userId: string;
+  conversationId: string | null;
+  previousMessageId: string | null;
+  threadId: string | null;
+  sourceMessageId: string | null;
+}) {
+  if (!conversationId) {
+    return false;
+  }
+
+  const mainPath = await fetchPersistentMainPathToMessage(
+    supabase,
+    conversationId,
+    sourceMessageId ?? previousMessageId
+  );
+  const messageIds = mainPath.map((message) => message.id);
+
+  if (threadId) {
+    const { data: threadRows, error: threadRowsError } = await supabase
+      .from('messages')
+      .select('id')
+      .eq('conversation_id', conversationId)
+      .eq('thread_id', threadId)
+      .eq('user_id', userId);
+
+    if (threadRowsError) {
+      console.error('[chat] failed to inspect inline-thread image context', threadRowsError);
+    } else {
+      for (const row of threadRows ?? []) {
+        if (typeof row.id === 'string') {
+          messageIds.push(row.id);
+        }
+      }
+    }
+  }
+
+  if (messageIds.length === 0) {
+    return false;
+  }
+
+  const { data: attachmentRows, error: attachmentRowsError } = await supabase
+    .from('message_attachments')
+    .select('id')
+    .eq('user_id', userId)
+    .in('message_id', [...new Set(messageIds)])
+    .limit(1);
+
+  if (attachmentRowsError) {
+    console.error('[chat] failed to inspect persistent image context', attachmentRowsError);
+    return false;
+  }
+
+  return Boolean(attachmentRows?.length);
+}
+
 function sliceMessagesThroughSource<T extends { id?: string | null }>(
   messages: T[],
   sourceMessageId: string | null
@@ -1441,8 +1505,34 @@ export async function POST(request: NextRequest) {
       workspace = workspaceRow;
     }
 
+    const temporaryContextHasImage =
+      [...sanitizedHistory, ...sanitizedThreadHistory].some(
+        (messageItem) => (messageItem.attachments?.length ?? 0) > 0
+      );
+    const requestedModelId = modelId ?? mentor?.model_id ?? null;
+    const shouldInspectAutoImageContext =
+      requestedModelId === null || requestedModelId === 'auto';
+    const hasImageContext =
+      shouldInspectAutoImageContext
+      && (
+        attachments.length > 0
+        || (
+          isTemporaryChat
+            ? temporaryContextHasImage
+            : await persistentContextHasImage({
+                supabase,
+                userId: user.id,
+                conversationId: activeConversationId,
+                previousMessageId:
+                  normalizedPreviousMessageId ?? normalizedBranchSourceMessageId,
+                threadId: normalizedThreadId,
+                sourceMessageId: normalizedSourceMessageId,
+              })
+        )
+      );
     const resolvedSelection = resolveChatModelSelection(
-      modelId ?? mentor?.model_id ?? null
+      requestedModelId,
+      { hasImageContext }
     );
     if (!resolvedSelection) {
       await removeUnreferencedCleanupAttachmentStorage(supabase, attachments);

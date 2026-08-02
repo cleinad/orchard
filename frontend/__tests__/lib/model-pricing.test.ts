@@ -68,7 +68,7 @@ describe('model pricing', () => {
   it('does not double-charge reasoning included in provider output totals', () => {
     expect(calculateModelCost({
       provider: 'google',
-      providerModelId: 'gemini-3-flash-preview',
+      providerModelId: 'gemini-3.6-flash',
       startedAt: new Date('2026-07-31T00:00:00Z'),
       usage: {
         inputTokens: 0,
@@ -78,7 +78,7 @@ describe('model pricing', () => {
       },
     })).toEqual(expect.objectContaining({
       status: 'priced',
-      estimatedCostNanousd: BigInt(300_000),
+      estimatedCostNanousd: BigInt(750_000),
     }));
   });
 
@@ -145,20 +145,19 @@ describe('model pricing', () => {
   });
 
   it('links OpenAI rates to exact official model documentation', () => {
-    expect(MODEL_PRICE_REGISTRY['openai:gpt-5.5'].prices[0].sourceUrl)
-      .toBe('https://developers.openai.com/api/docs/models/gpt-5.5');
-    expect(MODEL_PRICE_REGISTRY['openai:gpt-5.4'].prices[0].sourceUrl)
-      .toBe('https://developers.openai.com/api/docs/models/gpt-5.4');
+    expect(MODEL_PRICE_REGISTRY['openai:gpt-5.6-sol'].prices[0].sourceUrl)
+      .toBe('https://developers.openai.com/api/docs/models/gpt-5.6-sol');
+    expect(MODEL_PRICE_REGISTRY['openai:gpt-5.6-terra'].prices[0].sourceUrl)
+      .toBe('https://developers.openai.com/api/docs/models/gpt-5.6-terra');
+    expect(MODEL_PRICE_REGISTRY['openai:gpt-5.6-luna'].prices[0].sourceUrl)
+      .toBe('https://developers.openai.com/api/docs/models/gpt-5.6-luna');
   });
 
   it('covers every configured catalog model as priced or deliberately unpriced', () => {
     const coverage = getCatalogPricingCoverage();
-    expect(coverage).toHaveLength(10);
+    expect(coverage).toHaveLength(8);
     expect(coverage.every((entry) => entry.covered)).toBe(true);
-    expect(coverage.filter((entry) => !entry.priced)).toEqual([
-      expect.objectContaining({ modelId: 'qwen3.7-plus', unpricedReason: expect.any(String) }),
-      expect.objectContaining({ modelId: 'kimi-k2.7-code', unpricedReason: expect.any(String) }),
-    ]);
+    expect(coverage.every((entry) => entry.priced)).toBe(true);
   });
 
   it('formats nano-USD without floating point conversion', () => {

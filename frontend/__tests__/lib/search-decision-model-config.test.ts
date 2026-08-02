@@ -49,8 +49,7 @@ describe('search decision model config', () => {
     });
   });
 
-  it('uses openrouter as the decision model and ignores alibaba env vars', async () => {
-    vi.stubEnv('ALIBABA_API_KEY', 'alibaba-key');
+  it('uses OpenRouter as the decision model', async () => {
     vi.stubEnv('ALIBABA_DECISION_MODEL', 'qwen2.5-7b-instruct');
     vi.stubEnv('SEARCH_PLANNER_API_KEY', 'openrouter-key');
     vi.stubEnv('SEARCH_PLANNER_BASE_URL', 'https://openrouter.ai/api/v1');

@@ -22,8 +22,12 @@ const mockStartDeferredModelUsageCall = vi.fn((context: unknown) => (
 const mockStorageDownload = vi.fn();
 const mockStorageRemove = vi.fn();
 const mockGetChatModel = vi.fn(() => 'mock-chat-model');
-const mockResolveChatModelSelection = vi.fn((modelId?: string | null) => {
+const mockResolveChatModelSelection = vi.fn((
+  modelId?: string | null,
+  context?: { hasImageContext?: boolean } | null
+) => {
   void modelId;
+  void context;
 
   return {
     id: 'gpt-5-mini',
@@ -195,8 +199,10 @@ vi.mock('@/lib/models', () => ({
     },
   })),
   getNoChatModelConfiguredMessage: vi.fn(() => 'No chat model is configured.'),
-  resolveChatModelSelection: (modelId?: string | null) =>
-    mockResolveChatModelSelection(modelId),
+  resolveChatModelSelection: (
+    modelId?: string | null,
+    context?: { hasImageContext?: boolean } | null
+  ) => mockResolveChatModelSelection(modelId, context),
 }));
 
 vi.mock('@/lib/search/pipeline', () => ({
@@ -471,7 +477,7 @@ describe('chat route contract', () => {
     const { response } = await runChatRequest({
       message: 'Think carefully',
       chatMode: 'temporary',
-      modelId: 'gpt-5.5',
+      modelId: 'gpt-5.6-sol',
       modelEffort: 'high',
       thinkingEnabled: true,
     });
@@ -1316,6 +1322,10 @@ describe('chat route contract', () => {
     });
 
     expect(response.status).toBe(200);
+    expect(mockResolveChatModelSelection).toHaveBeenCalledWith(
+      null,
+      { hasImageContext: true }
+    );
     expect(mockStorageDownload).toHaveBeenCalledWith('user-1/screenshot.png');
     expect(mockStreamText).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1361,6 +1371,10 @@ describe('chat route contract', () => {
     });
 
     expect(response.status).toBe(200);
+    expect(mockResolveChatModelSelection).toHaveBeenCalledWith(
+      null,
+      { hasImageContext: true }
+    );
     expect(mockStorageDownload).toHaveBeenCalledWith('user-1/previous-screenshot.png');
     expect(mockStreamText).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1448,6 +1462,10 @@ describe('chat route contract', () => {
     );
 
     expect(response.status).toBe(200);
+    expect(mockResolveChatModelSelection).toHaveBeenCalledWith(
+      null,
+      { hasImageContext: true }
+    );
     expect(mockStorageDownload).toHaveBeenCalledWith('user-1/persisted-screenshot.png');
     expect(mockStreamText).toHaveBeenCalledWith(
       expect.objectContaining({

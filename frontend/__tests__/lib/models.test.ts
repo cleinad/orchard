@@ -4,8 +4,6 @@ const openaiMock = vi.fn((modelId: string) => ({ provider: 'openai', modelId }))
 const anthropicMock = vi.fn((modelId: string) => ({ provider: 'anthropic', modelId }));
 const googleMock = vi.fn((modelId: string) => ({ provider: 'google', modelId }));
 const deepseekMock = vi.fn((modelId: string) => ({ provider: 'deepseek', modelId }));
-const alibabaMock = vi.fn((modelId: string) => ({ provider: 'alibaba', modelId }));
-const moonshotMock = vi.fn((modelId: string) => ({ provider: 'moonshot', modelId }));
 
 vi.mock('@ai-sdk/openai', () => ({
   openai: openaiMock,
@@ -21,14 +19,6 @@ vi.mock('@ai-sdk/google', () => ({
 
 vi.mock('@ai-sdk/deepseek', () => ({
   deepseek: deepseekMock,
-}));
-
-vi.mock('@ai-sdk/alibaba', () => ({
-  alibaba: alibabaMock,
-}));
-
-vi.mock('@ai-sdk/moonshotai', () => ({
-  moonshotai: moonshotMock,
 }));
 
 describe('chat model resolver', () => {
@@ -54,32 +44,32 @@ describe('chat model resolver', () => {
         provider: 'auto',
         available: false,
         isDefault: false,
+        supportsImages: true,
       })
     );
-    expect(items.find((item) => item.id === 'gpt-5.5')).toEqual(
+    expect(items.find((item) => item.id === 'gpt-5.6-sol')).toEqual(
       expect.objectContaining({
-        label: 'GPT-5.5',
+        label: 'GPT-5.6 Sol',
         provider: 'openai',
         providerLabel: 'OpenAI',
         iconKey: 'openai',
-        badge: 'Max',
         available: true,
         isDefault: true,
         supportsImages: true,
       })
     );
-    expect(items.find((item) => item.id === 'claude-sonnet-4-6')).toEqual(
+    expect(items.find((item) => item.id === 'claude-sonnet-5')).toEqual(
       expect.objectContaining({
-        label: 'Claude Sonnet 4.6',
+        label: 'Claude Sonnet 5',
         provider: 'anthropic',
         available: false,
         isDefault: false,
         supportsImages: true,
       })
     );
-    expect(items.find((item) => item.id === 'gemini-3-flash-preview')).toEqual(
+    expect(items.find((item) => item.id === 'gemini-3.6-flash')).toEqual(
       expect.objectContaining({
-        label: 'Gemini 3 Flash',
+        label: 'Gemini 3.6 Flash',
         provider: 'google',
         available: false,
         isDefault: false,
@@ -88,32 +78,73 @@ describe('chat model resolver', () => {
     );
   });
 
-  it('resolves auto to the first configured Chinese provider', async () => {
+  it('resolves auto text requests to DeepSeek V4 Pro', async () => {
     vi.stubEnv('DEEPSEEK_API_KEY', 'test-deepseek-key');
-    vi.stubEnv('ALIBABA_API_KEY', 'test-alibaba-key');
+    vi.stubEnv('GOOGLE_GENERATIVE_AI_API_KEY', 'test-google-key');
 
     const { resolveChatModelSelection } = await import('@/lib/models');
 
     expect(resolveChatModelSelection('auto')).toEqual(
       expect.objectContaining({
-        id: 'deepseek-v4-flash',
+        id: 'deepseek-v4-pro',
         requestedId: 'auto',
         provider: 'deepseek',
-        apiModelId: 'deepseek-v4-flash',
+        apiModelId: 'deepseek-v4-pro',
       })
     );
   });
 
-  it('falls back through auto targets when the first Chinese provider is unavailable', async () => {
-    vi.stubEnv('ALIBABA_API_KEY', 'test-alibaba-key');
+  it('resolves auto image context to Gemini 3.6 Flash', async () => {
+    vi.stubEnv('DEEPSEEK_API_KEY', 'test-deepseek-key');
+    vi.stubEnv('GOOGLE_GENERATIVE_AI_API_KEY', 'test-google-key');
+    vi.stubEnv('OPENAI_API_KEY', 'test-openai-key');
 
     const { resolveChatModelSelection } = await import('@/lib/models');
 
-    expect(resolveChatModelSelection('auto')).toEqual(
+    expect(resolveChatModelSelection('auto', { hasImageContext: true })).toEqual(
       expect.objectContaining({
-        id: 'qwen3.7-plus',
+        id: 'gemini-3.6-flash',
         requestedId: 'auto',
-        provider: 'alibaba',
+        provider: 'google',
+        apiModelId: 'gemini-3.6-flash',
+      })
+    );
+  });
+
+  it('falls back to GPT-5.6 Terra for auto image context without Google', async () => {
+    vi.stubEnv('DEEPSEEK_API_KEY', 'test-deepseek-key');
+    vi.stubEnv('OPENAI_API_KEY', 'test-openai-key');
+
+    const { getChatModelListItems, resolveChatModelSelection } =
+      await import('@/lib/models');
+
+    expect(resolveChatModelSelection('auto', { hasImageContext: true })).toEqual(
+      expect.objectContaining({
+        id: 'gpt-5.6-terra',
+        requestedId: 'auto',
+        provider: 'openai',
+        apiModelId: 'gpt-5.6-terra',
+      })
+    );
+    expect(getChatModelListItems().find((item) => item.id === 'auto')).toEqual(
+      expect.objectContaining({
+        available: true,
+        supportsImages: true,
+      })
+    );
+  });
+
+  it('does not send auto image context to a text-only fallback', async () => {
+    vi.stubEnv('DEEPSEEK_API_KEY', 'test-deepseek-key');
+
+    const { getChatModelListItems, resolveChatModelSelection } =
+      await import('@/lib/models');
+
+    expect(resolveChatModelSelection('auto', { hasImageContext: true })).toBeNull();
+    expect(getChatModelListItems().find((item) => item.id === 'auto')).toEqual(
+      expect.objectContaining({
+        available: true,
+        supportsImages: false,
       })
     );
   });
@@ -125,13 +156,13 @@ describe('chat model resolver', () => {
 
     const { resolveChatModelSelection } = await import('@/lib/models');
 
-    expect(resolveChatModelSelection('claude-sonnet-4-6')).toEqual(
+    expect(resolveChatModelSelection('claude-sonnet-5')).toEqual(
       expect.objectContaining({
-        id: 'claude-sonnet-4-6',
-        requestedId: 'claude-sonnet-4-6',
-        label: 'Claude Sonnet 4.6',
+        id: 'claude-sonnet-5',
+        requestedId: 'claude-sonnet-5',
+        label: 'Claude Sonnet 5',
         provider: 'anthropic',
-        apiModelId: 'claude-sonnet-4-6',
+        apiModelId: 'claude-sonnet-5',
         supportsImages: true,
       })
     );
@@ -157,12 +188,12 @@ describe('chat model resolver', () => {
     vi.stubEnv('ANTHROPIC_API_KEY', 'test-anthropic-key');
 
     const { getChatModel } = await import('@/lib/models');
-    const model = getChatModel('claude-opus-4-8');
+    const model = getChatModel('claude-opus-5');
 
-    expect(anthropicMock).toHaveBeenCalledWith('claude-opus-4-8');
+    expect(anthropicMock).toHaveBeenCalledWith('claude-opus-5');
     expect(model).toEqual({
       provider: 'anthropic',
-      modelId: 'claude-opus-4-8',
+      modelId: 'claude-opus-5',
     });
   });
 
@@ -171,23 +202,27 @@ describe('chat model resolver', () => {
     vi.stubEnv('ANTHROPIC_API_KEY', 'test-anthropic-key');
     vi.stubEnv('GOOGLE_GENERATIVE_AI_API_KEY', 'test-google-key');
     vi.stubEnv('DEEPSEEK_API_KEY', 'test-deepseek-key');
-    vi.stubEnv('ALIBABA_API_KEY', 'test-alibaba-key');
-    vi.stubEnv('MOONSHOT_API_KEY', 'test-moonshot-key');
 
     const { getChatModelProviderOptions } = await import('@/lib/models');
 
     expect(
-      getChatModelProviderOptions('gpt-5.5', {
+      getChatModelProviderOptions('gpt-5.6-sol', {
         effort: 'max',
         thinkingEnabled: true,
       })
-    ).toEqual({ openai: { reasoningEffort: 'xhigh' } });
+    ).toEqual({ openai: { reasoningEffort: 'max' } });
     expect(
-      getChatModelProviderOptions('claude-sonnet-4-6', {
+      getChatModelProviderOptions('claude-sonnet-5', {
         effort: 'low',
         thinkingEnabled: true,
       })
     ).toEqual({ anthropic: { effort: 'low', thinking: { type: 'adaptive' } } });
+    expect(
+      getChatModelProviderOptions('claude-sonnet-5', {
+        effort: 'xhigh',
+        thinkingEnabled: true,
+      })
+    ).toEqual({ anthropic: { effort: 'high', thinking: { type: 'adaptive' } } });
     expect(
       getChatModelProviderOptions('gemini-3.1-pro-preview', {
         effort: 'max',
@@ -202,7 +237,7 @@ describe('chat model resolver', () => {
       },
     });
     expect(
-      getChatModelProviderOptions('deepseek-v4-flash', {
+      getChatModelProviderOptions('deepseek-v4-pro', {
         effort: 'max',
         thinkingEnabled: true,
       })
@@ -212,52 +247,33 @@ describe('chat model resolver', () => {
         reasoningEffort: 'max',
       },
     });
-    expect(
-      getChatModelProviderOptions('qwen3.7-plus', {
-        effort: 'high',
-        thinkingEnabled: true,
-      })
-    ).toEqual({
-      alibaba: {
-        enableThinking: true,
-        thinkingBudget: 4096,
-      },
-    });
-    expect(getChatModelProviderOptions('kimi-k2.7-code')).toBeUndefined();
   });
 
   it('can disable thinking where the provider supports a toggle', async () => {
     vi.stubEnv('OPENAI_API_KEY', 'test-openai-key');
     vi.stubEnv('DEEPSEEK_API_KEY', 'test-deepseek-key');
-    vi.stubEnv('ALIBABA_API_KEY', 'test-alibaba-key');
 
     const { getChatModelProviderOptions } = await import('@/lib/models');
 
     expect(
-      getChatModelProviderOptions('gpt-5.5', {
+      getChatModelProviderOptions('gpt-5.6-sol', {
         effort: 'high',
         thinkingEnabled: false,
       })
     ).toEqual({ openai: { reasoningEffort: 'none' } });
     expect(
-      getChatModelProviderOptions('deepseek-v4-flash', {
+      getChatModelProviderOptions('deepseek-v4-pro', {
         effort: 'high',
         thinkingEnabled: false,
       })
     ).toEqual({ deepseek: { thinking: { type: 'disabled' } } });
-    expect(
-      getChatModelProviderOptions('qwen3.7-plus', {
-        effort: 'high',
-        thinkingEnabled: false,
-      })
-    ).toEqual({ alibaba: { enableThinking: false } });
   });
 
   it('throws when no chat model providers are configured', async () => {
     const { getChatModel, resolveChatModelSelection } = await import('@/lib/models');
 
-    expect(resolveChatModelSelection('gpt-5.5')).toBeNull();
-    expect(() => getChatModel('gpt-5.5')).toThrow(
+    expect(resolveChatModelSelection('gpt-5.6-sol')).toBeNull();
+    expect(() => getChatModel('gpt-5.6-sol')).toThrow(
       'No chat model is configured. Set at least one chat provider API key.'
     );
   });

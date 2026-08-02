@@ -2,24 +2,20 @@ export type ConcreteChatModelProvider =
   | 'openai'
   | 'anthropic'
   | 'google'
-  | 'deepseek'
-  | 'alibaba'
-  | 'moonshot';
+  | 'deepseek';
 
 export type ChatModelProvider = 'auto' | ConcreteChatModelProvider;
 
 export type ChatModelId =
   | 'auto'
-  | 'gpt-5.5'
-  | 'gpt-5.4'
-  | 'claude-sonnet-4-6'
-  | 'claude-opus-4-8'
+  | 'gpt-5.6-sol'
+  | 'gpt-5.6-terra'
+  | 'gpt-5.6-luna'
+  | 'claude-sonnet-5'
+  | 'claude-opus-5'
   | 'gemini-3.1-pro-preview'
-  | 'gemini-3-flash-preview'
-  | 'deepseek-v4-flash'
-  | 'deepseek-v4-pro'
-  | 'qwen3.7-plus'
-  | 'kimi-k2.7-code';
+  | 'gemini-3.6-flash'
+  | 'deepseek-v4-pro';
 
 export type ConcreteChatModelId = Exclude<ChatModelId, 'auto'>;
 
@@ -27,15 +23,14 @@ export type ChatModelEnvVar =
   | 'OPENAI_API_KEY'
   | 'ANTHROPIC_API_KEY'
   | 'GOOGLE_GENERATIVE_AI_API_KEY'
-  | 'DEEPSEEK_API_KEY'
-  | 'ALIBABA_API_KEY'
-  | 'MOONSHOT_API_KEY';
+  | 'DEEPSEEK_API_KEY';
 
 export type ChatModelEffortLevel =
   | 'minimal'
   | 'low'
   | 'medium'
   | 'high'
+  | 'xhigh'
   | 'max';
 
 export type ChatModelEffortOverrides = Partial<
@@ -49,6 +44,7 @@ export interface ChatModelEffortConfig {
   defaultLevel: ChatModelEffortLevel;
   supportsThinkingToggle: boolean;
   defaultThinkingEnabled: boolean;
+  thinkingDisableUnsupportedLevels?: readonly ChatModelEffortLevel[];
 }
 
 export interface ChatModelOption {
@@ -58,10 +54,10 @@ export interface ChatModelOption {
   providerLabel: string;
   iconKey: ChatModelProvider;
   description: string;
-  badge?: 'Max';
   apiModelId?: string;
   envVar?: ChatModelEnvVar;
   autoTargetIds?: readonly ConcreteChatModelId[];
+  autoImageTargetIds?: readonly ConcreteChatModelId[];
   effort?: ChatModelEffortConfig;
   supportsImages?: boolean;
 }
@@ -73,7 +69,6 @@ export interface ChatModelListItem {
   providerLabel: string;
   iconKey: ChatModelProvider;
   description: string;
-  badge?: 'Max';
   available: boolean;
   isDefault: boolean;
   resolvedModelId?: ConcreteChatModelId;
@@ -100,14 +95,10 @@ export interface ChatModelRuntimeOptions {
 export const DEFAULT_CHAT_MODEL_ID: ChatModelId = 'auto';
 
 const STANDARD_REASONING_LEVELS = ['low', 'medium', 'high', 'max'] as const;
+const FRONTIER_REASONING_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
+const ANTHROPIC_REASONING_LEVELS = ['low', 'medium', 'high', 'max'] as const;
 const GOOGLE_PRO_REASONING_LEVELS = ['low', 'medium', 'high'] as const;
 const GOOGLE_FLASH_REASONING_LEVELS = ['minimal', 'low', 'medium', 'high'] as const;
-const CHINESE_AUTO_TARGETS = [
-  'deepseek-v4-flash',
-  'qwen3.7-plus',
-  'kimi-k2.7-code',
-  'deepseek-v4-pro',
-] as const;
 
 export const CHAT_MODEL_OPTIONS: readonly ChatModelOption[] = [
   {
@@ -116,41 +107,60 @@ export const CHAT_MODEL_OPTIONS: readonly ChatModelOption[] = [
     provider: 'auto',
     providerLabel: 'Auto',
     iconKey: 'auto',
-    description: 'Routes to the best configured Chinese provider first.',
-    autoTargetIds: CHINESE_AUTO_TARGETS,
+    description:
+      'Uses DeepSeek V4 Pro, or Gemini 3.6 Flash with GPT-5.6 Terra fallback for image context.',
+    autoTargetIds: ['deepseek-v4-pro'],
+    autoImageTargetIds: ['gemini-3.6-flash', 'gpt-5.6-terra'],
+    supportsImages: true,
   },
   {
-    id: 'gpt-5.5',
-    label: 'GPT-5.5',
+    id: 'gpt-5.6-sol',
+    label: 'GPT-5.6 Sol',
     provider: 'openai',
     providerLabel: 'OpenAI',
     iconKey: 'openai',
-    description: 'Best OpenAI model for complex reasoning and coding.',
-    badge: 'Max',
-    apiModelId: 'gpt-5.5',
+    description: 'Flagship OpenAI model for complex professional work.',
+    apiModelId: 'gpt-5.6-sol',
     envVar: 'OPENAI_API_KEY',
     supportsImages: true,
     effort: {
-      levels: STANDARD_REASONING_LEVELS,
+      levels: FRONTIER_REASONING_LEVELS,
       defaultLevel: 'medium',
       supportsThinkingToggle: true,
       defaultThinkingEnabled: true,
     },
   },
   {
-    id: 'gpt-5.4',
-    label: 'GPT-5.4',
+    id: 'gpt-5.6-terra',
+    label: 'GPT-5.6 Terra',
     provider: 'openai',
     providerLabel: 'OpenAI',
     iconKey: 'openai',
-    description: 'Balanced OpenAI option for everyday paid usage.',
-    apiModelId: 'gpt-5.4',
+    description: 'Balanced OpenAI model for intelligence and cost.',
+    apiModelId: 'gpt-5.6-terra',
     envVar: 'OPENAI_API_KEY',
     supportsImages: true,
     effort: {
-      levels: ['low', 'medium', 'high'],
+      levels: FRONTIER_REASONING_LEVELS,
       defaultLevel: 'medium',
-      supportsThinkingToggle: false,
+      supportsThinkingToggle: true,
+      defaultThinkingEnabled: true,
+    },
+  },
+  {
+    id: 'gpt-5.6-luna',
+    label: 'GPT-5.6 Luna',
+    provider: 'openai',
+    providerLabel: 'OpenAI',
+    iconKey: 'openai',
+    description: 'Efficient OpenAI model for high-volume workloads.',
+    apiModelId: 'gpt-5.6-luna',
+    envVar: 'OPENAI_API_KEY',
+    supportsImages: true,
+    effort: {
+      levels: FRONTIER_REASONING_LEVELS,
+      defaultLevel: 'medium',
+      supportsThinkingToggle: true,
       defaultThinkingEnabled: true,
     },
   },
@@ -172,48 +182,48 @@ export const CHAT_MODEL_OPTIONS: readonly ChatModelOption[] = [
     },
   },
   {
-    id: 'claude-sonnet-4-6',
-    label: 'Claude Sonnet 4.6',
+    id: 'claude-sonnet-5',
+    label: 'Claude Sonnet 5',
     provider: 'anthropic',
     providerLabel: 'Anthropic',
     iconKey: 'anthropic',
-    description: 'Efficient Claude model for everyday research and coding.',
-    apiModelId: 'claude-sonnet-4-6',
+    description: 'Fast Claude model balancing intelligence and cost.',
+    apiModelId: 'claude-sonnet-5',
     envVar: 'ANTHROPIC_API_KEY',
     supportsImages: true,
     effort: {
-      levels: STANDARD_REASONING_LEVELS,
-      defaultLevel: 'medium',
-      supportsThinkingToggle: true,
-      defaultThinkingEnabled: true,
-    },
-  },
-  {
-    id: 'claude-opus-4-8',
-    label: 'Claude Opus 4.8',
-    provider: 'anthropic',
-    providerLabel: 'Anthropic',
-    iconKey: 'anthropic',
-    description: 'Premium Claude model for high-stakes coding and analysis.',
-    badge: 'Max',
-    apiModelId: 'claude-opus-4-8',
-    envVar: 'ANTHROPIC_API_KEY',
-    supportsImages: true,
-    effort: {
-      levels: STANDARD_REASONING_LEVELS,
+      levels: ANTHROPIC_REASONING_LEVELS,
       defaultLevel: 'high',
       supportsThinkingToggle: true,
       defaultThinkingEnabled: true,
     },
   },
   {
-    id: 'gemini-3-flash-preview',
-    label: 'Gemini 3 Flash',
+    id: 'claude-opus-5',
+    label: 'Claude Opus 5',
+    provider: 'anthropic',
+    providerLabel: 'Anthropic',
+    iconKey: 'anthropic',
+    description: 'Claude model for complex agentic coding and enterprise work.',
+    apiModelId: 'claude-opus-5',
+    envVar: 'ANTHROPIC_API_KEY',
+    supportsImages: true,
+    effort: {
+      levels: ANTHROPIC_REASONING_LEVELS,
+      defaultLevel: 'high',
+      supportsThinkingToggle: true,
+      defaultThinkingEnabled: true,
+      thinkingDisableUnsupportedLevels: ['max'],
+    },
+  },
+  {
+    id: 'gemini-3.6-flash',
+    label: 'Gemini 3.6 Flash',
     provider: 'google',
     providerLabel: 'Google',
     iconKey: 'google',
-    description: 'Fast Gemini 3 model with broad thinking-level support.',
-    apiModelId: 'gemini-3-flash-preview',
+    description: 'Fast multimodal Gemini model for image context and advanced work.',
+    apiModelId: 'gemini-3.6-flash',
     envVar: 'GOOGLE_GENERATIVE_AI_API_KEY',
     supportsImages: true,
     effort: {
@@ -224,30 +234,12 @@ export const CHAT_MODEL_OPTIONS: readonly ChatModelOption[] = [
     },
   },
   {
-    id: 'deepseek-v4-flash',
-    label: 'DeepSeek V4 Flash',
-    provider: 'deepseek',
-    providerLabel: 'DeepSeek',
-    iconKey: 'deepseek',
-    description: 'Fast Chinese reasoning model and the first Auto target.',
-    apiModelId: 'deepseek-v4-flash',
-    envVar: 'DEEPSEEK_API_KEY',
-    supportsImages: false,
-    effort: {
-      levels: STANDARD_REASONING_LEVELS,
-      defaultLevel: 'high',
-      supportsThinkingToggle: true,
-      defaultThinkingEnabled: true,
-    },
-  },
-  {
     id: 'deepseek-v4-pro',
     label: 'DeepSeek V4 Pro',
     provider: 'deepseek',
     providerLabel: 'DeepSeek',
     iconKey: 'deepseek',
     description: 'Stronger DeepSeek model for difficult reasoning and coding.',
-    badge: 'Max',
     apiModelId: 'deepseek-v4-pro',
     envVar: 'DEEPSEEK_API_KEY',
     supportsImages: false,
@@ -257,35 +249,6 @@ export const CHAT_MODEL_OPTIONS: readonly ChatModelOption[] = [
       supportsThinkingToggle: true,
       defaultThinkingEnabled: true,
     },
-  },
-  {
-    id: 'qwen3.7-plus',
-    label: 'Qwen 3.7 Plus',
-    provider: 'alibaba',
-    providerLabel: 'Alibaba',
-    iconKey: 'alibaba',
-    description: 'General-purpose Qwen option with optional thinking budget.',
-    apiModelId: 'qwen3.7-plus',
-    envVar: 'ALIBABA_API_KEY',
-    supportsImages: false,
-    effort: {
-      levels: STANDARD_REASONING_LEVELS,
-      defaultLevel: 'medium',
-      supportsThinkingToggle: true,
-      defaultThinkingEnabled: true,
-    },
-  },
-  {
-    id: 'kimi-k2.7-code',
-    label: 'Kimi K2.7 Code',
-    provider: 'moonshot',
-    providerLabel: 'Moonshot',
-    iconKey: 'moonshot',
-    description: 'Code-focused Kimi model with thinking always enabled.',
-    badge: 'Max',
-    apiModelId: 'kimi-k2.7-code',
-    envVar: 'MOONSHOT_API_KEY',
-    supportsImages: false,
   },
 ] as const;
 
@@ -299,6 +262,7 @@ export function isChatModelEffortLevel(value: unknown): value is ChatModelEffort
     value === 'low' ||
     value === 'medium' ||
     value === 'high' ||
+    value === 'xhigh' ||
     value === 'max'
   );
 }

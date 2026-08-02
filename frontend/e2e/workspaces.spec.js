@@ -429,11 +429,11 @@ test('workspace composer persists model changes and enables image attachments fo
         description: 'Routes automatically.',
         available: true,
         isDefault: true,
-        supportsImages: false,
+        supportsImages: true,
       },
       {
-        id: 'gemini-3-flash-preview',
-        label: 'Gemini 3 Flash',
+        id: 'gemini-3.6-flash',
+        label: 'Gemini 3.6 Flash',
         provider: 'google',
         providerLabel: 'Google',
         iconKey: 'google',
@@ -453,35 +453,20 @@ test('workspace composer persists model changes and enables image attachments fo
 
   await page.goto(`/workspaces/${workspaceId}?e2e=workspace-images`);
 
-  await expect(page.getByRole('button', { name: 'Attach image' })).toBeDisabled();
-  await page.locator('[aria-label^="Attach image disabled"]').hover();
-  await expect(
-    page.getByRole('tooltip', {
-      name: 'The selected model cannot read images. Choose a vision-capable model.',
-    })
-  ).toBeVisible();
-  await pasteFilesIntoComposer(page, [
-    {
-      name: 'blocked.png',
-      mimeType: 'image/png',
-      base64: TINY_PNG_BASE64,
-    },
-  ]);
-  await expect(
-    page.getByTestId('composer-image-warning')
-  ).toHaveText('The selected model cannot read images. Choose a vision-capable model.');
+  await expect(page.getByRole('button', { name: 'Attach image' })).toBeEnabled();
 
-  await page.getByRole('button', { name: /Chat model: Auto/ }).click();
-  await page.getByRole('menuitemradio', { name: /Gemini 3 Flash/ }).click();
+  await page.getByRole('button', { name: /Model: Auto/ }).click();
+  await page.getByRole('menuitem', { name: /Advanced/ }).click();
+  await page.getByRole('menuitemradio', { name: /Gemini 3\.6 Flash/ }).click();
 
-  await expect(page.getByRole('button', { name: /Chat model: Gemini 3 Flash/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Model: Gemini 3\.6 Flash/ })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Attach image' })).toBeEnabled();
   await expect
     .poll(() => page.evaluate(() => window.localStorage.getItem('keen-chat-model')))
-    .toBe('gemini-3-flash-preview');
+    .toBe('gemini-3.6-flash');
 
   await page.reload();
-  await expect(page.getByRole('button', { name: /Chat model: Gemini 3 Flash/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Model: Gemini 3\.6 Flash/ })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Attach image' })).toBeEnabled();
 
   await page.locator('input[type="file"]').setInputFiles({
@@ -492,13 +477,11 @@ test('workspace composer persists model changes and enables image attachments fo
 
   await expect(page.getByAltText('workspace.png')).toBeVisible();
 
-  await page.getByRole('button', { name: /Chat model: Gemini 3 Flash/ }).click();
+  await page.getByRole('button', { name: /Model: Gemini 3\.6 Flash/ }).click();
   await page.getByRole('menuitemradio', { name: /Auto/ }).click();
-  await expect(page.getByAltText('workspace.png')).toHaveCount(0);
-  await expect(page.getByTestId('composer-image-warning')).toHaveText(
-    'Removed attached images because the selected model cannot read images.'
-  );
-  await expect(page.getByRole('button', { name: 'Attach image' })).toBeDisabled();
+  await expect(page.getByAltText('workspace.png')).toBeVisible();
+  await expect(page.getByTestId('composer-image-warning')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Attach image' })).toBeEnabled();
 });
 
 test('workspace composer shows inline warnings for unsupported pasted files', async ({ page }) => {
@@ -515,8 +498,8 @@ test('workspace composer shows inline warnings for unsupported pasted files', as
     conversations: [],
     chatModels: [
       {
-        id: 'gemini-3-flash-preview',
-        label: 'Gemini 3 Flash',
+        id: 'gemini-3.6-flash',
+        label: 'Gemini 3.6 Flash',
         provider: 'google',
         providerLabel: 'Google',
         iconKey: 'google',
@@ -593,8 +576,8 @@ test('workspace composer does not duplicate images exposed as files and items', 
     conversations: [],
     chatModels: [
       {
-        id: 'gemini-3-flash-preview',
-        label: 'Gemini 3 Flash',
+        id: 'gemini-3.6-flash',
+        label: 'Gemini 3.6 Flash',
         provider: 'google',
         providerLabel: 'Google',
         iconKey: 'google',
@@ -649,8 +632,8 @@ test('workspace composer warns when image attachment limit is reached', async ({
     conversations: [],
     chatModels: [
       {
-        id: 'gemini-3-flash-preview',
-        label: 'Gemini 3 Flash',
+        id: 'gemini-3.6-flash',
+        label: 'Gemini 3.6 Flash',
         provider: 'google',
         providerLabel: 'Google',
         iconKey: 'google',

@@ -40,15 +40,94 @@ type PriceRegistryEntry =
 
 const OPENAI_GPT_5_5_SOURCE = 'https://developers.openai.com/api/docs/models/gpt-5.5';
 const OPENAI_GPT_5_4_SOURCE = 'https://developers.openai.com/api/docs/models/gpt-5.4';
+const OPENAI_GPT_5_6_SOL_SOURCE =
+  'https://developers.openai.com/api/docs/models/gpt-5.6-sol';
+const OPENAI_GPT_5_6_TERRA_SOURCE =
+  'https://developers.openai.com/api/docs/models/gpt-5.6-terra';
+const OPENAI_GPT_5_6_LUNA_SOURCE =
+  'https://developers.openai.com/api/docs/models/gpt-5.6-luna';
 const ANTHROPIC_SOURCE = 'https://platform.claude.com/docs/en/about-claude/pricing';
 const GOOGLE_SOURCE = 'https://ai.google.dev/gemini-api/docs/pricing';
 const DEEPSEEK_SOURCE = 'https://api-docs.deepseek.com/quick_start/pricing';
 const OPENROUTER_DEEPSEEK_V4_FLASH_SOURCE =
   'https://openrouter.ai/deepseek/deepseek-v4-flash/api';
-const ALIBABA_SOURCE = 'https://help.aliyun.com/en/model-studio/model-pricing';
-const MOONSHOT_SOURCE = 'https://platform.moonshot.ai/docs';
 
 export const MODEL_PRICE_REGISTRY = {
+  'openai:gpt-5.6-sol': {
+    prices: [{
+      effectiveAt: '2026-07-31T00:00:00.000Z',
+      version: 'openai-2026-08-01',
+      sourceUrl: OPENAI_GPT_5_6_SOL_SOURCE,
+      reviewedAt: '2026-08-01',
+      inputIncludesCachedTokens: true,
+      reasoningIncludedInOutputTokens: true,
+      tiers: [
+        {
+          maxInputTokens: 272_000,
+          inputUsdPerMillion: '5',
+          cacheReadUsdPerMillion: '0.5',
+          cacheWriteUsdPerMillion: '6.25',
+          outputUsdPerMillion: '30',
+        },
+        {
+          inputUsdPerMillion: '10',
+          cacheReadUsdPerMillion: '1',
+          cacheWriteUsdPerMillion: '12.5',
+          outputUsdPerMillion: '45',
+        },
+      ],
+    }],
+  },
+  'openai:gpt-5.6-terra': {
+    prices: [{
+      effectiveAt: '2026-07-31T00:00:00.000Z',
+      version: 'openai-2026-08-01',
+      sourceUrl: OPENAI_GPT_5_6_TERRA_SOURCE,
+      reviewedAt: '2026-08-01',
+      inputIncludesCachedTokens: true,
+      reasoningIncludedInOutputTokens: true,
+      tiers: [
+        {
+          maxInputTokens: 272_000,
+          inputUsdPerMillion: '2.5',
+          cacheReadUsdPerMillion: '0.25',
+          cacheWriteUsdPerMillion: '3.125',
+          outputUsdPerMillion: '15',
+        },
+        {
+          inputUsdPerMillion: '5',
+          cacheReadUsdPerMillion: '0.5',
+          cacheWriteUsdPerMillion: '6.25',
+          outputUsdPerMillion: '22.5',
+        },
+      ],
+    }],
+  },
+  'openai:gpt-5.6-luna': {
+    prices: [{
+      effectiveAt: '2026-07-31T00:00:00.000Z',
+      version: 'openai-2026-08-01',
+      sourceUrl: OPENAI_GPT_5_6_LUNA_SOURCE,
+      reviewedAt: '2026-08-01',
+      inputIncludesCachedTokens: true,
+      reasoningIncludedInOutputTokens: true,
+      tiers: [
+        {
+          maxInputTokens: 272_000,
+          inputUsdPerMillion: '1',
+          cacheReadUsdPerMillion: '0.1',
+          cacheWriteUsdPerMillion: '1.25',
+          outputUsdPerMillion: '6',
+        },
+        {
+          inputUsdPerMillion: '2',
+          cacheReadUsdPerMillion: '0.2',
+          cacheWriteUsdPerMillion: '2.5',
+          outputUsdPerMillion: '9',
+        },
+      ],
+    }],
+  },
   'openai:gpt-5.5': {
     prices: [{
       effectiveAt: '2026-04-23T00:00:00.000Z',
@@ -127,6 +206,54 @@ export const MODEL_PRICE_REGISTRY = {
       }],
     }],
   },
+  'anthropic:claude-sonnet-5': {
+    prices: [
+      {
+        effectiveAt: '2026-09-01T00:00:00.000Z',
+        version: 'anthropic-2026-09-01',
+        sourceUrl: ANTHROPIC_SOURCE,
+        reviewedAt: '2026-08-01',
+        inputIncludesCachedTokens: true,
+        reasoningIncludedInOutputTokens: true,
+        tiers: [{
+          inputUsdPerMillion: '3',
+          cacheReadUsdPerMillion: '0.3',
+          cacheWriteUsdPerMillion: '3.75',
+          outputUsdPerMillion: '15',
+        }],
+      },
+      {
+        effectiveAt: '2026-06-30T00:00:00.000Z',
+        version: 'anthropic-2026-08-01-intro',
+        sourceUrl: ANTHROPIC_SOURCE,
+        reviewedAt: '2026-08-01',
+        inputIncludesCachedTokens: true,
+        reasoningIncludedInOutputTokens: true,
+        tiers: [{
+          inputUsdPerMillion: '2',
+          cacheReadUsdPerMillion: '0.2',
+          cacheWriteUsdPerMillion: '2.5',
+          outputUsdPerMillion: '10',
+        }],
+      },
+    ],
+  },
+  'anthropic:claude-opus-5': {
+    prices: [{
+      effectiveAt: '2026-07-24T00:00:00.000Z',
+      version: 'anthropic-2026-08-01',
+      sourceUrl: ANTHROPIC_SOURCE,
+      reviewedAt: '2026-08-01',
+      inputIncludesCachedTokens: true,
+      reasoningIncludedInOutputTokens: true,
+      tiers: [{
+        inputUsdPerMillion: '5',
+        cacheReadUsdPerMillion: '0.5',
+        cacheWriteUsdPerMillion: '6.25',
+        outputUsdPerMillion: '25',
+      }],
+    }],
+  },
   'google:gemini-3.1-pro-preview': {
     prices: [{
       effectiveAt: '2026-02-19T00:00:00.000Z',
@@ -150,18 +277,18 @@ export const MODEL_PRICE_REGISTRY = {
       ],
     }],
   },
-  'google:gemini-3-flash-preview': {
+  'google:gemini-3.6-flash': {
     prices: [{
-      effectiveAt: '2025-12-17T00:00:00.000Z',
-      version: 'google-2026-07-31',
+      effectiveAt: '2026-07-21T00:00:00.000Z',
+      version: 'google-2026-08-01',
       sourceUrl: GOOGLE_SOURCE,
-      reviewedAt: '2026-07-31',
+      reviewedAt: '2026-08-01',
       inputIncludesCachedTokens: true,
       reasoningIncludedInOutputTokens: true,
       tiers: [{
-        inputUsdPerMillion: '0.5',
-        cacheReadUsdPerMillion: '0.05',
-        outputUsdPerMillion: '3',
+        inputUsdPerMillion: '1.5',
+        cacheReadUsdPerMillion: '0.15',
+        outputUsdPerMillion: '7.5',
       }],
     }],
   },
@@ -209,22 +336,6 @@ export const MODEL_PRICE_REGISTRY = {
         outputUsdPerMillion: '0.87',
       }],
     }],
-  },
-  'alibaba:qwen3.7-plus': {
-    unpriced: {
-      unpricedReason:
-        'The official rate is denominated in CNY and varies by deployment region, context size, and thinking mode.',
-      sourceUrl: ALIBABA_SOURCE,
-      reviewedAt: '2026-07-31',
-    },
-  },
-  'moonshot:kimi-k2.7-code': {
-    unpriced: {
-      unpricedReason:
-        'No unambiguous public pay-as-you-go USD token rate is published for the configured coding endpoint.',
-      sourceUrl: MOONSHOT_SOURCE,
-      reviewedAt: '2026-07-31',
-    },
   },
 } as const satisfies Record<string, PriceRegistryEntry>;
 

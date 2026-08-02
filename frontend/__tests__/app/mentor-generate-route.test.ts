@@ -10,10 +10,10 @@ const mockGetChatModel = vi.hoisted(() => vi.fn((modelId?: string) => {
 const mockResolveChatModelSelection = vi.hoisted(() => vi.fn((modelId?: string | null) => {
   void modelId;
   return {
-    id: 'gpt-5.5',
+    id: 'gpt-5.6-sol',
     requestedId: 'auto',
     provider: 'openai',
-    apiModelId: 'gpt-5.5',
+    apiModelId: 'gpt-5.6-sol',
   };
 }));
 const mockRecordModelUsage = vi.hoisted(() => vi.fn());
@@ -66,10 +66,10 @@ describe('mentor generation telemetry', () => {
       },
     });
     mockResolveChatModelSelection.mockReturnValue({
-      id: 'gpt-5.5',
+      id: 'gpt-5.6-sol',
       requestedId: 'auto',
       provider: 'openai',
-      apiModelId: 'gpt-5.5',
+      apiModelId: 'gpt-5.6-sol',
     });
   });
 
@@ -102,9 +102,9 @@ describe('mentor generation telemetry', () => {
       chatMode: null,
       surface: 'mentor',
       requestedModelId: null,
-      resolvedModelId: 'gpt-5.5',
+      resolvedModelId: 'gpt-5.6-sol',
       provider: 'openai',
-      providerModelId: 'gpt-5.5',
+      providerModelId: 'gpt-5.6-sol',
     });
     expect(mockStartDeferredModelUsageCall.mock.calls[0]?.[0])
       .not.toHaveProperty('prompt');
