@@ -581,6 +581,122 @@ test('persistent generation continues across in-app navigation', async ({ page }
   await expect(page.getByText('Persistent work finished off-screen')).toBeVisible();
 });
 
+test('returning to a chat with an active response blocks another submission', async ({ page }) => {
+  const conversationId = '20000000-0000-4000-8000-000000000011';
+  const previousAssistantId = '30000000-0000-4000-8000-000000000011';
+  const workspaceId = 'workspace-active-run-return';
+  const now = new Date().toISOString();
+  let submissions = 0;
+  let releaseResponse;
+  const responseGate = new Promise((resolve) => {
+    releaseResponse = resolve;
+  });
+  const state = await mockHomeDataRoutes(page, {
+    conversations: [{
+      id: conversationId,
+      title: 'Existing Active Chat',
+      mentor_id: null,
+      workspace_id: null,
+      created_at: now,
+      updated_at: now,
+    }],
+    messagesByConversationId: {
+      [conversationId]: [{
+        id: previousAssistantId,
+        role: 'assistant',
+        content: 'Existing response',
+        previous_message_id: null,
+        created_at: now,
+        search_metadata: null,
+      }],
+    },
+    workspaces: [{
+      id: workspaceId,
+      name: 'Active Run Return',
+      description: null,
+      context: null,
+      icon: 'A',
+      accent_color: null,
+      created_at: now,
+      updated_at: now,
+    }],
+  });
+  await page.route('**/api/chat', async (route) => {
+    submissions += 1;
+    const body = route.request().postDataJSON();
+    await responseGate;
+    const run = persistentRunSnapshot(body, {
+      response: 'The original response completed.',
+      title: 'Active Run Return',
+    });
+    const createdAt = new Date().toISOString();
+    const conversation = state.conversations.find((entry) => entry.id === conversationId);
+    if (conversation) conversation.title = run.title.value;
+    state.messagesByConversationId[conversationId] = [
+      {
+        id: previousAssistantId,
+        role: 'assistant',
+        content: 'Existing response',
+        previous_message_id: null,
+        created_at: now,
+        search_metadata: null,
+      },
+      {
+        id: run.userMessageId,
+        role: 'user',
+        content: body.message,
+        previous_message_id: previousAssistantId,
+        created_at: createdAt,
+        search_metadata: null,
+      },
+      {
+        id: run.assistantMessageId,
+        role: 'assistant',
+        content: run.response,
+        previous_message_id: run.userMessageId,
+        created_at: createdAt,
+        search_metadata: null,
+      },
+    ];
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream',
+      body: streamBody(body, {
+        response: run.response,
+        title: run.title.value,
+        titleSource: run.title.source,
+        conversationId,
+        run,
+      }),
+    });
+  });
+
+  await page.goto(`/home/${conversationId}?e2e=chat-run-lifecycle`);
+  await expect(page.getByText('Existing response')).toBeVisible();
+  await page.getByLabel('Message composer').fill('Keep this response active');
+  await page.getByLabel('Message composer').press('Enter');
+  await expect(page.getByRole('button', { name: 'Stop response' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Open conversations' }).click();
+  await page.getByTestId(`workspace-drop-target-${workspaceId}`)
+    .getByRole('button')
+    .first()
+    .click();
+  await expect(page).toHaveURL(new RegExp(`/workspaces/${workspaceId}`));
+
+  await page.goBack();
+  await expect(page.getByRole('button', { name: 'Stop response' })).toBeVisible();
+
+  await page.getByLabel('Message composer').fill('Do not submit this yet');
+  await page.getByLabel('Message composer').press('Enter');
+  await expect.poll(() => submissions).toBe(1);
+
+  releaseResponse();
+  await expect(page.getByText('The original response completed.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Send message' })).toBeVisible();
+  await expect(page.getByLabel('Message composer')).toHaveValue('Do not submit this yet');
+});
+
 test('completed persistent branch run preserves its selection across chat navigation', async ({
   page,
 }) => {

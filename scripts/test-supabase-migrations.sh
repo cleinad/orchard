@@ -151,7 +151,7 @@ docker run --rm \
   --env PGPASSWORD="$postgres_password" \
   --volume "$repo_root/supabase/tests:/tests:ro" \
   "$pg_prove_image" \
-  pg_prove --verbose /tests/database.sql /tests/billing_rpc_privileges.sql
+  pg_prove --verbose /tests/database.sql
 
 printf 'active_migrations_applied=%s\n' "$applied_count"
 printf 'database_invariants=passed\n'

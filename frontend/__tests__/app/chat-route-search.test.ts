@@ -128,10 +128,10 @@ vi.mock('@/lib/models', () => ({
   getChatModelProviderOptions: vi.fn(() => undefined),
   getNoChatModelConfiguredMessage: vi.fn(() => 'No chat model is configured.'),
   resolveChatModelSelection: vi.fn(() => ({
-    id: 'gpt-5.4',
-    requestedId: 'gpt-5.4',
+    id: 'gpt-5.6-terra',
+    requestedId: 'gpt-5.6-terra',
     provider: 'openai',
-    apiModelId: 'gpt-5.4',
+    apiModelId: 'gpt-5.6-terra',
   })),
 }));
 

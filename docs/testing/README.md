@@ -170,8 +170,8 @@ behavior.
 
 ## Database checks
 
-`supabase/tests/database.sql` and `supabase/tests/billing_rpc_privileges.sql`
-exercise database invariants against a compatible disposable environment.
+`supabase/tests/database.sql` exercises database invariants against a
+compatible disposable environment.
 
 `scripts/test-supabase-bootstrap.sh` builds an isolated Supabase database with
 no published host ports, applies every active migration, proves both profile

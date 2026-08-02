@@ -46,7 +46,8 @@ export function useChatImageComposerState({
   const pendingImageAttachmentsRef = useRef<PendingChatImageAttachment[]>([]);
 
   const selectedModelSupportsImages = selectedChatModel?.supportsImages ?? true;
-  const selectedModelRejectsGifImages = selectedChatModel?.provider === 'google';
+  const selectedModelRejectsGifImages =
+    selectedChatModel?.provider === 'google' || selectedChatModel?.id === 'auto';
   const imageInputDisabledReason = selectedModelSupportsImages
     ? null
     : IMAGE_MODEL_UNSUPPORTED_MESSAGE;

@@ -41,8 +41,6 @@ OPENAI_API_KEY=your_openai_key
 ANTHROPIC_API_KEY=your_anthropic_key
 GOOGLE_GENERATIVE_AI_API_KEY=your_google_key
 DEEPSEEK_API_KEY=your_deepseek_key
-ALIBABA_API_KEY=your_alibaba_key
-MOONSHOT_API_KEY=your_moonshot_key
 ```
 
 Only one is required for basic chat. The model picker shows which configured

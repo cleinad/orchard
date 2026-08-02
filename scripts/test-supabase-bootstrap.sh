@@ -9,6 +9,10 @@ pg_prove_image=${SUPABASE_PG_PROVE_IMAGE:-public.ecr.aws/supabase/pg_prove:3.36}
 postgres_password="disposable-bootstrap-postgres"
 auth_password="disposable-bootstrap-auth"
 storage_password="disposable-bootstrap-storage"
+jwt_secret="disposable-bootstrap-jwt-secret-at-least-32-characters"
+storage_test_user_id="44444444-4444-4444-8444-444444444444"
+storage_test_object_path="${storage_test_user_id}/storage-policy-check.png"
+storage_policy_repair_migration="20260801130000_repair_storage_object_policies.sql"
 network_name="orchard-bootstrap-$RANDOM-$$"
 postgres_container="${network_name}-postgres"
 auth_container="${network_name}-auth"
@@ -66,7 +70,7 @@ docker run --detach \
   --env GOTRUE_SITE_URL="http://127.0.0.1:3000" \
   --env GOTRUE_DB_DRIVER="postgres" \
   --env GOTRUE_DB_DATABASE_URL="postgres://supabase_auth_admin:${auth_password}@db:5432/postgres" \
-  --env GOTRUE_JWT_SECRET="disposable-bootstrap-jwt-secret-at-least-32-characters" \
+  --env GOTRUE_JWT_SECRET="$jwt_secret" \
   --env GOTRUE_JWT_EXP="3600" \
   --env GOTRUE_DISABLE_SIGNUP="false" \
   --env GOTRUE_EXTERNAL_EMAIL_ENABLED="true" \
@@ -94,7 +98,7 @@ docker run --detach \
   --name "$storage_container" \
   --network "$network_name" \
   --env DATABASE_URL="postgres://supabase_storage_admin:${storage_password}@db:5432/postgres" \
-  --env PGRST_JWT_SECRET="disposable-bootstrap-jwt-secret-at-least-32-characters" \
+  --env PGRST_JWT_SECRET="$jwt_secret" \
   --env ANON_KEY="unused" \
   --env SERVICE_KEY="unused" \
   --env POSTGREST_URL="http://unused-rest:3000" \
@@ -183,8 +187,112 @@ values (
 SQL
 }
 
+verify_authenticated_storage_path() {
+  docker exec \
+    --interactive \
+    --env TEST_JWT_SECRET="$jwt_secret" \
+    --env TEST_OBJECT_PATH="$storage_test_object_path" \
+    --env TEST_USER_ID="$storage_test_user_id" \
+    "$storage_container" \
+    node <<'JS'
+import { createHmac } from 'node:crypto';
+
+const storageUrl = 'http://127.0.0.1:5000';
+const userId = process.env.TEST_USER_ID;
+const issuedAt = Math.floor(Date.now() / 1000);
+const encode = (value) => Buffer.from(JSON.stringify(value)).toString('base64url');
+const unsignedToken = `${encode({ alg: 'HS256', typ: 'JWT' })}.${encode({
+  aud: 'authenticated',
+  exp: issuedAt + 3600,
+  iat: issuedAt,
+  iss: 'supabase',
+  role: 'authenticated',
+  sub: userId,
+})}`;
+const signature = createHmac('sha256', process.env.TEST_JWT_SECRET)
+  .update(unsignedToken)
+  .digest('base64url');
+const authorization = `Bearer ${unsignedToken}.${signature}`;
+const objectPath = process.env.TEST_OBJECT_PATH;
+const imageBytes = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+  'base64'
+);
+
+const uploadResponse = await fetch(
+  `${storageUrl}/object/chat-images/${objectPath}`,
+  {
+    method: 'POST',
+    headers: {
+      authorization,
+      'content-type': 'image/png',
+      'x-upsert': 'false',
+    },
+    body: imageBytes,
+  }
+);
+
+if (!uploadResponse.ok) {
+  const errorBody = await uploadResponse.text();
+  throw new Error(
+    `Authenticated Storage upload failed with HTTP ${uploadResponse.status}: ${errorBody}`
+  );
+}
+
+const readResponse = await fetch(
+  `${storageUrl}/object/authenticated/chat-images/${objectPath}`,
+  { headers: { authorization } }
+);
+
+if (!readResponse.ok) {
+  const errorBody = await readResponse.text();
+  throw new Error(
+    `Authenticated Storage read failed with HTTP ${readResponse.status}: ${errorBody}`
+  );
+}
+
+const readBytes = Buffer.from(await readResponse.arrayBuffer());
+if (!readBytes.equals(imageBytes)) {
+  throw new Error('Authenticated Storage read returned different bytes');
+}
+
+const deleteResponse = await fetch(`${storageUrl}/object/chat-images`, {
+  method: 'DELETE',
+  headers: {
+    authorization,
+    'content-type': 'application/json',
+  },
+  body: JSON.stringify({ prefixes: [objectPath] }),
+});
+
+if (!deleteResponse.ok) {
+  const errorBody = await deleteResponse.text();
+  throw new Error(
+    `Authenticated Storage delete failed with HTTP ${deleteResponse.status}: ${errorBody}`
+  );
+}
+
+const deletedReadResponse = await fetch(
+  `${storageUrl}/object/authenticated/chat-images/${objectPath}`,
+  { headers: { authorization } }
+);
+
+if (deletedReadResponse.ok) {
+  throw new Error('Deleted Storage object remained readable');
+}
+JS
+
+  storage_object_count=$(docker exec "$postgres_container" psql -U postgres -d postgres -Atc \
+    "select count(*) from storage.objects where bucket_id = 'chat-images' and name = '$storage_test_object_path';")
+  if [[ "$storage_object_count" != "0" ]]; then
+    printf 'error: Storage policy test object was not deleted\n' >&2
+    exit 1
+  fi
+}
+
 applied_count=0
 backfill_fixture_inserted=false
+storage_policy_drift_injected=false
 while IFS= read -r migration; do
   migration_name=$(basename "$migration")
 
@@ -196,6 +304,42 @@ while IFS= read -r migration; do
       before-repair@example.test \
       "Before Repair"
     backfill_fixture_inserted=true
+  fi
+
+  if [[ "$migration_name" == "$storage_policy_repair_migration" ]]; then
+    # Reproduce the production drift: buckets exist and RLS is enabled, but
+    # the consolidated Storage baseline was recorded without object policies.
+    docker exec \
+      --interactive \
+      --env PGPASSWORD="$postgres_password" \
+      "$postgres_container" \
+      psql -q -v ON_ERROR_STOP=1 -U supabase_admin -d postgres <<'SQL'
+do $$
+declare
+  storage_policy record;
+begin
+  for storage_policy in
+    select policyname
+    from pg_policies
+    where schemaname = 'storage'
+      and tablename = 'objects'
+  loop
+    execute format(
+      'drop policy %I on storage.objects',
+      storage_policy.policyname
+    );
+  end loop;
+end;
+$$;
+SQL
+
+    storage_policy_count=$(docker exec "$postgres_container" psql -U postgres -d postgres -Atc \
+      "select count(*) from pg_policies where schemaname = 'storage' and tablename = 'objects';")
+    if [[ "$storage_policy_count" != "0" ]]; then
+      printf 'error: failed to reproduce missing Storage policy drift\n' >&2
+      exit 1
+    fi
+    storage_policy_drift_injected=true
   fi
 
   # Auth trigger DDL requires the database migration administrator. Orchard's
@@ -216,7 +360,9 @@ done < <(
     sort
 )
 
-if [[ "$applied_count" == "0" || "$backfill_fixture_inserted" != "true" ]]; then
+if [[ "$applied_count" == "0" \
+  || "$backfill_fixture_inserted" != "true" \
+  || "$storage_policy_drift_injected" != "true" ]]; then
   printf 'error: active migration set is incomplete\n' >&2
   exit 1
 fi
@@ -239,13 +385,29 @@ schema_check=$(docker exec "$postgres_container" psql -U postgres -d postgres -A
     (select count(*) from auth.users as users left join public.profiles as profiles on profiles.id = users.id where profiles.id is null),
     (select count(*) from public.profiles where id in ('33333333-3333-4333-8333-333333333333', '44444444-4444-4444-8444-444444444444')),
     to_regclass('storage.buckets'),
-    (select count(*) from storage.buckets where id in ('chat-images', 'mentor-avatars'))
+    (select count(*) from storage.buckets where id in ('chat-images', 'mentor-avatars')),
+    (select count(*) from pg_policies where schemaname = 'storage' and tablename = 'objects'),
+    (select count(*) from pg_policies
+      where schemaname = 'storage'
+        and tablename = 'objects'
+        and roles = array['authenticated']::name[]
+        and policyname in (
+          'Users can read own chat images',
+          'Users can upload own chat images',
+          'Users can update own chat images',
+          'Users can delete own chat images',
+          'Users can upload own mentor avatars',
+          'Users can update own mentor avatars',
+          'Users can delete own mentor avatars'
+        ))
   );")
 
-if [[ "$schema_check" != "profiles|messages|chat_runs|1|1|1|0|2|storage.buckets|2" ]]; then
+if [[ "$schema_check" != "profiles|messages|chat_runs|1|1|1|0|2|storage.buckets|2|7|7" ]]; then
   printf 'error: unexpected bootstrapped schema: %s\n' "$schema_check" >&2
   exit 1
 fi
+
+verify_authenticated_storage_path
 
 if [[ "${SUPABASE_BOOTSTRAP_DATABASE_TESTS:-false}" == "true" ]]; then
   docker exec \
@@ -271,4 +433,5 @@ fi
 printf 'active_migrations_applied=%s\n' "$applied_count"
 printf 'profile_backfill=passed\n'
 printf 'profile_signup_trigger=passed\n'
+printf 'authenticated_storage_path=passed\n'
 printf 'supabase_bootstrap=passed\n'

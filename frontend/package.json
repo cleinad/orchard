@@ -13,11 +13,9 @@
     "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {
-    "@ai-sdk/alibaba": "^1.0.29",
     "@ai-sdk/anthropic": "^3.0.44",
     "@ai-sdk/deepseek": "^2.0.39",
     "@ai-sdk/google": "^3.0.29",
-    "@ai-sdk/moonshotai": "^2.0.26",
     "@ai-sdk/openai": "^3.0.29",
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.91.1",

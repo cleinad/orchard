@@ -712,6 +712,15 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
       return { accepted: false, completed: false, uploadedAttachments };
     }
 
+    const effectiveChatId = effectiveSelection.kind === 'persistent'
+      ? effectiveSelection.conversationId
+      : effectiveSelection.kind === 'temporary'
+        ? effectiveSelection.tempChatId
+        : effectiveSelection.draftId;
+    if (chatRunCoordinator?.getActiveMainRunForChat(effectiveChatId)) {
+      return { accepted: false, completed: false, uploadedAttachments };
+    }
+
     const effectiveSelectionKey = getSelectedChatKey(effectiveSelection);
     if (!effectiveSelectionKey || params.pendingChatRequestsRef.current[effectiveSelectionKey]) {
       return { accepted: false, completed: false, uploadedAttachments };

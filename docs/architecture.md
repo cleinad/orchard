@@ -71,8 +71,8 @@ content is not written to the application database.
 ## Models and search
 
 The AI SDK provides a common streaming interface across configured OpenAI,
-Anthropic, Google, DeepSeek, Alibaba, and Moonshot models. Availability is
-derived from server-side provider configuration.
+Anthropic, Google, and DeepSeek models. Availability is derived from
+server-side provider configuration.
 
 Live search has `Off`, `Auto`, and `Always search` modes. When a search runs, the
 server classifies the query, retrieves candidates from configured providers,

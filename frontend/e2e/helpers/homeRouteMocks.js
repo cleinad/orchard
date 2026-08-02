@@ -1,12 +1,11 @@
 const DEFAULT_CHAT_MODELS = [
   {
-    id: 'gpt-5.5',
-    label: 'GPT-5.5',
+    id: 'gpt-5.6-sol',
+    label: 'GPT-5.6 Sol',
     provider: 'openai',
     providerLabel: 'OpenAI',
     iconKey: 'openai',
     description: 'Best OpenAI model for complex reasoning and coding.',
-    badge: 'Max',
     available: true,
     isDefault: true,
     effort: {

@@ -875,13 +875,12 @@ test('the same chat stays editable while its response is in flight', async ({ pa
     },
     chatModels: [
       {
-        id: 'gpt-5.5',
-        label: 'GPT-5.5',
+        id: 'gpt-5.6-sol',
+        label: 'GPT-5.6 Sol',
         provider: 'openai',
         providerLabel: 'OpenAI',
         iconKey: 'openai',
         description: 'Best OpenAI model for complex reasoning and coding.',
-        badge: 'Max',
         available: true,
         isDefault: true,
         effort: {
@@ -892,8 +891,8 @@ test('the same chat stays editable while its response is in flight', async ({ pa
         },
       },
       {
-        id: 'claude-sonnet-4-6',
-        label: 'Claude Sonnet 4.6',
+        id: 'claude-sonnet-5',
+        label: 'Claude Sonnet 5',
         provider: 'anthropic',
         providerLabel: 'Anthropic',
         iconKey: 'anthropic',
@@ -947,10 +946,11 @@ test('the same chat stays editable while its response is in flight', async ({ pa
   await composer.fill(nextTurnDraft);
   await expect(composer).toHaveValue(nextTurnDraft);
 
-  const modelPicker = page.getByRole('button', { name: /Chat model: GPT-5\.5/ });
+  const modelPicker = page.getByRole('button', { name: /Model: GPT-5\.6 Sol/ });
   await modelPicker.click();
-  await page.getByRole('menuitemradio', { name: /Claude Sonnet 4\.6/ }).click();
-  await expect(page.getByRole('button', { name: /Chat model: Claude Sonnet 4\.6/ })).toBeVisible();
+  await page.getByRole('menuitem', { name: /Advanced/ }).click();
+  await page.getByRole('menuitemradio', { name: /Claude Sonnet 5/ }).click();
+  await expect(page.getByRole('button', { name: /Model: Claude Sonnet 5/ })).toBeVisible();
 
   response.resolve({
     message: answer,
@@ -987,7 +987,7 @@ test('model effort and thinking controls are included in chat requests', async (
 
   await page.goto('/home?e2e=home-routing-effort-controls');
 
-  const modelPicker = page.getByRole('button', { name: /Chat model: GPT-5\.5/ });
+  const modelPicker = page.getByRole('button', { name: /Model: GPT-5\.6 Sol/ });
   await modelPicker.evaluate((element) => {
     element.style.position = 'fixed';
     element.style.right = '12px';
@@ -995,10 +995,11 @@ test('model effort and thinking controls are included in chat requests', async (
     element.style.zIndex = '20';
   });
   await modelPicker.click();
+  await page.getByRole('menuitem', { name: /Advanced/ }).click();
   const triggerBox = await modelPicker.boundingBox();
   const mainPanel = page.locator('.chat-model-picker-popover > .chat-model-picker-panels > div').first();
   const popover = page.locator('.chat-model-picker-popover');
-  const gptModelOption = page.getByRole('menuitemradio', { name: /GPT-5\.5/ });
+  const gptModelOption = page.getByRole('menuitemradio', { name: /GPT-5\.6 Sol/ });
   const initialPanelBox = await mainPanel.boundingBox();
 
   expect(triggerBox).not.toBeNull();
@@ -1036,7 +1037,8 @@ test('model effort and thinking controls are included in chat requests', async (
     element.removeAttribute('style');
   });
   await modelPicker.click();
-  await page.getByRole('menuitemradio', { name: /GPT-5\.5/ }).hover();
+  await page.getByRole('menuitem', { name: /Advanced/ }).click();
+  await page.getByRole('menuitemradio', { name: /GPT-5\.6 Sol/ }).hover();
   await page.getByRole('menuitemradio', { name: /^High$/ }).click();
   await page.getByRole('switch', { name: /Thinking/ }).click();
 
@@ -1048,7 +1050,7 @@ test('model effort and thinking controls are included in chat requests', async (
   expect(requestBody).toEqual(
     expect.objectContaining({
       message,
-      modelId: 'gpt-5.5',
+      modelId: 'gpt-5.6-sol',
       modelEffort: 'high',
       thinkingEnabled: false,
     })
@@ -1074,13 +1076,12 @@ test('untouched model defaults are omitted from chat requests', async ({ page })
         isDefault: true,
       },
       {
-        id: 'claude-opus-4-8',
-        label: 'Claude Opus 4.8',
+        id: 'claude-opus-5',
+        label: 'Claude Opus 5',
         provider: 'anthropic',
         providerLabel: 'Anthropic',
         iconKey: 'anthropic',
         description: 'Premium Claude model for high-stakes work.',
-        badge: 'Max',
         available: true,
         isDefault: false,
         effort: {
@@ -1106,8 +1107,9 @@ test('untouched model defaults are omitted from chat requests', async ({ page })
   });
 
   await page.goto('/home?e2e=home-routing-default-effort');
-  await page.getByRole('button', { name: /Chat model: Auto/ }).click();
-  await page.getByRole('menuitemradio', { name: /Claude Opus 4\.8/ }).click();
+  await page.getByRole('button', { name: /Model: Auto/ }).click();
+  await page.getByRole('menuitem', { name: /Advanced/ }).click();
+  await page.getByRole('menuitemradio', { name: /Claude Opus 5/ }).click();
   await page.keyboard.press('Escape');
 
   const composer = page.getByLabel('Message composer');
@@ -1120,7 +1122,7 @@ test('untouched model defaults are omitted from chat requests', async ({ page })
   expect(requestBody).toEqual(
     expect.objectContaining({
       message,
-      modelId: 'claude-opus-4-8',
+      modelId: 'claude-opus-5',
     })
   );
   expect(requestBody).not.toHaveProperty('modelEffort');
@@ -1152,7 +1154,6 @@ test('auto mode omits untouched effort and thinking overrides', async ({ page })
         providerLabel: 'DeepSeek',
         iconKey: 'deepseek',
         description: 'Stronger DeepSeek model.',
-        badge: 'Max',
         available: true,
         isDefault: false,
         effort: {
@@ -1203,13 +1204,12 @@ test('model effort controls use a drill-in panel on narrow viewports', async ({ 
     messagesByConversationId: {},
     chatModels: [
       {
-        id: 'gpt-5.5',
-        label: 'GPT-5.5',
+        id: 'gpt-5.6-sol',
+        label: 'GPT-5.6 Sol',
         provider: 'openai',
         providerLabel: 'OpenAI',
         iconKey: 'openai',
         description: 'Best OpenAI model for complex reasoning and coding.',
-        badge: 'Max',
         available: true,
         isDefault: true,
         supportsImages: true,
@@ -1221,8 +1221,8 @@ test('model effort controls use a drill-in panel on narrow viewports', async ({ 
         },
       },
       {
-        id: 'gemini-3-flash-preview',
-        label: 'Gemini 3 Flash',
+        id: 'gemini-3.6-flash',
+        label: 'Gemini 3.6 Flash',
         provider: 'google',
         providerLabel: 'Google',
         iconKey: 'google',
@@ -1242,7 +1242,7 @@ test('model effort controls use a drill-in panel on narrow viewports', async ({ 
 
   await page.goto('/home?e2e=home-routing-effort-drilldown');
 
-  const modelPicker = page.getByRole('button', { name: /Chat model: GPT-5\.5/ });
+  const modelPicker = page.getByRole('button', { name: /Model: GPT-5\.6 Sol/ });
   await modelPicker.evaluate((element) => {
     element.style.position = 'fixed';
     element.style.right = '12px';
@@ -1251,22 +1251,23 @@ test('model effort controls use a drill-in panel on narrow viewports', async ({ 
   });
 
   await modelPicker.click();
-  await page.getByRole('menuitemradio', { name: /Gemini 3 Flash/ }).click();
+  await page.getByRole('menuitem', { name: /Advanced/ }).click();
+  await page.getByRole('menuitemradio', { name: /Gemini 3\.6 Flash/ }).click();
 
   const popover = page.locator('.chat-model-picker-popover');
   const panels = page.locator('.chat-model-picker-panels');
   const panelsBox = await panels.boundingBox();
 
   await expect(popover).toHaveAttribute('data-effort-mode', 'drilldown');
-  await expect(page.getByRole('button', { name: /Chat model: Gemini 3 Flash/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Model: Gemini 3\.6 Flash/ })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Attach image' })).toBeEnabled();
   await expect(page.getByRole('button', { name: /^Models$/ })).toBeVisible();
-  await expect(page.getByText('Gemini 3 Flash effort')).toBeVisible();
+  await expect(page.getByText('Gemini 3.6 Flash effort')).toBeVisible();
   await expect(page.getByRole('menu', { name: 'Model effort' })).toBeVisible();
   await expect(page.locator('.chat-model-effort-panel')).toHaveCount(0);
   await expect
     .poll(() => page.evaluate(() => window.localStorage.getItem('keen-chat-model')))
-    .toBe('gemini-3-flash-preview');
+    .toBe('gemini-3.6-flash');
 
   expect(panelsBox).not.toBeNull();
   expect(panelsBox.width).toBeGreaterThan(220);
@@ -1274,14 +1275,14 @@ test('model effort controls use a drill-in panel on narrow viewports', async ({ 
   expect(panelsBox.x + panelsBox.width).toBeLessThanOrEqual(390);
 });
 
-test('home composer removes attached images when switching to a non-vision model', async ({ page }) => {
+test('home composer keeps attached images when switching to Auto', async ({ page }) => {
   await mockHomeDataRoutes(page, {
     conversations: [],
     messagesByConversationId: {},
     chatModels: [
       {
-        id: 'gemini-3-flash-preview',
-        label: 'Gemini 3 Flash',
+        id: 'gemini-3.6-flash',
+        label: 'Gemini 3.6 Flash',
         provider: 'google',
         providerLabel: 'Google',
         iconKey: 'google',
@@ -1299,17 +1300,17 @@ test('home composer removes attached images when switching to a non-vision model
         description: 'Routes automatically.',
         available: true,
         isDefault: false,
-        supportsImages: false,
+        supportsImages: true,
       },
     ],
   });
   await page.addInitScript(() => {
-    window.localStorage.setItem('keen-chat-model', 'gemini-3-flash-preview');
+    window.localStorage.setItem('keen-chat-model', 'gemini-3.6-flash');
   });
 
   await page.goto('/home?e2e=home-routing-image-model-switch');
 
-  await expect(page.getByRole('button', { name: /Chat model: Gemini 3 Flash/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Model: Gemini 3\.6 Flash/ })).toBeVisible();
   await page.locator('input[type="file"]').setInputFiles({
     name: 'home-switch.png',
     mimeType: 'image/png',
@@ -1317,14 +1318,12 @@ test('home composer removes attached images when switching to a non-vision model
   });
   await expect(page.getByAltText('home-switch.png')).toBeVisible();
 
-  await page.getByRole('button', { name: /Chat model: Gemini 3 Flash/ }).click();
+  await page.getByRole('button', { name: /Model: Gemini 3\.6 Flash/ }).click();
   await page.getByRole('menuitemradio', { name: /Auto/ }).click();
 
-  await expect(page.getByAltText('home-switch.png')).toHaveCount(0);
-  await expect(page.getByTestId('composer-image-warning')).toHaveText(
-    'Removed attached images because the selected model cannot read images.'
-  );
-  await expect(page.getByRole('button', { name: 'Attach image' })).toBeDisabled();
+  await expect(page.getByAltText('home-switch.png')).toBeVisible();
+  await expect(page.getByTestId('composer-image-warning')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Attach image' })).toBeEnabled();
 });
 
 test('a second chat can send while another chat is still in flight', async ({ page }) => {

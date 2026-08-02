@@ -6,12 +6,13 @@ the accepted sources with that response.
 ## User modes
 
 - **Off:** do not run live retrieval. This is the default.
-- **Auto:** decide whether current external information would materially improve
-  the answer.
 - **Always search:** run retrieval before answering.
 
 The setting is kept per chat in browser session state. Inline-thread requests
 inherit the active chat's mode.
+
+Auto remains accepted by backend compatibility paths, but is not selectable in
+the composer.
 
 ## Execution
 

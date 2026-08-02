@@ -46,6 +46,9 @@ Persistent runs are recorded in `chat_runs` once accepted by the server.
   stream was lost.
 - Stored client snapshots reconnect runs to the relevant main chat, branch, or
   thread after navigation or reload.
+- A chat's main composer remains busy while one of its main or branch runs is
+  unsettled, including after navigation. Other chats and inline threads remain
+  independently usable.
 
 A short grace period distinguishes a run that has not appeared yet from a
 request that was never accepted.

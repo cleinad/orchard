@@ -1,8 +1,6 @@
-import { alibaba } from '@ai-sdk/alibaba';
 import { anthropic } from '@ai-sdk/anthropic';
 import { deepseek } from '@ai-sdk/deepseek';
 import { google } from '@ai-sdk/google';
-import { moonshotai } from '@ai-sdk/moonshotai';
 import { createOpenAI, openai } from '@ai-sdk/openai';
 import type { SharedV3ProviderOptions } from '@ai-sdk/provider';
 import {
@@ -20,7 +18,7 @@ import {
 } from '@/lib/chat-models';
 
 export const SEARCH_PLANNER_MODEL_ID =
-  process.env.SEARCH_PLANNER_MODEL || 'qwen/qwen-2.5-7b-instruct';
+  process.env.SEARCH_PLANNER_MODEL || 'deepseek/deepseek-v4-flash';
 export const SEARCH_PLANNER_PROVIDER = 'openrouter';
 
 type OpenAIProvider = ReturnType<typeof createOpenAI>;
@@ -73,13 +71,9 @@ type ProviderOptions = SharedV3ProviderOptions;
 const NO_CHAT_MODEL_CONFIGURED_MESSAGE =
   'No chat model is configured. Set at least one chat provider API key.';
 
-const ALIBABA_THINKING_BUDGETS: Record<ChatModelEffortLevel, number> = {
-  minimal: 512,
-  low: 1024,
-  medium: 2048,
-  high: 4096,
-  max: 8192,
-};
+export interface ChatModelResolutionContext {
+  hasImageContext?: boolean;
+}
 
 function isModelConfigured(option: ChatModelOption) {
   if (isConcreteChatModelOption(option)) {
@@ -89,8 +83,16 @@ function isModelConfigured(option: ChatModelOption) {
   return Boolean(resolveAutoModelOption(option));
 }
 
-function resolveAutoModelOption(option: ChatModelOption) {
-  for (const modelId of option.autoTargetIds ?? []) {
+function resolveAutoModelOption(
+  option: ChatModelOption,
+  context?: ChatModelResolutionContext | null
+) {
+  const targetIds =
+    context?.hasImageContext
+      ? option.autoImageTargetIds ?? []
+      : option.autoTargetIds ?? [];
+
+  for (const modelId of targetIds) {
     const targetOption = getChatModelOption(modelId);
     if (targetOption && isConcreteChatModelOption(targetOption) && isModelConfigured(targetOption)) {
       return targetOption;
@@ -100,17 +102,23 @@ function resolveAutoModelOption(option: ChatModelOption) {
   return null;
 }
 
-function resolveConcreteModelOption(modelId?: string | null) {
+function resolveConcreteModelOption(
+  modelId?: string | null,
+  context?: ChatModelResolutionContext | null
+) {
   const requestedOption = getChatModelOption(modelId ?? null);
 
   if (requestedOption) {
     if (requestedOption.provider === 'auto') {
-      const autoTarget = resolveAutoModelOption(requestedOption);
+      const autoTarget = resolveAutoModelOption(requestedOption, context);
       if (autoTarget) {
         return {
           option: autoTarget,
           requestedId: requestedOption.id,
         };
+      }
+      if (context?.hasImageContext) {
+        return null;
       }
     } else if (isConcreteChatModelOption(requestedOption) && isModelConfigured(requestedOption)) {
       return {
@@ -123,12 +131,15 @@ function resolveConcreteModelOption(modelId?: string | null) {
   const preferredDefault = getChatModelOption(DEFAULT_CHAT_MODEL_ID);
   if (preferredDefault) {
     if (preferredDefault.provider === 'auto') {
-      const autoTarget = resolveAutoModelOption(preferredDefault);
+      const autoTarget = resolveAutoModelOption(preferredDefault, context);
       if (autoTarget) {
         return {
           option: autoTarget,
           requestedId: preferredDefault.id,
         };
+      }
+      if (context?.hasImageContext) {
+        return null;
       }
     } else if (
       isConcreteChatModelOption(preferredDefault)
@@ -163,10 +174,6 @@ function instantiateChatModel(option: ResolvedChatModelSelection) {
       return google(option.apiModelId);
     case 'deepseek':
       return deepseek(option.apiModelId);
-    case 'alibaba':
-      return alibaba(option.apiModelId);
-    case 'moonshot':
-      return moonshotai(option.apiModelId);
     default: {
       const exhaustiveCheck: never = option.provider;
       throw new Error(`Unsupported chat model provider: ${exhaustiveCheck}`);
@@ -188,8 +195,13 @@ function normalizeEffort(
     requestedEffort && effortConfig.levels.includes(requestedEffort)
       ? requestedEffort
       : effortConfig.defaultLevel;
-  const thinkingEnabled =
+  const requestedThinkingEnabled =
     runtimeOptions?.thinkingEnabled ?? effortConfig.defaultThinkingEnabled;
+  const thinkingEnabled =
+    !requestedThinkingEnabled
+    && effortConfig.thinkingDisableUnsupportedLevels?.includes(effort)
+      ? true
+      : requestedThinkingEnabled;
 
   return {
     effort,
@@ -200,13 +212,12 @@ function normalizeEffort(
 function mapOpenAiReasoningEffort(
   effort: ChatModelEffortLevel,
   thinkingEnabled: boolean,
-  option: ChatModelOption
 ) {
-  if (!thinkingEnabled && option.id === 'gpt-5.5') {
+  if (!thinkingEnabled) {
     return 'none';
   }
 
-  return effort === 'max' ? 'xhigh' : effort;
+  return effort;
 }
 
 function getProviderOptionsForModel(
@@ -228,21 +239,22 @@ function getProviderOptionsForModel(
     case 'openai':
       return {
         openai: {
-          reasoningEffort: mapOpenAiReasoningEffort(effort, thinkingEnabled, option),
+          reasoningEffort: mapOpenAiReasoningEffort(effort, thinkingEnabled),
         },
       };
     case 'anthropic':
       return {
         anthropic: {
           effort,
-          ...(thinkingEnabled ? { thinking: { type: 'adaptive' } } : {}),
+          thinking: { type: thinkingEnabled ? 'adaptive' : 'disabled' },
         },
       };
     case 'google':
       return {
         google: {
           thinkingConfig: {
-            thinkingLevel: effort === 'max' ? 'high' : effort,
+            thinkingLevel:
+              effort === 'xhigh' || effort === 'max' ? 'high' : effort,
             includeThoughts: true,
           },
         },
@@ -254,20 +266,15 @@ function getProviderOptionsForModel(
           ...(thinkingEnabled
             ? {
                 reasoningEffort:
-                  effort === 'minimal' ? 'low' : effort === 'max' ? 'max' : effort,
+                  effort === 'minimal'
+                    ? 'low'
+                    : effort === 'xhigh'
+                      ? 'max'
+                      : effort,
               }
             : {}),
         },
       };
-    case 'alibaba':
-      return {
-        alibaba: {
-          enableThinking: thinkingEnabled,
-          ...(thinkingEnabled ? { thinkingBudget: ALIBABA_THINKING_BUDGETS[effort] } : {}),
-        },
-      };
-    case 'moonshot':
-      return undefined;
     default: {
       const exhaustiveCheck: never = option.provider;
       throw new Error(`Unsupported chat model provider: ${exhaustiveCheck}`);
@@ -303,24 +310,32 @@ export function getChatModelListItems(): ChatModelListItem[] {
       providerLabel: option.providerLabel,
       iconKey: option.iconKey,
       description: option.description,
-      ...(option.badge ? { badge: option.badge } : {}),
       available: isModelConfigured(option),
       isDefault: option.id === defaultModelId,
       ...(autoTarget ? { resolvedModelId: autoTarget.id } : {}),
       ...(option.effort ? { effort: option.effort } : {}),
-      supportsImages: isConcreteChatModelOption(option) ? option.supportsImages : false,
+      supportsImages:
+        isConcreteChatModelOption(option)
+          ? option.supportsImages
+          : Boolean(
+              resolveAutoModelOption(option, { hasImageContext: true })?.supportsImages
+            ),
     };
   });
 }
 
-export function resolveChatModelId(modelId?: string | null): ConcreteChatModelId | null {
-  return resolveConcreteModelOption(modelId)?.option.id ?? null;
+export function resolveChatModelId(
+  modelId?: string | null,
+  context?: ChatModelResolutionContext | null
+): ConcreteChatModelId | null {
+  return resolveConcreteModelOption(modelId, context)?.option.id ?? null;
 }
 
 export function resolveChatModelSelection(
-  modelId?: string | null
+  modelId?: string | null,
+  context?: ChatModelResolutionContext | null
 ): ResolvedChatModelSelection | null {
-  const resolved = resolveConcreteModelOption(modelId);
+  const resolved = resolveConcreteModelOption(modelId, context);
   if (!resolved) {
     return null;
   }

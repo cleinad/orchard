@@ -460,10 +460,21 @@ describe('search query planner', () => {
     );
 
     const prompt = mockGenerateObject.mock.calls[0]?.[0]?.prompt as string;
+    const call = mockGenerateObject.mock.calls[0]?.[0];
 
     expect(decision.shouldSearch).toBe(true);
     expect(decision.provider).toBe('openrouter');
     expect(decision.providerModelId).toBe('qwen/qwen-2.5-7b-instruct');
+    expect(call).toMatchObject({
+      maxOutputTokens: 512,
+      temperature: 0,
+      timeout: 10_000,
+      providerOptions: {
+        openai: {
+          reasoningEffort: 'none',
+        },
+      },
+    });
     expect(prompt).toContain('Would online sources materially improve the answer');
     expect(prompt).toContain('<latest_message>');
     expect(prompt).toContain('tell me the smartest military moves');
@@ -679,6 +690,18 @@ describe('search query planner', () => {
       }
     );
 
+    expect(mockGenerateObject).toHaveBeenCalledWith(
+      expect.objectContaining({
+        maxOutputTokens: 512,
+        temperature: 0,
+        timeout: 10_000,
+        providerOptions: {
+          openai: {
+            reasoningEffort: 'none',
+          },
+        },
+      })
+    );
     expect(terminals).toEqual([{
       call: {
         callKind: 'search_plan',
