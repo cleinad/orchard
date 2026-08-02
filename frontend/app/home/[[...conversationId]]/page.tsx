@@ -10,7 +10,10 @@ import {
   type SetStateAction,
 } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { useChatRunCoordinator } from '@/app/components/ChatRunCoordinator';
+import {
+  useActiveMainChatRun,
+  useChatRunCoordinator,
+} from '@/app/components/ChatRunCoordinator';
 import {
   useHomeDataContext,
   type SelectedChat,
@@ -303,6 +306,14 @@ function HomePageInner() {
     pendingRouteConversationId,
     clearPendingRouteConversationId,
   } = useHomeDataContext();
+  const selectedChatId = selectedChat?.kind === 'persistent'
+    ? selectedChat.conversationId
+    : selectedChat?.kind === 'temporary'
+      ? selectedChat.tempChatId
+      : selectedChat?.kind === 'draft'
+        ? selectedChat.draftId
+        : null;
+  const activeMainChatRun = useActiveMainChatRun(selectedChatId);
 
   const updateActivePersistentConversationTranscript = useCallback(
     (
@@ -462,7 +473,7 @@ function HomePageInner() {
   });
   const {
     activePendingRequest: activePendingChatRequest,
-    isLoading,
+    isLoading: hasPendingChatRequest,
     pendingChatRequestsRef,
     clearPendingRequest: clearPendingChatRequestForSelection,
     movePendingRequest: movePendingChatRequestBetweenSelections,
@@ -470,6 +481,7 @@ function HomePageInner() {
     setPendingPhase: setPendingChatRequestPhaseForSelection,
     setPendingRequest: setPendingChatRequestForSelection,
   } = usePendingChatRequests(selectedChat);
+  const isLoading = hasPendingChatRequest || activeMainChatRun !== null;
   const {
     activeConversationBranches,
     activeConversationId,
@@ -869,6 +881,9 @@ function HomePageInner() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (activeMainChatRun) {
+      return;
+    }
     const textToSend = input.trim();
     const imagesToSend = pendingImageAttachments;
     let shouldRevokeLocalImageUrls = imagesToSend.length > 0;
@@ -1097,21 +1112,9 @@ function HomePageInner() {
           onToggleWideLayout={() => setIsChatWideLayout((current) => !current)}
           onSubmit={handleSubmit}
           onStop={() => {
-            const chatId = selectedChat?.kind === 'persistent'
-              ? selectedChat.conversationId
-              : selectedChat?.kind === 'temporary'
-                ? selectedChat.tempChatId
-                : selectedChat?.kind === 'draft'
-                  ? selectedChat.draftId
-                : null;
-            if (!chatId) return;
-            const run = [...chatRunCoordinator.getSnapshotsForChat(chatId)]
-              .reverse()
-              .find((candidate) =>
-                candidate.target.kind !== 'thread'
-                && !['completed', 'failed', 'cancelled'].includes(candidate.status)
-              );
-            if (run) void chatRunCoordinator.stop(run.runId);
+            if (activeMainChatRun) {
+              void chatRunCoordinator.stop(activeMainChatRun.runId);
+            }
           }}
           onKeyDown={handleKeyDown}
         />

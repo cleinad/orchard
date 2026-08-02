@@ -7,10 +7,12 @@ import {
   useEffect,
   useMemo,
   useRef,
+  useSyncExternalStore,
   type ReactNode,
 } from 'react';
 import {
   chatRunReducer,
+  findActiveMainChatRun,
   isSettledChatRunSnapshot,
   isTerminalChatRunStatus,
   type ChatRunSnapshot,
@@ -45,6 +47,7 @@ interface ChatRunCoordinatorValue {
   getSnapshot: (runId: string) => ChatRunSnapshot | null;
   getSnapshotsForChat: (chatId: string) => ChatRunSnapshot[];
   getActiveRunForChat: (chatId: string) => ChatRunSnapshot | null;
+  getActiveMainRunForChat: (chatId: string) => ChatRunSnapshot | null;
   subscribe: (
     runId: string,
     listener: (snapshot: ChatRunSnapshot) => void
@@ -565,6 +568,10 @@ export function ChatRunCoordinator({ children }: { children: ReactNode }) {
       .sort((a, b) =>
         (b.acceptedAt ?? b.updatedAt).localeCompare(a.acceptedAt ?? a.updatedAt)
       )[0] ?? null, []);
+  const getActiveMainRunForChat = useCallback(
+    (chatId: string) => findActiveMainChatRun(runsRef.current.values(), chatId),
+    []
+  );
 
   const subscribe = useCallback<ChatRunCoordinatorValue['subscribe']>(
     (runId, listener) => {
@@ -664,11 +671,13 @@ export function ChatRunCoordinator({ children }: { children: ReactNode }) {
     getSnapshot,
     getSnapshotsForChat,
     getActiveRunForChat,
+    getActiveMainRunForChat,
     subscribe,
     subscribeAll,
   }), [
     closeTemporaryChat,
     dismiss,
+    getActiveMainRunForChat,
     getActiveRunForChat,
     getSnapshot,
     getSnapshotsForChat,
@@ -696,4 +705,19 @@ export function useChatRunCoordinator() {
 
 export function useOptionalChatRunCoordinator() {
   return useContext(ChatRunCoordinatorContext);
+}
+
+export function useActiveMainChatRun(chatId: string | null) {
+  const coordinator = useChatRunCoordinator();
+  const subscribe = useCallback(
+    (onStoreChange: () => void) =>
+      coordinator.subscribeAll(() => onStoreChange()),
+    [coordinator]
+  );
+  const getSnapshot = useCallback(
+    () => chatId ? coordinator.getActiveMainRunForChat(chatId) : null,
+    [chatId, coordinator]
+  );
+
+  return useSyncExternalStore(subscribe, getSnapshot, () => null);
 }

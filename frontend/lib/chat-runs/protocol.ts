@@ -156,6 +156,22 @@ export function isSettledChatRunSnapshot(run: ChatRunSnapshot) {
     || (run.mode === 'temporary' && run.status === 'interrupted');
 }
 
+export function findActiveMainChatRun(
+  runs: Iterable<ChatRunSnapshot>,
+  chatId: string
+) {
+  return [...runs]
+    .filter(
+      (run) =>
+        run.target.chatId === chatId
+        && run.target.kind !== 'thread'
+        && !isSettledChatRunSnapshot(run)
+    )
+    .sort((a, b) =>
+      (b.acceptedAt ?? b.updatedAt).localeCompare(a.acceptedAt ?? a.updatedAt)
+    )[0] ?? null;
+}
+
 export function createChatRunIdentifiers(
   targetKind: ChatRunTargetKind
 ): ChatRunIdentifiers {
