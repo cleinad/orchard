@@ -3,7 +3,215 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(149);
+select plan(160);
+
+select ok(
+  has_function_privilege(
+    'authenticated',
+    'extensions.ok(boolean,text)',
+    'EXECUTE'
+  ),
+  'extensions created after the migration retain platform execution defaults'
+);
+
+create table public.default_acl_effective_role_table (id bigint);
+create sequence public.default_acl_effective_role_sequence;
+create function public.default_acl_effective_role_function()
+returns integer
+language sql
+as $$ select 1 $$;
+create function extensions.default_acl_effective_role_function()
+returns integer
+language sql
+as $$ select 1 $$;
+
+set local role postgres;
+create table public.default_acl_postgres_table (id bigint);
+create sequence public.default_acl_postgres_sequence;
+create function public.default_acl_postgres_function()
+returns integer
+language sql
+as $$ select 1 $$;
+create function extensions.default_acl_postgres_function()
+returns integer
+language sql
+as $$ select 1 $$;
+reset role;
+
+select ok(
+  has_function_privilege(
+    'authenticated',
+    'extensions.default_acl_effective_role_function()',
+    'EXECUTE'
+  )
+  and has_function_privilege(
+    'authenticated',
+    'extensions.default_acl_postgres_function()',
+    'EXECUTE'
+  ),
+  'effective and postgres migration roles retain defaults outside public'
+);
+
+select is_empty(
+  $$
+    select acl.grantee
+    from pg_class object
+    cross join lateral aclexplode(
+      coalesce(object.relacl, acldefault('r', object.relowner))
+    ) acl
+    left join pg_roles granted_role on granted_role.oid = acl.grantee
+    where object.oid = 'public.default_acl_effective_role_table'::regclass
+      and (
+        acl.grantee = 0
+        or granted_role.rolname in ('anon', 'authenticated', 'service_role')
+      )
+  $$,
+  'effective migration-role tables receive no automatic Data API privileges'
+);
+select is_empty(
+  $$
+    select acl.grantee
+    from pg_class object
+    cross join lateral aclexplode(
+      coalesce(object.relacl, acldefault('S', object.relowner))
+    ) acl
+    left join pg_roles granted_role on granted_role.oid = acl.grantee
+    where object.oid = 'public.default_acl_effective_role_sequence'::regclass
+      and (
+        acl.grantee = 0
+        or granted_role.rolname in ('anon', 'authenticated', 'service_role')
+      )
+  $$,
+  'effective migration-role sequences receive no automatic Data API privileges'
+);
+select is_empty(
+  $$
+    select object.oid
+    from pg_proc object
+    cross join lateral aclexplode(
+      coalesce(object.proacl, acldefault('f', object.proowner))
+    ) acl
+    join pg_roles granted_role on granted_role.oid = acl.grantee
+    where object.oid in (
+        'public.default_acl_effective_role_function()'::regprocedure,
+        'public.default_acl_postgres_function()'::regprocedure
+      )
+      and granted_role.rolname in ('anon', 'authenticated', 'service_role')
+  $$,
+  'migration-owner functions receive no direct automatic Data API grants'
+);
+select is_empty(
+  $$
+    select acl.grantee
+    from pg_class object
+    cross join lateral aclexplode(
+      coalesce(object.relacl, acldefault('r', object.relowner))
+    ) acl
+    left join pg_roles granted_role on granted_role.oid = acl.grantee
+    where object.oid = 'public.default_acl_postgres_table'::regclass
+      and (
+        acl.grantee = 0
+        or granted_role.rolname in ('anon', 'authenticated', 'service_role')
+      )
+  $$,
+  'postgres tables receive no automatic Data API privileges'
+);
+select is_empty(
+  $$
+    select acl.grantee
+    from pg_class object
+    cross join lateral aclexplode(
+      coalesce(object.relacl, acldefault('S', object.relowner))
+    ) acl
+    left join pg_roles granted_role on granted_role.oid = acl.grantee
+    where object.oid = 'public.default_acl_postgres_sequence'::regclass
+      and (
+        acl.grantee = 0
+        or granted_role.rolname in ('anon', 'authenticated', 'service_role')
+      )
+  $$,
+  'postgres sequences receive no automatic Data API privileges'
+);
+
+revoke all
+on function public.default_acl_effective_role_function()
+from public, anon, authenticated, service_role;
+revoke all
+on function public.default_acl_postgres_function()
+from public, anon, authenticated, service_role;
+
+-- Extension routines retain platform ACLs, and trigger functions are not
+-- callable as PostgREST RPCs.
+select is_empty(
+  $$
+    select routine.oid::regprocedure
+    from pg_proc routine
+    join pg_namespace namespace on namespace.oid = routine.pronamespace
+    cross join lateral aclexplode(
+      coalesce(routine.proacl, acldefault('f', routine.proowner))
+    ) acl
+    where namespace.nspname = 'public'
+      and routine.prokind = 'f'
+      and routine.prorettype <> 'trigger'::regtype
+      and acl.grantee = 0
+      and acl.privilege_type = 'EXECUTE'
+      and not exists (
+        select 1
+        from pg_depend dependency
+        where dependency.classid = 'pg_proc'::regclass
+          and dependency.objid = routine.oid
+          and dependency.deptype = 'e'
+      )
+  $$,
+  'application-owned public RPCs do not grant execution to PUBLIC'
+);
+
+grant select on public.default_acl_effective_role_table to authenticated;
+grant usage on sequence public.default_acl_effective_role_sequence
+  to authenticated;
+grant execute on function public.default_acl_effective_role_function()
+  to authenticated;
+grant select on public.default_acl_postgres_table to authenticated;
+grant usage on sequence public.default_acl_postgres_sequence to authenticated;
+grant execute on function public.default_acl_postgres_function()
+  to authenticated;
+
+select ok(
+  has_table_privilege(
+    'authenticated',
+    'public.default_acl_effective_role_table',
+    'SELECT'
+  )
+  and has_sequence_privilege(
+    'authenticated',
+    'public.default_acl_effective_role_sequence',
+    'USAGE'
+  )
+  and has_function_privilege(
+    'authenticated',
+    'public.default_acl_effective_role_function()',
+    'EXECUTE'
+  ),
+  'explicit grants expose effective migration-role objects'
+);
+select ok(
+  has_table_privilege(
+    'authenticated',
+    'public.default_acl_postgres_table',
+    'SELECT'
+  )
+  and has_sequence_privilege(
+    'authenticated',
+    'public.default_acl_postgres_sequence',
+    'USAGE'
+  )
+  and has_function_privilege(
+    'authenticated',
+    'public.default_acl_postgres_function()',
+    'EXECUTE'
+  ),
+  'explicit grants expose postgres objects'
+);
 
 select has_table('public', 'conversations', 'production baseline contains conversations');
 select has_table('public', 'chat_runs', 'chat-run migration creates persistent runs');
@@ -115,6 +323,19 @@ select ok(
     'EXECUTE'
   ),
   'authenticated users can atomically commit their own responses'
+);
+select ok(
+  not has_function_privilege(
+    'service_role',
+    'public.accept_chat_run(uuid,text,text,jsonb,uuid,uuid,uuid,uuid,uuid,text)',
+    'EXECUTE'
+  )
+  and not has_function_privilege(
+    'service_role',
+    'public.commit_persistent_chat_run_response(uuid,text,jsonb,text,jsonb,jsonb,uuid,uuid)',
+    'EXECUTE'
+  ),
+  'service role cannot execute authenticated chat-run RPCs'
 );
 select hasnt_column(
   'public',

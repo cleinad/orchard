@@ -114,6 +114,19 @@ restricted runtime or ordinary `postgres` role does not own. Never use
 `supabase_admin` in the application runtime or expose its credentials to the
 browser.
 
+New Orchard objects created by the effective migration role in `public` receive
+no direct Data API role grants; each migration must grant only the operations
+its objects require. The self-hosted path clears defaults for `supabase_admin`
+and `postgres`. Hosted migrations run as `postgres`; Supabase's internal
+`supabase_admin` defaults remain platform-managed.
+
+PostgreSQL still grants `EXECUTE` on new functions to `PUBLIC`, because removing
+that default for either migration role would affect every schema and could break
+extension installation or upgrades. Every Orchard function migration must
+therefore revoke `PUBLIC` and any unintended API roles, then grant only its
+intended execution roles. These defaults deliberately do not modify
+Supabase-managed schemas such as `storage` and `graphql_public`.
+
 ## Verify the application
 
 From `frontend/`:
