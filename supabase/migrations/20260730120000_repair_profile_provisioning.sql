@@ -39,8 +39,7 @@ create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
 
-comment on trigger on_auth_user_created on auth.users is
-  'Maintains the one-to-one auth.users to public.profiles invariant.';
+-- Maintains the one-to-one auth.users to public.profiles invariant.
 
 insert into public.profiles (
   id,

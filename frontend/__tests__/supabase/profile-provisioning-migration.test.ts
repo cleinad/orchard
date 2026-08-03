@@ -33,6 +33,12 @@ describe('profile provisioning migration', () => {
     );
   });
 
+  it('does not comment on the platform-owned Auth trigger', () => {
+    expect(migrationSql).not.toContain(
+      'comment on trigger on_auth_user_created on auth.users'
+    );
+  });
+
   it('backfills missing profiles without overwriting existing rows', () => {
     expect(migrationSql).toContain('from auth.users as users');
     expect(migrationSql).toContain(
