@@ -94,7 +94,7 @@ test('removed memory page and API routes return ordinary 404s', async ({ page })
   }
 
   if (!process.env.PLAYWRIGHT_AUTH_STORAGE_STATE) {
-    await page.context().addCookies([createAuthenticatedCookie()]);
+    await page.context().addCookies([await createAuthenticatedCookie()]);
   }
   const response = await page.goto('/memory');
 
@@ -1546,5 +1546,5 @@ test('temporary chats stay on /home when switching away from a persistent route'
   await page.getByRole('main').getByLabel('New temporary chat').click();
 
   await expect(page).toHaveURL(new RegExp('/home\\?e2e=home-routing-temporary$'));
-  await expect(page.getByRole('heading', { name: 'Temporary chat' })).toBeVisible();
+  await expect(page.getByText('Temporary Chat', { exact: true })).toBeVisible();
 });

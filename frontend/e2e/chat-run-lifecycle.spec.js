@@ -1,5 +1,6 @@
 const { test, expect } = require('@playwright/test');
 const { mockHomeDataRoutes } = require('./helpers/homeRouteMocks');
+const { createAuthenticatedCookie } = require('./helpers/supabaseAuthFixture');
 
 function streamBody(body, {
   response = 'Temporary answer',
@@ -504,9 +505,14 @@ test('a rejected first persistent submission restores the editable draft', async
   }))).toEqual({ promotion: null, run: null });
 });
 
-test('persistent generation continues across in-app navigation', async ({ page }) => {
-  const workspaceId = 'workspace-persistent-run-navigation';
-  const now = new Date().toISOString();
+test('persistent generation continues across settings navigation', async ({ page }) => {
+  if (!process.env.PLAYWRIGHT_AUTH_STORAGE_STATE) {
+    await page.context().addCookies([
+      await createAuthenticatedCookie({
+        userId: 'persistent-settings-navigation',
+      }),
+    ]);
+  }
   let releaseResponse;
   const responseGate = new Promise((resolve) => {
     releaseResponse = resolve;
@@ -514,16 +520,6 @@ test('persistent generation continues across in-app navigation', async ({ page }
   const state = await mockHomeDataRoutes(page, {
     conversations: [],
     messagesByConversationId: {},
-    workspaces: [{
-      id: workspaceId,
-      name: 'Persistent Run Navigation',
-      description: null,
-      context: null,
-      icon: 'P',
-      accent_color: null,
-      created_at: now,
-      updated_at: now,
-    }],
   });
   await page.route('**/api/chat', async (route) => {
     const body = route.request().postDataJSON();
@@ -570,11 +566,8 @@ test('persistent generation continues across in-app navigation', async ({ page }
   await createPersistentChat(page, 'Keep this persistent request running');
   await expect(page.getByRole('button', { name: 'Stop response' })).toBeVisible();
   await page.getByRole('button', { name: 'Open conversations' }).click();
-  await page.getByTestId(`workspace-drop-target-${workspaceId}`)
-    .getByRole('button')
-    .first()
-    .click();
-  await expect(page).toHaveURL(new RegExp(`/workspaces/${workspaceId}`));
+  await page.getByRole('link', { name: 'Open settings' }).click();
+  await expect(page).toHaveURL(/\/settings$/);
 
   releaseResponse();
   await page.goBack();
@@ -1016,22 +1009,17 @@ test('repeated submission while a temporary run is active starts only one reques
   expect(submissions).toBe(1);
 });
 
-test('temporary generation continues across in-app navigation while connected', async ({ page }) => {
-  const workspaceId = 'workspace-run-navigation';
-  const now = new Date().toISOString();
+test('temporary generation continues across settings navigation while connected', async ({ page }) => {
+  if (!process.env.PLAYWRIGHT_AUTH_STORAGE_STATE) {
+    await page.context().addCookies([
+      await createAuthenticatedCookie({
+        userId: 'temporary-settings-navigation',
+      }),
+    ]);
+  }
   await mockHomeDataRoutes(page, {
     conversations: [],
     messagesByConversationId: {},
-    workspaces: [{
-      id: workspaceId,
-      name: 'Run Navigation',
-      description: null,
-      context: null,
-      icon: 'R',
-      accent_color: null,
-      created_at: now,
-      updated_at: now,
-    }],
   });
   await page.route('**/api/chat', async (route) => {
     const body = route.request().postDataJSON();
@@ -1040,7 +1028,7 @@ test('temporary generation continues across in-app navigation while connected', 
       status: 200,
       contentType: 'text/event-stream',
       body: streamBody(body, {
-        response: 'Finished while viewing the workspace',
+        response: 'Finished while viewing settings',
         title: 'Background Navigation',
         titleSource: 'generated',
       }),
@@ -1050,15 +1038,13 @@ test('temporary generation continues across in-app navigation while connected', 
   await createTemporaryChat(page, 'Keep working while I navigate');
   await expect(page.getByRole('button', { name: 'Stop response' })).toBeVisible();
   await page.getByRole('button', { name: 'Open conversations' }).click();
-  await page.getByTestId(`workspace-drop-target-${workspaceId}`)
-    .getByRole('button')
-    .first()
-    .click();
-  await expect(page).toHaveURL(new RegExp(`/workspaces/${workspaceId}`));
+  await page.getByRole('link', { name: 'Open settings' }).click();
+  await expect(page).toHaveURL(/\/settings$/);
 
   await page.goBack();
+  await page.getByRole('button', { name: 'Open conversations' }).click();
   await page.getByRole('button', { name: 'Temp Background Navigation' }).click();
-  await expect(page.getByText('Finished while viewing the workspace')).toBeVisible();
+  await expect(page.getByText('Finished while viewing settings')).toBeVisible();
 });
 
 test('Stop cancels a temporary run locally without a cancellation API', async ({ page }) => {

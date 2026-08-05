@@ -56,6 +56,8 @@ Unshipped work belongs in the [backlog](./backlog.md).
 
 - [Local setup](./development/setup.md) — dependencies, environment variables,
   Supabase expectations, and startup
+- [Production deployment](./development/deployment.md) — Docker, environment,
+  Cloudflare Tunnel, rollout, and recovery
 - [Testing](./testing/README.md) — Vitest, Playwright, focused checks, and test
   locations
 - [Search tuning](./testing/search-tuning-playbook.md) — manual live-provider
