@@ -1103,18 +1103,23 @@ describe('chat route contract', () => {
     );
   });
 
-  it('adds concise KaTeX markdown math formatting guidance to answer generation', async () => {
+  it('requires Markdown tables and standalone KaTeX display fences', async () => {
     const { response } = await runChatRequest({
       message: 'Show me a matrix example',
       chatMode: 'temporary',
     });
 
     expect(response.status).toBe(200);
-    expect(mockStreamText).toHaveBeenCalledWith(
-      expect.objectContaining({
-        system: expect.stringContaining('Use KaTeX Markdown for math'),
-      })
+    const systemPrompt = mockStreamText.mock.calls.at(-1)?.[0]?.system as string;
+    expect(systemPrompt).toContain('Use Markdown tables for textual comparisons');
+    expect(systemPrompt).toContain(
+      'Do not use LaTeX array environments for prose tables'
     );
+    expect(systemPrompt).toContain(
+      'Put each $$ display-math fence alone on its own line'
+    );
+    expect(systemPrompt).toContain('$$\n\\begin{aligned}');
+    expect(systemPrompt).toContain('\\end{aligned}\n$$');
   });
 
   it('adds response style guidance to answer generation', async () => {

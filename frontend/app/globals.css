@@ -676,6 +676,21 @@ body {
   font-size: 1.05em;
 }
 
+.markdown-content .katex-error {
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  border: 1px solid var(--markdown-code-panel-border);
+  border-radius: 0.35rem;
+  background: var(--markdown-code-panel-bg);
+  color: var(--markdown-code-muted) !important;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.88em;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  padding: 0.08em 0.3em;
+  white-space: pre-wrap;
+}
+
 .markdown-content .katex-display {
   overflow-x: auto;
   overflow-y: hidden;

@@ -2,6 +2,7 @@ const { test, expect } = require('@playwright/test');
 const { deferred, mockChatRoute, mockStreamingChatRoute } = require('./helpers/chatMocks');
 const { mockHomeDataRoutes } = require('./helpers/homeRouteMocks');
 const { createAuthenticatedCookie } = require('./helpers/supabaseAuthFixture');
+const productionArrayFixture = require('../test-fixtures/markdown/malformed-production-array.json');
 
 function createConversation({
   id,
@@ -148,6 +149,60 @@ test('hydrates a persistent conversation on direct /home/[conversationId] entry'
   await expect(page).toHaveURL(new RegExp(`/home/${conversationId}\\?e2e=home-routing-direct$`));
   await expect(page.getByText(question)).toBeVisible();
   await expect(page.getByText(answer)).toBeVisible({ timeout: 10000 });
+});
+
+test('repairs the production math fixture for rendering and both markdown copy formats', async ({
+  page,
+  context,
+}) => {
+  const conversationId = 'conversation-production-math-regression';
+
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await mockHomeDataRoutes(page, {
+    conversations: [
+      createConversation({
+        id: conversationId,
+        title: 'Production math regression',
+      }),
+    ],
+    messagesByConversationId: {
+      [conversationId]: [
+        createMessage({
+          id: 'message-production-math-user',
+          role: 'user',
+          content: 'Summarize the architecture.',
+          createdAt: '2026-08-04T18:28:26.000Z',
+        }),
+        createMessage({
+          id: 'message-production-math-assistant',
+          role: 'assistant',
+          content: productionArrayFixture.malformedMarkdown,
+          createdAt: '2026-08-04T18:28:47.000Z',
+        }),
+      ],
+    },
+  });
+
+  await page.goto(`/home/${conversationId}?e2e=home-routing-direct`);
+
+  await expect(page.getByRole('heading', { name: 'Architectural Summary' })).toBeVisible();
+  await expect(page.locator('.katex-display')).toBeVisible();
+  await expect(page.locator('.katex-error')).toHaveCount(0);
+
+  const copyButton = page.getByRole('button', { name: 'Copy response as Plain text' });
+  await expect(copyButton).toBeVisible();
+
+  await page.getByRole('button', { name: 'Choose copy format' }).click();
+  await page.getByRole('menuitemradio', { name: 'Markdown', exact: true }).click();
+  await expect
+    .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+    .toBe(productionArrayFixture.normalizedMarkdown);
+
+  await page.getByRole('button', { name: 'Choose copy format' }).click();
+  await page.getByRole('menuitemradio', { name: 'Markdown + sources', exact: true }).click();
+  await expect
+    .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+    .toBe(productionArrayFixture.normalizedMarkdown);
 });
 
 test('direct /home/[conversationId] entry shows a loading placeholder instead of the empty hero while history hydrates', async ({ page }) => {
