@@ -15,7 +15,7 @@ test.describe('admin access boundary', () => {
   });
 
   test('returns not found for an authenticated non-admin', async ({ page }) => {
-    await page.context().addCookies([createAuthenticatedCookie()]);
+    await page.context().addCookies([await createAuthenticatedCookie()]);
     const response = await page.goto('/admin');
 
     expect(response).not.toBeNull();

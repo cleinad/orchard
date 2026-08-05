@@ -94,7 +94,7 @@ test('removed memory page and API routes return ordinary 404s', async ({ page })
   }
 
   if (!process.env.PLAYWRIGHT_AUTH_STORAGE_STATE) {
-    await page.context().addCookies([createAuthenticatedCookie()]);
+    await page.context().addCookies([await createAuthenticatedCookie()]);
   }
   const response = await page.goto('/memory');
 
