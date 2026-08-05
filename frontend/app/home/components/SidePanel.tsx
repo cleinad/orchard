@@ -11,6 +11,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import SidebarPanelIcon from '@/app/components/SidebarPanelIcon';
 import Tooltip from '@/app/components/Tooltip';
@@ -201,6 +202,22 @@ export default function SidePanel({
       return () => document.removeEventListener('keydown', handleEscape);
     }
   }, [isOpen, handleEscape]);
+
+  useEffect(() => {
+    const windowWithIdleCallback = window as typeof window & {
+      requestIdleCallback?: (callback: () => void) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+    const prefetchSettings = () => router.prefetch('/settings');
+
+    if (windowWithIdleCallback.requestIdleCallback) {
+      const id = windowWithIdleCallback.requestIdleCallback(prefetchSettings);
+      return () => windowWithIdleCallback.cancelIdleCallback?.(id);
+    }
+
+    const id = window.setTimeout(prefetchSettings, 0);
+    return () => window.clearTimeout(id);
+  }, [router]);
 
   useEffect(() => {
     if (!selectedMentorId && !selectedWorkspaceId && !selectedDraftId && !selectedConversationId) {
@@ -1255,12 +1272,10 @@ export default function SidePanel({
                   </div>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    router.push('/settings');
-                    onClose();
-                  }}
+                <Link
+                  href="/settings"
+                  prefetch={true}
+                  onClick={onClose}
                   className={cx(
                     'inline-flex h-8 w-8 items-center justify-center rounded-lg',
                     buttonStyles.transition,
@@ -1282,7 +1297,7 @@ export default function SidePanel({
                       d="M19.43 12.98c.04-.32.07-.65.07-.98s-.02-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46a.5.5 0 00-.61-.22l-2.49 1a7.28 7.28 0 00-1.69-.98L14.5 2.42A.5.5 0 0014 2h-4a.5.5 0 00-.49.42L9.13 5.07c-.61.24-1.18.56-1.69.98l-2.49-1a.5.5 0 00-.61.22l-2 3.46a.5.5 0 00.12.64l2.11 1.65a7.93 7.93 0 000 1.96l-2.11 1.65a.5.5 0 00-.12.64l2 3.46c.13.22.39.31.61.22l2.49-1c.51.4 1.08.73 1.69.98l.38 2.65A.5.5 0 0010 22h4a.5.5 0 00.49-.42l.38-2.65c.61-.24 1.18-.56 1.69-.98l2.49 1c.23.08.48 0 .61-.22l2-3.46a.5.5 0 00-.12-.64l-2.11-1.65zM12 15.5a3.5 3.5 0 110-7 3.5 3.5 0 010 7z"
                     />
                   </svg>
-                </button>
+                </Link>
               </div>
             </div>
         </div>
