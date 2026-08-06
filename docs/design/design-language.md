@@ -187,7 +187,7 @@ Before shipping a surface:
 
 - `frontend/app/page.tsx`
 - `frontend/app/components/AuthPage.tsx`
-- `frontend/app/home/[[...conversationId]]/page.tsx`
+- `frontend/app/(authenticated)/(chat-shell)/home/[[...conversationId]]/page.tsx`
 - `frontend/app/home/components/MessageRow.tsx`
 - `frontend/app/home/components/ThreadPanel.tsx`
 

@@ -18,6 +18,23 @@ Browser
 The main application is under `frontend/app/`. Shared server and client logic is
 under `frontend/lib/`. There is no separate application backend.
 
+## Protected route rendering
+
+Protected pages share an authenticated route-group layout. It verifies cached
+public-key JWT claims, performs the viewer profile read, and initializes a
+persistent `ViewerProvider`. The chat-shell subgroup shared by `/home` and
+`/workspaces/<workspaceId>` adds active-run coordination, sidebar state, and
+server-provided navigation/model data.
+
+A hard workspace entry runs the navigation-summary reads and one selected
+workspace detail read on the server. The response contains all required
+workspace regions rather than launching browser Auth, profile, model, or detail
+requests after hydration. Warm navigation retains the shared layouts and
+fetches or reuses only the selected route payload.
+
+Browser Supabase and image-upload code are loaded on attachment or
+conversation-detail intent rather than through the initial workspace bundle.
+
 ## Main chat flow
 
 1. The client resolves the selected chat, active conversation path, model,
