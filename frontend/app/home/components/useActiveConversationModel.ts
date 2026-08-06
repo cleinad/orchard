@@ -29,6 +29,7 @@ import type {
   Message,
 } from '@/app/home/types';
 import type { MentorListItem } from '@/lib/mentors/types';
+import { recordHomePerformanceEvent } from '@/app/home/components/homePerformanceInstrumentation';
 
 const EMPTY_MESSAGES: Message[] = [];
 const EMPTY_BRANCHES: ConversationBranch[] = [];
@@ -181,15 +182,17 @@ export function useActiveConversationModel({
     ]
   );
   const conversationMapModel = useMemo(
-    () =>
-      buildConversationMapModel({
+    () => {
+      recordHomePerformanceEvent('conversation-map-model-build');
+      return buildConversationMapModel({
         messages: activeConversationMessages,
         branches: activeConversationBranches,
         selectedBranchIds: activeSelectedBranchIds,
         pendingBranchSourceMessageId: pendingBranch?.sourceMessageId ?? null,
         currentMessageId: currentMapMessageId,
         zoom: conversationMapViewState.zoom,
-      }),
+      });
+    },
     [
       activeConversationBranches,
       activeConversationMessages,

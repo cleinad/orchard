@@ -54,6 +54,10 @@ import {
   loadProvisionalChatPromotion,
   removeProvisionalChatPromotion,
 } from '@/app/home/components/provisionalChatPromotion';
+import {
+  recordHomePerformanceEvent,
+  setHomePerformanceGauge,
+} from '@/app/home/components/homePerformanceInstrumentation';
 // ---------------------------------------------------------------------------
 // Shared home selection types (also used by page.tsx for send / tree state)
 // ---------------------------------------------------------------------------
@@ -425,6 +429,10 @@ export function HomeDataProvider({
     (updater: SetStateAction<PersistentConversationTranscriptRecord>) => {
       const next = resolveStateAction(updater, persistentConversationCacheRef.current);
       persistentConversationCacheRef.current = next;
+      setHomePerformanceGauge(
+        'persistent-conversation-cache-size',
+        Object.keys(next).length
+      );
       setPersistentConversationCacheState(next);
     },
     []
@@ -593,9 +601,11 @@ export function HomeDataProvider({
   useEffect(() => {
     if (temporaryChats.length === 0) {
       window.sessionStorage.removeItem(TEMP_CHAT_STORAGE_KEY);
+      recordHomePerformanceEvent('temporary-chat-storage-write');
       return;
     }
     window.sessionStorage.setItem(TEMP_CHAT_STORAGE_KEY, serializeTemporaryChats(temporaryChats));
+    recordHomePerformanceEvent('temporary-chat-storage-write');
   }, [temporaryChats]);
 
   useEffect(() => {

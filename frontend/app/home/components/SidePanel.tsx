@@ -22,6 +22,7 @@ import {
   RailIconWorkspace,
 } from '@/app/home/components/home-rail-icons';
 import { buttonStyles, cx } from '@/app/components/buttonStyles';
+import { recordHomePerformanceEvent } from '@/app/home/components/homePerformanceInstrumentation';
 import {
   SIDE_PANEL_COLLAPSED_WIDTH_PX,
   SIDE_PANEL_MAX_WIDTH_PX,
@@ -165,6 +166,7 @@ export default function SidePanel({
   onCloseTemporaryChat,
   onMoveConversation,
 }: Props) {
+  recordHomePerformanceEvent('side-panel-render');
   const router = useRouter();
   const [expandedWorkspaces, setExpandedWorkspaces] = useState<Record<string, boolean>>({});
   const [visibleCounts, setVisibleCounts] = useState<Record<string, number>>({});
@@ -970,6 +972,7 @@ export default function SidePanel({
       />
 
       <div
+        data-home-region="sidebar"
         data-open={isOpen}
         className="side-panel-shell fixed left-0 top-0 z-50 flex h-dvh overflow-hidden border-r border-foreground/[0.06] bg-background transition-[width] duration-300 ease-out dark:border-foreground/[0.08]"
         style={panelStyle}

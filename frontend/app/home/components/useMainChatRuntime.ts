@@ -61,6 +61,7 @@ import {
   storeProvisionalChatPromotion,
   type ProvisionalChatPromotion,
 } from '@/app/home/components/provisionalChatPromotion';
+import { recordHomePerformanceEvent } from '@/app/home/components/homePerformanceInstrumentation';
 
 export interface ChatResponse {
   message?: string;
@@ -1042,25 +1043,32 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
       latestStreamedContent += delta;
 
       if (effectiveSelection.kind === 'temporary') {
-        params.updateTemporaryChat(effectiveSelection.tempChatId, (chat) => ({
-          ...chat,
-          messages: chat.messages.map((m) =>
-            m.id === streamingMessageId ? { ...m, content: m.content + delta } : m
-          ),
-        }));
+        params.updateTemporaryChat(effectiveSelection.tempChatId, (chat) => {
+          recordHomePerformanceEvent('visible-stream-publication');
+          return {
+            ...chat,
+            messages: chat.messages.map((m) =>
+              m.id === streamingMessageId ? { ...m, content: m.content + delta } : m
+            ),
+          };
+        });
       } else if (effectiveSelection.kind === 'persistent') {
-        updatePersistentMessagesForSelection(effectiveSelection, (prev) =>
-          prev.map((m) =>
+        updatePersistentMessagesForSelection(effectiveSelection, (prev) => {
+          recordHomePerformanceEvent('visible-stream-publication');
+          return prev.map((m) =>
             m.id === streamingMessageId ? { ...m, content: m.content + delta } : m
-          )
-        );
+          );
+        });
       } else if (effectiveDraft) {
-        params.updateDraftChat(effectiveDraft.id, (draft) => ({
-          ...draft,
-          messages: draft.messages.map((m) =>
-            m.id === streamingMessageId ? { ...m, content: m.content + delta } : m
-          ),
-        }));
+        params.updateDraftChat(effectiveDraft.id, (draft) => {
+          recordHomePerformanceEvent('visible-stream-publication');
+          return {
+            ...draft,
+            messages: draft.messages.map((m) =>
+              m.id === streamingMessageId ? { ...m, content: m.content + delta } : m
+            ),
+          };
+        });
       }
     };
 

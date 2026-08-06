@@ -1013,6 +1013,7 @@ function HomePageInner() {
             className="flex h-full min-h-0"
           >
             <div
+              data-home-region="transcript"
               data-testid="home-scroll-container"
               ref={containerRef}
               onScroll={handleScroll}

@@ -16,6 +16,7 @@ import { HomeDataProvider, useHomeDataContext } from '@/app/home/components/Home
 import SidePanel from '@/app/home/components/SidePanel';
 import { getHomeE2eFixture } from '@/app/home/e2eFixtures';
 import type { HomeBootstrapData } from '@/app/home/server-data';
+import { recordHomePerformanceEvent } from '@/app/home/components/homePerformanceInstrumentation';
 
 const SIDE_PANEL_DRAWER_BREAKPOINT_PX = 768;
 
@@ -160,6 +161,7 @@ function CreateWorkspaceModal({
 }
 
 function HomeShell({ children }: { children: ReactNode }) {
+  recordHomePerformanceEvent('home-shell-render');
   const {
     isOpen: sidePanelOpen,
     widthPx: sidePanelWidthPx,
@@ -308,6 +310,7 @@ function HomeShell({ children }: { children: ReactNode }) {
 
   return (
     <div
+      data-home-region="shell"
       className="side-panel-layout relative flex h-dvh min-h-0 flex-col overflow-hidden bg-background text-foreground"
       data-side-panel-open={sidePanelOpen}
       style={{ '--side-panel-width': `${sidePanelWidthPx}px` } as CSSProperties}

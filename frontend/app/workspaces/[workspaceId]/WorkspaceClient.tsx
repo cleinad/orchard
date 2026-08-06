@@ -50,6 +50,7 @@ import {
   deleteWorkspace as deleteWorkspaceAction,
   updateWorkspace as updateWorkspaceAction,
 } from '@/app/workspaces/[workspaceId]/actions';
+import { recordHomePerformanceEvent } from '@/app/home/components/homePerformanceInstrumentation';
 
 function formatDate(input: string): string {
   const date = new Date(input);
@@ -118,6 +119,7 @@ export default function WorkspaceClient({
   initialWorkspace: WorkspaceDetail | null;
   loadWorkspaceInBrowser?: boolean;
 }) {
+  recordHomePerformanceEvent('workspace-client-render');
   const router = useRouter();
   const searchParams = useSearchParams();
   const {
