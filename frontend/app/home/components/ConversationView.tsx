@@ -20,6 +20,8 @@ export interface ConversationViewProps {
   onSelectBranch: (sourceMessageId: string, branchId: string | null) => void;
   onCreateBranch: (sourceMessageId: string) => void;
   onAssistantPointerUp: () => void;
+  retrying?: boolean;
+  onRetry?: () => void;
 }
 
 const EMPTY_BRANCH_CHIPS: BranchChip[] = [];
@@ -39,6 +41,8 @@ export default function ConversationView({
   onSelectBranch,
   onCreateBranch,
   onAssistantPointerUp,
+  retrying = false,
+  onRetry,
 }: ConversationViewProps) {
   const [openSourceTray, setOpenSourceTray] = useState<{
     messageId: string;
@@ -84,7 +88,17 @@ export default function ConversationView({
     <div className={`mx-auto pb-4 ${widthClassName}`}>
       {listError && (
         <div className="mb-4 rounded-lg bg-surface px-4 py-2 font-sans text-xs text-muted shadow-sm">
-          {listError}
+          <span>{listError}</span>
+          {onRetry && (
+            <button
+              type="button"
+              onClick={onRetry}
+              disabled={retrying}
+              className="ml-2 font-semibold text-foreground underline underline-offset-2 disabled:opacity-50"
+            >
+              {retrying ? 'Retrying…' : 'Retry'}
+            </button>
+          )}
         </div>
       )}
 

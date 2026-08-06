@@ -20,6 +20,10 @@ import type {
   PersistentConversationTranscriptInput,
 } from '@/app/home/components/persistentConversationCache';
 import {
+  mergeReloadedPersistentConversationTranscript,
+  normalizePersistentConversationTranscript,
+} from '@/app/home/components/persistentConversationCache';
+import {
   applyUserMessageToTree,
   type PendingBranchTarget,
 } from '@/app/home/components/conversationTree';
@@ -30,6 +34,7 @@ import {
 import { logResolvedChatModel } from '@/app/home/components/logResolvedChatModel';
 import type { UploadedChatImageAttachment } from '@/app/home/components/chatImageUploads';
 import type { ThreadMeta } from '@/app/home/components/threadTypes';
+import type { ConversationMetadataStatus } from '@/app/home/components/conversationTranscriptData';
 import type {
   BranchSelectionMap,
   ConversationBranch,
@@ -54,7 +59,6 @@ import {
   isTerminalChatRunStatus,
   type ChatRunSnapshot,
 } from '@/lib/chat-runs/protocol';
-import { mergeThreadsMaps } from '@/app/home/components/persistentThreadRuntime';
 import {
   getDraftSelectionForPromotion,
   isDefinitivePreAcceptanceFailure,
@@ -256,83 +260,6 @@ export function mergeReloadedBranchSelections(params: {
   return mergedSelections;
 }
 
-function sortMessagesForRender(messages: Message[]) {
-  return [...messages].sort((a, b) => {
-    const byTime = a.timestamp.getTime() - b.timestamp.getTime();
-    if (byTime !== 0) {
-      return byTime;
-    }
-
-    return a.id.localeCompare(b.id);
-  });
-}
-
-function isLikelySamePersistedMessage(a: Message, b: Message) {
-  return (
-    a.role === b.role
-    && a.content === b.content
-    && Math.abs(a.timestamp.getTime() - b.timestamp.getTime()) < 60_000
-  );
-}
-
-function getSearchActivityFromMessage(message: Message) {
-  return (
-    message.searchActivity
-    ?? (message.searchMetadata?.version === 2 ? message.searchMetadata.activity ?? null : null)
-  );
-}
-
-function mergeReloadedMessagesForRender(params: {
-  loadedMessages: Message[];
-  currentMessages: Message[];
-}) {
-  const currentById = new Map(params.currentMessages.map((message) => [message.id, message]));
-  const usedCurrentRenderIds = new Set<string>();
-
-  const mergedLoadedMessages = params.loadedMessages.map((loadedMessage) => {
-    const currentByExactId = currentById.get(loadedMessage.id) ?? null;
-    const currentMessage =
-      currentByExactId
-      ?? params.currentMessages.find((candidate) => {
-        const candidateRenderId = candidate.renderId ?? candidate.id;
-
-        return (
-          !usedCurrentRenderIds.has(candidateRenderId)
-          && isLikelySamePersistedMessage(candidate, loadedMessage)
-        );
-      })
-      ?? null;
-
-    if (!currentMessage) {
-      return loadedMessage;
-    }
-
-    usedCurrentRenderIds.add(currentMessage.renderId ?? currentMessage.id);
-
-    if (!currentMessage.renderId) {
-      return loadedMessage;
-    }
-
-    return {
-      ...loadedMessage,
-      renderId: currentMessage.renderId,
-      searchMetadata: currentMessage.searchMetadata ?? loadedMessage.searchMetadata ?? null,
-      searchActivity:
-        getSearchActivityFromMessage(currentMessage)
-        ?? getSearchActivityFromMessage(loadedMessage),
-    };
-  });
-
-  const loadedIds = new Set(params.loadedMessages.map((message) => message.id));
-  const localMessagesMissingFromReload = params.currentMessages.filter((message) => {
-    const renderId = message.renderId ?? message.id;
-
-    return !usedCurrentRenderIds.has(renderId) && !loadedIds.has(message.id);
-  });
-
-  return sortMessagesForRender([...mergedLoadedMessages, ...localMessagesMissingFromReload]);
-}
-
 function scheduleDeferredRenderWork(callback: () => void) {
   const run = () => {
     startTransition(callback);
@@ -357,6 +284,7 @@ interface LoadedConversationMessages {
   branches: ConversationBranch[];
   selectedBranchIds: BranchSelectionMap;
   threadsMap: Map<string, ThreadMeta[]>;
+  metadataStatus: ConversationMetadataStatus;
 }
 
 interface MainChatRuntimeParams {
@@ -609,26 +537,37 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
 
       if (run.status === 'completed') {
         void current.loadConversationMessages(chatId).then((loaded) => {
-          current.updatePersistentConversationTranscript(chatId, (transcript) => ({
-            ...transcript,
-            messages: mergeReloadedMessagesForRender({
-              loadedMessages: loaded.messages,
-              currentMessages: transcript.messages.filter(
+          current.updatePersistentConversationTranscript(chatId, (transcript) => {
+            const loadedTranscript =
+              normalizePersistentConversationTranscript(loaded);
+            const currentForMerge = {
+              ...transcript,
+              messages: transcript.messages.filter(
                 (message) => message.id !== run.assistantMessageId || !message.isStreaming
               ),
-            }),
-            branches: loaded.branches,
-            selectedBranchIds: mergeReloadedBranchSelections({
+            };
+            const selectedBranchIds = mergeReloadedBranchSelections({
               loadedSelectedBranchIds: loaded.selectedBranchIds,
               latestSelectedBranchIds: transcript.selectedBranchIds,
               loadedBranches: loaded.branches,
               branchSourceMessageId: run.target.branchSourceMessageId,
               pendingBranchSelectionId: run.target.branchId,
-            }),
-            threadsMap: mergeThreadsMaps(loaded.threadsMap, transcript.threadsMap),
-          }));
+            });
+            return mergeReloadedPersistentConversationTranscript({
+              loaded: loadedTranscript,
+              current: currentForMerge,
+              selectedBranchIds,
+            });
+          });
           void current.refreshSidebarData();
-        }).catch(() => null);
+        }).catch(() => {
+          console.warn('[home-data]', {
+            routeClass: 'transcript',
+            resource: 'run-reconciliation',
+            status: 'unavailable',
+            reason: 'error',
+          });
+        });
         return;
       }
 
@@ -1637,6 +1576,10 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
               params.updatePersistentConversationTranscript(
                 persistentSelection.conversationId,
                 (transcript) => {
+                  const loadedTranscript =
+                    normalizePersistentConversationTranscript(
+                      loadedConversation
+                    );
                   const mergedSelections = mergeReloadedBranchSelections({
                     loadedSelectedBranchIds: loadedConversation.selectedBranchIds,
                     latestSelectedBranchIds: transcript.selectedBranchIds,
@@ -1645,19 +1588,11 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
                     pendingBranchSelectionId,
                   });
 
-                  return {
-                    ...transcript,
-                    messages: mergeReloadedMessagesForRender({
-                      loadedMessages: loadedConversation.messages,
-                      currentMessages: transcript.messages,
-                    }),
-                    branches: loadedConversation.branches,
+                  return mergeReloadedPersistentConversationTranscript({
+                    loaded: loadedTranscript,
+                    current: transcript,
                     selectedBranchIds: mergedSelections,
-                    threadsMap: mergeThreadsMaps(
-                      loadedConversation.threadsMap,
-                      transcript.threadsMap
-                    ),
-                  };
+                  });
                 }
               );
             } catch (error) {

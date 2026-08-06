@@ -671,6 +671,182 @@ test.describe('home production performance baseline', () => {
     await expect(page.getByText('This page could not be found.')).toBeVisible();
   });
 
+  test('one failed navigation resource leaves home usable and a focused retry recovers it', async ({
+    page,
+  }, testInfo) => {
+    const userId = `home-partial-navigation-${testInfo.workerIndex}`;
+    await page.context().addCookies([
+      await createAuthenticatedCookie({
+        userId,
+        mentors: [{
+          id: 'mentor-retry',
+          slug: 'mentor-retry',
+          name: 'Retry Mentor',
+          tagline: null,
+          description: null,
+          is_builtin: false,
+          accent_color: null,
+          avatar_url: null,
+        }],
+        mentorReadFailures: 1,
+      }),
+    ]);
+
+    await page.goto('/home');
+
+    await expect(page.getByLabel('Message composer')).toBeVisible();
+    const notice = page.getByText(/Some navigation data is unavailable/);
+    await expect(notice).toContainText('mentors');
+    await page.getByRole('button', { name: 'Retry' }).click();
+    await expect(notice).toHaveCount(0);
+    await expect
+      .poll(async () => (await getFixtureState(userId)).counters.mentorReads)
+      .toBe(2);
+  });
+
+  test('a restored persistent run remains usable through a partial bootstrap failure', async ({
+    page,
+  }, testInfo) => {
+    const conversation = createConversation(
+      'home-restored-partial',
+      'Restored partial'
+    );
+    const userMessage = createMessages(conversation.id, 1)[0];
+    const now = new Date().toISOString();
+    const run = {
+      runId: '10000000-0000-4000-8000-000000000051',
+      mode: 'persistent',
+      status: 'streaming',
+      target: {
+        kind: 'main',
+        chatId: conversation.id,
+        conversationId: conversation.id,
+        threadId: null,
+        branchId: null,
+        branchSourceMessageId: null,
+        sourceMessageId: null,
+        expectedPredecessorId: null,
+      },
+      userMessageId: userMessage.id,
+      assistantMessageId: '40000000-0000-4000-8000-000000000051',
+      createdThreadId: null,
+      createdBranchId: null,
+      response: 'Recovered response remains active.',
+      search: null,
+      searchActivity: null,
+      title: {
+        value: conversation.title,
+        source: 'fallback',
+        version: 0,
+        runId: '10000000-0000-4000-8000-000000000051',
+      },
+      subsystems: {
+        response: 'running',
+        title: 'running',
+        search: 'skipped',
+      },
+      errorCode: null,
+      errorMessage: null,
+      acceptedAt: now,
+      updatedAt: now,
+      completedAt: null,
+      expiresAt: null,
+    };
+    const userId = `home-restored-partial-${testInfo.workerIndex}`;
+    await page.context().addCookies([
+      await createAuthenticatedCookie({
+        userId,
+        conversations: [conversation],
+        messagesByConversationId: {
+          [conversation.id]: [userMessage],
+        },
+        workspaceReadFailures: 1,
+      }),
+    ]);
+    await page.addInitScript((storedRun) => {
+      window.sessionStorage.setItem(
+        'orchard-chat-runs-v2',
+        JSON.stringify([storedRun])
+      );
+    }, run);
+    await page.route('**/api/chat-runs/**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ run }),
+      });
+    });
+
+    await page.goto(`/home/${conversation.id}`);
+
+    await expect(page.getByLabel('Message composer')).toBeVisible();
+    await expect(page.getByText('Recovered response remains active.').first())
+      .toBeVisible();
+    await expect(page.getByText(/Some navigation data is unavailable/))
+      .toContainText('workspaces');
+  });
+
+  test('metadata retry preserves the transcript and cannot leak a late failure onto another chat', async ({
+    page,
+  }, testInfo) => {
+    test.setTimeout(30_000);
+    const first = createConversation('home-metadata-a', 'Metadata A');
+    const second = createConversation('home-metadata-b', 'Metadata B');
+    const messagesByConversationId = {
+      [first.id]: createMessages(first.id),
+      [second.id]: createMessages(second.id),
+    };
+    const userId = `home-metadata-retry-${testInfo.workerIndex}`;
+    await page.context().addCookies([
+      await createAuthenticatedCookie({
+        userId,
+        conversations: [first, second],
+        messagesByConversationId,
+        branchReadFailures: 1,
+      }),
+    ]);
+
+    await page.goto(`/home/${first.id}`);
+    await expect(
+      page.getByText(messagesByConversationId[first.id][0].content).first()
+    ).toBeVisible();
+    const warning = page.getByText(
+      /Some conversation details could not be loaded/
+    );
+    await expect(warning).toContainText('branches');
+
+    const sidePanel = await ensureConversationsOpen(page);
+    const secondRow = sidePanel.getByTestId(`conversation-row-${second.id}`);
+    await secondRow.hover();
+    await page.waitForTimeout(300);
+    const branchReadsBeforeRetry =
+      (await getFixtureState(userId)).counters.branchReads;
+
+    await updateFixtureState(userId, {
+      branchReadDelayMs: 600,
+      branchReadFailures: 1,
+    });
+    const retryButton = warning
+      .locator('..')
+      .getByRole('button', { name: 'Retry' });
+    await retryButton.click();
+    await expect(retryButton).toHaveText('Retrying…');
+    await expect
+      .poll(async () => (await getFixtureState(userId)).counters.branchReads)
+      .toBeGreaterThan(branchReadsBeforeRetry);
+    await secondRow.click();
+
+    await expect(
+      page.getByText(messagesByConversationId[second.id][0].content).first()
+    ).toBeVisible();
+    await page.waitForTimeout(800);
+    await expect(
+      page.getByText('Conversation details still could not be loaded.')
+    ).toHaveCount(0);
+    await expect(page.getByText(/Some conversation details could not be loaded/))
+      .toHaveCount(0);
+  });
+
   test('map, thread, and upload first-intent JavaScript costs are reported separately', async ({
     page,
   }, testInfo) => {

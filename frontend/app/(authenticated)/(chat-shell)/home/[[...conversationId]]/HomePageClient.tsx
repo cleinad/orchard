@@ -7,6 +7,7 @@ import {
   useMemo,
   useRef,
   useEffect,
+  useTransition,
   type CSSProperties,
   type SetStateAction,
 } from 'react';
@@ -104,6 +105,7 @@ import {
   hydrateConversationTranscript,
   type HomeConversationInitialData,
 } from '@/app/home/components/homeConversationInitialData';
+import type { HomeDataUnavailableReason } from '@/app/home/components/homeSidebarData';
 
 const COMPOSER_DRAFT_INPUTS_STORAGE_KEY = 'keen-home-composer-draft-inputs-v1';
 const RESPONSE_STYLE_STORAGE_KEY = 'keen-home-response-styles-v1';
@@ -171,13 +173,18 @@ function findLatestConversationForMentor(
  */
 export default function HomePageClient({
   initialConversationData = null,
+  initialConversationFailure = null,
 }: {
   initialConversationData?: HomeConversationInitialData | null;
+  initialConversationFailure?: HomeDataUnavailableReason | null;
 }) {
   return (
     <Suspense>
       <LearningModeProvider>
-        <HomePageInner initialConversationData={initialConversationData} />
+        <HomePageInner
+          initialConversationData={initialConversationData}
+          initialConversationFailure={initialConversationFailure}
+        />
       </LearningModeProvider>
     </Suspense>
   );
@@ -185,9 +192,13 @@ export default function HomePageClient({
 
 function HomePageInner({
   initialConversationData,
+  initialConversationFailure,
 }: {
   initialConversationData: HomeConversationInitialData | null;
+  initialConversationFailure: HomeDataUnavailableReason | null;
 }) {
+  const [isServerRetryPending, startServerRetry] = useTransition();
+  const [isMetadataRetryPending, setIsMetadataRetryPending] = useState(false);
   const chatRunCoordinator = useChatRunCoordinator();
   const { chatModels: initialChatModels } = useHomeDataContext();
   const [selectedModelId, setSelectedModelId] = usePersistedString<ChatModelId>(
@@ -425,6 +436,13 @@ function HomePageInner({
     pendingRouteConversationId && paramRouteConversationId !== pendingRouteConversationId
       ? pendingRouteConversationId
       : paramRouteConversationId ?? routeConversationId;
+  const activeRouteConversationIdRef = useRef(effectiveRouteConversationId);
+  const metadataRetryRequestIdRef = useRef(0);
+  activeRouteConversationIdRef.current = effectiveRouteConversationId;
+  useEffect(() => {
+    metadataRetryRequestIdRef.current += 1;
+    setIsMetadataRetryPending(false);
+  }, [effectiveRouteConversationId]);
   const e2eFixtureQuery = searchParams.get('e2e');
   const e2eFixtureKey = isHomeE2eFixtureKey(e2eFixtureQuery)
     ? e2eFixtureQuery
@@ -659,6 +677,7 @@ function HomePageInner({
     hydratedRouteConversationId,
     hydratedRouteConversationIdRef,
     routeConversationError,
+    retryRouteConversation,
     shouldShowRouteConversationError,
     shouldShowRouteConversationLoading,
   } = useRouteConversationHydration({
@@ -678,7 +697,80 @@ function HomePageInner({
     invokePrepareForChatSwitch,
     setListError,
     setSelectedChat,
+    initialRouteConversationError:
+      initialConversationFailure === 'timeout'
+        ? 'The conversation took too long to load.'
+        : initialConversationFailure === 'error'
+          ? 'The conversation could not be loaded.'
+          : null,
   });
+
+  const transcriptMetadataError = useMemo(() => {
+    const status = activePersistentTranscript?.metadataStatus;
+    if (!status) return null;
+    const unavailable = (
+      [
+        ['branches', status.branches],
+        ['threads', status.threads],
+        ['attachments', status.attachments],
+      ] as const
+    )
+      .filter(([, resourceStatus]) => resourceStatus.status === 'unavailable')
+      .map(([resource]) => resource);
+    if (unavailable.length === 0) return null;
+    return `Some conversation details could not be loaded (${unavailable.join(', ')}).`;
+  }, [activePersistentTranscript]);
+
+  const retryConversationLoad = useCallback(() => {
+    if (initialConversationFailure) {
+      startServerRetry(() => {
+        router.refresh();
+      });
+      return;
+    }
+    if (transcriptMetadataError && effectiveRouteConversationId) {
+      const conversationId = effectiveRouteConversationId;
+      const requestId = metadataRetryRequestIdRef.current + 1;
+      metadataRetryRequestIdRef.current = requestId;
+      const isCurrentRetry = () =>
+        metadataRetryRequestIdRef.current === requestId
+        && activeRouteConversationIdRef.current === conversationId;
+      setIsMetadataRetryPending(true);
+      setListError(null);
+      void loadPersistentConversationTranscript(
+        conversationId,
+        () => loadConversationMessages(conversationId),
+        { force: true }
+      )
+        .then(() => {
+          if (isCurrentRetry()) setListError(null);
+        })
+        .catch(() => {
+          if (isCurrentRetry()) {
+            setListError('Conversation details still could not be loaded.');
+          }
+        })
+        .finally(() => {
+          if (isCurrentRetry()) setIsMetadataRetryPending(false);
+        });
+      return;
+    }
+    retryRouteConversation();
+  }, [
+    effectiveRouteConversationId,
+    initialConversationFailure,
+    loadConversationMessages,
+    loadPersistentConversationTranscript,
+    retryRouteConversation,
+    router,
+    setListError,
+    startServerRetry,
+    transcriptMetadataError,
+  ]);
+  const visibleDataError =
+    shouldShowRouteConversationError
+      ? null
+      : transcriptMetadataError ?? listError;
 
   useEffect(() => {
     if (selectedChat?.kind === 'draft' && !selectedDraftChat) {
@@ -1152,20 +1244,28 @@ function HomePageInner({
                 <EmptyConversationState
                   emptyTitle={emptyTitle}
                   emptySubtitle={emptySubtitle}
-                  listError={
-                    shouldShowRouteConversationError ? null : listError
-                  }
+                  listError={visibleDataError}
                   routeConversationError={routeConversationError}
                   isRouteConversationLoading={
                     shouldShowRouteConversationLoading
+                  }
+                  retrying={isServerRetryPending || isMetadataRetryPending}
+                  onRetry={
+                    routeConversationError || transcriptMetadataError
+                      ? retryConversationLoad
+                      : undefined
                   }
                 />
               ) : (
                 <TranscriptSurface
                   activeHighlightSource={highlightSource}
                   isWideLayout={isChatWideLayout}
-                  listError={
-                    shouldShowRouteConversationError ? null : listError
+                  listError={visibleDataError}
+                  retrying={isServerRetryPending || isMetadataRetryPending}
+                  onRetry={
+                    transcriptMetadataError
+                      ? retryConversationLoad
+                      : undefined
                   }
                   messages={activeMessages}
                   isLoading={isActiveConversationLoading}

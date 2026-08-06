@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MentorListItem } from '@/lib/mentors/types';
 import type {
   ConversationListItem,
@@ -11,8 +11,12 @@ import {
   sortConversationsByUpdatedAtDesc,
   type ConversationSummaryRow,
   type HomeNavigationData,
+  type HomeNavigationStatus,
 } from '@/app/home/components/homeSidebarData';
 import { loadCompleteConversationTranscript } from '@/app/home/components/conversationTranscriptData';
+
+const HOME_NAVIGATION_RETRY_TIMEOUT_MS = 2_000;
+const HOME_TRANSCRIPT_RETRY_TIMEOUT_MS = 4_000;
 
 type ConversationRow = ConversationSummaryRow;
 
@@ -25,7 +29,10 @@ type SidebarConversationInput = {
   createdAt?: string | null;
 };
 
-export function useHomeData(initialData?: HomeNavigationData | null) {
+export function useHomeData(
+  initialData?: HomeNavigationData | null,
+  initialStatus?: HomeNavigationStatus
+) {
   const [mentors, setMentors] = useState<MentorListItem[]>(initialData?.mentors ?? []);
   const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>(
     initialData?.workspaces ?? []
@@ -47,6 +54,13 @@ export function useHomeData(initialData?: HomeNavigationData | null) {
   );
   const [loadingLists, setLoadingLists] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
+  const [navigationStatus, setNavigationStatus] = useState<HomeNavigationStatus>(
+    initialStatus ?? {
+      mentors: { status: 'ready' },
+      workspaces: { status: 'ready' },
+      conversations: { status: 'ready' },
+    }
+  );
   const mentorsRef = useRef<MentorListItem[]>(initialData?.mentors ?? []);
   const workspacesRef = useRef<WorkspaceSummary[]>(
     initialData?.workspaces ?? []
@@ -54,78 +68,197 @@ export function useHomeData(initialData?: HomeNavigationData | null) {
   const conversationsRef = useRef<ConversationListItem[]>(
     initialData?.conversations ?? []
   );
+  const refreshSidebarPromiseRef = useRef<Promise<void> | null>(null);
+
+  useEffect(() => {
+    if (!initialData || !initialStatus) return;
+    if (initialStatus.mentors.status === 'ready') {
+      mentorsRef.current = initialData.mentors;
+      setMentors(initialData.mentors);
+    }
+    if (initialStatus.workspaces.status === 'ready') {
+      workspacesRef.current = initialData.workspaces;
+      setWorkspaces(initialData.workspaces);
+    }
+    if (initialStatus.conversations.status === 'ready') {
+      conversationsRef.current = initialData.conversations;
+      setConversations(initialData.conversations);
+    }
+    setWorkspaceGroups(
+      buildWorkspaceGroups(workspacesRef.current, conversationsRef.current)
+    );
+    setMentorGroups(
+      buildSidebarGroups(mentorsRef.current, conversationsRef.current)
+    );
+    setNavigationStatus(initialStatus);
+  }, [initialData, initialStatus]);
 
   const loadMentors = useCallback(async (): Promise<MentorListItem[]> => {
-    const response = await fetch('/api/mentors', { cache: 'no-store' });
-    const data = await response.json();
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      HOME_NAVIGATION_RETRY_TIMEOUT_MS
+    );
+    try {
+      const response = await fetch('/api/mentors', {
+        cache: 'no-store',
+        signal: controller.signal,
+      });
+      const data = await response.json();
 
-    if (!response.ok || data.error) {
-      throw new Error(data.error || 'Failed to load mentors');
+      if (!response.ok || data.error) {
+        throw new Error('Failed to load mentors');
+      }
+
+      return data as MentorListItem[];
+    } finally {
+      clearTimeout(timeout);
     }
-
-    return data as MentorListItem[];
   }, []);
 
   const loadWorkspaces = useCallback(async (): Promise<WorkspaceSummary[]> => {
-    const response = await fetch('/api/workspaces', { cache: 'no-store' });
-    const data = await response.json();
-
-    if (!response.ok || data.error) {
-      throw new Error(data.error || 'Failed to load workspaces');
-    }
-
-    return Array.isArray(data.workspaces) ? data.workspaces : [];
-  }, []);
-
-  const loadConversations = useCallback(async (
-    mentorSource: MentorListItem[],
-    workspaceSource: WorkspaceSummary[]
-  ) => {
-    const { supabase } = await import('@/lib/supabase');
-    const { data: conversationRows, error: conversationError } = await supabase
-      .from('conversations')
-      .select('id, title, mentor_id, workspace_id, updated_at, created_at')
-      .order('updated_at', { ascending: false })
-      .limit(200);
-
-    if (conversationError) {
-      throw new Error(conversationError.message);
-    }
-
-    const rows = (conversationRows || []) as ConversationRow[];
-    const nextConversations: ConversationListItem[] = rows.map((row) =>
-      mapConversationSummary(row, mentorSource, workspaceSource)
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      HOME_NAVIGATION_RETRY_TIMEOUT_MS
     );
+    try {
+      const response = await fetch('/api/workspaces', {
+        cache: 'no-store',
+        signal: controller.signal,
+      });
+      const data = await response.json();
 
-    conversationsRef.current = nextConversations;
-    setConversations(nextConversations);
-    setWorkspaceGroups(buildWorkspaceGroups(workspaceSource, nextConversations));
-    setMentorGroups(buildSidebarGroups(mentorSource, nextConversations));
+      if (!response.ok || data.error) {
+        throw new Error('Failed to load workspaces');
+      }
+
+      return Array.isArray(data.workspaces) ? data.workspaces : [];
+    } finally {
+      clearTimeout(timeout);
+    }
   }, []);
 
-  const refreshSidebarData = useCallback(async () => {
+  const loadConversations = useCallback(async (): Promise<ConversationRow[]> => {
+    const { supabase } = await import('@/lib/supabase');
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      HOME_NAVIGATION_RETRY_TIMEOUT_MS
+    );
+    try {
+      const { data: conversationRows, error: conversationError } = await supabase
+        .from('conversations')
+        .select('id, title, mentor_id, workspace_id, updated_at, created_at')
+        .order('updated_at', { ascending: false })
+        .limit(200)
+        .abortSignal(controller.signal);
+
+      if (conversationError) {
+        if (controller.signal.aborted) {
+          throw new DOMException('Navigation request timed out', 'AbortError');
+        }
+        throw new Error('Failed to load conversations');
+      }
+
+      return (conversationRows || []) as ConversationRow[];
+    } finally {
+      clearTimeout(timeout);
+    }
+  }, []);
+
+  const refreshSidebarData = useCallback(() => {
+    if (refreshSidebarPromiseRef.current) {
+      return refreshSidebarPromiseRef.current;
+    }
+
     setLoadingLists(true);
     setListError(null);
+    const refresh = (async () => {
+      try {
+        const [
+          mentorResult,
+          workspaceResult,
+          conversationResult,
+        ] = await Promise.allSettled([
+          loadMentors(),
+          loadWorkspaces(),
+          loadConversations(),
+        ]);
+        const nextStatus: HomeNavigationStatus = {
+          mentors:
+            mentorResult.status === 'fulfilled'
+              ? { status: 'ready' }
+              : {
+                  status: 'unavailable',
+                  reason:
+                    mentorResult.reason instanceof DOMException
+                    && mentorResult.reason.name === 'AbortError'
+                      ? 'timeout'
+                      : 'error',
+                },
+          workspaces:
+            workspaceResult.status === 'fulfilled'
+              ? { status: 'ready' }
+              : {
+                  status: 'unavailable',
+                  reason:
+                    workspaceResult.reason instanceof DOMException
+                    && workspaceResult.reason.name === 'AbortError'
+                      ? 'timeout'
+                      : 'error',
+                },
+          conversations:
+            conversationResult.status === 'fulfilled'
+              ? { status: 'ready' }
+              : {
+                  status: 'unavailable',
+                  reason:
+                    conversationResult.reason instanceof DOMException
+                    && conversationResult.reason.name === 'AbortError'
+                      ? 'timeout'
+                      : 'error',
+                },
+        };
 
-    try {
-      const [nextMentors, nextWorkspaces] = await Promise.all([
-        loadMentors(),
-        loadWorkspaces(),
-      ]);
-      mentorsRef.current = nextMentors;
-      workspacesRef.current = nextWorkspaces;
-      setMentors(nextMentors);
-      setWorkspaces(nextWorkspaces);
-      await loadConversations(nextMentors, nextWorkspaces);
-    } catch (error) {
-      setListError(
-        error instanceof Error
-          ? error.message
-          : 'Failed to load mentors and conversations'
-      );
-    } finally {
-      setLoadingLists(false);
-    }
+        if (mentorResult.status === 'fulfilled') {
+          mentorsRef.current = mentorResult.value;
+          setMentors(mentorResult.value);
+        }
+        if (workspaceResult.status === 'fulfilled') {
+          workspacesRef.current = workspaceResult.value;
+          setWorkspaces(workspaceResult.value);
+        }
+        if (conversationResult.status === 'fulfilled') {
+          const nextConversations = conversationResult.value.map((row) =>
+            mapConversationSummary(
+              row,
+              mentorsRef.current,
+              workspacesRef.current
+            )
+          );
+          conversationsRef.current = nextConversations;
+          setConversations(nextConversations);
+        }
+        setWorkspaceGroups(
+          buildWorkspaceGroups(workspacesRef.current, conversationsRef.current)
+        );
+        setMentorGroups(
+          buildSidebarGroups(mentorsRef.current, conversationsRef.current)
+        );
+        setNavigationStatus(nextStatus);
+      } finally {
+        setLoadingLists(false);
+      }
+    })();
+    refreshSidebarPromiseRef.current = refresh;
+    const clearRefresh = () => {
+      if (refreshSidebarPromiseRef.current === refresh) {
+        refreshSidebarPromiseRef.current = null;
+      }
+    };
+    void refresh.then(clearRefresh, clearRefresh);
+    return refresh;
   }, [loadConversations, loadMentors, loadWorkspaces]);
 
   const upsertSidebarConversation = useCallback((conversation: SidebarConversationInput) => {
@@ -214,28 +347,71 @@ export function useHomeData(initialData?: HomeNavigationData | null) {
 
   const loadConversationMessages = useCallback(async (nextConversationId: string) => {
     const { supabase } = await import('@/lib/supabase');
-    return loadCompleteConversationTranscript(supabase, nextConversationId);
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      HOME_TRANSCRIPT_RETRY_TIMEOUT_MS
+    );
+    try {
+      return await loadCompleteConversationTranscript(
+        supabase,
+        nextConversationId,
+        {
+          signal: controller.signal,
+          optionalMetadataTimeoutMs: HOME_NAVIGATION_RETRY_TIMEOUT_MS,
+        }
+      );
+    } finally {
+      clearTimeout(timeout);
+    }
   }, []);
 
   const loadConversationById = useCallback(async (nextConversationId: string) => {
     const { supabase } = await import('@/lib/supabase');
-    const { data, error } = await supabase
-      .from('conversations')
-      .select('id, title, mentor_id, workspace_id, updated_at, created_at')
-      .eq('id', nextConversationId)
-      .single();
-
-    const row = data as ConversationRow | null;
-
-    if (error || !row || row.id !== nextConversationId) {
-      throw new Error(error?.message || 'Conversation not found');
-    }
-
-    return mapConversationSummary(
-      row,
-      mentorsRef.current,
-      workspacesRef.current
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      HOME_TRANSCRIPT_RETRY_TIMEOUT_MS
     );
+    try {
+      const { data, error, status } = await supabase
+        .from('conversations')
+        .select('id, title, mentor_id, workspace_id, updated_at, created_at')
+        .eq('id', nextConversationId)
+        .abortSignal(controller.signal)
+        .maybeSingle();
+
+      if (controller.signal.aborted) {
+        throw new Error('The conversation took too long to load.');
+      }
+      const row = data as ConversationRow | null;
+      if (error) {
+        const errorCode =
+          typeof error === 'object' && error !== null && 'code' in error
+            ? String(error.code)
+            : '';
+        if (status === 404 || errorCode === 'PGRST116') {
+          throw new Error('Conversation not found');
+        }
+        throw new Error('The conversation could not be loaded.');
+      }
+      if (!row || row.id !== nextConversationId) {
+        throw new Error('Conversation not found');
+      }
+
+      return mapConversationSummary(
+        row,
+        mentorsRef.current,
+        workspacesRef.current
+      );
+    } catch (error) {
+      if (controller.signal.aborted) {
+        throw new Error('The conversation took too long to load.');
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
   }, []);
 
   return {
@@ -246,6 +422,7 @@ export function useHomeData(initialData?: HomeNavigationData | null) {
     mentorGroups,
     loadingLists,
     listError,
+    navigationStatus,
     setListError,
     refreshSidebarData,
     upsertSidebarConversation,

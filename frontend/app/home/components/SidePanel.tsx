@@ -36,6 +36,7 @@ import type {
   ConversationListItem,
   SidebarWorkspaceGroup,
 } from '@/app/home/types';
+import type { HomeNavigationStatus } from '@/app/home/components/homeSidebarData';
 
 interface DraftChatListItem {
   id: string;
@@ -65,6 +66,7 @@ interface Props {
   onOpenAllChats: () => void;
   workspaceGroups: SidebarWorkspaceGroup[];
   conversations: ConversationListItem[];
+  navigationStatus: HomeNavigationStatus;
   draftChats: DraftChatListItem[];
   temporaryChats: TemporaryChatListItem[];
   selectedConversationId: string | null;
@@ -154,6 +156,7 @@ export default function SidePanel({
   onOpenAllChats,
   workspaceGroups,
   conversations,
+  navigationStatus,
   draftChats,
   temporaryChats,
   selectedConversationId,
@@ -628,7 +631,11 @@ export default function SidePanel({
   const workspaceList = (
     <div className="pb-3">
       {workspaceGroups.length === 0 ? (
-        <div className="px-3 py-2 text-xs text-muted">No workspaces yet.</div>
+        <div className="px-3 py-2 text-xs text-muted">
+          {navigationStatus.workspaces.status === 'unavailable'
+            ? 'Workspaces unavailable.'
+            : 'No workspaces yet.'}
+        </div>
       ) : (
         workspaceGroups.map((group) => {
           const workspaceKey = getWorkspaceKey(group.workspace_id);
@@ -873,7 +880,11 @@ export default function SidePanel({
   const chatList = (
     <div className="space-y-px pb-6">
       {!globalDraft && globalConversations.length === 0 ? (
-        <p className="px-3 py-2 font-sans text-xs text-muted">No chats yet.</p>
+        <p className="px-3 py-2 font-sans text-xs text-muted">
+          {navigationStatus.conversations.status === 'unavailable'
+            ? 'Chats unavailable.'
+            : 'No chats yet.'}
+        </p>
       ) : (
         <>
           {globalDraft && (

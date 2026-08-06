@@ -5,11 +5,12 @@ import {
   useEffect,
   useRef,
   useState,
+  useTransition,
   type CSSProperties,
   type FormEvent,
   type ReactNode,
 } from 'react';
-import { useParams, useSearchParams } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { SidePanelProvider } from '@/app/home/components/SidePanelContext';
 import { useSidePanel } from '@/app/home/components/SidePanelContext';
 import {
@@ -182,6 +183,7 @@ function HomeShell({ children }: { children: ReactNode }) {
     conversations,
     draftChats,
     temporaryChats,
+    navigationStatus,
     selectedChat,
     setSelectedChat,
     handleSelectConversation,
@@ -196,10 +198,19 @@ function HomeShell({ children }: { children: ReactNode }) {
     prefetchPersistentConversation,
     openWorkspace,
   } = useHomeShellContext();
+  const router = useRouter();
+  const [isNavigationRetryPending, startNavigationRetry] = useTransition();
   const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false);
   const [workspaceNameDraft, setWorkspaceNameDraft] = useState('');
   const [createWorkspaceError, setCreateWorkspaceError] = useState<string | null>(null);
   const [creatingWorkspace, setCreatingWorkspace] = useState(false);
+  const unavailableNavigationResources = (
+    Object.entries(navigationStatus) as Array<
+      [keyof typeof navigationStatus, (typeof navigationStatus)[keyof typeof navigationStatus]]
+    >
+  )
+    .filter(([, status]) => status.status === 'unavailable')
+    .map(([resource]) => resource);
 
   // Scroll the sidebar to the requested section after it opens
   useEffect(() => {
@@ -321,6 +332,30 @@ function HomeShell({ children }: { children: ReactNode }) {
     >
       {children}
 
+      {unavailableNavigationResources.length > 0 && (
+        <div
+          role="status"
+          className="fixed bottom-4 right-4 z-[95] max-w-sm rounded-lg border border-amber-300/70 bg-amber-50 px-3 py-2 font-sans text-xs text-amber-950 shadow-lg dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100"
+        >
+          <span>
+            Some navigation data is unavailable (
+            {unavailableNavigationResources.join(', ')}).
+          </span>
+          <button
+            type="button"
+            onClick={() =>
+              startNavigationRetry(() => {
+                router.refresh();
+              })
+            }
+            disabled={isNavigationRetryPending}
+            className="ml-2 font-semibold underline underline-offset-2 disabled:opacity-50"
+          >
+            {isNavigationRetryPending ? 'Retrying…' : 'Retry'}
+          </button>
+        </div>
+      )}
+
       <CreateWorkspaceModal
         open={createWorkspaceOpen}
         value={workspaceNameDraft}
@@ -348,6 +383,7 @@ function HomeShell({ children }: { children: ReactNode }) {
         onOpenAllChats={() => openWithScroll('all')}
         workspaceGroups={workspaceGroups}
         conversations={conversations}
+        navigationStatus={navigationStatus}
         draftChats={draftChats}
         temporaryChats={temporaryChats}
         selectedConversationId={
@@ -427,6 +463,7 @@ function ChatShellInner({
         e2eQueryParam={e2eQueryParam}
         skipInitialSidebarRefresh={skipInitialSidebarRefresh}
         initialNavigationData={initialBootstrap?.navigation}
+        initialNavigationStatus={initialBootstrap?.navigationStatus}
         initialChatModels={initialBootstrap?.chatModels}
       >
         <HomeShell>{children}</HomeShell>

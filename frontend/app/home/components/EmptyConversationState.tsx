@@ -8,6 +8,8 @@ interface EmptyConversationStateProps {
   listError: string | null;
   routeConversationError: string | null;
   isRouteConversationLoading: boolean;
+  retrying?: boolean;
+  onRetry?: () => void;
 }
 
 export default function EmptyConversationState({
@@ -16,12 +18,24 @@ export default function EmptyConversationState({
   listError,
   routeConversationError,
   isRouteConversationLoading,
+  retrying = false,
+  onRetry,
 }: EmptyConversationStateProps) {
   return (
     <div className="mx-auto max-w-2xl px-6 pb-4">
       {listError && (
         <div className="mb-4 rounded-lg bg-surface px-4 py-2 font-sans text-xs text-muted shadow-sm">
-          {listError}
+          <span>{listError}</span>
+          {onRetry && (
+            <button
+              type="button"
+              onClick={onRetry}
+              disabled={retrying}
+              className="ml-2 font-semibold text-foreground underline underline-offset-2 disabled:opacity-50"
+            >
+              {retrying ? 'Retrying…' : 'Retry'}
+            </button>
+          )}
         </div>
       )}
 
@@ -53,6 +67,16 @@ export default function EmptyConversationState({
             <p className="mt-4 font-sans text-md font-medium leading-relaxed text-muted">
               {routeConversationError}
             </p>
+            {onRetry && (
+              <button
+                type="button"
+                onClick={onRetry}
+                disabled={retrying}
+                className="mt-5 rounded-lg border border-border-subtle bg-surface px-3 py-2 font-sans text-sm font-semibold text-foreground disabled:opacity-50"
+              >
+                {retrying ? 'Retrying…' : 'Retry'}
+              </button>
+            )}
           </div>
         ) : (
           <div className="flex w-full max-w-2xl flex-col items-center text-center sm:mt-[clamp(5rem,12vh,10rem)]">

@@ -114,6 +114,20 @@ test('a new chat centers the exploration prompt above the composer', async ({ pa
   await expect(page.getByPlaceholder('Ask a question or add a thought...')).toBeVisible();
 });
 
+test('unexpected home errors render the route boundary and Retry resets it', async ({
+  page,
+}) => {
+  await mockHomeDataRoutes(page, {});
+
+  await page.goto('/home?e2e=home-error-boundary');
+
+  await expect(page.getByRole('heading', { name: 'Home could not be loaded' }))
+    .toBeVisible();
+  await page.getByRole('button', { name: 'Retry' }).click();
+  await expect(page.getByRole('heading', { name: "Let's explore" }))
+    .toBeVisible();
+});
+
 test('hydrates a persistent conversation on direct /home/[conversationId] entry', async ({ page }) => {
   const conversationId = 'conversation-direct-route';
   const question = 'How did early delivery logistics work?';

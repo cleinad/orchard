@@ -44,6 +44,7 @@ export interface MutationTracker {
 interface TableConfig {
   rows: MockRow[];
   queryError?: unknown;
+  queryDelayMs?: number;
   /** Rows returned by .select().single() after an insert/update. Shifts one per call. */
   returnOnMutate?: MockRow[];
   mutateError?:
@@ -82,6 +83,7 @@ export function createMockSupabase(options: MockSupabaseOptions = {}) {
     let limitCount: number | null = null;
     let rangeSpec: { from: number; to: number } | null = null;
     let orderSpec: { column: string; ascending: boolean } | null = null;
+    let queryAbortSignal: AbortSignal | null = null;
 
     const chain: Record<string, unknown> = {};
 
@@ -106,6 +108,10 @@ export function createMockSupabase(options: MockSupabaseOptions = {}) {
     };
     chain.range = (from: number, to: number) => {
       rangeSpec = { from, to };
+      return chain;
+    };
+    chain.abortSignal = (signal: AbortSignal) => {
+      queryAbortSignal = signal;
       return chain;
     };
     chain.single = () => {
@@ -150,6 +156,44 @@ export function createMockSupabase(options: MockSupabaseOptions = {}) {
         } else {
           // SELECT path — return matching rows from config
           const tableConf = tables[table];
+          if (
+            typeof tableConf?.queryDelayMs === 'number'
+            && tableConf.queryDelayMs > 0
+          ) {
+            let settled = false;
+            const finish = () => {
+              if (settled) return;
+              settled = true;
+              queryAbortSignal?.removeEventListener('abort', handleAbort);
+              if (tableConf.queryError) {
+                queries.push({ table, operation, args, filters });
+                resolve({ data: null, error: tableConf.queryError });
+                return;
+              }
+              const rows = sortRows(
+                filterRows(tableConf.rows ?? [], filters),
+                orderSpec
+              );
+              queries.push({ table, operation, args, filters });
+              resolve({ data: rows, error: null });
+            };
+            const handleAbort = () => {
+              if (settled) return;
+              settled = true;
+              clearTimeout(delay);
+              queries.push({ table, operation, args, filters });
+              resolve({ data: null, error: { message: 'aborted' } });
+            };
+            const delay = setTimeout(finish, tableConf.queryDelayMs);
+            if (queryAbortSignal?.aborted) {
+              handleAbort();
+            } else {
+              queryAbortSignal?.addEventListener('abort', handleAbort, {
+                once: true,
+              });
+            }
+            return;
+          }
           if (tableConf?.queryError) {
             queries.push({ table, operation, args, filters });
             resolve({ data: null, error: tableConf.queryError });

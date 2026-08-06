@@ -9,12 +9,14 @@ import type {
   ConversationListItem,
   Message,
 } from '@/app/home/types';
+import type { ConversationMetadataStatus } from '@/app/home/components/conversationTranscriptData';
 
 export interface SerializedConversationTranscript {
   messages: Message[];
   branches: ConversationBranch[];
   selectedBranchIds: BranchSelectionMap;
   threadEntries: Array<[string, ThreadMeta[]]>;
+  metadataStatus: ConversationMetadataStatus;
   isComplete: boolean;
   loadedAt: number;
 }
@@ -32,6 +34,11 @@ export function serializeConversationTranscript(
     branches: transcript.branches,
     selectedBranchIds: transcript.selectedBranchIds,
     threadEntries: [...transcript.threadsMap.entries()],
+    metadataStatus: transcript.metadataStatus ?? {
+      branches: { status: 'ready' },
+      threads: { status: 'ready' },
+      attachments: { status: 'ready' },
+    },
     isComplete: transcript.isComplete ?? true,
     loadedAt: transcript.loadedAt ?? Date.now(),
   };
@@ -45,6 +52,7 @@ export function hydrateConversationTranscript(
     branches: transcript.branches,
     selectedBranchIds: transcript.selectedBranchIds,
     threadsMap: new Map(transcript.threadEntries),
+    metadataStatus: transcript.metadataStatus,
     isComplete: transcript.isComplete,
     loadedAt: transcript.loadedAt,
   };

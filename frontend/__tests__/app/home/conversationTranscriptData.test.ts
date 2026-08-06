@@ -78,7 +78,10 @@ describe('fetchCompleteMainTranscript', () => {
         >[0],
         'conversation-long'
       )
-    ).rejects.toThrow('message page unavailable');
+    ).rejects.toMatchObject({
+      name: 'TranscriptLoadError',
+      reason: 'error',
+    });
   });
 });
 
@@ -164,5 +167,104 @@ describe('loadCompleteConversationTranscript', () => {
       endOffset: 10,
       selectionStreamVersion: 'markdown-structure-v2',
     }]);
+    expect(result.metadataStatus).toEqual({
+      branches: { status: 'ready' },
+      threads: { status: 'ready' },
+      attachments: { status: 'ready' },
+    });
   });
+
+  it.each([
+    ['conversation_branches', 'branches'],
+    ['threads', 'threads'],
+    ['message_attachments', 'attachments'],
+  ] as const)(
+    'preserves messages and reports %s metadata failures',
+    async (failedTable, statusKey) => {
+      const root = createRow(1, null);
+      const { client } = createMockSupabase({
+        tables: {
+          messages: { rows: [root] },
+          conversation_branches: {
+            rows: [],
+            ...(failedTable === 'conversation_branches'
+              ? { queryError: { message: 'private backend detail' } }
+              : {}),
+          },
+          threads: {
+            rows: [],
+            ...(failedTable === 'threads'
+              ? { queryError: { message: 'private backend detail' } }
+              : {}),
+          },
+          message_attachments: {
+            rows: [],
+            ...(failedTable === 'message_attachments'
+              ? { queryError: { message: 'private backend detail' } }
+              : {}),
+          },
+        },
+      });
+
+      const result = await loadCompleteConversationTranscript(
+        client as unknown as Parameters<
+          typeof loadCompleteConversationTranscript
+        >[0],
+        'conversation-long'
+      );
+
+      expect(result.messages).toHaveLength(1);
+      expect(result.messages[0].content).toBe(root.content);
+      expect(result.metadataStatus[statusKey]).toEqual({
+        status: 'unavailable',
+        reason: 'error',
+      });
+    }
+  );
+
+  it.each([
+    ['conversation_branches', 'branches'],
+    ['threads', 'threads'],
+    ['message_attachments', 'attachments'],
+  ] as const)(
+    'times out %s independently without hiding messages',
+    async (delayedTable, statusKey) => {
+      const root = createRow(1, null);
+      const { client } = createMockSupabase({
+        tables: {
+          messages: { rows: [root] },
+          conversation_branches: {
+            rows: [],
+            ...(delayedTable === 'conversation_branches'
+              ? { queryDelayMs: 20 }
+              : {}),
+          },
+          threads: {
+            rows: [],
+            ...(delayedTable === 'threads' ? { queryDelayMs: 20 } : {}),
+          },
+          message_attachments: {
+            rows: [],
+            ...(delayedTable === 'message_attachments'
+              ? { queryDelayMs: 20 }
+              : {}),
+          },
+        },
+      });
+
+      const result = await loadCompleteConversationTranscript(
+        client as unknown as Parameters<
+          typeof loadCompleteConversationTranscript
+        >[0],
+        'conversation-long',
+        { optionalMetadataTimeoutMs: 1 }
+      );
+
+      expect(result.messages).toHaveLength(1);
+      expect(result.metadataStatus[statusKey]).toEqual({
+        status: 'unavailable',
+        reason: 'timeout',
+      });
+    }
+  );
 });

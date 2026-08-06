@@ -23,10 +23,14 @@ import type {
 import type { MentorListItem } from '@/lib/mentors/types';
 import type { WorkspaceSummary } from '@/lib/workspaces';
 import type { ChatModelListItem } from '@/lib/chat-models';
-import type { HomeNavigationData } from '@/app/home/components/homeSidebarData';
+import type {
+  HomeNavigationData,
+  HomeNavigationStatus,
+} from '@/app/home/components/homeSidebarData';
 import type { ConversationBranch, BranchSelectionMap, Message } from '@/app/home/types';
 import {
   createEmptyPersistentConversationTranscript,
+  mergeReloadedPersistentConversationTranscript,
   normalizePersistentConversationTranscript,
   type PersistentConversationTranscript,
   type PersistentConversationTranscriptInput,
@@ -49,7 +53,6 @@ import { useOptionalChatRunCoordinator } from '@/app/components/ChatRunCoordinat
 import {
   isSettledChatRunSnapshot,
 } from '@/lib/chat-runs/protocol';
-import { mergeThreadsMaps } from '@/app/home/components/persistentThreadRuntime';
 import {
   getDraftSelectionForPromotion,
   loadProvisionalChatPromotion,
@@ -214,26 +217,6 @@ function haveSameSidebarItems<T extends object>(
   });
 }
 
-function mergeHydratedTranscriptWithLocalRunState(
-  hydrated: PersistentConversationTranscript,
-  local: PersistentConversationTranscript | null
-): PersistentConversationTranscript {
-  if (!local) return hydrated;
-  const hydratedMessageIds = new Set(hydrated.messages.map((message) => message.id));
-  const localOnlyMessages = local.messages.filter(
-    (message) => !hydratedMessageIds.has(message.id)
-  );
-
-  return {
-    ...hydrated,
-    messages: [...hydrated.messages, ...localOnlyMessages].sort((a, b) => {
-      const timestampOrder = a.timestamp.getTime() - b.timestamp.getTime();
-      return timestampOrder || a.id.localeCompare(b.id);
-    }),
-    threadsMap: mergeThreadsMaps(hydrated.threadsMap, local.threadsMap),
-  };
-}
-
 export function deserializeTemporaryChats(raw: string): TemporaryChatSession[] {
   const stored = JSON.parse(raw) as StoredTemporaryChatSession[];
   return stored.map((chat) => ({
@@ -306,6 +289,7 @@ interface HomeDataContextValue {
   mentorGroups: SidebarMentorGroup[];
   loadingLists: boolean;
   listError: string | null;
+  navigationStatus: HomeNavigationStatus;
   setListError: (err: string | null) => void;
   refreshSidebarData: () => Promise<void>;
   upsertSidebarConversation: (conversation: {
@@ -347,7 +331,8 @@ interface HomeDataContextValue {
   ) => void;
   loadPersistentConversationTranscript: (
     conversationId: string,
-    loader: () => Promise<PersistentConversationTranscriptInput>
+    loader: () => Promise<PersistentConversationTranscriptInput>,
+    options?: { force?: boolean }
   ) => Promise<PersistentConversationTranscript>;
   updatePersistentConversationTranscript: (
     conversationId: string,
@@ -373,6 +358,7 @@ interface HomeDataContextValue {
     branches: import('@/app/home/types').ConversationBranch[];
     selectedBranchIds: import('@/app/home/types').BranchSelectionMap;
     threadsMap: Map<string, import('@/app/home/components/threadTypes').ThreadMeta[]>;
+    metadataStatus: import('@/app/home/components/conversationTranscriptData').ConversationMetadataStatus;
   }>;
 
   // Page registers its chat-switch side effects here (thread reset, timers, etc.)
@@ -419,6 +405,7 @@ interface HomeShellContextValue {
   workspaceGroups: SidebarWorkspaceGroup[];
   draftChats: HomeShellDraftChat[];
   temporaryChats: HomeShellTemporaryChat[];
+  navigationStatus: HomeNavigationStatus;
   selectedChat: SelectedChat | null;
   setSelectedChat: React.Dispatch<React.SetStateAction<SelectedChat | null>>;
   setDraftChats: React.Dispatch<React.SetStateAction<PersistentDraftChat[]>>;
@@ -474,6 +461,7 @@ interface Props {
   /** When true, skip the automatic mentors/conversations fetch (home e2e fixtures supply their own data) */
   skipInitialSidebarRefresh?: boolean;
   initialNavigationData?: HomeNavigationData | null;
+  initialNavigationStatus?: HomeNavigationStatus;
   initialChatModels?: ChatModelListItem[];
 }
 
@@ -483,6 +471,7 @@ export function HomeDataProvider({
   e2eQueryParam,
   skipInitialSidebarRefresh = false,
   initialNavigationData = null,
+  initialNavigationStatus,
   initialChatModels = EMPTY_CHAT_MODELS,
 }: Props) {
   const router = useRouter();
@@ -505,7 +494,8 @@ export function HomeDataProvider({
     removeWorkspaceSummary,
     loadConversationById,
     loadConversationMessages,
-  } = useHomeData(initialNavigationData);
+    navigationStatus,
+  } = useHomeData(initialNavigationData, initialNavigationStatus);
 
   const [draftChats, setDraftChatsState] = useState<PersistentDraftChat[]>([]);
   const [temporaryChats, setTemporaryChatsState] = useState<TemporaryChatSession[]>([]);
@@ -601,10 +591,11 @@ export function HomeDataProvider({
   const loadPersistentConversationTranscript = useCallback(
     (
       conversationId: string,
-      loader: () => Promise<PersistentConversationTranscriptInput>
+      loader: () => Promise<PersistentConversationTranscriptInput>,
+      options?: { force?: boolean }
     ) => {
       const cached = persistentConversationCacheRef.current[conversationId];
-      if (cached) {
+      if (cached && !options?.force) {
         return Promise.resolve(cached);
       }
 
@@ -612,14 +603,22 @@ export function HomeDataProvider({
       if (existingLoad) {
         return existingLoad;
       }
+      const baseline =
+        persistentConversationCacheRef.current[conversationId] ?? null;
 
       const load = loader()
         .then((transcriptInput) => {
           const hydrated = normalizePersistentConversationTranscript(transcriptInput);
-          const transcript = mergeHydratedTranscriptWithLocalRunState(
-            hydrated,
-            persistentConversationCacheRef.current[conversationId] ?? null
-          );
+          const current =
+            persistentConversationCacheRef.current[conversationId] ?? null;
+          const transcript =
+            current === null
+              ? hydrated
+              : mergeReloadedPersistentConversationTranscript({
+                  loaded: hydrated,
+                  current,
+                  baseline,
+                });
           setPersistentConversationCache((current) => ({
             ...current,
             [conversationId]: transcript,
@@ -1378,6 +1377,7 @@ export function HomeDataProvider({
       workspaceGroups,
       draftChats: shellDraftChats,
       temporaryChats: shellTemporaryChats,
+      navigationStatus,
       selectedChat,
       setSelectedChat,
       setDraftChats,
@@ -1406,6 +1406,7 @@ export function HomeDataProvider({
       handleSelectDraft,
       handleSelectTemporaryChat,
       initialChatModels,
+      navigationStatus,
       openPersistentConversation,
       prefetchPersistentConversation,
       openWorkspace,
@@ -1431,6 +1432,7 @@ export function HomeDataProvider({
     mentorGroups,
     loadingLists,
     listError,
+    navigationStatus,
     setListError,
     refreshSidebarData,
     upsertSidebarConversation,
