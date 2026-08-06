@@ -293,7 +293,7 @@ export function applyCompletedPersistentRun(
     role: 'assistant',
     content: run.response ?? existingAssistant?.content ?? '',
     timestamp: existingAssistant?.timestamp ?? new Date(run.updatedAt),
-    previousMessageId: run.userMessageId,
+    previousMessageId: existingAssistant?.previousMessageId ?? run.userMessageId,
     isStreaming: false,
     isError: false,
     searchMetadata:
@@ -475,6 +475,10 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
   const chatRunCoordinator = useOptionalChatRunCoordinator();
   const paramsRef = useRef(params);
   const appliedRunVersionsRef = useRef(new Set<string>());
+  // The initiating callback owns only the completed snapshot while its local
+  // state publication is still in flight. Failures and later reconciliations
+  // remain subscriber-owned.
+  const locallyOwnedRunIdsRef = useRef(new Set<string>());
   const terminalReconciliationClaimsRef = useRef(new Set<string>());
 
   useEffect(() => {
@@ -539,6 +543,12 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
     if (!chatId) return;
 
     const applySnapshot = (run: ChatRunSnapshot) => {
+      if (
+        run.status === 'completed'
+        && locallyOwnedRunIdsRef.current.has(run.runId)
+      ) {
+        return;
+      }
       if (run.acceptedAt) {
         removeProvisionalChatPromotion(run.runId);
       }
@@ -665,12 +675,14 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
             applyCompletedPersistentRun(currentTranscript, run)
         );
         if (needsReload) {
+          const reconciliationBaseline =
+            current.getPersistentConversationTranscript(chatId);
           reloadCompletedPersistentRun(
             run.runId,
             chatId,
             run.target.branchSourceMessageId,
             run.target.branchId,
-            transcript,
+            reconciliationBaseline,
             current
           );
         }
@@ -1479,6 +1491,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
       let data: ChatResponse;
       if (chatRunCoordinator) {
         requestAccepted = !provisionalPromotion;
+        locallyOwnedRunIdsRef.current.add(runIdentifiers.runId);
         const run = await chatRunCoordinator.start({
           request: requestBody,
           initialSnapshot: initialRunSnapshot,
@@ -1681,9 +1694,11 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
           params.upsertSidebarConversation({
             id: existingConversation.id,
             title:
-              data.conversationTitleSource === 'generated'
-                ? data.conversationTitle
-                : existingConversation.title,
+              createConversationForRun
+                ? data.conversationTitle ?? existingConversation.title
+                : data.conversationTitleSource === 'generated'
+                  ? data.conversationTitle
+                  : existingConversation.title,
             mentorId: existingConversation.mentor_id,
             workspaceId: existingConversation.workspace_id,
             createdAt: existingConversation.created_at,
@@ -1714,6 +1729,16 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
         streamingMessageId,
         finalSearchMetadata
       );
+
+      if (chatRunCoordinator) {
+        const completedRun =
+          chatRunCoordinator.getSnapshot(runIdentifiers.runId);
+        if (completedRun?.status === 'completed') {
+          appliedRunVersionsRef.current.add(
+            `${completedRun.runId}:${completedRun.status}:${completedRun.updatedAt}`
+          );
+        }
+      }
 
       return { accepted: true, completed: true, uploadedAttachments };
     } catch (error) {
@@ -1791,6 +1816,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
       }
       return { accepted: true, completed: false, uploadedAttachments };
     } finally {
+      locallyOwnedRunIdsRef.current.delete(runIdentifiers.runId);
       window.removeEventListener('pagehide', flushVisiblePublicationOnPageHide);
       cancelVisiblePublication();
       params.clearPendingChatRequestForSelection(effectiveSelection);

@@ -245,6 +245,80 @@ describe('completed persistent run reconciliation', () => {
     ).toEqual(['user-1', 'assistant-1', 'later-user']);
   });
 
+  it('preserves the local parent link when response identities are normalized', () => {
+    const run = createCompletedRun({ userMessageId: 'persisted-user-1' });
+    const transcript = normalizePersistentConversationTranscript({
+      messages: [
+        createMessage('local-user-1', 'user', 'Question', null),
+        createMessage('assistant-1', 'assistant', 'Streaming', 'local-user-1'),
+      ],
+      branches: [],
+      selectedBranchIds: {},
+      threadsMap: new Map(),
+    });
+
+    expect(
+      applyCompletedPersistentRun(transcript, run).messages[1]
+        .previousMessageId
+    ).toBe('local-user-1');
+  });
+
+  it('accepts authoritative parent identities after normalized completion reloads', () => {
+    const run = createCompletedRun({ userMessageId: 'persisted-user-1' });
+    const localTranscript = normalizePersistentConversationTranscript({
+      messages: [
+        createMessage('local-user-1', 'user', 'Question', null),
+        createMessage('assistant-1', 'assistant', 'Streaming', 'local-user-1'),
+      ],
+      branches: [],
+      selectedBranchIds: {},
+      threadsMap: new Map(),
+    });
+    const appliedTranscript =
+      applyCompletedPersistentRun(localTranscript, run);
+    const mergedTranscript = mergeCompletedPersistentRunReload({
+      loaded: {
+        messages: [
+          createMessage('persisted-user-1', 'user', 'Question', null),
+          createMessage(
+            'assistant-1',
+            'assistant',
+            'Final response',
+            'persisted-user-1'
+          ),
+        ],
+        branches: [],
+        selectedBranchIds: {},
+        threadsMap: new Map(),
+        metadataStatus: {
+          branches: { status: 'ready' },
+          threads: { status: 'ready' },
+          attachments: { status: 'ready' },
+        },
+      },
+      current: appliedTranscript,
+      baseline: appliedTranscript,
+      branchSourceMessageId: null,
+      pendingBranchSelectionId: null,
+    });
+
+    expect(
+      mergedTranscript.messages.find(
+        (message) => message.id === 'persisted-user-1'
+      )?.previousMessageId
+    ).toBeNull();
+    expect(
+      mergedTranscript.messages.find(
+        (message) => message.id === 'assistant-1'
+      )?.previousMessageId
+    ).toBe('persisted-user-1');
+    expect(
+      mergedTranscript.messages.some(
+        (message) => message.id === 'local-user-1'
+      )
+    ).toBe(false);
+  });
+
   it('always reloads one completed branch for canonical topology', () => {
     const run = createCompletedRun({
       target: {
