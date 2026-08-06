@@ -60,13 +60,27 @@ export async function proxy(request: NextRequest) {
     },
   });
 
-  const { data: { user } } = await supabase.auth.getUser();
+  let claimsResult;
+  try {
+    claimsResult = await supabase.auth.getClaims();
+  } catch {
+    claimsResult = { data: null, error: new Error('Invalid session') };
+  }
 
-  if (!user) {
+  const userId = claimsResult.data?.claims?.sub;
+  if (
+    claimsResult.error
+    || typeof userId !== 'string'
+    || userId.length === 0
+  ) {
     const loginUrl = new URL('/login', request.url);
     const redirectTarget = `${pathname}${request.nextUrl.search}`;
     loginUrl.searchParams.set('redirect', redirectTarget);
-    return NextResponse.redirect(loginUrl);
+    const redirectResponse = NextResponse.redirect(loginUrl);
+    response.cookies.getAll().forEach((cookie) => {
+      redirectResponse.cookies.set(cookie);
+    });
+    return redirectResponse;
   }
 
   return response;

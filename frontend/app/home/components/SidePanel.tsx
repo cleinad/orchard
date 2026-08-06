@@ -11,6 +11,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import SidebarPanelIcon from '@/app/components/SidebarPanelIcon';
 import Tooltip from '@/app/components/Tooltip';
@@ -27,8 +28,9 @@ import {
   SIDE_PANEL_MIN_WIDTH_PX,
   clampSidePanelWidthPx,
 } from '@/app/home/components/SidePanelContext';
-import { useViewerIdentity } from '@/app/components/useViewerIdentity';
+import { useViewer } from '@/app/components/ViewerContext';
 import { initialsFor } from '@/lib/mentors/ui-helpers';
+import { useSidebarTimestampFormatter } from '@/app/home/components/sidebarTimestamp';
 import type {
   ConversationListItem,
   SidebarWorkspaceGroup,
@@ -74,6 +76,7 @@ interface Props {
   onSelectTemporaryChat: (tempChatId: string) => void;
   onCreateWorkspaceDraft: (workspaceId: string) => void;
   onCreateWorkspace: () => void;
+  buildWorkspaceHref: (workspaceId: string) => string;
   onOpenWorkspace: (workspaceId: string) => void;
   onCloseTemporaryChat: (tempChatId: string) => void;
   onMoveConversation: (
@@ -94,16 +97,6 @@ function getWorkspaceSelectionKey(
   if (selectedDraftId) return `${workspaceKey}:draft:${selectedDraftId}`;
   if (selectedConversationId) return `${workspaceKey}:conversation:${selectedConversationId}`;
   return null;
-}
-
-function formatDate(input: string): string {
-  const date = new Date(input);
-  const now = new Date();
-  const sameDay = date.toDateString() === now.toDateString();
-  if (sameDay) {
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  }
-  return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 
 const railIconButtonClass =
@@ -167,6 +160,7 @@ export default function SidePanel({
   onSelectTemporaryChat,
   onCreateWorkspaceDraft,
   onCreateWorkspace,
+  buildWorkspaceHref,
   onOpenWorkspace,
   onCloseTemporaryChat,
   onMoveConversation,
@@ -179,15 +173,20 @@ export default function SidePanel({
   const [movingConversationId, setMovingConversationId] = useState<string | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
   const [expandedSections, setExpandedSections] = useState(DEFAULT_EXPANDED_SECTIONS);
+  const formatTimestamp = useSidebarTimestampFormatter();
   const lastAutoExpandedWorkspaceSelectionRef = useRef<string | null>(null);
   const manuallyCollapsedWorkspaceSelectionRef = useRef<Record<string, string>>({});
-  const { viewer } = useViewerIdentity();
-  const profileName = viewer?.fullName || viewer?.email || 'Your profile';
+  const { viewerResult } = useViewer();
+  const profileName =
+    viewerResult.status === 'ready'
+      ? viewerResult.viewer.fullName
+        || viewerResult.viewer.email
+        || 'Your profile'
+      : viewerResult.viewer.email || 'Your profile';
   const profileInitials = initialsFor(profileName);
   const panelStyle = {
     '--side-panel-width': `${sidePanelWidthPx}px`,
   } as CSSProperties;
-
   const handleEscape = useCallback(
     (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose();
@@ -559,6 +558,16 @@ export default function SidePanel({
     </span>
   );
 
+  const prefetchWorkspace = (href: string) => {
+    // Dynamic routes are only partially prefetched by default. The full mode
+    // includes the selected workspace detail so a subsequent click can render
+    // without waiting on a route request.
+    router.prefetch(
+      href,
+      { kind: 'full' } as NonNullable<Parameters<typeof router.prefetch>[1]>
+    );
+  };
+
   const workspaceList = (
     <div className="pb-3">
       {workspaceGroups.length === 0 ? (
@@ -566,6 +575,7 @@ export default function SidePanel({
       ) : (
         workspaceGroups.map((group) => {
           const workspaceKey = getWorkspaceKey(group.workspace_id);
+          const workspaceHref = buildWorkspaceHref(group.workspace_id);
           const draft = draftByWorkspaceKey.get(workspaceKey) || null;
           const isExpanded = expandedWorkspaces[workspaceKey] || false;
           const visibleCount = visibleCounts[workspaceKey] ?? 3;
@@ -590,9 +600,24 @@ export default function SidePanel({
                   getDropTargetClass(group.workspace_id)
                 )}
               >
-                <button
-                  type="button"
-                  onClick={() => onOpenWorkspace(group.workspace_id)}
+                <Link
+                  href={workspaceHref}
+                  prefetch={false}
+                  onPointerEnter={() => prefetchWorkspace(workspaceHref)}
+                  onFocus={() => prefetchWorkspace(workspaceHref)}
+                  onClick={(event) => {
+                    if (
+                      event.defaultPrevented
+                      || event.button !== 0
+                      || event.metaKey
+                      || event.ctrlKey
+                      || event.shiftKey
+                      || event.altKey
+                    ) {
+                      return;
+                    }
+                    onOpenWorkspace(group.workspace_id);
+                  }}
                   className={cx(
                     'flex min-w-0 flex-1 items-center gap-3 text-left',
                     buttonStyles.focus
@@ -602,7 +627,7 @@ export default function SidePanel({
                   <span className="min-w-0 flex-1 truncate font-sans text-[15px] text-foreground">
                     {group.workspace_name}
                   </span>
-                </button>
+                </Link>
                 <button
                   type="button"
                   onClick={() => {
@@ -683,9 +708,12 @@ export default function SidePanel({
                       )}
                     >
                       <span className="truncate font-sans text-sm text-foreground">{draft.title}</span>
-                      <span className="flex-shrink-0 font-sans text-[11px] text-muted">
-                        {formatDate(draft.updated_at)}
-                      </span>
+                      <time
+                        dateTime={draft.updated_at}
+                        className="flex-shrink-0 font-sans text-[11px] text-muted"
+                      >
+                        {formatTimestamp(draft.updated_at)}
+                      </time>
                     </button>
                   )}
 
@@ -708,9 +736,12 @@ export default function SidePanel({
                       <span className="truncate font-sans text-sm text-foreground/88">
                         {conversation.title}
                       </span>
-                      <span className="flex-shrink-0 font-sans text-[11px] text-muted">
-                        {formatDate(conversation.updated_at)}
-                      </span>
+                      <time
+                        dateTime={conversation.updated_at}
+                        className="flex-shrink-0 font-sans text-[11px] text-muted"
+                      >
+                        {formatTimestamp(conversation.updated_at)}
+                      </time>
                     </button>
                   ))}
 
@@ -787,9 +818,12 @@ export default function SidePanel({
               )}
             >
               <span className="truncate font-sans text-sm text-foreground">{globalDraft.title}</span>
-              <span className="flex-shrink-0 font-sans text-[11px] text-muted">
-                {formatDate(globalDraft.updated_at)}
-              </span>
+              <time
+                dateTime={globalDraft.updated_at}
+                className="flex-shrink-0 font-sans text-[11px] text-muted"
+              >
+                {formatTimestamp(globalDraft.updated_at)}
+              </time>
             </button>
           )}
 
@@ -812,9 +846,12 @@ export default function SidePanel({
               <span className="truncate font-sans text-sm text-foreground/88">
                 {conversation.title}
               </span>
-              <span className="flex-shrink-0 font-sans text-[11px] text-muted">
-                {formatDate(conversation.updated_at)}
-              </span>
+              <time
+                dateTime={conversation.updated_at}
+                className="flex-shrink-0 font-sans text-[11px] text-muted"
+              >
+                {formatTimestamp(conversation.updated_at)}
+              </time>
             </button>
           ))}
 
@@ -1143,9 +1180,12 @@ export default function SidePanel({
                                   <span className="min-w-0 flex-1 truncate font-sans text-sm text-foreground">
                                     {chat.title}
                                   </span>
-                                  <span className="flex-shrink-0 font-sans text-[11px] text-muted">
-                                    {formatDate(chat.updated_at)}
-                                  </span>
+                                  <time
+                                    dateTime={chat.updated_at}
+                                    className="flex-shrink-0 font-sans text-[11px] text-muted"
+                                  >
+                                    {formatTimestamp(chat.updated_at)}
+                                  </time>
                                 </button>
                                 <button
                                   type="button"
@@ -1255,12 +1295,12 @@ export default function SidePanel({
                   </div>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    router.push('/settings');
-                    onClose();
-                  }}
+                <Link
+                  href="/settings"
+                  prefetch={false}
+                  onPointerEnter={() => router.prefetch('/settings')}
+                  onFocus={() => router.prefetch('/settings')}
+                  onClick={onClose}
                   className={cx(
                     'inline-flex h-8 w-8 items-center justify-center rounded-lg',
                     buttonStyles.transition,
@@ -1282,7 +1322,7 @@ export default function SidePanel({
                       d="M19.43 12.98c.04-.32.07-.65.07-.98s-.02-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46a.5.5 0 00-.61-.22l-2.49 1a7.28 7.28 0 00-1.69-.98L14.5 2.42A.5.5 0 0014 2h-4a.5.5 0 00-.49.42L9.13 5.07c-.61.24-1.18.56-1.69.98l-2.49-1a.5.5 0 00-.61.22l-2 3.46a.5.5 0 00.12.64l2.11 1.65a7.93 7.93 0 000 1.96l-2.11 1.65a.5.5 0 00-.12.64l2 3.46c.13.22.39.31.61.22l2.49-1c.51.4 1.08.73 1.69.98l.38 2.65A.5.5 0 0010 22h4a.5.5 0 00.49-.42l.38-2.65c.61-.24 1.18-.56 1.69-.98l2.49 1c.23.08.48 0 .61-.22l2-3.46a.5.5 0 00-.12-.64l-2.11-1.65zM12 15.5a3.5 3.5 0 110-7 3.5 3.5 0 010 7z"
                     />
                   </svg>
-                </button>
+                </Link>
               </div>
             </div>
         </div>

@@ -26,7 +26,7 @@ import {
   AdminDashboard,
   AdminDashboardError,
 } from '@/app/admin/AdminDashboard';
-import AdminPage from '@/app/admin/page';
+import AdminPage from '@/app/(authenticated)/admin/page';
 
 describe('admin page authorization boundary', () => {
   beforeEach(() => {

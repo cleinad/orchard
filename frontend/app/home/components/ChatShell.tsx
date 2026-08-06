@@ -10,10 +10,12 @@ import {
   type ReactNode,
 } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
+import { SidePanelProvider } from '@/app/home/components/SidePanelContext';
 import { useSidePanel } from '@/app/home/components/SidePanelContext';
 import { HomeDataProvider, useHomeDataContext } from '@/app/home/components/HomeDataContext';
 import SidePanel from '@/app/home/components/SidePanel';
 import { getHomeE2eFixture } from '@/app/home/e2eFixtures';
+import type { HomeBootstrapData } from '@/app/home/server-data';
 
 const SIDE_PANEL_DRAWER_BREAKPOINT_PX = 768;
 
@@ -184,6 +186,8 @@ function HomeShell({ children }: { children: ReactNode }) {
     handleCreateTemporaryChat,
     handleCloseTemporaryChat,
     refreshSidebarData,
+    upsertWorkspaceSummary,
+    buildHomeHref,
     openWorkspace,
   } = useHomeDataContext();
   const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false);
@@ -252,7 +256,7 @@ function HomeShell({ children }: { children: ReactNode }) {
         throw new Error(payload.error || 'Failed to create workspace');
       }
 
-      await refreshSidebarData();
+      upsertWorkspaceSummary(payload.workspace);
       setCreateWorkspaceOpen(false);
       setWorkspaceNameDraft('');
       openWorkspace(payload.workspace.id);
@@ -379,8 +383,11 @@ function HomeShell({ children }: { children: ReactNode }) {
           if (window.innerWidth < SIDE_PANEL_DRAWER_BREAKPOINT_PX) handleCloseSidePanel();
         }}
         onCreateWorkspace={openCreateWorkspaceModal}
+        buildWorkspaceHref={(workspaceId) =>
+          buildHomeHref(`/workspaces/${encodeURIComponent(workspaceId)}`)
+        }
         onOpenWorkspace={(workspaceId) => {
-          openWorkspace(workspaceId);
+          openWorkspace(workspaceId, { navigate: false });
           if (window.innerWidth < SIDE_PANEL_DRAWER_BREAKPOINT_PX) handleCloseSidePanel();
         }}
         onCloseTemporaryChat={handleCloseTemporaryChat}
@@ -394,7 +401,13 @@ function HomeShell({ children }: { children: ReactNode }) {
 // Layout root — extracts route params and wires providers
 // ---------------------------------------------------------------------------
 
-function HomeLayoutInner({ children }: { children: ReactNode }) {
+function ChatShellInner({
+  children,
+  initialBootstrap,
+}: {
+  children: ReactNode;
+  initialBootstrap: HomeBootstrapData | null;
+}) {
   const params = useParams<{ conversationId?: string[] }>();
   const searchParams = useSearchParams();
 
@@ -412,6 +425,8 @@ function HomeLayoutInner({ children }: { children: ReactNode }) {
         routeConversationId={routeConversationId}
         e2eQueryParam={e2eQueryParam}
         skipInitialSidebarRefresh={skipInitialSidebarRefresh}
+        initialNavigationData={initialBootstrap?.navigation}
+        initialChatModels={initialBootstrap?.chatModels}
       >
         <HomeShell>{children}</HomeShell>
       </HomeDataProvider>
@@ -419,10 +434,20 @@ function HomeLayoutInner({ children }: { children: ReactNode }) {
   );
 }
 
-export default function HomeLayout({ children }: { children: ReactNode }) {
+export default function ChatShell({
+  children,
+  initialBootstrap,
+}: {
+  children: ReactNode;
+  initialBootstrap: HomeBootstrapData | null;
+}) {
   return (
     <Suspense>
-      <HomeLayoutInner>{children}</HomeLayoutInner>
+      <SidePanelProvider>
+        <ChatShellInner initialBootstrap={initialBootstrap}>
+          {children}
+        </ChatShellInner>
+      </SidePanelProvider>
     </Suspense>
   );
 }

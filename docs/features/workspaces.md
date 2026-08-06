@@ -14,6 +14,16 @@ A workspace contains:
 The workspace page is `/workspaces/<workspaceId>`. The sidebar can expand each
 workspace and create a workspace-scoped draft.
 
+Home and workspace routes share one persistent authenticated chat-shell layout.
+The server initializes viewer, model, mentor, workspace-summary, and
+conversation-summary state. A workspace page separately loads one
+RLS-protected detail row and includes the workspace identity, conversations,
+composer, and instructions in the initial HTML.
+
+Workspace links prefetch the full dynamic route payload on pointer or keyboard
+intent. Navigation retains the chat shell and active runs instead of remounting
+or repeating the sidebar bootstrap.
+
 ## Instructions
 
 Workspace instructions are editable from the workspace page and stored in the
@@ -47,8 +57,18 @@ Deleting a workspace requires confirmation and permanently removes:
 The deletion function returns Storage paths, and the route then attempts to
 remove those private image objects.
 
-After success, local workspace drafts and selected state are cleared, sidebar
-data is refreshed, and navigation returns to `/home`.
+After success, local workspace drafts and selected state are cleared, the
+workspace and its conversations are removed from shared client state, and
+navigation replaces the deleted route with `/home`, so browser Back cannot
+restore the deleted page. Normal success does not reload the mentor, workspace,
+or conversation lists.
+
+Rename and instruction updates also update focused page/sidebar state
+optimistically and roll back on failure. Starting a workspace conversation
+locally upserts its returned summary while preserving the first-send handoff to
+the normal home chat runtime. Successful workspace updates and deletes
+revalidate the workspace route so a prefetched or previously visited payload
+cannot restore stale detail.
 
 ## API
 
@@ -60,10 +80,21 @@ data is refreshed, and navigation returns to `/home`.
 - `PATCH /api/conversations/<conversationId>/context`
 
 All routes authenticate with Supabase and scope operations to the current user.
+The list response contains summary fields and excludes long-form workspace
+`context`. Production page rendering uses server data loaders, and production
+workspace mutations use server actions, rather than the browser routes. The
+server actions and mutation routes share authoritative `getUser()` verification
+and RLS-scoped mutation logic.
 
 ## Key implementation
 
-- `frontend/app/workspaces/[workspaceId]/page.tsx`
+- `frontend/app/(authenticated)/(chat-shell)/layout.tsx`
+- `frontend/app/(authenticated)/(chat-shell)/workspaces/[workspaceId]/page.tsx`
+- `frontend/app/workspaces/[workspaceId]/WorkspaceClient.tsx`
+- `frontend/app/workspaces/[workspaceId]/actions.ts`
+- `frontend/app/workspaces/[workspaceId]/data.ts`
+- `frontend/app/workspaces/[workspaceId]/server-mutations.ts`
+- `frontend/app/home/server-data.ts`
 - `frontend/app/api/workspaces/route.ts`
 - `frontend/app/api/workspaces/[workspaceId]/route.ts`
 - `frontend/app/api/conversations/[conversationId]/context/route.ts`
@@ -74,6 +105,8 @@ All routes authenticate with Supabase and scope operations to the current user.
 ## Verification
 
 - `frontend/e2e/workspaces.spec.js`
+- `frontend/e2e/workspace-performance.spec.js`
+- `frontend/__tests__/app/workspace-server-data.test.ts`
 - `frontend/__tests__/app/workspaces-route.test.ts`
 - `frontend/__tests__/supabase/workspaces-migration.test.ts`
 - `supabase/tests/database.sql`

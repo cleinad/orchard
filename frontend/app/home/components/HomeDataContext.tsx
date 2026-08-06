@@ -20,7 +20,9 @@ import type {
   SidebarWorkspaceGroup,
 } from '@/app/home/types';
 import type { MentorListItem } from '@/lib/mentors/types';
-import type { WorkspaceListItem } from '@/lib/workspaces';
+import type { WorkspaceSummary } from '@/lib/workspaces';
+import type { ChatModelListItem } from '@/lib/chat-models';
+import type { HomeNavigationData } from '@/app/home/components/homeSidebarData';
 import type { ConversationBranch, BranchSelectionMap, Message } from '@/app/home/types';
 import {
   createEmptyPersistentConversationTranscript,
@@ -98,6 +100,7 @@ export interface TemporaryChatSession {
 const TEMP_CHAT_TITLE = 'Temporary chat';
 const TEMP_CHAT_STORAGE_KEY = 'keen-home-temp-chats-v1';
 const HOME_SELECTION_HANDOFF_STORAGE_KEY = 'keen-home-selection-handoff-v1';
+const EMPTY_CHAT_MODELS: ChatModelListItem[] = [];
 
 // ---------------------------------------------------------------------------
 // Temporary chat sessionStorage serialization
@@ -248,8 +251,9 @@ export function serializeTemporaryChats(chats: TemporaryChatSession[]): string {
 interface HomeDataContextValue {
   // Sidebar data
   mentors: MentorListItem[];
-  workspaces: WorkspaceListItem[];
+  workspaces: WorkspaceSummary[];
   conversations: ConversationListItem[];
+  chatModels: ChatModelListItem[];
   workspaceGroups: SidebarWorkspaceGroup[];
   mentorGroups: SidebarMentorGroup[];
   loadingLists: boolean;
@@ -264,6 +268,8 @@ interface HomeDataContextValue {
     updatedAt?: string | null;
     createdAt?: string | null;
   }) => void;
+  upsertWorkspaceSummary: (workspace: WorkspaceSummary) => void;
+  removeWorkspaceSummary: (workspaceId: string) => void;
   rollbackProvisionalChatPromotion: (runId: string) => Extract<
     SelectedChat,
     { kind: 'draft' }
@@ -332,7 +338,10 @@ interface HomeDataContextValue {
   openPersistentConversation: (id: string, opts?: { replace?: boolean }) => void;
   replacePersistentConversationUrl: (id: string) => void;
   openHomeWorkspace: () => void;
-  openWorkspace: (workspaceId: string) => void;
+  openWorkspace: (
+    workspaceId: string,
+    options?: { navigate?: boolean }
+  ) => void;
   buildHomeHref: (pathname: string) => string;
   routeConversationId: string | null;
   pendingRouteConversationId: string | null;
@@ -358,6 +367,8 @@ interface Props {
   e2eQueryParam: string | null;
   /** When true, skip the automatic mentors/conversations fetch (home e2e fixtures supply their own data) */
   skipInitialSidebarRefresh?: boolean;
+  initialNavigationData?: HomeNavigationData | null;
+  initialChatModels?: ChatModelListItem[];
 }
 
 export function HomeDataProvider({
@@ -365,6 +376,8 @@ export function HomeDataProvider({
   routeConversationId,
   e2eQueryParam,
   skipInitialSidebarRefresh = false,
+  initialNavigationData = null,
+  initialChatModels = EMPTY_CHAT_MODELS,
 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
@@ -382,9 +395,11 @@ export function HomeDataProvider({
     refreshSidebarData,
     upsertSidebarConversation,
     removeSidebarConversation,
+    upsertWorkspaceSummary,
+    removeWorkspaceSummary,
     loadConversationById,
     loadConversationMessages,
-  } = useHomeData();
+  } = useHomeData(initialNavigationData);
 
   const [draftChats, setDraftChats] = useState<PersistentDraftChat[]>([]);
   const [temporaryChats, setTemporaryChats] = useState<TemporaryChatSession[]>([]);
@@ -743,6 +758,8 @@ export function HomeDataProvider({
     conversations,
     refreshSidebarData,
     upsertSidebarConversation,
+    upsertWorkspaceSummary,
+    removeWorkspaceSummary,
   ]);
 
   // ------------------------------------------------------------------
@@ -854,10 +871,13 @@ export function HomeDataProvider({
   }, [buildHomeHref, clientRouteConversationId, pathname, router]);
 
   const openWorkspace = useCallback(
-    (workspaceId: string) => {
+    (workspaceId: string, options?: { navigate?: boolean }) => {
       const href = buildHomeHref(`/workspaces/${encodeURIComponent(workspaceId)}`);
       setClientRouteConversationId(null);
       setPendingRouteConversationId(null);
+      if (options?.navigate === false) {
+        return;
+      }
       router.push(href, { scroll: false });
     },
     [buildHomeHref, router]
@@ -1082,16 +1102,17 @@ export function HomeDataProvider({
   // ------------------------------------------------------------------
 
   useEffect(() => {
-    if (skipInitialSidebarRefresh) {
+    if (skipInitialSidebarRefresh || initialNavigationData) {
       return;
     }
     void refreshSidebarData();
-  }, [skipInitialSidebarRefresh, refreshSidebarData]);
+  }, [initialNavigationData, skipInitialSidebarRefresh, refreshSidebarData]);
 
   const value: HomeDataContextValue = {
     mentors,
     workspaces,
     conversations,
+    chatModels: initialChatModels,
     workspaceGroups,
     mentorGroups,
     loadingLists,
@@ -1099,6 +1120,8 @@ export function HomeDataProvider({
     setListError,
     refreshSidebarData,
     upsertSidebarConversation,
+    upsertWorkspaceSummary,
+    removeWorkspaceSummary,
     rollbackProvisionalChatPromotion,
     loadConversationById,
     loadConversationMessages,

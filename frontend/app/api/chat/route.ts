@@ -93,8 +93,17 @@ Core traits:
 - You avoid fluff, generic advice, and unnecessary preamble.
 - You match the requested response style and the user's assumed familiarity for the current chat.`;
 
-const RESPONSE_FORMATTING_PROMPT =
-  'Use KaTeX Markdown for math: inline `$...$`; display math with `$$` fences on their own lines. Do not use `\\(...\\)`, `\\[...\\]`, or plain square brackets as math delimiters. In matrices, separate rows with `\\\\`.';
+const RESPONSE_FORMATTING_PROMPT = `Format responses with GitHub-flavored Markdown.
+- Use Markdown tables for textual comparisons and summaries. Do not use LaTeX array environments for prose tables.
+- Reserve KaTeX for mathematical notation. Use $...$ for inline math.
+- Put each $$ display-math fence alone on its own line, with no expression or command beside it. For example:
+$$
+\\begin{aligned}
+a &= b + c \\\\
+d &= e + f
+\\end{aligned}
+$$
+- Do not use \\(...\\), \\[...\\], or plain square brackets as math delimiters. In matrices, separate rows with \\\\.`;
 
 const MAX_THREAD_SELECTED_TEXT_CHARS = 20_000;
 const MAX_THREAD_SOURCE_CONTEXT_CHARS = 24_000;

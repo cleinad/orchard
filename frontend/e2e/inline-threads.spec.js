@@ -391,7 +391,7 @@ test('temporary thread results persist if you switch chats before the answer res
   await expect(loadingMarker).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
 
   await page.getByRole('main').getByLabel('New temporary chat').click();
-  await expect(page.getByRole('heading', { name: 'Temporary chat' })).toBeVisible();
+  await expect(page.getByText('Temporary Chat', { exact: true })).toBeVisible();
 
   response.resolve({
     message: answer,

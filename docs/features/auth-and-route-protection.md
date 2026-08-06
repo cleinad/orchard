@@ -22,8 +22,22 @@ redirects fall back to `/home`.
 authenticated Storage uploads.
 
 `frontend/lib/supabase-server.ts` creates the cookie-aware server client used by
-route handlers. The proxy refreshes auth cookies during protected page
-requests.
+Server Components, server actions, and route handlers. The proxy verifies
+protected page requests with `getClaims()` and propagates any refreshed auth
+cookies. Authorization remains close to protected data access rather than
+relying on the proxy alone.
+
+`frontend/lib/viewer-server.ts` request-deduplicates verified claims identity
+for protected Server Components. The authenticated layout builds the
+RLS-protected profile result once and initializes the persistent viewer
+provider. Settings consumes that provider without another page request, while
+a workspace route payload can authorize its selected-detail query without
+loading the profile again.
+
+Settings save actions use `getUser()` and derive the profile ID from the
+verified user; sign-out is also a server action. Workspace and other
+security-sensitive mutation routes likewise retain authoritative `getUser()`
+verification.
 
 ## Profile provisioning
 
@@ -65,13 +79,18 @@ the relevant requests. Production does not enable this path.
 - `frontend/proxy.ts`
 - `frontend/lib/supabase.ts`
 - `frontend/lib/supabase-server.ts`
+- `frontend/lib/viewer-server.ts`
 - `frontend/lib/auth-redirect.ts`
 - `frontend/app/components/AuthPage.tsx`
+- `frontend/app/settings/data.ts`
+- `frontend/app/settings/actions.ts`
 - `supabase/migrations/20260730120000_repair_profile_provisioning.sql`
 
 ## Verification
 
 - `frontend/__tests__/proxy.test.ts`
+- `frontend/__tests__/app/settings-data.test.ts`
+- `frontend/__tests__/app/settings-actions.test.ts`
 - `frontend/__tests__/lib/auth-redirect.test.ts`
 - authorization cases in route tests under `frontend/__tests__/app/`
 - `frontend/__tests__/supabase/profile-provisioning-migration.test.ts`

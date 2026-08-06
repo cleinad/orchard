@@ -44,8 +44,8 @@ conversation transcript and are not logged separately by Orchard.
 ## Key implementation
 
 - `frontend/lib/global-instructions.ts`
-- `frontend/app/settings/page.tsx`
-- `frontend/app/components/useViewerIdentity.ts`
+- `frontend/app/(authenticated)/settings/page.tsx`
+- `frontend/app/components/ViewerContext.tsx`
 - `frontend/app/api/chat/route.ts`
 - `supabase/migrations/20260729130000_add_global_instructions.sql`
 

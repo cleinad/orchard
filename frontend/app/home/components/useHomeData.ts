@@ -1,5 +1,4 @@
 import { useCallback, useRef, useState } from 'react';
-import { supabase } from '@/lib/supabase';
 import type { MentorListItem } from '@/lib/mentors/types';
 import { parsePersistedSearchMetadata } from '@/lib/search-citations';
 import {
@@ -11,22 +10,21 @@ import type {
   ConversationBranch,
   ConversationListItem,
   Message,
-  SidebarMentorGroup,
-  SidebarWorkspaceGroup,
 } from '@/app/home/types';
 import type { ThreadMeta } from '@/app/home/components/threadTypes';
 import { buildInitialBranchSelections } from '@/app/home/components/conversationTree';
-import type { WorkspaceListItem } from '@/lib/workspaces';
+import type { WorkspaceSummary } from '@/lib/workspaces';
 import { getSelectionStreamVersion } from '@/app/home/components/markdownSelectableStream';
+import {
+  buildSidebarGroups,
+  buildWorkspaceGroups,
+  mapConversationSummary,
+  sortConversationsByUpdatedAtDesc,
+  type ConversationSummaryRow,
+  type HomeNavigationData,
+} from '@/app/home/components/homeSidebarData';
 
-interface ConversationRow {
-  id: string;
-  title: string | null;
-  mentor_id: string | null;
-  workspace_id: string | null;
-  updated_at: string;
-  created_at: string;
-}
+type ConversationRow = ConversationSummaryRow;
 
 type SidebarConversationInput = {
   id: string;
@@ -67,165 +65,35 @@ function buildThreadsMap(
   return nextThreadsMap;
 }
 
-function buildSidebarGroups(
-  mentorSource: MentorListItem[],
-  conversationSource: ConversationListItem[]
-): SidebarMentorGroup[] {
-  const groups: SidebarMentorGroup[] = [
-    {
-      mentor_id: null,
-      mentor_name: 'Orchard',
-      mentor_accent_color: null,
-      last_activity_at: null,
-      conversations: [],
-    },
-    ...mentorSource.map((mentor) => ({
-      mentor_id: mentor.id,
-      mentor_name: mentor.name,
-      mentor_accent_color: mentor.accent_color,
-      last_activity_at: null,
-      conversations: [],
-    })),
-  ];
-
-  const groupByMentorId = new Map(
-    groups.map((group) => [group.mentor_id ?? '__keen__', group])
+export function useHomeData(initialData?: HomeNavigationData | null) {
+  const [mentors, setMentors] = useState<MentorListItem[]>(initialData?.mentors ?? []);
+  const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>(
+    initialData?.workspaces ?? []
   );
-
-  for (const conversation of conversationSource.filter((entry) => !entry.workspace_id)) {
-    const key = conversation.mentor_id ?? '__keen__';
-    const group = groupByMentorId.get(key);
-
-    if (!group) {
-      continue;
-    }
-
-    group.conversations.push(conversation);
-
-    if (
-      !group.last_activity_at ||
-      new Date(conversation.updated_at).getTime() >
-        new Date(group.last_activity_at).getTime()
-    ) {
-      group.last_activity_at = conversation.updated_at;
-    }
-  }
-
-  for (const group of groups) {
-    group.conversations.sort(
-      (a, b) =>
-        new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
-    );
-  }
-
-  const activeGroups = groups
-    .filter((group) => group.last_activity_at)
-    .sort(
-      (a, b) =>
-        new Date(b.last_activity_at || 0).getTime() -
-        new Date(a.last_activity_at || 0).getTime()
-    );
-
-  const inactiveGroups = groups
-    .filter((group) => !group.last_activity_at)
-    .sort((a, b) => a.mentor_name.localeCompare(b.mentor_name));
-
-  return [...activeGroups, ...inactiveGroups];
-}
-
-function buildWorkspaceGroups(
-  workspaceSource: WorkspaceListItem[],
-  conversationSource: ConversationListItem[]
-): SidebarWorkspaceGroup[] {
-  const groups = workspaceSource.map((workspace) => ({
-    workspace_id: workspace.id,
-    workspace_name: workspace.name,
-    workspace_icon: workspace.icon,
-    workspace_accent_color: workspace.accent_color,
-    workspace_description: workspace.description,
-    last_activity_at: null as string | null,
-    conversations: [] as ConversationListItem[],
-  }));
-
-  const groupByWorkspaceId = new Map(
-    groups.map((group) => [group.workspace_id, group])
+  const [conversations, setConversations] = useState<ConversationListItem[]>(
+    initialData?.conversations ?? []
   );
-
-  for (const conversation of conversationSource) {
-    if (!conversation.workspace_id) continue;
-    const group = groupByWorkspaceId.get(conversation.workspace_id);
-    if (!group) continue;
-
-    group.conversations.push(conversation);
-    if (
-      !group.last_activity_at ||
-      new Date(conversation.updated_at).getTime() >
-        new Date(group.last_activity_at).getTime()
-    ) {
-      group.last_activity_at = conversation.updated_at;
-    }
-  }
-
-  for (const group of groups) {
-    group.conversations.sort(
-      (a, b) =>
-        new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
-    );
-  }
-
-  return groups.sort((a, b) => {
-    const aTime = a.last_activity_at ? new Date(a.last_activity_at).getTime() : 0;
-    const bTime = b.last_activity_at ? new Date(b.last_activity_at).getTime() : 0;
-    if (aTime !== bTime) return bTime - aTime;
-    return a.workspace_name.localeCompare(b.workspace_name);
-  });
-}
-
-function mapConversationRowToListItem(
-  row: ConversationRow,
-  mentorSource: MentorListItem[],
-  workspaceSource: WorkspaceListItem[]
-): ConversationListItem {
-  const mentor = row.mentor_id
-    ? mentorSource.find((entry) => entry.id === row.mentor_id) || null
-    : null;
-  const workspace = row.workspace_id
-    ? workspaceSource.find((entry) => entry.id === row.workspace_id) || null
-    : null;
-
-  return {
-    id: row.id,
-    title: row.title?.trim() || 'New chat',
-    mentor_id: row.mentor_id ?? null,
-    workspace_id: row.workspace_id ?? null,
-    updated_at: row.updated_at,
-    created_at: row.created_at,
-    mentor_name: mentor?.name || 'Orchard',
-    mentor_accent_color: mentor?.accent_color || null,
-    workspace_name: workspace?.name || null,
-    workspace_icon: workspace?.icon || null,
-    workspace_accent_color: workspace?.accent_color || null,
-  };
-}
-
-function sortConversationsByUpdatedAtDesc(
-  conversationSource: ConversationListItem[]
-): ConversationListItem[] {
-  return [...conversationSource].sort(
-    (a, b) =>
-      new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+  const [workspaceGroups, setWorkspaceGroups] = useState(() =>
+    buildWorkspaceGroups(
+      initialData?.workspaces ?? [],
+      initialData?.conversations ?? []
+    )
   );
-}
-
-export function useHomeData() {
-  const [mentors, setMentors] = useState<MentorListItem[]>([]);
-  const [workspaces, setWorkspaces] = useState<WorkspaceListItem[]>([]);
-  const [conversations, setConversations] = useState<ConversationListItem[]>([]);
-  const [workspaceGroups, setWorkspaceGroups] = useState<SidebarWorkspaceGroup[]>([]);
-  const [mentorGroups, setMentorGroups] = useState<SidebarMentorGroup[]>([]);
+  const [mentorGroups, setMentorGroups] = useState(() =>
+    buildSidebarGroups(
+      initialData?.mentors ?? [],
+      initialData?.conversations ?? []
+    )
+  );
   const [loadingLists, setLoadingLists] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
-  const conversationsRef = useRef<ConversationListItem[]>([]);
+  const mentorsRef = useRef<MentorListItem[]>(initialData?.mentors ?? []);
+  const workspacesRef = useRef<WorkspaceSummary[]>(
+    initialData?.workspaces ?? []
+  );
+  const conversationsRef = useRef<ConversationListItem[]>(
+    initialData?.conversations ?? []
+  );
 
   const loadMentors = useCallback(async (): Promise<MentorListItem[]> => {
     const response = await fetch('/api/mentors', { cache: 'no-store' });
@@ -238,7 +106,7 @@ export function useHomeData() {
     return data as MentorListItem[];
   }, []);
 
-  const loadWorkspaces = useCallback(async (): Promise<WorkspaceListItem[]> => {
+  const loadWorkspaces = useCallback(async (): Promise<WorkspaceSummary[]> => {
     const response = await fetch('/api/workspaces', { cache: 'no-store' });
     const data = await response.json();
 
@@ -251,8 +119,9 @@ export function useHomeData() {
 
   const loadConversations = useCallback(async (
     mentorSource: MentorListItem[],
-    workspaceSource: WorkspaceListItem[]
+    workspaceSource: WorkspaceSummary[]
   ) => {
+    const { supabase } = await import('@/lib/supabase');
     const { data: conversationRows, error: conversationError } = await supabase
       .from('conversations')
       .select('id, title, mentor_id, workspace_id, updated_at, created_at')
@@ -265,7 +134,7 @@ export function useHomeData() {
 
     const rows = (conversationRows || []) as ConversationRow[];
     const nextConversations: ConversationListItem[] = rows.map((row) =>
-      mapConversationRowToListItem(row, mentorSource, workspaceSource)
+      mapConversationSummary(row, mentorSource, workspaceSource)
     );
 
     conversationsRef.current = nextConversations;
@@ -283,6 +152,8 @@ export function useHomeData() {
         loadMentors(),
         loadWorkspaces(),
       ]);
+      mentorsRef.current = nextMentors;
+      workspacesRef.current = nextWorkspaces;
       setMentors(nextMentors);
       setWorkspaces(nextWorkspaces);
       await loadConversations(nextMentors, nextWorkspaces);
@@ -307,7 +178,11 @@ export function useHomeData() {
       updated_at: conversation.updatedAt ?? now,
       created_at: conversation.createdAt ?? conversation.updatedAt ?? now,
     };
-    const nextConversation = mapConversationRowToListItem(row, mentors, workspaces);
+    const nextConversation = mapConversationSummary(
+      row,
+      mentorsRef.current,
+      workspacesRef.current
+    );
     const nextConversations = sortConversationsByUpdatedAtDesc([
       nextConversation,
       ...conversationsRef.current.filter((entry) => entry.id !== nextConversation.id),
@@ -315,9 +190,11 @@ export function useHomeData() {
 
     conversationsRef.current = nextConversations;
     setConversations(nextConversations);
-    setWorkspaceGroups(buildWorkspaceGroups(workspaces, nextConversations));
-    setMentorGroups(buildSidebarGroups(mentors, nextConversations));
-  }, [mentors, workspaces]);
+    setWorkspaceGroups(
+      buildWorkspaceGroups(workspacesRef.current, nextConversations)
+    );
+    setMentorGroups(buildSidebarGroups(mentorsRef.current, nextConversations));
+  }, []);
 
   const removeSidebarConversation = useCallback((conversationId: string) => {
     const nextConversations = conversationsRef.current.filter(
@@ -329,11 +206,54 @@ export function useHomeData() {
 
     conversationsRef.current = nextConversations;
     setConversations(nextConversations);
-    setWorkspaceGroups(buildWorkspaceGroups(workspaces, nextConversations));
-    setMentorGroups(buildSidebarGroups(mentors, nextConversations));
-  }, [mentors, workspaces]);
+    setWorkspaceGroups(
+      buildWorkspaceGroups(workspacesRef.current, nextConversations)
+    );
+    setMentorGroups(buildSidebarGroups(mentorsRef.current, nextConversations));
+  }, []);
+
+  const upsertWorkspaceSummary = useCallback((workspace: WorkspaceSummary) => {
+    const nextWorkspaces = [
+      workspace,
+      ...workspacesRef.current.filter((entry) => entry.id !== workspace.id),
+    ];
+    const nextConversations = conversationsRef.current.map((conversation) =>
+      conversation.workspace_id === workspace.id
+        ? {
+            ...conversation,
+            workspace_name: workspace.name,
+            workspace_icon: workspace.icon,
+            workspace_accent_color: workspace.accent_color,
+          }
+        : conversation
+    );
+
+    workspacesRef.current = nextWorkspaces;
+    conversationsRef.current = nextConversations;
+    setWorkspaces(nextWorkspaces);
+    setConversations(nextConversations);
+    setWorkspaceGroups(buildWorkspaceGroups(nextWorkspaces, nextConversations));
+    setMentorGroups(buildSidebarGroups(mentorsRef.current, nextConversations));
+  }, []);
+
+  const removeWorkspaceSummary = useCallback((workspaceId: string) => {
+    const nextWorkspaces = workspacesRef.current.filter(
+      (entry) => entry.id !== workspaceId
+    );
+    const nextConversations = conversationsRef.current.filter(
+      (conversation) => conversation.workspace_id !== workspaceId
+    );
+
+    workspacesRef.current = nextWorkspaces;
+    conversationsRef.current = nextConversations;
+    setWorkspaces(nextWorkspaces);
+    setConversations(nextConversations);
+    setWorkspaceGroups(buildWorkspaceGroups(nextWorkspaces, nextConversations));
+    setMentorGroups(buildSidebarGroups(mentorsRef.current, nextConversations));
+  }, []);
 
   const loadConversationMessages = useCallback(async (nextConversationId: string) => {
+    const { supabase } = await import('@/lib/supabase');
     const messagesRequest = supabase
       .from('messages')
       .select('id, role, content, created_at, search_metadata, previous_message_id')
@@ -476,6 +396,7 @@ export function useHomeData() {
   }, []);
 
   const loadConversationById = useCallback(async (nextConversationId: string) => {
+    const { supabase } = await import('@/lib/supabase');
     const { data, error } = await supabase
       .from('conversations')
       .select('id, title, mentor_id, workspace_id, updated_at, created_at')
@@ -488,8 +409,12 @@ export function useHomeData() {
       throw new Error(error?.message || 'Conversation not found');
     }
 
-    return mapConversationRowToListItem(row, mentors, workspaces);
-  }, [mentors, workspaces]);
+    return mapConversationSummary(
+      row,
+      mentorsRef.current,
+      workspacesRef.current
+    );
+  }, []);
 
   return {
     mentors,
@@ -503,6 +428,8 @@ export function useHomeData() {
     refreshSidebarData,
     upsertSidebarConversation,
     removeSidebarConversation,
+    upsertWorkspaceSummary,
+    removeWorkspaceSummary,
     loadConversationById,
     loadConversationMessages,
   };

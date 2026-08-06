@@ -11,6 +11,8 @@ const CONFIGURED_SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const CONFIGURED_SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const USE_SUPABASE_AUTH_FIXTURE = !EXTERNAL_WEB_SERVER && !AUTH_STORAGE_STATE;
 const CHROMIUM_EXECUTABLE_PATH = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
+const USE_SERVER_DATA = process.env.PLAYWRIGHT_E2E_SERVER_DATA === '1';
+const USE_PRODUCTION_SERVER = process.env.PLAYWRIGHT_PRODUCTION_SERVER === '1';
 
 if (EXTERNAL_WEB_SERVER && !AUTH_STORAGE_STATE) {
   throw new Error(
@@ -73,14 +75,16 @@ module.exports = defineConfig({
         }]
         : []),
       {
-        command: `npm run dev -- --hostname ${HOST} --port ${PORT}`,
+        command: `npm run ${USE_PRODUCTION_SERVER ? 'start' : 'dev'} -- --hostname ${HOST} --port ${PORT}`,
         url: `${BASE_URL}/home?e2e=playwright-ready`,
         reuseExistingServer: !process.env.CI,
         timeout: 120000,
         env: {
           ...process.env,
-          KEEN_E2E_BYPASS_AUTH: '1',
-          NEXT_DIST_DIR: process.env.NEXT_DIST_DIR || `.next-playwright-${PORT}`,
+          KEEN_E2E_BYPASS_AUTH: USE_SERVER_DATA ? '0' : '1',
+          NEXT_DIST_DIR:
+            process.env.NEXT_DIST_DIR
+            || (USE_PRODUCTION_SERVER ? '.next' : `.next-playwright-${PORT}`),
           NEXT_TS_CONFIG_PATH: process.env.NEXT_TS_CONFIG_PATH || 'tsconfig.playwright.json',
           NEXT_PUBLIC_SUPABASE_URL:
             CONFIGURED_SUPABASE_URL || SUPABASE_AUTH_FIXTURE_URL,

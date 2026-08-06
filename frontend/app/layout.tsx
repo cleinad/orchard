@@ -1,8 +1,6 @@
 import type { Metadata } from "next";
 import { Newsreader } from "next/font/google";
 import BodyFontSync from "@/app/components/BodyFontSync";
-import { ChatRunCoordinator } from "@/app/components/ChatRunCoordinator";
-import { SidePanelProvider } from "@/app/home/components/SidePanelContext";
 import {
   BODY_FONT_STACK,
   BODY_FONT_STORAGE_KEY,
@@ -56,9 +54,7 @@ export default function RootLayout({
           }}
         />
         <BodyFontSync />
-        <ChatRunCoordinator>
-          <SidePanelProvider>{children}</SidePanelProvider>
-        </ChatRunCoordinator>
+        {children}
       </body>
     </html>
   );

@@ -1,11 +1,25 @@
 'use client';
 
-import { useEffect, useState, type ReactNode } from 'react';
+import {
+  useEffect,
+  useState,
+  useTransition,
+  type ReactNode,
+} from 'react';
 import { useRouter } from 'next/navigation';
-import { useViewerIdentity } from '@/app/components/useViewerIdentity';
+import { useOptionalViewer } from '@/app/components/ViewerContext';
+import {
+  saveGlobalInstructions,
+  signOut,
+} from '@/app/settings/actions';
+import type {
+  SettingsViewer,
+  SettingsViewerResult,
+} from '@/app/settings/types';
 import {
   BODY_FONT_OPTIONS,
   BODY_FONT_STORAGE_KEY,
+  DEFAULT_BODY_FONT_ID,
   type BodyFontId,
   applyBodyFont,
   persistBodyFont,
@@ -15,50 +29,25 @@ import {
   MAX_GLOBAL_INSTRUCTIONS_CHARS,
   sanitizeGlobalInstructions,
 } from '@/lib/global-instructions';
-import { supabase } from '@/lib/supabase';
 
-export default function SettingsPage() {
-  const router = useRouter();
-  const { viewer, loading } = useViewerIdentity();
-  const [signingOut, setSigningOut] = useState(false);
-  const [signOutError, setSignOutError] = useState<string | null>(null);
-
-  if (loading) {
-    return (
-      <div className="flex min-h-[50vh] items-center justify-center font-sans">
-        <div className="h-6 w-6 animate-spin rounded-full border-2 border-muted/20 border-t-muted" />
-      </div>
-    );
+export default function SettingsClient({
+  viewerResult,
+}: {
+  viewerResult?: SettingsViewerResult;
+}) {
+  const viewerContext = useOptionalViewer();
+  const currentViewerResult = viewerContext?.viewerResult ?? viewerResult;
+  if (!currentViewerResult) {
+    throw new Error('SettingsClient requires ViewerProvider or viewerResult');
   }
-
-  if (!viewer) {
-    return (
-      <div className="py-10 font-sans text-sm text-muted">
-        Unable to load your account details.
-      </div>
-    );
-  }
-
-  const displayName = viewer.fullName || 'Add your name';
+  const viewer = currentViewerResult.viewer;
+  const displayName =
+    currentViewerResult.status === 'ready'
+      ? currentViewerResult.viewer.fullName || 'Add your name'
+      : 'Profile unavailable';
   const email = viewer.email || 'No email available';
 
-  async function handleSignOut() {
-    setSigningOut(true);
-    setSignOutError(null);
-
-    const { error } = await supabase.auth.signOut();
-
-    if (error) {
-      setSignOutError(error.message);
-      setSigningOut(false);
-      return;
-    }
-
-    router.replace('/login');
-  }
-
   return (
-    // Body: fixed sans (Satoshi). Section titles use `font-heading` (Newsreader); page title is in `settings/layout`.
     <div className="mx-auto w-full max-w-2xl space-y-8 font-sans">
       <p className="text-sm text-muted">
         Account details and preferences that apply across Orchard. Theme is in
@@ -83,26 +72,15 @@ export default function SettingsPage() {
       </SettingsGroup>
 
       <SettingsGroup title="Instructions" id="instructions">
-        <GlobalInstructionsEditor
-          userId={viewer.id}
-          initialValue={viewer.globalInstructions}
-        />
+        {currentViewerResult.status === 'ready' ? (
+          <GlobalInstructionsEditor viewer={currentViewerResult.viewer} />
+        ) : (
+          <ProfileRecovery status={currentViewerResult.status} />
+        )}
       </SettingsGroup>
 
       <SettingsGroup title="Data & session" id="session">
-        <SettingsRow
-          label="Sign out"
-          action={
-            <ActionButton onClick={handleSignOut} disabled={signingOut}>
-              {signingOut ? 'Signing out…' : 'Sign out'}
-            </ActionButton>
-          }
-        />
-        {signOutError ? (
-          <p className="px-4 py-3 text-sm text-red-500 dark:text-red-400">
-            {signOutError}
-          </p>
-        ) : null}
+        <SignOutRow />
       </SettingsGroup>
     </div>
   );
@@ -125,7 +103,6 @@ function SettingsGroup({
       >
         {title}
       </h2>
-      {/* Single bordered panel per group: compact list-style rows */}
       <div className="mt-3 divide-y divide-border-subtle overflow-hidden rounded-xl border border-border-subtle bg-surface/60">
         {children}
       </div>
@@ -140,12 +117,10 @@ function SettingsRow({
   action,
 }: {
   label: string;
-  /** Empty string omitted from UI unless paired with action-only layouts */
   value?: string;
   hint?: string;
   action?: ReactNode;
 }) {
-  // Omit empty value columns for action-only rows such as Sign out.
   const showValue = value !== undefined && value !== '';
 
   return (
@@ -169,15 +144,10 @@ function SettingsRow({
   );
 }
 
-function GlobalInstructionsEditor({
-  userId,
-  initialValue,
-}: {
-  userId: string;
-  initialValue: string;
-}) {
-  const [savedValue, setSavedValue] = useState(initialValue);
-  const [draftValue, setDraftValue] = useState(initialValue);
+function GlobalInstructionsEditor({ viewer }: { viewer: SettingsViewer }) {
+  const viewerContext = useOptionalViewer();
+  const [savedValue, setSavedValue] = useState(viewer.globalInstructions);
+  const [draftValue, setDraftValue] = useState(viewer.globalInstructions);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savedConfirmation, setSavedConfirmation] = useState(false);
@@ -201,27 +171,22 @@ function GlobalInstructionsEditor({
     setSaveError(null);
     setSavedConfirmation(false);
 
-    const { data, error } = await supabase
-      .from('profiles')
-      .update({ global_instructions: normalized })
-      .eq('id', userId)
-      .select('global_instructions')
-      .single();
+    try {
+      const result = await saveGlobalInstructions(normalized);
+      if (result.status === 'error') {
+        setSaveError('Could not save your instructions. Please try again.');
+        return;
+      }
 
-    if (error) {
-      console.error('Failed to save global instructions:', error);
+      setSavedValue(result.value);
+      setDraftValue(result.value);
+      viewerContext?.updateGlobalInstructions(result.value);
+      setSavedConfirmation(true);
+    } catch {
       setSaveError('Could not save your instructions. Please try again.');
+    } finally {
       setSaving(false);
-      return;
     }
-
-    const persistedValue = sanitizeGlobalInstructions(
-      data?.global_instructions ?? normalized
-    );
-    setSavedValue(persistedValue);
-    setDraftValue(persistedValue);
-    setSavedConfirmation(true);
-    setSaving(false);
   }
 
   return (
@@ -268,14 +233,12 @@ function GlobalInstructionsEditor({
           >
             {saveError || (savedConfirmation ? 'Saved' : '')}
           </span>
-          <button
-            type="button"
+          <ActionButton
             onClick={handleDiscard}
             disabled={!isDirty || saving}
-            className="inline-flex min-h-9 cursor-pointer items-center justify-center rounded-full border border-border-subtle px-4 py-2 text-xs font-semibold text-foreground transition-colors hover:border-foreground/[0.12] hover:bg-foreground/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/10 disabled:cursor-not-allowed disabled:opacity-50"
           >
             Discard
-          </button>
+          </ActionButton>
           <button
             type="button"
             onClick={handleSave}
@@ -287,6 +250,75 @@ function GlobalInstructionsEditor({
         </div>
       </div>
     </div>
+  );
+}
+
+function ProfileRecovery({
+  status,
+}: {
+  status: Exclude<SettingsViewerResult['status'], 'ready'>;
+}) {
+  const router = useRouter();
+  const [retrying, startRetry] = useTransition();
+  const message =
+    status === 'profile-missing'
+      ? 'Your account profile is missing. Retry after the account is repaired.'
+      : 'Your profile could not be loaded. The rest of settings remains available.';
+
+  return (
+    <div className="px-4 py-4">
+      <p className="text-sm text-foreground">{message}</p>
+      <p className="mt-1 text-sm text-muted">
+        Global instructions are unavailable until the profile loads.
+      </p>
+      <ActionButton
+        onClick={() => startRetry(() => router.refresh())}
+        disabled={retrying}
+      >
+        {retrying ? 'Retrying…' : 'Retry'}
+      </ActionButton>
+    </div>
+  );
+}
+
+function SignOutRow() {
+  const [signingOut, setSigningOut] = useState(false);
+  const [signOutError, setSignOutError] = useState<string | null>(null);
+
+  async function handleSignOut() {
+    setSigningOut(true);
+    setSignOutError(null);
+
+    try {
+      const result = await signOut();
+      if (result.status !== 'error') return;
+      setSignOutError('Could not sign out. Please try again.');
+    } catch {
+      setSignOutError('Could not sign out. Please try again.');
+    } finally {
+      setSigningOut(false);
+    }
+  }
+
+  return (
+    <>
+      <SettingsRow
+        label="Sign out"
+        action={
+          <ActionButton onClick={handleSignOut} disabled={signingOut}>
+            {signingOut ? 'Signing out…' : 'Sign out'}
+          </ActionButton>
+        }
+      />
+      {signOutError ? (
+        <p
+          className="px-4 py-3 text-sm text-red-500 dark:text-red-400"
+          role="alert"
+        >
+          {signOutError}
+        </p>
+      ) : null}
+    </>
   );
 }
 
@@ -304,7 +336,7 @@ function ActionButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="inline-flex cursor-pointer items-center rounded-full border border-border-subtle px-3 py-1.5 text-xs font-semibold text-foreground transition-colors hover:border-foreground/[0.12] hover:bg-foreground/[0.04] disabled:cursor-not-allowed disabled:opacity-60"
+      className="inline-flex min-h-9 cursor-pointer items-center justify-center rounded-full border border-border-subtle px-4 py-2 text-xs font-semibold text-foreground transition-colors hover:border-foreground/[0.12] hover:bg-foreground/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/10 disabled:cursor-not-allowed disabled:opacity-50"
     >
       {children}
     </button>
@@ -312,7 +344,7 @@ function ActionButton({
 }
 
 function BodyFontSelect() {
-  const [fontId, setFontId] = useState<BodyFontId | null>(null);
+  const [fontId, setFontId] = useState<BodyFontId>(DEFAULT_BODY_FONT_ID);
 
   useEffect(() => {
     setFontId(resolveBodyFontId(localStorage.getItem(BODY_FONT_STORAGE_KEY)));
@@ -323,14 +355,6 @@ function BodyFontSelect() {
     persistBodyFont(next);
     applyBodyFont(next);
     setFontId(next);
-  }
-
-  if (fontId === null) {
-    return (
-      <span className="text-sm text-muted/70" aria-hidden>
-        …
-      </span>
-    );
   }
 
   return (
