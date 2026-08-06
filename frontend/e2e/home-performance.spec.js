@@ -1068,7 +1068,7 @@ test.describe('home production performance baseline', () => {
     expect(fixtureAfterReturn.counters).toEqual(fixtureBeforeReturn.counters);
   });
 
-  test('completed send records the current duplicate reconciliation request graph', async ({
+  test('completed linear send performs no success-path reconciliation reads', async ({
     page,
   }, testInfo) => {
     const conversation = createConversation('home-send', 'Send baseline');
@@ -1089,11 +1089,11 @@ test.describe('home production performance baseline', () => {
         [conversation.id]: messages,
       },
     });
-    await mockChatRoute(page, async () => ({
+    await mockChatRoute(page, async (body) => ({
       message: 'Completed baseline response',
       conversationId: conversation.id,
-      userMessageId: 'home-send-user',
-      assistantMessageId: 'home-send-assistant',
+      userMessageId: body.run.userMessageId,
+      assistantMessageId: body.run.assistantMessageId,
     }));
     const browserDataRequests = recordBrowserDataRequests(page);
 
@@ -1106,29 +1106,129 @@ test.describe('home production performance baseline', () => {
     await expect(page.getByText('Completed baseline response')).toBeVisible();
     await page.waitForTimeout(750);
 
-    console.log(
-      `home-completed-send-requests ${JSON.stringify(browserDataRequests)}`
+    expect(browserDataRequests).toEqual(['POST /api/chat']);
+  });
+
+  test('first persistent send promotes locally without reconciliation reads', async ({
+    page,
+  }, testInfo) => {
+    const userId = `home-first-send-${testInfo.workerIndex}`;
+    await page.context().addCookies([
+      await createAuthenticatedCookie({ userId }),
+    ]);
+    await mockHomeDataRoutes(page, {});
+    let promotedConversationId = null;
+    await mockChatRoute(page, async (body) => {
+      promotedConversationId = body.run.target.conversationId;
+      return {
+        message: 'First persistent response',
+        conversationId: promotedConversationId,
+        conversationTitle: 'Create a lightweight plan',
+        userMessageId: body.run.userMessageId,
+        assistantMessageId: body.run.assistantMessageId,
+      };
+    });
+    const browserDataRequests = recordBrowserDataRequests(page);
+
+    await page.goto('/home');
+    browserDataRequests.length = 0;
+    const composer = page.getByLabel('Message composer');
+    await composer.fill('Create a lightweight plan');
+    await composer.press('Enter');
+    await expect(page.getByText('First persistent response')).toBeVisible();
+    await expect.poll(() => promotedConversationId).not.toBeNull();
+    await expect(page).toHaveURL(
+      new RegExp(`/home/${promotedConversationId}$`)
     );
+    const sidePanel = await ensureConversationsOpen(page);
+    await expect(
+      sidePanel.getByRole('button', { name: /Create a lightweight plan/ })
+    ).toHaveCount(1);
+    await page.waitForTimeout(750);
+
+    expect(browserDataRequests).toEqual(['POST /api/chat']);
+  });
+
+  test('completed branch creation performs one focused transcript reconciliation', async ({
+    page,
+  }, testInfo) => {
+    const conversation = createConversation('home-branch-send', 'Branch send');
+    const messages = createMessages(conversation.id);
+    const userId = `home-branch-send-${testInfo.workerIndex}`;
+    await page.context().addCookies([
+      await createAuthenticatedCookie({
+        userId,
+        conversations: [conversation],
+        messagesByConversationId: {
+          [conversation.id]: messages,
+        },
+      }),
+    ]);
+    const state = await mockHomeDataRoutes(page, {
+      conversations: [conversation],
+      messagesByConversationId: {
+        [conversation.id]: [...messages],
+      },
+    });
+    await mockChatRoute(page, async (body) => {
+      const createdAt = new Date().toISOString();
+      state.messagesByConversationId[conversation.id] = [
+        ...state.messagesByConversationId[conversation.id],
+        {
+          id: body.run.userMessageId,
+          role: 'user',
+          content: body.message,
+          created_at: createdAt,
+          previous_message_id: messages[1].id,
+        },
+        {
+          id: body.run.assistantMessageId,
+          role: 'assistant',
+          content: 'Focused branch response',
+          created_at: createdAt,
+          previous_message_id: body.run.userMessageId,
+        },
+      ];
+      state.branchesByConversationId[conversation.id] = [
+        {
+          id: body.run.newBranchId,
+          source_message_id: messages[1].id,
+          entry_message_id: body.run.userMessageId,
+          title: 'Focused branch',
+          is_main: false,
+          position: 1,
+        },
+      ];
+      return {
+        message: 'Focused branch response',
+        conversationId: conversation.id,
+        conversationTitle: conversation.title,
+        userMessageId: body.run.userMessageId,
+        assistantMessageId: body.run.assistantMessageId,
+      };
+    });
+    const browserDataRequests = recordBrowserDataRequests(page);
+
+    await page.goto(`/home/${conversation.id}`);
+    await expect(page.getByText(messages[1].content)).toBeVisible();
+    browserDataRequests.length = 0;
+    await page.getByRole('button', { name: 'Branch', exact: true }).click();
+    const composer = page.getByLabel('Message composer');
+    await composer.fill('Create one alternate path.');
+    await composer.press('Enter');
+    await expect(page.getByText('Focused branch response')).toBeVisible();
+    await page.waitForTimeout(750);
+
     expect(browserDataRequests.sort()).toEqual([
-      'GET /api/mentors',
-      'GET /api/mentors',
-      'GET /api/workspaces',
-      'GET /api/workspaces',
       'GET /rest/v1/conversation_branches',
-      'GET /rest/v1/conversation_branches',
-      'GET /rest/v1/conversations',
-      'GET /rest/v1/conversations',
-      'GET /rest/v1/message_attachments',
       'GET /rest/v1/message_attachments',
       'GET /rest/v1/messages',
-      'GET /rest/v1/messages',
-      'GET /rest/v1/threads',
       'GET /rest/v1/threads',
       'POST /api/chat',
     ]);
   });
 
-  test('conversation move records the current broad navigation refresh', async ({
+  test('conversation move applies the returned summary without navigation reads', async ({
     page,
   }, testInfo) => {
     const source = createWorkspace('home-move-source', 'Source');
@@ -1179,10 +1279,72 @@ test.describe('home production performance baseline', () => {
     ).toBeVisible();
     await page.waitForTimeout(250);
 
-    expect(browserDataRequests.sort()).toEqual([
-      'GET /api/mentors',
-      'GET /api/workspaces',
-      'GET /rest/v1/conversations',
+    expect(browserDataRequests).toEqual([
+      `PATCH /api/conversations/${conversation.id}/context`,
+    ]);
+  });
+
+  test('failed conversation move leaves local placement unchanged', async ({
+    page,
+  }, testInfo) => {
+    const source = createWorkspace('home-move-failure-source', 'Source');
+    const target = createWorkspace('home-move-failure-target', 'Target');
+    const conversation = {
+      ...createConversation('home-move-failure-conversation', 'Stay in source'),
+      workspace_id: source.id,
+    };
+    const messages = createMessages(conversation.id);
+    const userId = `home-move-failure-${testInfo.workerIndex}`;
+    await page.context().addCookies([
+      await createAuthenticatedCookie({
+        userId,
+        workspaces: [source, target],
+        conversations: [conversation],
+        messagesByConversationId: {
+          [conversation.id]: messages,
+        },
+      }),
+    ]);
+    await mockHomeDataRoutes(page, {
+      workspaces: [source, target],
+      conversations: [conversation],
+      messagesByConversationId: {
+        [conversation.id]: messages,
+      },
+    });
+    await page.route('**/api/conversations/*/context', async (route) => {
+      await route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'Injected move failure' }),
+      });
+    });
+    const browserDataRequests = recordBrowserDataRequests(page);
+
+    await page.goto(`/home/${conversation.id}`);
+    const sidePanel = await ensureConversationsOpen(page);
+    if (
+      (await sidePanel
+        .getByRole('button', { name: `Expand ${source.name}` })
+        .count()) > 0
+    ) {
+      await sidePanel
+        .getByRole('button', { name: `Expand ${source.name}` })
+        .click();
+    }
+    browserDataRequests.length = 0;
+    await sidePanel
+      .getByTestId(`conversation-row-${conversation.id}`)
+      .dragTo(sidePanel.getByTestId(`workspace-drop-target-${target.id}`));
+
+    await expect(sidePanel.getByText('Injected move failure')).toBeVisible();
+    await expect(
+      sidePanel.getByTestId(`conversation-row-${conversation.id}`)
+    ).toBeVisible();
+    await expect(
+      sidePanel.getByRole('button', { name: `Expand ${target.name}` })
+    ).toBeVisible();
+    expect(browserDataRequests).toEqual([
       `PATCH /api/conversations/${conversation.id}/context`,
     ]);
   });

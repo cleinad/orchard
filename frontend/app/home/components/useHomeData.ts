@@ -289,6 +289,14 @@ export function useHomeData(
     setMentorGroups(buildSidebarGroups(mentorsRef.current, nextConversations));
   }, []);
 
+  const getSidebarConversation = useCallback(
+    (conversationId: string) =>
+      conversationsRef.current.find(
+        (conversation) => conversation.id === conversationId
+      ) ?? null,
+    []
+  );
+
   const removeSidebarConversation = useCallback((conversationId: string) => {
     const nextConversations = conversationsRef.current.filter(
       (entry) => entry.id !== conversationId
@@ -425,6 +433,7 @@ export function useHomeData(
     navigationStatus,
     setListError,
     refreshSidebarData,
+    getSidebarConversation,
     upsertSidebarConversation,
     removeSidebarConversation,
     upsertWorkspaceSummary,

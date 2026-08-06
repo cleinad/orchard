@@ -192,7 +192,7 @@ function HomeShell({ children }: { children: ReactNode }) {
     handleCreateDraftSelection,
     handleCreateTemporaryChat,
     handleCloseTemporaryChat,
-    refreshSidebarData,
+    upsertSidebarConversation,
     upsertWorkspaceSummary,
     buildHomeHref,
     prefetchPersistentConversation,
@@ -305,22 +305,28 @@ function HomeShell({ children }: { children: ReactNode }) {
       throw new Error(payload.error || 'Could not move chat.');
     }
 
+    const movedConversation = payload.conversation;
+    if (!movedConversation || movedConversation.id !== conversation.id) {
+      throw new Error('Could not move chat.');
+    }
     const nextWorkspaceId =
-      typeof payload.conversation?.workspaceId === 'string'
-        ? payload.conversation.workspaceId
+      typeof movedConversation.workspaceId === 'string'
+        ? movedConversation.workspaceId
         : null;
 
     setSelectedChat((current) =>
       current?.kind === 'persistent' && current.conversationId === conversation.id
         ? {
             ...current,
-            mentorId: null,
+            mentorId:
+              typeof movedConversation.mentorId === 'string'
+                ? movedConversation.mentorId
+                : null,
             workspaceId: nextWorkspaceId,
           }
         : current
     );
-
-    await refreshSidebarData();
+    upsertSidebarConversation(movedConversation);
   };
 
   return (

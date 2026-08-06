@@ -38,6 +38,7 @@ import type { ConversationMetadataStatus } from '@/app/home/components/conversat
 import type {
   BranchSelectionMap,
   ConversationBranch,
+  ConversationListItem,
   Message,
 } from '@/app/home/types';
 import type { SearchMetadata, SearchMode } from '@/lib/chat-search';
@@ -76,6 +77,7 @@ export interface ChatResponse {
   message?: string;
   conversationId?: string;
   conversationTitle?: string | null;
+  conversationTitleSource?: 'fallback' | 'generated' | 'user' | null;
   mentorId?: string | null;
   workspaceId?: string | null;
   threadId?: string | null;
@@ -260,6 +262,82 @@ export function mergeReloadedBranchSelections(params: {
   return mergedSelections;
 }
 
+export function shouldReloadCompletedPersistentRun(
+  run: ChatRunSnapshot,
+  transcript: PersistentConversationTranscript | null
+) {
+  if (run.target.kind === 'branch') {
+    return true;
+  }
+  if (!transcript) {
+    return true;
+  }
+
+  const messageIds = new Set(transcript.messages.map((message) => message.id));
+  return (
+    !messageIds.has(run.userMessageId)
+    || !messageIds.has(run.assistantMessageId)
+  );
+}
+
+export function applyCompletedPersistentRun(
+  transcript: PersistentConversationTranscript,
+  run: ChatRunSnapshot
+) {
+  const existingAssistant = transcript.messages.find(
+    (message) => message.id === run.assistantMessageId
+  );
+  const assistant: Message = {
+    id: run.assistantMessageId,
+    renderId: existingAssistant?.renderId ?? run.assistantMessageId,
+    role: 'assistant',
+    content: run.response ?? existingAssistant?.content ?? '',
+    timestamp: existingAssistant?.timestamp ?? new Date(run.updatedAt),
+    previousMessageId: run.userMessageId,
+    isStreaming: false,
+    isError: false,
+    searchMetadata:
+      run.search?.metadata ?? existingAssistant?.searchMetadata ?? null,
+    searchActivity:
+      run.searchActivity ?? existingAssistant?.searchActivity ?? null,
+  };
+
+  return {
+    ...transcript,
+    messages: existingAssistant
+      ? transcript.messages.map((message) =>
+          message.id === run.assistantMessageId ? assistant : message
+        )
+      : [...transcript.messages, assistant],
+  };
+}
+
+export function mergeCompletedPersistentRunReload(params: {
+  loaded: LoadedConversationMessages;
+  current: PersistentConversationTranscript;
+  baseline: PersistentConversationTranscript | null;
+  branchSourceMessageId: string | null;
+  pendingBranchSelectionId: string | null;
+}) {
+  const merged = mergeReloadedPersistentConversationTranscript({
+    loaded: normalizePersistentConversationTranscript(params.loaded),
+    current: params.current,
+    baseline: params.baseline,
+  });
+  const selectedBranchIds = mergeReloadedBranchSelections({
+    loadedSelectedBranchIds: params.loaded.selectedBranchIds,
+    latestSelectedBranchIds: params.current.selectedBranchIds,
+    loadedBranches: merged.branches,
+    branchSourceMessageId: params.branchSourceMessageId,
+    pendingBranchSelectionId: params.pendingBranchSelectionId,
+  });
+
+  return {
+    ...merged,
+    selectedBranchIds,
+  };
+}
+
 function scheduleDeferredRenderWork(callback: () => void) {
   const run = () => {
     startTransition(callback);
@@ -295,7 +373,12 @@ interface MainChatRuntimeParams {
   getOrCreateDraft: (mentorId: string | null, workspaceId?: string | null) => PersistentDraftChat;
   hydratedRouteConversationId: string | null;
   hydratedRouteConversationIdRef: MutableRefObject<string | null>;
-  isHomeE2eFixture: boolean;
+  getPersistentConversationTranscript: (
+    conversationId: string
+  ) => PersistentConversationTranscript | null;
+  getSidebarConversation: (
+    conversationId: string
+  ) => ConversationListItem | null;
   loadConversationMessages: (id: string) => Promise<LoadedConversationMessages>;
   movePendingChatRequestBetweenSelections: (
     fromSelection: SelectedChat,
@@ -314,7 +397,6 @@ interface MainChatRuntimeParams {
   persistentBranches: ConversationBranch[];
   persistentMessages: Message[];
   persistentSelectedBranchIds: BranchSelectionMap;
-  refreshSidebarData: () => Promise<void>;
   upsertSidebarConversation: (conversation: {
     id: string;
     title?: string | null;
@@ -393,6 +475,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
   const chatRunCoordinator = useOptionalChatRunCoordinator();
   const paramsRef = useRef(params);
   const appliedRunVersionsRef = useRef(new Set<string>());
+  const terminalReconciliationClaimsRef = useRef(new Set<string>());
 
   useEffect(() => {
     paramsRef.current = params;
@@ -405,6 +488,43 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
       appliedRunVersionsRef.current.clear();
     }
   }, [params.hydratedRouteConversationId]);
+
+  const reloadCompletedPersistentRun = useCallback((
+    runId: string,
+    conversationId: string,
+    branchSourceMessageId: string | null,
+    pendingBranchSelectionId: string | null,
+    baseline: PersistentConversationTranscript | null,
+    current: MainChatRuntimeParams
+  ) => {
+    if (terminalReconciliationClaimsRef.current.has(runId)) {
+      return;
+    }
+    terminalReconciliationClaimsRef.current.add(runId);
+
+    void current.loadConversationMessages(conversationId)
+      .then((loaded) => {
+        current.updatePersistentConversationTranscript(
+          conversationId,
+          (transcript) =>
+            mergeCompletedPersistentRunReload({
+              loaded,
+              current: transcript,
+              baseline,
+              branchSourceMessageId,
+              pendingBranchSelectionId,
+            })
+        );
+      })
+      .catch(() => {
+        console.warn('[home-data]', {
+          routeClass: 'transcript',
+          resource: 'run-reconciliation',
+          status: 'unavailable',
+          reason: 'error',
+        });
+      });
+  }, []);
 
   useEffect(() => {
     if (!chatRunCoordinator) return;
@@ -536,38 +656,24 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
       }
 
       if (run.status === 'completed') {
-        void current.loadConversationMessages(chatId).then((loaded) => {
-          current.updatePersistentConversationTranscript(chatId, (transcript) => {
-            const loadedTranscript =
-              normalizePersistentConversationTranscript(loaded);
-            const currentForMerge = {
-              ...transcript,
-              messages: transcript.messages.filter(
-                (message) => message.id !== run.assistantMessageId || !message.isStreaming
-              ),
-            };
-            const selectedBranchIds = mergeReloadedBranchSelections({
-              loadedSelectedBranchIds: loaded.selectedBranchIds,
-              latestSelectedBranchIds: transcript.selectedBranchIds,
-              loadedBranches: loaded.branches,
-              branchSourceMessageId: run.target.branchSourceMessageId,
-              pendingBranchSelectionId: run.target.branchId,
-            });
-            return mergeReloadedPersistentConversationTranscript({
-              loaded: loadedTranscript,
-              current: currentForMerge,
-              selectedBranchIds,
-            });
-          });
-          void current.refreshSidebarData();
-        }).catch(() => {
-          console.warn('[home-data]', {
-            routeClass: 'transcript',
-            resource: 'run-reconciliation',
-            status: 'unavailable',
-            reason: 'error',
-          });
-        });
+        const transcript =
+          current.getPersistentConversationTranscript(chatId);
+        const needsReload = shouldReloadCompletedPersistentRun(run, transcript);
+        current.updatePersistentConversationTranscript(
+          chatId,
+          (currentTranscript) =>
+            applyCompletedPersistentRun(currentTranscript, run)
+        );
+        if (needsReload) {
+          reloadCompletedPersistentRun(
+            run.runId,
+            chatId,
+            run.target.branchSourceMessageId,
+            run.target.branchId,
+            transcript,
+            current
+          );
+        }
         return;
       }
 
@@ -601,6 +707,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
     chatRunCoordinator,
     params.hydratedRouteConversationId,
     params.selectedChat,
+    reloadCompletedPersistentRun,
   ]);
 
   return useCallback(async (
@@ -1400,6 +1507,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
           message: run.response ?? undefined,
           conversationId: run.target.conversationId ?? undefined,
           conversationTitle: run.title.value,
+          conversationTitleSource: run.title.source,
           userMessageId: run.userMessageId,
           assistantMessageId: run.assistantMessageId,
           threadId: run.createdThreadId,
@@ -1566,48 +1674,38 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
         }));
       } else if (effectiveSelection.kind === 'persistent') {
         const persistentSelection = effectiveSelection;
-        scheduleDeferredRenderWork(() => {
-          void (async () => {
-            try {
-              const loadedConversation = await params.loadConversationMessages(
-                persistentSelection.conversationId
-              );
-
-              params.updatePersistentConversationTranscript(
-                persistentSelection.conversationId,
-                (transcript) => {
-                  const loadedTranscript =
-                    normalizePersistentConversationTranscript(
-                      loadedConversation
-                    );
-                  const mergedSelections = mergeReloadedBranchSelections({
-                    loadedSelectedBranchIds: loadedConversation.selectedBranchIds,
-                    latestSelectedBranchIds: transcript.selectedBranchIds,
-                    loadedBranches: loadedConversation.branches,
-                    branchSourceMessageId,
-                    pendingBranchSelectionId,
-                  });
-
-                  return mergeReloadedPersistentConversationTranscript({
-                    loaded: loadedTranscript,
-                    current: transcript,
-                    selectedBranchIds: mergedSelections,
-                  });
-                }
-              );
-            } catch (error) {
-              if (isSameSelectedChat(params.selectedChatRef.current, persistentSelection)) {
-                params.setListError(
-                  error instanceof Error ? error.message : 'Failed to reload conversation'
-                );
-              }
-            } finally {
-              if (!params.isHomeE2eFixture) {
-                void params.refreshSidebarData();
-              }
-            }
-          })();
-        });
+        const existingConversation = params.getSidebarConversation(
+          persistentSelection.conversationId
+        );
+        if (existingConversation) {
+          params.upsertSidebarConversation({
+            id: existingConversation.id,
+            title:
+              data.conversationTitleSource === 'generated'
+                ? data.conversationTitle
+                : existingConversation.title,
+            mentorId: existingConversation.mentor_id,
+            workspaceId: existingConversation.workspace_id,
+            createdAt: existingConversation.created_at,
+            updatedAt: nextUpdatedAt,
+          });
+        }
+        if (branchSourceMessageId) {
+          const reconciliationBaseline =
+            params.getPersistentConversationTranscript(
+              persistentSelection.conversationId
+            );
+          scheduleDeferredRenderWork(() => {
+            reloadCompletedPersistentRun(
+              runIdentifiers.runId,
+              persistentSelection.conversationId,
+              branchSourceMessageId,
+              pendingBranchSelectionId,
+              reconciliationBaseline,
+              params
+            );
+          });
+        }
       }
 
       attachSearchMetadata(
@@ -1697,5 +1795,5 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
       cancelVisiblePublication();
       params.clearPendingChatRequestForSelection(effectiveSelection);
     }
-  }, [chatRunCoordinator]);
+  }, [chatRunCoordinator, reloadCompletedPersistentRun]);
 }

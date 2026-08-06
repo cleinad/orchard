@@ -292,6 +292,9 @@ interface HomeDataContextValue {
   navigationStatus: HomeNavigationStatus;
   setListError: (err: string | null) => void;
   refreshSidebarData: () => Promise<void>;
+  getSidebarConversation: (
+    conversationId: string
+  ) => ConversationListItem | null;
   upsertSidebarConversation: (conversation: {
     id: string;
     title?: string | null;
@@ -488,6 +491,7 @@ export function HomeDataProvider({
     listError,
     setListError,
     refreshSidebarData,
+    getSidebarConversation,
     upsertSidebarConversation,
     removeSidebarConversation,
     upsertWorkspaceSummary,
@@ -792,9 +796,7 @@ export function HomeDataProvider({
           && run.target.kind === 'main'
           && (!currentSelection || matchingDraft)
         ) {
-          const existingConversation = conversations.find(
-            (conversation) => conversation.id === conversationId
-          );
+          const existingConversation = getSidebarConversation(conversationId);
           const next: SelectedChat = {
             kind: 'persistent',
             conversationId,
@@ -831,9 +833,7 @@ export function HomeDataProvider({
         ) {
           const titleKey = `${conversationId}:${run.title.source}:${run.title.version}:${run.title.value}`;
           if (!appliedPersistentRunTitlesRef.current.has(titleKey)) {
-            const existing = conversations.find((conversation) =>
-              conversation.id === conversationId
-            );
+            const existing = getSidebarConversation(conversationId);
             if (existing) {
               appliedPersistentRunTitlesRef.current.add(titleKey);
               pendingPersistentRunTitleRefreshesRef.current.delete(titleKey);
@@ -847,9 +847,31 @@ export function HomeDataProvider({
               });
             } else if (!pendingPersistentRunTitleRefreshesRef.current.has(titleKey)) {
               pendingPersistentRunTitleRefreshesRef.current.add(titleKey);
-              void refreshSidebarData().finally(() => {
-                pendingPersistentRunTitleRefreshesRef.current.delete(titleKey);
-              });
+              void loadConversationById(conversationId)
+                .then((loadedConversation) => {
+                  const latestRun = chatRunCoordinator.getSnapshot(run.runId);
+                  if (
+                    latestRun?.title.source !== 'generated'
+                    || latestRun.title.version !== run.title.version
+                    || latestRun.title.value !== run.title.value
+                    || latestRun.subsystems.title !== 'completed'
+                  ) {
+                    return;
+                  }
+                  appliedPersistentRunTitlesRef.current.add(titleKey);
+                  upsertSidebarConversation({
+                    id: loadedConversation.id,
+                    title: latestRun.title.value,
+                    mentorId: loadedConversation.mentor_id,
+                    workspaceId: loadedConversation.workspace_id,
+                    createdAt: loadedConversation.created_at,
+                    updatedAt: loadedConversation.updated_at,
+                  });
+                })
+                .catch(() => null)
+                .finally(() => {
+                  pendingPersistentRunTitleRefreshesRef.current.delete(titleKey);
+                });
             }
           }
         }
@@ -934,8 +956,8 @@ export function HomeDataProvider({
     });
   }, [
     chatRunCoordinator,
-    conversations,
-    refreshSidebarData,
+    getSidebarConversation,
+    loadConversationById,
     setDraftChats,
     setSelectedChat,
     setTemporaryChats,
@@ -1435,6 +1457,7 @@ export function HomeDataProvider({
     navigationStatus,
     setListError,
     refreshSidebarData,
+    getSidebarConversation,
     upsertSidebarConversation,
     upsertWorkspaceSummary,
     removeWorkspaceSummary,
