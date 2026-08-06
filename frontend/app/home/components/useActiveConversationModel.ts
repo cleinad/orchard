@@ -2,10 +2,6 @@
 
 import { useMemo, useRef } from 'react';
 import {
-  buildConversationMapModel,
-  type ConversationMapModel,
-} from '@/app/home/components/conversationMapModel';
-import {
   getActivePathMessages,
   getBranchChipsForMessage,
   type PendingBranchTarget,
@@ -30,28 +26,13 @@ import type {
   Message,
 } from '@/app/home/types';
 import type { MentorListItem } from '@/lib/mentors/types';
-import { recordHomePerformanceEvent } from '@/app/home/components/homePerformanceInstrumentation';
 
 const EMPTY_MESSAGES: Message[] = [];
 const EMPTY_BRANCHES: ConversationBranch[] = [];
 const EMPTY_SELECTED_BRANCH_IDS: BranchSelectionMap = {};
-const EMPTY_CONVERSATION_MAP_MODEL: ConversationMapModel = {
-  rootIds: [],
-  nodes: [],
-  edges: [],
-  nodeById: new Map(),
-  nodeIdByMessageId: new Map(),
-  activePathNodeIds: new Set(),
-  branchPointIds: new Set(),
-  collapsedSegments: [],
-};
-
 interface UseActiveConversationModelParams {
   activePendingRequest: { phase: 'awaiting-response' | 'reconciling'; userMessageId: string } | null;
-  conversationMapEnabled: boolean;
-  conversationMapViewState: { zoom: number };
   conversations: ConversationListItem[];
-  currentMapMessageId: string | null;
   draftChats: PersistentDraftChat[];
   mentors: MentorListItem[];
   pendingBranch: PendingBranchTarget | null;
@@ -68,10 +49,7 @@ interface UseActiveConversationModelParams {
 
 export function useActiveConversationModel({
   activePendingRequest,
-  conversationMapEnabled,
-  conversationMapViewState,
   conversations,
-  currentMapMessageId,
   draftChats,
   mentors,
   pendingBranch,
@@ -219,34 +197,6 @@ export function useActiveConversationModel({
       (message) => currentMessagesById.get(message.id) ?? message
     );
   }, [activeConversationMessages, structuralActiveMessages]);
-  const conversationMapMessages = conversationMapEnabled
-    ? activeConversationMessages
-    : EMPTY_MESSAGES;
-  const conversationMapModel = useMemo(
-    () => {
-      if (!conversationMapEnabled) {
-        return EMPTY_CONVERSATION_MAP_MODEL;
-      }
-      recordHomePerformanceEvent('conversation-map-model-build');
-      return buildConversationMapModel({
-        messages: conversationMapMessages,
-        branches: activeConversationBranches,
-        selectedBranchIds: activeSelectedBranchIds,
-        pendingBranchSourceMessageId: pendingBranch?.sourceMessageId ?? null,
-        currentMessageId: currentMapMessageId,
-        zoom: conversationMapViewState.zoom,
-      });
-    },
-    [
-      activeConversationBranches,
-      conversationMapMessages,
-      activeSelectedBranchIds,
-      conversationMapEnabled,
-      conversationMapViewState.zoom,
-      currentMapMessageId,
-      pendingBranch?.sourceMessageId,
-    ]
-  );
   const activeThreadsMap = useMemo(
     () =>
       isTemporaryChat
@@ -336,7 +286,6 @@ export function useActiveConversationModel({
     activeThreadMarkersMap,
     branchChipsByMessageId,
     conversationTitle,
-    conversationMapModel,
     emptySubtitle,
     emptyTitle,
     isActiveConversationLoading,

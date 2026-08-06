@@ -10,6 +10,7 @@ import {
   type CSSProperties,
   type SetStateAction,
 } from 'react';
+import dynamic from 'next/dynamic';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import {
   useActiveMainChatRun,
@@ -24,11 +25,7 @@ import {
 import HomeBackground from '@/app/home/components/HomeBackground';
 import HomeHeader from '@/app/home/components/HomeHeader';
 import ChatComposer from '@/app/home/components/ChatComposer';
-import {
-  uploadChatImageAttachments,
-} from '@/app/home/components/chatImageUploads';
-import ConversationMap from '@/app/home/components/ConversationMap';
-import ConversationView from '@/app/home/components/ConversationView';
+import EmptyConversationState from '@/app/home/components/EmptyConversationState';
 import type { PendingBranchTarget } from '@/app/home/components/conversationTree';
 import {
   useMainChatRuntime,
@@ -49,7 +46,6 @@ import {
   type PersistentConversationTranscript,
 } from '@/app/home/components/persistentConversationCache';
 import { useHomeThreads } from '@/app/home/components/useHomeThreads';
-import { useHomeFixtureRuntime } from '@/app/home/components/useHomeFixtureRuntime';
 import { useHomeChatSwitchLifecycle } from '@/app/home/components/useHomeChatSwitchLifecycle';
 import { useInlineThreadRuntime } from '@/app/home/components/useInlineThreadRuntime';
 import { getTemporaryChatAttachmentStoragePaths } from '@/app/home/components/temporaryChatAttachmentCleanup';
@@ -89,20 +85,21 @@ import {
   type ChatModelThinkingOverrides,
 } from '@/lib/chat-models';
 import { LearningModeProvider, useLearningMode } from '@/app/home/components/LearningModeContext';
-import TextSelectionPopover from '@/app/home/components/TextSelectionPopover';
-import ThreadPanel, {
+import {
   THREAD_PANEL_DEFAULT_WIDTH_PX,
   clampThreadPanelWidthPx,
-} from '@/app/home/components/ThreadPanel';
+} from '@/app/home/components/threadPanelSizing';
 import type {
   BranchSelectionMap,
   ConversationBranch,
   ConversationListItem,
   Message,
 } from '@/app/home/types';
-import { getHomeE2eFixture } from '@/app/home/e2eFixtures';
-import { CHAT_IMAGE_BUCKET, type ChatImageAttachment } from '@/lib/chat-attachments';
-import { supabase } from '@/lib/supabase';
+import {
+  HOME_E2E_FIXTURES_ENABLED,
+  isHomeE2eFixtureKey,
+} from '@/app/home/homeE2eFixtureKeys';
+import type { ChatImageAttachment } from '@/lib/chat-attachments';
 import {
   hydrateConversationTranscript,
   type HomeConversationInitialData,
@@ -118,6 +115,40 @@ const EMPTY_PERSISTENT_MESSAGES: Message[] = [];
 const EMPTY_PERSISTENT_BRANCHES: ConversationBranch[] = [];
 const EMPTY_PERSISTENT_SELECTED_BRANCH_IDS: BranchSelectionMap = {};
 const EMPTY_PERSISTENT_THREADS_MAP = new Map<string, ThreadMeta[]>();
+
+const TranscriptSurface = dynamic(
+  () => import('@/app/home/components/TranscriptSurface')
+);
+const ConversationMapSurface = dynamic(
+  () => import('@/app/home/components/ConversationMapSurface'),
+  { ssr: false }
+);
+const ThreadPanel = dynamic(
+  () => import('@/app/home/components/ThreadPanel'),
+  { ssr: false }
+);
+const HomeFixtureRuntimeLoader = HOME_E2E_FIXTURES_ENABLED
+  ? dynamic(
+      () => import('@/app/home/components/HomeFixtureRuntimeLoader'),
+      { ssr: false }
+    )
+  : null;
+
+async function removeUploadedChatImages(storagePaths: string[]) {
+  if (storagePaths.length === 0) return;
+  const { removeChatImageStoragePaths } = await import(
+    '@/app/home/components/chatImageUploads'
+  );
+  await removeChatImageStoragePaths(storagePaths);
+}
+
+async function removeUploadedChatImagesBestEffort(storagePaths: string[]) {
+  try {
+    await removeUploadedChatImages(storagePaths);
+  } catch {
+    console.warn('Failed to clean up uploaded chat images.');
+  }
+}
 
 function resolveStateAction<T>(action: SetStateAction<T>, current: T): T {
   return typeof action === 'function'
@@ -394,8 +425,11 @@ function HomePageInner({
     pendingRouteConversationId && paramRouteConversationId !== pendingRouteConversationId
       ? pendingRouteConversationId
       : paramRouteConversationId ?? routeConversationId;
-  const homeE2eFixture = getHomeE2eFixture(searchParams.get('e2e'));
-  const isHomeE2eFixture = homeE2eFixture !== null;
+  const e2eFixtureQuery = searchParams.get('e2e');
+  const e2eFixtureKey = isHomeE2eFixtureKey(e2eFixtureQuery)
+    ? e2eFixtureQuery
+    : null;
+  const isHomeE2eFixture = e2eFixtureKey !== null;
   const initialTranscript = useMemo(
     () =>
       initialConversationData
@@ -475,6 +509,12 @@ function HomePageInner({
     closeThreadPanel,
     findThreadSessionId,
   } = useHomeThreads(learningMode, containerRef);
+  const [hasOpenedThreadPanel, setHasOpenedThreadPanel] = useState(false);
+  useEffect(() => {
+    if (threadPanelOpen) {
+      setHasOpenedThreadPanel(true);
+    }
+  }, [threadPanelOpen]);
   const selectedChatKey = getSelectedChatKey(selectedChat);
   const activePersistentConversationId =
     selectedChat?.kind === 'persistent' ? selectedChat.conversationId : null;
@@ -559,10 +599,10 @@ function HomePageInner({
     activeConversationId,
     activeConversationMessages,
     activeMessages,
+    activeSelectedBranchIds,
     activeThreadMarkersMap,
     branchChipsByMessageId,
     conversationTitle,
-    conversationMapModel,
     emptySubtitle,
     emptyTitle,
     isActiveConversationLoading,
@@ -571,10 +611,7 @@ function HomePageInner({
     selectedTemporaryChat,
   } = useActiveConversationModel({
     activePendingRequest: activePendingChatRequest,
-    conversationMapEnabled: conversationMapOpen,
-    conversationMapViewState,
     conversations: conversationCatalog,
-    currentMapMessageId,
     draftChats,
     mentors,
     pendingBranch,
@@ -712,7 +749,7 @@ function HomePageInner({
     );
 
     if (storagePaths.length > 0) {
-      void supabase.storage.from(CHAT_IMAGE_BUCKET).remove(storagePaths);
+      void removeUploadedChatImagesBestEffort(storagePaths);
     }
     void chatRunCoordinator.closeTemporaryChat(tempChatId);
   }, [chatRunCoordinator]);
@@ -726,24 +763,6 @@ function HomePageInner({
     previousSelectedChatKeyRef.current = selectedChatKey;
     clearPendingImageAttachments();
   }, [clearPendingImageAttachments, selectedChatKey]);
-
-  useHomeFixtureRuntime({
-    composerDraftInputsStorageKey: COMPOSER_DRAFT_INPUTS_STORAGE_KEY,
-    endProgrammaticTranscriptNavigation,
-    fixture: homeE2eFixture,
-    resetAllComposerState,
-    resetPendingRequests,
-    resetThreadUi,
-    clearPersistentConversationCache,
-    setDraftChats,
-    setListError,
-    setPendingBranch,
-    setPersistentConversationTranscript,
-    setSelectedChat,
-    setTemporaryChats,
-    setUserHasScrolledState,
-    tempChatTitle: TEMP_CHAT_TITLE,
-  });
 
   useHomeChatSwitchLifecycle({
     clearComposerInputForSelection,
@@ -937,9 +956,11 @@ function HomePageInner({
         && result.cleanupUploadedAttachments
         && result.cleanupUploadedAttachments.length > 0
       ) {
-        void supabase.storage
-          .from(CHAT_IMAGE_BUCKET)
-          .remove(result.cleanupUploadedAttachments.map((attachment) => attachment.storagePath));
+        void removeUploadedChatImagesBestEffort(
+          result.cleanupUploadedAttachments.map(
+            (attachment) => attachment.storagePath
+          )
+        );
       }
     });
   }, [
@@ -1000,7 +1021,12 @@ function HomePageInner({
       setPendingImageAttachments([]);
       const result = await sendMessage(textToSend, {
         displayAttachments,
-        prepareUploadedAttachments: () => uploadChatImageAttachments(imagesToSend),
+        prepareUploadedAttachments: async () => {
+          const { uploadChatImageAttachments } = await import(
+            '@/app/home/components/chatImageUploads'
+          );
+          return uploadChatImageAttachments(imagesToSend);
+        },
       });
 
       if (!result.accepted && result.error) {
@@ -1024,9 +1050,11 @@ function HomePageInner({
         && result.cleanupUploadedAttachments
         && result.cleanupUploadedAttachments.length > 0
       ) {
-        await supabase.storage
-          .from(CHAT_IMAGE_BUCKET)
-          .remove(result.cleanupUploadedAttachments.map((attachment) => attachment.storagePath));
+        await removeUploadedChatImages(
+          result.cleanupUploadedAttachments.map(
+            (attachment) => attachment.storagePath
+          )
+        );
       }
     } catch (error) {
       setImageWarning(error instanceof Error ? error.message : 'Failed to upload image.');
@@ -1058,6 +1086,29 @@ function HomePageInner({
 
   return (
     <>
+      {HomeFixtureRuntimeLoader && e2eFixtureKey && (
+        <HomeFixtureRuntimeLoader
+          fixtureKey={e2eFixtureKey}
+          composerDraftInputsStorageKey={COMPOSER_DRAFT_INPUTS_STORAGE_KEY}
+          endProgrammaticTranscriptNavigation={
+            endProgrammaticTranscriptNavigation
+          }
+          resetAllComposerState={resetAllComposerState}
+          resetPendingRequests={resetPendingRequests}
+          resetThreadUi={resetThreadUi}
+          clearPersistentConversationCache={clearPersistentConversationCache}
+          setDraftChats={setDraftChats}
+          setListError={setListError}
+          setPendingBranch={setPendingBranch}
+          setPersistentConversationTranscript={
+            setPersistentConversationTranscript
+          }
+          setSelectedChat={setSelectedChat}
+          setTemporaryChats={setTemporaryChats}
+          setUserHasScrolledState={setUserHasScrolledState}
+          tempChatTitle={TEMP_CHAT_TITLE}
+        />
+      )}
       <HomeBackground />
 
       <main
@@ -1097,31 +1148,43 @@ function HomePageInner({
                     : undefined,
               }}
             >
-              <ConversationView
-                activeHighlightSource={highlightSource}
-                isWideLayout={isChatWideLayout}
-                listError={shouldShowRouteConversationError ? null : listError}
-                routeConversationError={routeConversationError}
-                messages={activeMessages}
-                emptyTitle={emptyTitle}
-                emptySubtitle={emptySubtitle}
-                isLoading={isActiveConversationLoading}
-                isRouteConversationLoading={shouldShowRouteConversationLoading}
-                threadsMap={activeThreadMarkersMap}
-                branchChipsByMessageId={branchChipsByMessageId}
-                pendingBranchSourceMessageId={pendingBranch?.sourceMessageId ?? null}
-                messagesEndRef={messagesEndRef}
-                onThreadClick={handleThreadMarkerClick}
-                onSelectBranch={handleSelectBranch}
-                onCreateBranch={handleCreateBranch}
-                onAssistantPointerUp={handlePointerUp}
-              />
-              <TextSelectionPopover
-                popoverState={popoverState}
-                onDismiss={dismissPopover}
-                onSubmitQuestion={submitThreadQuestion}
-                onOpenThreadDraft={openThreadDraft}
-              />
+              {activeMessages.length === 0 ? (
+                <EmptyConversationState
+                  emptyTitle={emptyTitle}
+                  emptySubtitle={emptySubtitle}
+                  listError={
+                    shouldShowRouteConversationError ? null : listError
+                  }
+                  routeConversationError={routeConversationError}
+                  isRouteConversationLoading={
+                    shouldShowRouteConversationLoading
+                  }
+                />
+              ) : (
+                <TranscriptSurface
+                  activeHighlightSource={highlightSource}
+                  isWideLayout={isChatWideLayout}
+                  listError={
+                    shouldShowRouteConversationError ? null : listError
+                  }
+                  messages={activeMessages}
+                  isLoading={isActiveConversationLoading}
+                  threadsMap={activeThreadMarkersMap}
+                  branchChipsByMessageId={branchChipsByMessageId}
+                  pendingBranchSourceMessageId={
+                    pendingBranch?.sourceMessageId ?? null
+                  }
+                  messagesEndRef={messagesEndRef}
+                  onThreadClick={handleThreadMarkerClick}
+                  onSelectBranch={handleSelectBranch}
+                  onCreateBranch={handleCreateBranch}
+                  onAssistantPointerUp={handlePointerUp}
+                  popoverState={popoverState}
+                  onDismissPopover={dismissPopover}
+                  onSubmitThreadQuestion={submitThreadQuestion}
+                  onOpenThreadDraft={openThreadDraft}
+                />
+              )}
             </div>
 
             {conversationMapOpen && hasConversationMap && isDesktopViewport && (
@@ -1140,8 +1203,13 @@ function HomePageInner({
                     flexBasis: `${conversationMapViewState.splitRatio * 100}%`,
                   }}
                 >
-                  <ConversationMap
-                    model={conversationMapModel}
+                  <ConversationMapSurface
+                    messages={activeConversationMessages}
+                    branches={activeConversationBranches}
+                    selectedBranchIds={activeSelectedBranchIds}
+                    pendingBranchSourceMessageId={
+                      pendingBranch?.sourceMessageId ?? null
+                    }
                     currentMessageId={currentMapMessageId}
                     viewState={conversationMapViewState}
                     followModePaused={conversationMapFollowModePaused}
@@ -1197,8 +1265,13 @@ function HomePageInner({
 
         {conversationMapOpen && hasConversationMap && !isDesktopViewport && (
           <div className="fixed inset-0 z-50 bg-background/92 p-3 backdrop-blur-sm lg:hidden">
-            <ConversationMap
-              model={conversationMapModel}
+            <ConversationMapSurface
+              messages={activeConversationMessages}
+              branches={activeConversationBranches}
+              selectedBranchIds={activeSelectedBranchIds}
+              pendingBranchSourceMessageId={
+                pendingBranch?.sourceMessageId ?? null
+              }
               currentMessageId={currentMapMessageId}
               viewState={conversationMapViewState}
               followModePaused={conversationMapFollowModePaused}
@@ -1213,34 +1286,36 @@ function HomePageInner({
         )}
       </main>
 
-      <ThreadPanel
-        isOpen={threadPanelOpen}
-        widthPx={threadPanelWidthPx}
-        session={activeSession}
-        temporaryChatEnabled={isTemporaryChat}
-        suspendCloseShortcut={Boolean(popoverState)}
-        onWidthChange={setThreadPanelWidthPx}
-        onInputChange={handleThreadPanelInputChange}
-        onSend={handleSendThreadMessage}
-        onStop={() => {
-          if (!activeSession?.threadId) return;
-          const chatId = selectedChat?.kind === 'persistent'
-            ? selectedChat.conversationId
-            : selectedChat?.kind === 'temporary'
-              ? selectedChat.tempChatId
-              : selectedChat?.kind === 'draft'
-                ? selectedChat.draftId
-              : null;
-          if (!chatId) return;
-          const run = chatRunCoordinator.getSnapshotsForChat(chatId)
-            .find((candidate) =>
-              candidate.target.threadId === activeSession.threadId
-              && !['completed', 'failed', 'cancelled'].includes(candidate.status)
-            );
-          if (run) void chatRunCoordinator.stop(run.runId);
-        }}
-        onClose={closeThreadPanel}
-      />
+      {(threadPanelOpen || hasOpenedThreadPanel) && (
+        <ThreadPanel
+          isOpen={threadPanelOpen}
+          widthPx={threadPanelWidthPx}
+          session={activeSession}
+          temporaryChatEnabled={isTemporaryChat}
+          suspendCloseShortcut={Boolean(popoverState)}
+          onWidthChange={setThreadPanelWidthPx}
+          onInputChange={handleThreadPanelInputChange}
+          onSend={handleSendThreadMessage}
+          onStop={() => {
+            if (!activeSession?.threadId) return;
+            const chatId = selectedChat?.kind === 'persistent'
+              ? selectedChat.conversationId
+              : selectedChat?.kind === 'temporary'
+                ? selectedChat.tempChatId
+                : selectedChat?.kind === 'draft'
+                  ? selectedChat.draftId
+                : null;
+            if (!chatId) return;
+            const run = chatRunCoordinator.getSnapshotsForChat(chatId)
+              .find((candidate) =>
+                candidate.target.threadId === activeSession.threadId
+                && !['completed', 'failed', 'cancelled'].includes(candidate.status)
+              );
+            if (run) void chatRunCoordinator.stop(run.runId);
+          }}
+          onClose={closeThreadPanel}
+        />
+      )}
 
       <style jsx>{`
         @media (min-width: 768px) {

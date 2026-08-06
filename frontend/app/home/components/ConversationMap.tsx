@@ -11,7 +11,7 @@ import {
 import type {
   ConversationMapModel,
   ConversationMapNode,
-} from '@/app/home/components/conversationMapModel'
+} from '@/app/home/components/conversationMapLayout'
 import type { ConversationMapViewState } from '@/app/home/components/useConversationMapState'
 import {
   markdownContentClassName,

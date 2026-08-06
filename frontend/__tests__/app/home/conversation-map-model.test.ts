@@ -3,6 +3,8 @@ import type { ConversationBranch, Message } from '@/app/home/types';
 import {
   buildConversationMapModel,
   type ConversationMapModel,
+} from '@/app/home/components/conversationMapLayout';
+import {
   getMapNavigationAnchorMessageId,
   getRouteSelectionPatch,
   normalizeMessages,

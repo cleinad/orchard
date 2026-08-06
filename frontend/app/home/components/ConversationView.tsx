@@ -1,22 +1,17 @@
 "use client";
 
 import { useCallback, useState, type RefObject } from 'react';
-import AsciiTesseract from '@/app/home/components/AsciiTesseract';
 import MessageRow from '@/app/home/components/MessageRow';
 import type { InlineThreadMarker, ThreadSource } from '@/app/home/components/threadTypes';
 import type { Message } from '@/app/home/types';
 import type { BranchChip } from '@/app/home/components/conversationTree';
 
-interface ConversationViewProps {
+export interface ConversationViewProps {
   activeHighlightSource: ThreadSource | null;
   isWideLayout: boolean;
   listError: string | null;
-  routeConversationError: string | null;
   messages: Message[];
-  emptyTitle: string;
-  emptySubtitle: string;
   isLoading: boolean;
-  isRouteConversationLoading: boolean;
   threadsMap: Map<string, InlineThreadMarker[]>;
   branchChipsByMessageId: Map<string, BranchChip[]>;
   pendingBranchSourceMessageId: string | null;
@@ -34,12 +29,8 @@ export default function ConversationView({
   activeHighlightSource,
   isWideLayout,
   listError,
-  routeConversationError,
   messages,
-  emptyTitle,
-  emptySubtitle,
   isLoading,
-  isRouteConversationLoading,
   threadsMap,
   branchChipsByMessageId,
   pendingBranchSourceMessageId,
@@ -97,50 +88,7 @@ export default function ConversationView({
         </div>
       )}
 
-      {messages.length === 0 ? (
-        <div className="flex h-full min-h-[50vh] flex-col items-center justify-center px-4">
-          {isRouteConversationLoading ? (
-            <div
-              role="status"
-              aria-label="Loading conversation"
-              className="flex items-center gap-1.5 text-muted"
-            >
-              <span
-                className="h-2 w-2 animate-bounce rounded-full bg-muted/40"
-                style={{ animationDelay: '0ms' }}
-              />
-              <span
-                className="h-2 w-2 animate-bounce rounded-full bg-muted/40"
-                style={{ animationDelay: '150ms' }}
-              />
-              <span
-                className="h-2 w-2 animate-bounce rounded-full bg-muted/40"
-                style={{ animationDelay: '300ms' }}
-              />
-            </div>
-          ) : routeConversationError ? (
-            <div className="max-w-md text-center">
-              <h1 className="font-heading text-3xl text-foreground sm:text-4xl">
-                Could not load this conversation
-              </h1>
-              <p className="mt-4 font-sans text-md font-medium leading-relaxed text-muted">
-                {routeConversationError}
-              </p>
-            </div>
-          ) : (
-            <div className="flex w-full max-w-2xl flex-col items-center text-center sm:mt-[clamp(5rem,12vh,10rem)]">
-              <h1 className="font-heading text-[clamp(1.65rem,2.5vw,2.25rem)] leading-[0.95] text-foreground">
-                Let&apos;s explore
-              </h1>
-              <div className="mt-10 flex w-full justify-center sm:mt-14">
-                <AsciiTesseract />
-              </div>
-              <p className="sr-only">{emptyTitle}. {emptySubtitle}</p>
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="py-8">
+      <div className="py-8">
           {messages.map((message) => {
             const replySearchMetadata =
               message.role === 'assistant' ? message.searchMetadata ?? null : null;
@@ -197,8 +145,7 @@ export default function ConversationView({
           )}
 
           <div ref={messagesEndRef} />
-        </div>
-      )}
+      </div>
     </div>
   );
 }

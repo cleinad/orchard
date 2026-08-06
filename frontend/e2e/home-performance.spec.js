@@ -14,6 +14,8 @@ const { selectTextInMessage } = require('./helpers/selectText');
 
 const SERVER_DATA_MODE = process.env.PLAYWRIGHT_E2E_SERVER_DATA === '1';
 const PRODUCTION_SERVER = process.env.PLAYWRIGHT_PRODUCTION_SERVER === '1';
+const HOME_E2E_FIXTURES_BUILD =
+  process.env.NEXT_PUBLIC_HOME_E2E_FIXTURES === '1';
 const REQUIRED_REGIONS = [
   'shell',
   'sidebar',
@@ -298,6 +300,7 @@ async function readTransferredJavaScript(page) {
   const builtBytes = builtFiles.map((pathname) => fs.readFileSync(pathname));
   return {
     files: browserResult.files,
+    paths: browserResult.paths,
     transferBytes: browserResult.transferBytes,
     encodedBytes: browserResult.encodedBytes,
     buildFiles: builtFiles.length,
@@ -315,6 +318,7 @@ async function readTransferredJavaScript(page) {
 function incrementalJavaScript(after, before) {
   return {
     files: after.files - before.files,
+    paths: after.paths.filter((path) => !before.paths.includes(path)),
     transferBytes: after.transferBytes - before.transferBytes,
     encodedBytes: after.encodedBytes - before.encodedBytes,
     buildFiles: after.buildFiles - before.buildFiles,
@@ -466,6 +470,24 @@ test.describe('home production performance baseline', () => {
   );
   test.describe.configure({ mode: 'serial' });
 
+  test('production ignores public home fixture query keys', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      HOME_E2E_FIXTURES_BUILD,
+      'the dedicated E2E fixture build intentionally enables fixture keys'
+    );
+    const userId = `home-public-fixture-query-${testInfo.workerIndex}`;
+    await page.context().addCookies([
+      await createAuthenticatedCookie({ userId }),
+    ]);
+
+    await page.goto('/home?e2e=inline-threads');
+
+    await expect(page.getByText("Let's explore")).toBeVisible();
+    await expect(page.getByText('Event loop')).toHaveCount(0);
+  });
+
   test('hard empty home renders the complete shell without browser data requests', async ({
     page,
   }, testInfo) => {
@@ -516,6 +538,7 @@ test.describe('home production performance baseline', () => {
     }
     expect(firstHtml).toContain("Let&#x27;s explore");
     expect(browserDataRequests).toEqual([]);
+    expect(transferredJavaScript.buildGzipBytes).toBeLessThan(240 * 1024);
 
     const fixtureState = await getFixtureState(userId);
     expect(fixtureState.counters).toMatchObject({
@@ -591,9 +614,6 @@ test.describe('home production performance baseline', () => {
         const entry = performance.getEntriesByType('navigation')[0];
         return entry ? { responseStart: entry.responseStart } : null;
       });
-      if (sample === 0) {
-        transferredJavaScript = await readTransferredJavaScript(page);
-      }
       expect(navigation).not.toBeNull();
       transcriptVisibleSamples.push(
         await page.evaluate(() => performance.now())
@@ -601,10 +621,15 @@ test.describe('home production performance baseline', () => {
       ttfbSamples.push(navigation.responseStart);
       spreadSamples.push(metrics.spreadMs);
       layoutShiftSamples.push(metrics.layoutShift);
+      if (sample === 0) {
+        await page.waitForLoadState('networkidle');
+        transferredJavaScript = await readTransferredJavaScript(page);
+      }
     }
 
     expect(firstHtml).toContain(messages[0].content);
     expect(browserDataRequests).toEqual([]);
+    expect(transferredJavaScript.buildGzipBytes).toBeLessThan(430 * 1024);
     const fixtureState = await getFixtureState(userId);
     expect(fixtureState.counters).toMatchObject({
       messageReads: 10,
@@ -664,10 +689,20 @@ test.describe('home production performance baseline', () => {
     await expect(page.getByTestId('conversation-map-desktop')).toBeVisible();
     await page.waitForLoadState('networkidle');
     const mapAfter = await readTransferredJavaScript(page);
+    await page.getByTestId('conversation-map-toggle').click();
+    await page.getByTestId('conversation-map-toggle').click();
+    await expect(page.getByTestId('conversation-map-desktop')).toBeVisible();
+    await page.waitForLoadState('networkidle');
+    const mapAfterSecondOpen = await readTransferredJavaScript(page);
 
     await page.addInitScript(() => {
       window.localStorage.setItem('learningMode', 'true');
     });
+    await mockChatRoute(page, async () => ({
+      message: 'The browser drains microtasks before the next frame.',
+      userMessageId: 'home-performance-thread-user',
+      assistantMessageId: 'home-performance-thread-assistant',
+    }));
     await page.goto('/home?e2e=inline-threads');
     await page.waitForSelector(
       '[data-message-id="assistant-inline-threads-fixture"]'
@@ -683,13 +718,25 @@ test.describe('home production performance baseline', () => {
     await page
       .getByTestId('selection-popover-input')
       .fill('Measure thread intent.');
-    await page.keyboard.press('Control+L');
+    await page.getByTestId('selection-popover-input').press('Enter');
     await expect(page.getByTestId('thread-panel')).toHaveAttribute(
       'data-state',
       'open'
     );
     await page.waitForLoadState('networkidle');
     const threadAfter = await readTransferredJavaScript(page);
+    await page.keyboard.press('Control+L');
+    await expect(page.getByTestId('thread-panel')).toHaveAttribute(
+      'data-state',
+      'closed'
+    );
+    await page.getByTestId('inline-thread-link').click();
+    await expect(page.getByTestId('thread-panel')).toHaveAttribute(
+      'data-state',
+      'open'
+    );
+    await page.waitForLoadState('networkidle');
+    const threadAfterSecondOpen = await readTransferredJavaScript(page);
 
     await page.goto('/home');
     await expect(page.getByLabel('Message composer')).toBeVisible();
@@ -704,13 +751,23 @@ test.describe('home production performance baseline', () => {
 
     const result = {
       map: incrementalJavaScript(mapAfter, mapBefore),
+      mapSecondOpen: incrementalJavaScript(mapAfterSecondOpen, mapAfter),
       thread: incrementalJavaScript(threadAfter, threadBefore),
+      threadSecondOpen: incrementalJavaScript(
+        threadAfterSecondOpen,
+        threadAfter
+      ),
       upload: incrementalJavaScript(uploadAfter, uploadBefore),
     };
-    expect(result.map.buildGzipBytes).toBeGreaterThanOrEqual(0);
-    expect(result.thread.buildGzipBytes).toBeGreaterThanOrEqual(0);
-    expect(result.upload.buildGzipBytes).toBeGreaterThanOrEqual(0);
     console.log(`home-first-intent-javascript ${JSON.stringify(result)}`);
+    expect(result.map.buildGzipBytes).toBeGreaterThan(0);
+    expect(result.map.buildGzipBytes).toBeLessThan(220 * 1024);
+    expect(result.mapSecondOpen.buildGzipBytes).toBe(0);
+    expect(result.thread.buildGzipBytes).toBeGreaterThan(0);
+    expect(result.thread.buildGzipBytes).toBeLessThan(220 * 1024);
+    expect(result.threadSecondOpen.buildGzipBytes).toBe(0);
+    expect(result.upload.buildGzipBytes).toBeGreaterThan(0);
+    expect(result.upload.buildGzipBytes).toBeLessThan(10 * 1024);
   });
 
   test('workspace to empty home reuses the shared shell without browser data requests', async ({
@@ -1348,10 +1405,10 @@ test.describe('home production performance baseline', () => {
     );
   });
 
-  test('empty-home animation CPU and reduced-motion baselines are recorded', async ({
+  test('empty-home animation stays within its CPU and reduced-motion budgets', async ({
     page,
   }, testInfo) => {
-    test.setTimeout(60_000);
+    test.setTimeout(90_000);
     const userId = `home-cpu-${testInfo.workerIndex}`;
     await page.context().addCookies([
       await createAuthenticatedCookie({ userId }),
@@ -1365,9 +1422,15 @@ test.describe('home production performance baseline', () => {
       });
       await page.goto(`/home?motion=${reducedMotion ? 'reduced' : 'normal'}`);
       await expect(page.getByTestId('ascii-tesseract')).toBeVisible();
+      const bitmapBefore = await page
+        .getByTestId('ascii-tesseract')
+        .evaluate((canvas) => canvas.toDataURL());
       const before = await session.send('Performance.getMetrics');
       await page.waitForTimeout(10_000);
       const after = await session.send('Performance.getMetrics');
+      const bitmapAfter = await page
+        .getByTestId('ascii-tesseract')
+        .evaluate((canvas) => canvas.toDataURL());
       const read = (sample, name) =>
         sample.metrics.find((metric) => metric.name === name)?.value ?? 0;
       return {
@@ -1375,17 +1438,44 @@ test.describe('home production performance baseline', () => {
           (read(after, 'TaskDuration') - read(before, 'TaskDuration')) * 1_000,
         scriptDurationMs:
           (read(after, 'ScriptDuration') - read(before, 'ScriptDuration')) * 1_000,
+        bitmapChanged: bitmapBefore !== bitmapAfter,
       };
     };
 
-    const normal = await measureTaskDuration(false);
+    const normal = [];
+    for (let sample = 0; sample < 3; sample += 1) {
+      normal.push(await measureTaskDuration(false));
+    }
     const reduced = await measureTaskDuration(true);
     console.log(
       `home-empty-animation-cpu ${JSON.stringify({
         durationMs: 10_000,
         normal,
+        normalTaskP50Ms: percentile(
+          normal.map((sample) => sample.taskDurationMs),
+          0.5
+        ),
+        normalTaskP95Ms: percentile(
+          normal.map((sample) => sample.taskDurationMs),
+          0.95
+        ),
+        normalScriptP50Ms: percentile(
+          normal.map((sample) => sample.scriptDurationMs),
+          0.5
+        ),
+        normalScriptP95Ms: percentile(
+          normal.map((sample) => sample.scriptDurationMs),
+          0.95
+        ),
         reduced,
       })}`
     );
+    for (const sample of normal) {
+      expect(sample.taskDurationMs).toBeLessThan(500);
+      expect(sample.bitmapChanged).toBe(true);
+    }
+    expect(reduced.taskDurationMs).toBeLessThan(50);
+    expect(reduced.scriptDurationMs).toBeLessThan(5);
+    expect(reduced.bitmapChanged).toBe(false);
   });
 });

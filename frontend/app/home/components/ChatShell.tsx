@@ -17,7 +17,7 @@ import {
   useHomeShellContext,
 } from '@/app/home/components/HomeDataContext';
 import SidePanel from '@/app/home/components/SidePanel';
-import { getHomeE2eFixture } from '@/app/home/e2eFixtures';
+import { isHomeE2eFixtureKey } from '@/app/home/homeE2eFixtureKeys';
 import type { HomeBootstrapData } from '@/app/home/server-data';
 import { recordHomePerformanceEvent } from '@/app/home/components/homePerformanceInstrumentation';
 
@@ -417,7 +417,7 @@ function ChatShellInner({
       ? params.conversationId[0]
       : null;
   const e2eQueryParam = searchParams.get('e2e');
-  const skipInitialSidebarRefresh = getHomeE2eFixture(e2eQueryParam) !== null;
+  const skipInitialSidebarRefresh = isHomeE2eFixtureKey(e2eQueryParam);
 
   return (
     <>

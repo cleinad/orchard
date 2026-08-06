@@ -1,4 +1,3 @@
-import { supabase } from '@/lib/supabase';
 import {
   CHAT_IMAGE_BUCKET,
   CHAT_IMAGE_SIGNED_URL_TTL_SECONDS,
@@ -96,6 +95,7 @@ export async function uploadChatImageAttachments(
     return [];
   }
 
+  const { supabase } = await import('@/lib/supabase');
   const {
     data: { user },
     error: userError,
@@ -152,4 +152,18 @@ export async function uploadChatImageAttachments(
   }
 
   return uploaded;
+}
+
+export async function removeChatImageStoragePaths(
+  storagePaths: string[]
+): Promise<void> {
+  if (storagePaths.length === 0) return;
+
+  const { supabase } = await import('@/lib/supabase');
+  const { error } = await supabase.storage
+    .from(CHAT_IMAGE_BUCKET)
+    .remove(storagePaths);
+  if (error) {
+    throw new Error(error.message || 'Failed to remove image.');
+  }
 }
