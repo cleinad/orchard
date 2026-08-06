@@ -12,7 +12,10 @@ import {
 import { useParams, useSearchParams } from 'next/navigation';
 import { SidePanelProvider } from '@/app/home/components/SidePanelContext';
 import { useSidePanel } from '@/app/home/components/SidePanelContext';
-import { HomeDataProvider, useHomeDataContext } from '@/app/home/components/HomeDataContext';
+import {
+  HomeDataProvider,
+  useHomeShellContext,
+} from '@/app/home/components/HomeDataContext';
 import SidePanel from '@/app/home/components/SidePanel';
 import { getHomeE2eFixture } from '@/app/home/e2eFixtures';
 import type { HomeBootstrapData } from '@/app/home/server-data';
@@ -191,7 +194,7 @@ function HomeShell({ children }: { children: ReactNode }) {
     upsertWorkspaceSummary,
     buildHomeHref,
     openWorkspace,
-  } = useHomeDataContext();
+  } = useHomeShellContext();
   const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false);
   const [workspaceNameDraft, setWorkspaceNameDraft] = useState('');
   const [createWorkspaceError, setCreateWorkspaceError] = useState<string | null>(null);
@@ -344,18 +347,8 @@ function HomeShell({ children }: { children: ReactNode }) {
         onOpenAllChats={() => openWithScroll('all')}
         workspaceGroups={workspaceGroups}
         conversations={conversations}
-        draftChats={draftChats.map((d) => ({
-          id: d.id,
-          mentor_id: d.mentorId,
-          workspace_id: d.workspaceId,
-          title: d.title,
-          updated_at: d.updatedAt,
-        }))}
-        temporaryChats={temporaryChats.map((c) => ({
-          id: c.id,
-          title: c.title,
-          updated_at: c.updatedAt,
-        }))}
+        draftChats={draftChats}
+        temporaryChats={temporaryChats}
         selectedConversationId={
           selectedChat?.kind === 'persistent' ? selectedChat.conversationId : null
         }

@@ -176,10 +176,7 @@ export function normalizeMessages(messages: Message[]) {
   const hasAnyPreviousPointer = sorted.some((message) => message.previousMessageId !== null)
 
   if (hasAnyPreviousPointer && rootCount <= 1) {
-    return sorted.map((message) => ({
-      ...message,
-      previousMessageId: message.previousMessageId ?? null,
-    }))
+    return sorted
   }
 
   return sorted.map((message, index) => ({

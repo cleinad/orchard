@@ -334,6 +334,24 @@ async function installControlledChatStream(page, metadata) {
         )
       );
     };
+    window.__emitHomeChatDeltaWithActivity = (delta) => {
+      window.__homeChatStreamController?.enqueue(
+        encoder.encode(
+          `data: ${JSON.stringify({ type: 'text-delta', delta })}\n\n`
+          + `data: ${JSON.stringify({
+            type: 'data-searchActivity',
+            data: {
+              collapsedLabel: 'Confirming queued stream state',
+              events: [{
+                type: 'search_started',
+                query: 'queued stream state',
+                attempt: 1,
+              }],
+            },
+          })}\n\n`
+        )
+      );
+    };
     window.__finishHomeChatStream = (message) => {
       const controller = window.__homeChatStreamController;
       if (!controller) return;
@@ -348,6 +366,12 @@ async function installControlledChatStream(page, metadata) {
       );
       controller.enqueue(encoder.encode('data: [DONE]\n\n'));
       controller.close();
+      window.__homeChatStreamController = null;
+    };
+    window.__failHomeChatStream = () => {
+      const controller = window.__homeChatStreamController;
+      if (!controller) return;
+      controller.error(new Error('Controlled home stream failure.'));
       window.__homeChatStreamController = null;
     };
 
@@ -367,6 +391,20 @@ async function installControlledChatStream(page, metadata) {
       const body = new ReadableStream({
         start(controller) {
           window.__homeChatStreamController = controller;
+          const signal = init?.signal;
+          if (signal instanceof AbortSignal) {
+            signal.addEventListener(
+              'abort',
+              () => {
+                if (window.__homeChatStreamController !== controller) return;
+                controller.error(
+                  new DOMException('The operation was aborted.', 'AbortError')
+                );
+                window.__homeChatStreamController = null;
+              },
+              { once: true }
+            );
+          }
         },
       });
       return Promise.resolve(
@@ -904,11 +942,12 @@ test.describe('home production performance baseline', () => {
     const metrics = await page.evaluate(() => window.__readHomePerformance());
 
     expect(metrics.counters['visible-stream-publication']).toBe(1);
-    expect(metrics.counters['temporary-chat-storage-write']).toBeGreaterThan(0);
-    expect(metrics.counters['side-panel-render']).toBeGreaterThan(0);
-    expect(metrics.counters['finalized-message-row-render']).toBeGreaterThan(0);
-    expect(metrics.counters['conversation-map-model-build']).toBeGreaterThan(0);
-    console.log(`home-ordinary-delta-baseline ${JSON.stringify(metrics)}`);
+    expect(metrics.counters['temporary-chat-storage-write'] ?? 0).toBe(0);
+    expect(metrics.counters['side-panel-render'] ?? 0).toBe(0);
+    expect(metrics.counters['home-shell-render'] ?? 0).toBe(0);
+    expect(metrics.counters['finalized-message-row-render'] ?? 0).toBe(0);
+    expect(metrics.counters['conversation-map-model-build'] ?? 0).toBe(0);
+    console.log(`home-ordinary-delta-optimized ${JSON.stringify(metrics)}`);
 
     const burstChunks = Array.from(
       { length: 20 },
@@ -932,16 +971,232 @@ test.describe('home production performance baseline', () => {
     const burstMetrics = await page.evaluate(
       () => window.__readHomePerformance()
     );
-    expect(burstMetrics.counters['visible-stream-publication']).toBe(
-      burstChunks.length
-    );
-    console.log(`home-same-frame-burst-baseline ${JSON.stringify(burstMetrics)}`);
+    expect(burstMetrics.counters['visible-stream-publication']).toBe(1);
+    expect(burstMetrics.counters['temporary-chat-storage-write'] ?? 0).toBe(0);
+    expect(burstMetrics.counters['side-panel-render'] ?? 0).toBe(0);
+    expect(burstMetrics.counters['finalized-message-row-render'] ?? 0).toBe(0);
+    expect(burstMetrics.counters['conversation-map-model-build'] ?? 0).toBe(0);
+    console.log(`home-same-frame-burst-optimized ${JSON.stringify(burstMetrics)}`);
 
     await page.evaluate(
       (message) => window.__finishHomeChatStream(message),
       `isolated-delta${burstChunks.join('')}`
     );
     await expect(page.getByText('isolated-delta')).toBeVisible();
+    await expect
+      .poll(async () =>
+        page.evaluate(
+          () =>
+            window.__readHomePerformance().counters[
+              'temporary-chat-storage-write'
+            ] ?? 0
+        )
+      )
+      .toBe(1);
+    const storedTemporaryChats = await page.evaluate(() =>
+      window.sessionStorage.getItem('keen-home-temp-chats-v1')
+    );
+    expect(storedTemporaryChats).toContain('burst-20');
+  });
+
+  test('cancelling before the next frame cannot restore a removed streaming row', async ({
+    page,
+  }, testInfo) => {
+    const userId = `home-stream-cancel-${testInfo.workerIndex}`;
+    await page.context().addCookies([
+      await createAuthenticatedCookie({ userId }),
+    ]);
+    await mockHomeDataRoutes(page, {});
+    await installControlledChatStream(page, {
+      userMessageId: 'home-cancel-user',
+      assistantMessageId: 'home-cancel-assistant',
+    });
+
+    await page.goto('/home?e2e=conversation-map-temporary');
+    const composer = page.getByLabel('Message composer');
+    await composer.fill('Cancel this frame.');
+    await composer.press('Enter');
+    await page.waitForFunction(() => Boolean(window.__homeChatStreamController));
+
+    await page.evaluate(() => {
+      window.__emitHomeChatDelta('queued-content-must-not-return');
+      const stop = document.querySelector(
+        'button[aria-label="Stop response"]'
+      );
+      if (!(stop instanceof HTMLButtonElement)) {
+        throw new Error('Stop response button was not available.');
+      }
+      stop.click();
+    });
+
+    await expect(page.getByText('queued-content-must-not-return')).toHaveCount(0);
+    await page.evaluate(
+      () =>
+        new Promise((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(resolve))
+        )
+    );
+    await expect(page.getByText('queued-content-must-not-return')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Stop response' })).toHaveCount(0);
+  });
+
+  test('pagehide persists a stream delta queued before the next frame', async ({
+    page,
+  }, testInfo) => {
+    const userId = `home-stream-pagehide-${testInfo.workerIndex}`;
+    await page.context().addCookies([
+      await createAuthenticatedCookie({ userId }),
+    ]);
+    await mockHomeDataRoutes(page, {});
+    await installControlledChatStream(page, {
+      userMessageId: 'home-pagehide-user',
+      assistantMessageId: 'home-pagehide-assistant',
+    });
+    await installHomePerformanceObserver(page);
+
+    await page.goto('/home?e2e=conversation-map-temporary');
+    const composer = page.getByLabel('Message composer');
+    await composer.fill('Persist this frame.');
+    await composer.press('Enter');
+    await page.waitForFunction(() => Boolean(window.__homeChatStreamController));
+    await page.evaluate(
+      () =>
+        new Promise((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(resolve))
+        )
+    );
+    await page.evaluate(() => {
+      window.__pagehideTestRequestFrame = window.requestAnimationFrame;
+      window.__pagehideTestCancelFrame = window.cancelAnimationFrame;
+      let frameId = 0;
+      window.requestAnimationFrame = () => {
+        frameId += 1;
+        return frameId;
+      };
+      window.cancelAnimationFrame = () => {};
+      window.__resetHomePerformance();
+      window.__emitHomeChatDeltaWithActivity(
+        'queued-content-must-be-persisted'
+      );
+    });
+    await expect(
+      page.getByText('Confirming queued stream state')
+    ).toBeVisible();
+    const pagehideResult = await page.evaluate(async () => {
+      window.dispatchEvent(new PageTransitionEvent('pagehide'));
+      await Promise.resolve();
+      const stored = window.sessionStorage.getItem(
+        'keen-home-temp-chats-v1'
+      );
+      const pagehideFlushes =
+        window.__orchardHomePerformance?.counters['stream-pagehide-flush'] ?? 0;
+      const contentLength =
+        window.__orchardHomePerformance?.gauges[
+          'stream-pagehide-content-length'
+        ] ?? 0;
+      window.requestAnimationFrame = window.__pagehideTestRequestFrame;
+      window.cancelAnimationFrame = window.__pagehideTestCancelFrame;
+      return { stored, pagehideFlushes, contentLength };
+    });
+
+    expect(pagehideResult.pagehideFlushes).toBe(1);
+    expect(pagehideResult.contentLength).toBe(
+      'queued-content-must-be-persisted'.length
+    );
+    expect(pagehideResult.stored).toContain('queued-content-must-be-persisted');
+  });
+
+  test('a stream error before the next frame cannot publish queued content', async ({
+    page,
+  }, testInfo) => {
+    const userId = `home-stream-error-${testInfo.workerIndex}`;
+    await page.context().addCookies([
+      await createAuthenticatedCookie({ userId }),
+    ]);
+    await mockHomeDataRoutes(page, {});
+    await installControlledChatStream(page, {
+      userMessageId: 'home-error-user',
+      assistantMessageId: 'home-error-assistant',
+    });
+
+    await page.goto('/home?e2e=conversation-map-temporary');
+    const composer = page.getByLabel('Message composer');
+    await composer.fill('Fail this frame.');
+    await composer.press('Enter');
+    await page.waitForFunction(() => Boolean(window.__homeChatStreamController));
+
+    await page.evaluate(async () => {
+      window.__emitHomeChatDelta('queued-content-must-not-survive-error');
+      await Promise.resolve();
+      window.__failHomeChatStream();
+    });
+
+    await expect(
+      page.getByText(
+        'The temporary response was interrupted. Retry when you are ready.'
+      )
+    ).toBeVisible();
+    await page.evaluate(
+      () =>
+        new Promise((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(resolve))
+        )
+    );
+    await expect(
+      page.getByText('queued-content-must-not-survive-error')
+    ).toHaveCount(0);
+  });
+
+  test('background streaming does not rerender a mounted workspace shell', async ({
+    page,
+  }, testInfo) => {
+    const workspace = createWorkspace(
+      'home-stream-workspace',
+      'Stream Isolation'
+    );
+    const userId = `home-stream-workspace-${testInfo.workerIndex}`;
+    await page.context().addCookies([
+      await createAuthenticatedCookie({
+        userId,
+        workspaces: [workspace],
+      }),
+    ]);
+    await mockHomeDataRoutes(page, { workspaces: [workspace] });
+    await installControlledChatStream(page, {
+      userMessageId: 'home-workspace-stream-user',
+      assistantMessageId: 'home-workspace-stream-assistant',
+    });
+    await installHomePerformanceObserver(page);
+
+    await page.goto('/home');
+    await page.getByRole('main').getByLabel('New temporary chat').click();
+    const composer = page.getByLabel('Message composer');
+    await composer.fill('Continue while I inspect a workspace.');
+    await composer.press('Enter');
+    await page.waitForFunction(() => Boolean(window.__homeChatStreamController));
+
+    const sidePanel = await ensureConversationsOpen(page);
+    await sidePanel.getByRole('link', { name: workspace.name }).click();
+    await expect(page).toHaveURL(`/workspaces/${workspace.id}`);
+    await expect(page.getByRole('heading', { name: workspace.name }))
+      .toBeVisible();
+
+    await page.evaluate(() => window.__resetHomePerformance());
+    await page.evaluate(() =>
+      window.__emitHomeChatDelta('background-workspace-delta')
+    );
+    await page.evaluate(
+      () =>
+        new Promise((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(resolve))
+        )
+    );
+    const metrics = await page.evaluate(() => window.__readHomePerformance());
+
+    expect(metrics.counters['visible-stream-publication']).toBe(1);
+    expect(metrics.counters['workspace-client-render'] ?? 0).toBe(0);
+    expect(metrics.counters['home-shell-render'] ?? 0).toBe(0);
+    expect(metrics.counters['side-panel-render'] ?? 0).toBe(0);
   });
 
   test('representative transcript cache cardinality and retained heap are recorded', async ({

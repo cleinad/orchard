@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import {
   buildConversationMapModel,
+  type ConversationMapModel,
 } from '@/app/home/components/conversationMapModel';
 import {
   getActivePathMessages,
@@ -34,9 +35,20 @@ import { recordHomePerformanceEvent } from '@/app/home/components/homePerformanc
 const EMPTY_MESSAGES: Message[] = [];
 const EMPTY_BRANCHES: ConversationBranch[] = [];
 const EMPTY_SELECTED_BRANCH_IDS: BranchSelectionMap = {};
+const EMPTY_CONVERSATION_MAP_MODEL: ConversationMapModel = {
+  rootIds: [],
+  nodes: [],
+  edges: [],
+  nodeById: new Map(),
+  nodeIdByMessageId: new Map(),
+  activePathNodeIds: new Set(),
+  branchPointIds: new Set(),
+  collapsedSegments: [],
+};
 
 interface UseActiveConversationModelParams {
   activePendingRequest: { phase: 'awaiting-response' | 'reconciling'; userMessageId: string } | null;
+  conversationMapEnabled: boolean;
   conversationMapViewState: { zoom: number };
   conversations: ConversationListItem[];
   currentMapMessageId: string | null;
@@ -56,6 +68,7 @@ interface UseActiveConversationModelParams {
 
 export function useActiveConversationModel({
   activePendingRequest,
+  conversationMapEnabled,
   conversationMapViewState,
   conversations,
   currentMapMessageId,
@@ -166,26 +179,57 @@ export function useActiveConversationModel({
     ]
   );
 
-  const activeMessages = useMemo(
+  const activeConversationStructureKey = activeConversationMessages
+    .map((message) =>
+      `${message.id}:${message.role}:${message.previousMessageId ?? ''}`
+    )
+    .join('|');
+  const structuralMessagesRef = useRef<{
+    key: string;
+    messages: Message[];
+  }>({ key: '', messages: EMPTY_MESSAGES });
+  if (structuralMessagesRef.current.key !== activeConversationStructureKey) {
+    structuralMessagesRef.current = {
+      key: activeConversationStructureKey,
+      messages: activeConversationMessages,
+    };
+  }
+  const structuralConversationMessages =
+    structuralMessagesRef.current.messages;
+  const structuralActiveMessages = useMemo(
     () =>
       getActivePathMessages({
-        messages: activeConversationMessages,
+        messages: structuralConversationMessages,
         branches: activeConversationBranches,
         selectedBranchIds: activeSelectedBranchIds,
         pendingBranch,
       }),
     [
       activeConversationBranches,
-      activeConversationMessages,
       activeSelectedBranchIds,
       pendingBranch,
+      structuralConversationMessages,
     ]
   );
+  const activeMessages = useMemo(() => {
+    const currentMessagesById = new Map(
+      activeConversationMessages.map((message) => [message.id, message])
+    );
+    return structuralActiveMessages.map(
+      (message) => currentMessagesById.get(message.id) ?? message
+    );
+  }, [activeConversationMessages, structuralActiveMessages]);
+  const conversationMapMessages = conversationMapEnabled
+    ? activeConversationMessages
+    : EMPTY_MESSAGES;
   const conversationMapModel = useMemo(
     () => {
+      if (!conversationMapEnabled) {
+        return EMPTY_CONVERSATION_MAP_MODEL;
+      }
       recordHomePerformanceEvent('conversation-map-model-build');
       return buildConversationMapModel({
-        messages: activeConversationMessages,
+        messages: conversationMapMessages,
         branches: activeConversationBranches,
         selectedBranchIds: activeSelectedBranchIds,
         pendingBranchSourceMessageId: pendingBranch?.sourceMessageId ?? null,
@@ -195,8 +239,9 @@ export function useActiveConversationModel({
     },
     [
       activeConversationBranches,
-      activeConversationMessages,
+      conversationMapMessages,
       activeSelectedBranchIds,
+      conversationMapEnabled,
       conversationMapViewState.zoom,
       currentMapMessageId,
       pendingBranch?.sourceMessageId,
@@ -237,13 +282,13 @@ export function useActiveConversationModel({
   const branchChipsByMessageId = useMemo(
     () =>
       new Map(
-        activeMessages
+        structuralActiveMessages
           .filter((message) => message.role === 'assistant')
           .map((message) => [
             message.id,
             getBranchChipsForMessage({
               sourceMessageId: message.id,
-              messages: activeConversationMessages,
+              messages: structuralConversationMessages,
               branches: activeConversationBranches,
               selectedBranchIds: activeSelectedBranchIds,
               pendingBranch,
@@ -253,10 +298,10 @@ export function useActiveConversationModel({
       ),
     [
       activeConversationBranches,
-      activeConversationMessages,
-      activeMessages,
       activeSelectedBranchIds,
       pendingBranch,
+      structuralActiveMessages,
+      structuralConversationMessages,
     ]
   );
   const conversationTitle = isTemporaryChat

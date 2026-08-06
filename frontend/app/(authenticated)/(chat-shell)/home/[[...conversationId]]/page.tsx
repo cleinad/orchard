@@ -504,6 +504,7 @@ function HomePageInner() {
     selectedTemporaryChat,
   } = useActiveConversationModel({
     activePendingRequest: activePendingChatRequest,
+    conversationMapEnabled: conversationMapOpen,
     conversationMapViewState,
     conversations,
     currentMapMessageId,
@@ -520,7 +521,7 @@ function HomePageInner() {
     threadSessionsById,
     tempChatTitle: TEMP_CHAT_TITLE,
   });
-  const hasConversationMap = conversationMapModel.nodes.length > 0;
+  const hasConversationMap = activeConversationMessages.length > 0;
   const {
     endProgrammaticTranscriptNavigation,
     handleScroll,
@@ -578,13 +579,13 @@ function HomePageInner() {
     if (selectedChat?.kind === 'draft' && !selectedDraftChat) {
       setSelectedChat(null);
     }
-  }, [selectedChat, selectedDraftChat]);
+  }, [selectedChat, selectedDraftChat, setSelectedChat]);
 
   useEffect(() => {
     if (selectedChat?.kind === 'temporary' && !selectedTemporaryChat) {
       setSelectedChat(null);
     }
-  }, [selectedChat, selectedTemporaryChat]);
+  }, [selectedChat, selectedTemporaryChat, setSelectedChat]);
 
   useEffect(() => {
     if (!hasConversationMap && conversationMapOpen) {
@@ -633,6 +634,7 @@ function HomePageInner() {
     router,
     listError,
     isHomeE2eFixture,
+    handleCreateDraftSelection,
   ]);
 
   const cleanupTemporaryChatAttachments = useCallback((tempChatId: string) => {
@@ -1001,7 +1003,7 @@ function HomePageInner() {
             isTemporaryChat={isTemporaryChat}
             loadingLists={loadingLists}
             onCreateTemporaryChat={handleCreateTemporaryChat}
-            conversationMapNodeCount={conversationMapModel.nodes.length}
+            conversationMapNodeCount={activeConversationMessages.length}
             conversationMapOpen={conversationMapOpen}
             onToggleConversationMap={handleToggleConversationMap}
           />

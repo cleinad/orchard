@@ -27,6 +27,9 @@ interface ConversationViewProps {
   onAssistantPointerUp: () => void;
 }
 
+const EMPTY_BRANCH_CHIPS: BranchChip[] = [];
+const EMPTY_THREAD_MARKERS: InlineThreadMarker[] = [];
+
 export default function ConversationView({
   activeHighlightSource,
   isWideLayout,
@@ -146,7 +149,8 @@ export default function ConversationView({
               isSourceTrayOpen
                 ? openSourceTray?.sourceId ?? replySearchMetadata?.sources[0]?.id ?? null
                 : null;
-            const branchChips = branchChipsByMessageId.get(message.id) || [];
+            const branchChips =
+              branchChipsByMessageId.get(message.id) ?? EMPTY_BRANCH_CHIPS;
             const isPendingBranchSource = pendingBranchSourceMessageId === message.id;
 
             return (
@@ -158,7 +162,7 @@ export default function ConversationView({
                 isPendingBranchSource={isPendingBranchSource}
                 isSourceTrayOpen={isSourceTrayOpen}
                 message={message}
-                threads={threadsMap.get(message.id) || []}
+                threads={threadsMap.get(message.id) ?? EMPTY_THREAD_MARKERS}
                 onAssistantPointerUp={onAssistantPointerUp}
                 onCitationClick={handleCitationClick}
                 onCreateBranch={onCreateBranch}

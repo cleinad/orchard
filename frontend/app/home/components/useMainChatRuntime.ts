@@ -10,6 +10,7 @@ import {
   type SetStateAction,
 } from 'react';
 import {
+  writeTemporaryChatsToStorage,
   type SelectedChat,
   type PersistentDraftChat,
   type TemporaryChatSession,
@@ -62,7 +63,10 @@ import {
   storeProvisionalChatPromotion,
   type ProvisionalChatPromotion,
 } from '@/app/home/components/provisionalChatPromotion';
-import { recordHomePerformanceEvent } from '@/app/home/components/homePerformanceInstrumentation';
+import {
+  recordHomePerformanceEvent,
+  setHomePerformanceGauge,
+} from '@/app/home/components/homePerformanceInstrumentation';
 
 export interface ChatResponse {
   message?: string;
@@ -1039,17 +1043,20 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
     let visibleAssistantMessage: Message | null = null;
     let visibleFinalized = false;
     let latestSearchActivity: SearchActivitySummary | null = null;
+    let visiblePublicationFrame: number | null = null;
+    let visiblePublicationActive = true;
+    let publishedVisibleContent = '';
 
-    const appendChunk = (delta: string) => {
-      latestStreamedContent += delta;
-
+    const publishVisibleAssistantContent = (content: string) => {
+      if (!visiblePublicationActive || content === publishedVisibleContent) return;
+      publishedVisibleContent = content;
       if (effectiveSelection.kind === 'temporary') {
         params.updateTemporaryChat(effectiveSelection.tempChatId, (chat) => {
           recordHomePerformanceEvent('visible-stream-publication');
           return {
             ...chat,
             messages: chat.messages.map((m) =>
-              m.id === streamingMessageId ? { ...m, content: m.content + delta } : m
+              m.id === streamingMessageId ? { ...m, content } : m
             ),
           };
         });
@@ -1057,7 +1064,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
         updatePersistentMessagesForSelection(effectiveSelection, (prev) => {
           recordHomePerformanceEvent('visible-stream-publication');
           return prev.map((m) =>
-            m.id === streamingMessageId ? { ...m, content: m.content + delta } : m
+            m.id === streamingMessageId ? { ...m, content } : m
           );
         });
       } else if (effectiveDraft) {
@@ -1066,11 +1073,93 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
           return {
             ...draft,
             messages: draft.messages.map((m) =>
-              m.id === streamingMessageId ? { ...m, content: m.content + delta } : m
+              m.id === streamingMessageId ? { ...m, content } : m
             ),
           };
         });
       }
+    };
+
+    const cancelVisiblePublication = () => {
+      visiblePublicationActive = false;
+      if (visiblePublicationFrame !== null) {
+        cancelAnimationFrame(visiblePublicationFrame);
+        visiblePublicationFrame = null;
+      }
+    };
+
+    const flushVisiblePublication = () => {
+      if (!visiblePublicationActive) return;
+      if (visiblePublicationFrame !== null) {
+        cancelAnimationFrame(visiblePublicationFrame);
+        visiblePublicationFrame = null;
+      }
+      publishVisibleAssistantContent(latestStreamedContent);
+    };
+
+    const temporaryStreamChatId =
+      effectiveSelection.kind === 'temporary'
+        ? effectiveSelection.tempChatId
+        : null;
+    const persistLatestTemporaryStream = () => {
+      if (!temporaryStreamChatId) return;
+      const snapshot = params.temporaryChatsRef.current.map((chat) =>
+        chat.id === temporaryStreamChatId
+          ? {
+              ...chat,
+              messages: chat.messages.map((message) =>
+                message.id === streamingMessageId
+                  ? { ...message, content: latestStreamedContent }
+                  : message
+              ),
+            }
+          : chat
+      );
+      try {
+        if (
+          writeTemporaryChatsToStorage(
+            window.sessionStorage,
+            snapshot
+          )
+        ) {
+          recordHomePerformanceEvent('temporary-chat-storage-write');
+          return;
+        }
+      } catch {
+        // Accessing sessionStorage itself can throw in restricted environments.
+      }
+      recordHomePerformanceEvent('temporary-chat-storage-error');
+    };
+
+    const flushVisiblePublicationOnPageHide = () => {
+      recordHomePerformanceEvent('stream-pagehide-flush');
+      setHomePerformanceGauge(
+        'stream-pagehide-content-length',
+        latestStreamedContent.length
+      );
+      flushVisiblePublication();
+      if (effectiveSelection.kind !== 'temporary') return;
+      params.updateTemporaryChat(effectiveSelection.tempChatId, (chat) => ({
+        ...chat,
+        messages: chat.messages.map((message) =>
+          message.id === streamingMessageId
+            ? { ...message, content: latestStreamedContent }
+            : message
+        ),
+      }));
+      persistLatestTemporaryStream();
+      queueMicrotask(persistLatestTemporaryStream);
+    };
+    window.addEventListener('pagehide', flushVisiblePublicationOnPageHide);
+
+    const appendChunk = (delta: string) => {
+      if (!visiblePublicationActive) return;
+      latestStreamedContent += delta;
+      if (visiblePublicationFrame !== null) return;
+      visiblePublicationFrame = requestAnimationFrame(() => {
+        visiblePublicationFrame = null;
+        publishVisibleAssistantContent(latestStreamedContent);
+      });
     };
 
     const updateSearchActivity = (activity: SearchActivitySummary) => {
@@ -1129,7 +1218,9 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
         return visibleAssistantMessage;
       }
 
+      flushVisiblePublication();
       visibleFinalized = true;
+      visiblePublicationActive = false;
       visibleAssistantMessage = {
         id: streamingMessageId,
         renderId: streamingMessageId,
@@ -1149,6 +1240,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
     };
 
     const removeStreamingMessage = () => {
+      cancelVisiblePublication();
       if (effectiveSelection.kind === 'temporary') {
         params.updateTemporaryChat(effectiveSelection.tempChatId, (chat) => ({
           ...chat,
@@ -1410,6 +1502,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
         canApplyTemporaryResponseForSelection(effectiveSelection);
 
       if (data.error) {
+        cancelVisiblePublication();
         if (!chatRunCoordinator) showErrorMessage(data.error);
         return { accepted: true, completed: false, error: data.error, uploadedAttachments };
       }
@@ -1665,6 +1758,8 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
       }
       return { accepted: true, completed: false, uploadedAttachments };
     } finally {
+      window.removeEventListener('pagehide', flushVisiblePublicationOnPageHide);
+      cancelVisiblePublication();
       params.clearPendingChatRequestForSelection(effectiveSelection);
     }
   }, [chatRunCoordinator]);

@@ -6,6 +6,7 @@ import {
   useState,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   type ReactNode,
   type SetStateAction,
@@ -103,6 +104,7 @@ export interface TemporaryChatSession {
 
 const TEMP_CHAT_TITLE = 'Temporary chat';
 const TEMP_CHAT_STORAGE_KEY = 'keen-home-temp-chats-v1';
+const TEMP_CHAT_STORAGE_DEBOUNCE_MS = 250;
 const HOME_SELECTION_HANDOFF_STORAGE_KEY = 'keen-home-selection-handoff-v1';
 const EMPTY_CHAT_MODELS: ChatModelListItem[] = [];
 
@@ -180,10 +182,36 @@ function resolveStateAction<T>(action: SetStateAction<T>, current: T): T {
     : action;
 }
 
+export function commitSynchronizedStateAction<T>(
+  action: SetStateAction<T>,
+  stateRef: { current: T },
+  commit: (next: T) => void
+) {
+  const next = resolveStateAction(action, stateRef.current);
+  stateRef.current = next;
+  commit(next);
+}
+
 function sortByUpdatedAtDesc<T extends { updatedAt: string }>(items: T[]): T[] {
   return [...items].sort(
     (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
   );
+}
+
+function haveSameSidebarItems<T extends object>(
+  previous: T[],
+  next: T[]
+) {
+  if (previous.length !== next.length) return false;
+  return previous.every((item, index) => {
+    const nextItem = next[index];
+    const keys = Object.keys(item) as Array<keyof T>;
+    return (
+      nextItem !== undefined
+      && keys.length === Object.keys(nextItem).length
+      && keys.every((key) => item[key] === nextItem[key])
+    );
+  });
 }
 
 function mergeHydratedTranscriptWithLocalRunState(
@@ -246,6 +274,22 @@ export function serializeTemporaryChats(chats: TemporaryChatSession[]): string {
     threadStatuses: chat.threadStatuses,
   }));
   return JSON.stringify(stored);
+}
+
+export function writeTemporaryChatsToStorage(
+  storage: Pick<Storage, 'removeItem' | 'setItem'>,
+  chats: TemporaryChatSession[]
+) {
+  try {
+    if (chats.length === 0) {
+      storage.removeItem(TEMP_CHAT_STORAGE_KEY);
+    } else {
+      storage.setItem(TEMP_CHAT_STORAGE_KEY, serializeTemporaryChats(chats));
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -355,9 +399,63 @@ interface HomeDataContextValue {
 
 const HomeDataContext = createContext<HomeDataContextValue | null>(null);
 
+interface HomeShellDraftChat {
+  id: string;
+  mentor_id: string | null;
+  workspace_id: string | null;
+  title: string;
+  updated_at: string;
+}
+
+interface HomeShellTemporaryChat {
+  id: string;
+  title: string;
+  updated_at: string;
+}
+
+interface HomeShellContextValue {
+  chatModels: ChatModelListItem[];
+  conversations: ConversationListItem[];
+  workspaceGroups: SidebarWorkspaceGroup[];
+  draftChats: HomeShellDraftChat[];
+  temporaryChats: HomeShellTemporaryChat[];
+  selectedChat: SelectedChat | null;
+  setSelectedChat: React.Dispatch<React.SetStateAction<SelectedChat | null>>;
+  setDraftChats: React.Dispatch<React.SetStateAction<PersistentDraftChat[]>>;
+  handleSelectConversation: (conversation: ConversationListItem) => void;
+  handleSelectDraft: (draftId: string) => void;
+  handleSelectTemporaryChat: (tempChatId: string) => void;
+  handleCreateDraftSelection: (
+    mentorId: string | null,
+    workspaceId?: string | null
+  ) => void;
+  handleCreateTemporaryChat: () => void;
+  handleCloseTemporaryChat: (tempChatId: string) => void;
+  refreshSidebarData: () => Promise<void>;
+  upsertSidebarConversation: HomeDataContextValue['upsertSidebarConversation'];
+  upsertWorkspaceSummary: (workspace: WorkspaceSummary) => void;
+  removeWorkspaceSummary: (workspaceId: string) => void;
+  openPersistentConversation: (id: string, opts?: { replace?: boolean }) => void;
+  buildHomeHref: (pathname: string) => string;
+  openWorkspace: (
+    workspaceId: string,
+    options?: { navigate?: boolean }
+  ) => void;
+}
+
+const HomeShellContext = createContext<HomeShellContextValue | null>(null);
+
 export function useHomeDataContext(): HomeDataContextValue {
   const ctx = useContext(HomeDataContext);
   if (!ctx) throw new Error('useHomeDataContext must be used within HomeDataProvider');
+  return ctx;
+}
+
+export function useHomeShellContext(): HomeShellContextValue {
+  const ctx = useContext(HomeShellContext);
+  if (!ctx) {
+    throw new Error('useHomeShellContext must be used within HomeDataProvider');
+  }
   return ctx;
 }
 
@@ -405,9 +503,9 @@ export function HomeDataProvider({
     loadConversationMessages,
   } = useHomeData(initialNavigationData);
 
-  const [draftChats, setDraftChats] = useState<PersistentDraftChat[]>([]);
-  const [temporaryChats, setTemporaryChats] = useState<TemporaryChatSession[]>([]);
-  const [selectedChat, setSelectedChat] = useState<SelectedChat | null>(null);
+  const [draftChats, setDraftChatsState] = useState<PersistentDraftChat[]>([]);
+  const [temporaryChats, setTemporaryChatsState] = useState<TemporaryChatSession[]>([]);
+  const [selectedChat, setSelectedChatState] = useState<SelectedChat | null>(null);
   const [clientRouteConversationId, setClientRouteConversationId] =
     useState<string | null>(routeConversationId);
   const [pendingRouteConversationId, setPendingRouteConversationId] =
@@ -416,14 +514,40 @@ export function HomeDataProvider({
     useState<PersistentConversationTranscriptRecord>({});
 
   const selectedChatRef = useRef<SelectedChat | null>(null);
+  const draftChatsRef = useRef<PersistentDraftChat[]>([]);
+  const temporaryChatsRef = useRef<TemporaryChatSession[]>([]);
+  const shellDraftChatsRef = useRef<HomeShellDraftChat[]>([]);
+  const shellTemporaryChatsRef = useRef<HomeShellTemporaryChat[]>([]);
   const appliedPersistentRunTitlesRef = useRef(new Set<string>());
   const pendingPersistentRunTitleRefreshesRef = useRef(new Set<string>());
   const persistentConversationCacheRef = useRef<PersistentConversationTranscriptRecord>({});
   const persistentConversationLoadsRef =
     useRef<Record<string, Promise<PersistentConversationTranscript>>>({});
   const transcriptScrollPositionsRef = useRef<Record<string, number>>({});
-  // Keep ref aligned with state for async handlers (same pattern as page used before lift)
-  selectedChatRef.current = selectedChat;
+  const setDraftChats = useCallback(
+    (action: SetStateAction<PersistentDraftChat[]>) => {
+      commitSynchronizedStateAction(action, draftChatsRef, setDraftChatsState);
+    },
+    []
+  );
+
+  const setTemporaryChats = useCallback(
+    (action: SetStateAction<TemporaryChatSession[]>) => {
+      commitSynchronizedStateAction(
+        action,
+        temporaryChatsRef,
+        setTemporaryChatsState
+      );
+    },
+    []
+  );
+
+  const setSelectedChat = useCallback(
+    (action: SetStateAction<SelectedChat | null>) => {
+      commitSynchronizedStateAction(action, selectedChatRef, setSelectedChatState);
+    },
+    []
+  );
 
   const setPersistentConversationCache = useCallback(
     (updater: SetStateAction<PersistentConversationTranscriptRecord>) => {
@@ -549,7 +673,7 @@ export function HomeDataProvider({
 
   const getTranscriptScrollPosition = useCallback((key: string) => {
     return transcriptScrollPositionsRef.current[key] ?? null;
-  }, []);
+  }, [setTemporaryChats]);
 
   const setTranscriptScrollPosition = useCallback((key: string, scrollTop: number) => {
     transcriptScrollPositionsRef.current = {
@@ -589,24 +713,53 @@ export function HomeDataProvider({
   // ------------------------------------------------------------------
 
   useEffect(() => {
-    const stored = window.sessionStorage.getItem(TEMP_CHAT_STORAGE_KEY);
-    if (!stored) return;
     try {
+      const stored = window.sessionStorage.getItem(TEMP_CHAT_STORAGE_KEY);
+      if (!stored) return;
       setTemporaryChats(sortByUpdatedAtDesc(deserializeTemporaryChats(stored)));
     } catch {
-      window.sessionStorage.removeItem(TEMP_CHAT_STORAGE_KEY);
+      try {
+        window.sessionStorage.removeItem(TEMP_CHAT_STORAGE_KEY);
+      } catch {
+        // Keep the in-memory home surface usable when storage is unavailable.
+      }
+    }
+  }, []);
+
+  const persistTemporaryChats = useCallback(() => {
+    try {
+      if (
+        writeTemporaryChatsToStorage(
+          window.sessionStorage,
+          temporaryChatsRef.current
+        )
+      ) {
+        recordHomePerformanceEvent('temporary-chat-storage-write');
+        return;
+      }
+    } catch {
+      // Accessing sessionStorage itself can throw in restricted environments.
+    }
+    {
+      recordHomePerformanceEvent('temporary-chat-storage-error');
     }
   }, []);
 
   useEffect(() => {
-    if (temporaryChats.length === 0) {
-      window.sessionStorage.removeItem(TEMP_CHAT_STORAGE_KEY);
-      recordHomePerformanceEvent('temporary-chat-storage-write');
-      return;
-    }
-    window.sessionStorage.setItem(TEMP_CHAT_STORAGE_KEY, serializeTemporaryChats(temporaryChats));
-    recordHomePerformanceEvent('temporary-chat-storage-write');
-  }, [temporaryChats]);
+    const timeoutId = window.setTimeout(
+      persistTemporaryChats,
+      TEMP_CHAT_STORAGE_DEBOUNCE_MS
+    );
+    return () => window.clearTimeout(timeoutId);
+  }, [persistTemporaryChats, temporaryChats]);
+
+  useEffect(() => {
+    window.addEventListener('pagehide', persistTemporaryChats);
+    return () => {
+      window.removeEventListener('pagehide', persistTemporaryChats);
+      persistTemporaryChats();
+    };
+  }, [persistTemporaryChats]);
 
   useEffect(() => {
     if (!chatRunCoordinator) return;
@@ -767,6 +920,9 @@ export function HomeDataProvider({
     chatRunCoordinator,
     conversations,
     refreshSidebarData,
+    setDraftChats,
+    setSelectedChat,
+    setTemporaryChats,
     upsertSidebarConversation,
     upsertWorkspaceSummary,
     removeWorkspaceSummary,
@@ -804,7 +960,13 @@ export function HomeDataProvider({
     selectedChatRef.current = next;
     setSelectedChat(next);
     clearHomeSelectionHandoff();
-  }, [routeConversationId, selectedChat, temporaryChats]);
+  }, [
+    routeConversationId,
+    selectedChat,
+    setDraftChats,
+    setSelectedChat,
+    temporaryChats,
+  ]);
 
   // ------------------------------------------------------------------
   // Mutations
@@ -814,7 +976,7 @@ export function HomeDataProvider({
     (id: string, updater: (d: PersistentDraftChat) => PersistentDraftChat) => {
       setDraftChats((prev) => prev.map((d) => (d.id === id ? updater(d) : d)));
     },
-    []
+    [setDraftChats]
   );
 
   const updateTemporaryChat = useCallback(
@@ -823,7 +985,7 @@ export function HomeDataProvider({
         sortByUpdatedAtDesc(prev.map((c) => (c.id === id ? updater(c) : c)))
       );
     },
-    []
+    [setTemporaryChats]
   );
 
   const createDraft = useCallback((
@@ -846,7 +1008,7 @@ export function HomeDataProvider({
 
   const getOrCreateDraft = useCallback(
     (mentorId: string | null, workspaceId: string | null = null) => {
-      const existing = draftChats.find(
+      const existing = draftChatsRef.current.find(
         (d) => d.mentorId === mentorId && d.workspaceId === workspaceId
       );
       if (existing) return existing;
@@ -854,7 +1016,7 @@ export function HomeDataProvider({
       setDraftChats((prev) => [draft, ...prev]);
       return draft;
     },
-    [createDraft, draftChats]
+    [createDraft, setDraftChats]
   );
 
   // ------------------------------------------------------------------
@@ -950,6 +1112,8 @@ export function HomeDataProvider({
     openHomeWorkspace,
     removePersistentConversationTranscript,
     removeSidebarConversation,
+    setDraftChats,
+    setSelectedChat,
   ]);
 
   const clearPendingRouteConversationId = useCallback(() => {
@@ -985,12 +1149,17 @@ export function HomeDataProvider({
 
       openPersistentConversation(conversation.id);
     },
-    [invokePrepareForChatSwitch, openPersistentConversation, selectedChatRef]
+    [
+      invokePrepareForChatSwitch,
+      openPersistentConversation,
+      selectedChatRef,
+      setSelectedChat,
+    ]
   );
 
   const handleSelectDraft = useCallback(
     (draftId: string) => {
-      const draft = draftChats.find((d) => d.id === draftId);
+      const draft = draftChatsRef.current.find((d) => d.id === draftId);
       if (!draft) return;
       const next: SelectedChat = {
         kind: 'draft',
@@ -1006,7 +1175,7 @@ export function HomeDataProvider({
       setSelectedChat(next);
       openHomeWorkspace();
     },
-    [clientRouteConversationId, draftChats, openHomeWorkspace, pathname]
+    [clientRouteConversationId, openHomeWorkspace, pathname, setSelectedChat]
   );
 
   const handleSelectTemporaryChat = useCallback(
@@ -1020,7 +1189,7 @@ export function HomeDataProvider({
       setSelectedChat(next);
       openHomeWorkspace();
     },
-    [clientRouteConversationId, openHomeWorkspace, pathname]
+    [clientRouteConversationId, openHomeWorkspace, pathname, setSelectedChat]
   );
 
   const handleCreateDraftSelection = useCallback(
@@ -1040,7 +1209,13 @@ export function HomeDataProvider({
       setSelectedChat(next);
       openHomeWorkspace();
     },
-    [clientRouteConversationId, getOrCreateDraft, openHomeWorkspace, pathname]
+    [
+      clientRouteConversationId,
+      getOrCreateDraft,
+      openHomeWorkspace,
+      pathname,
+      setSelectedChat,
+    ]
   );
 
   const handleCreateTemporaryChat = useCallback(() => {
@@ -1066,18 +1241,27 @@ export function HomeDataProvider({
     selectedChatRef.current = next;
     setSelectedChat(next);
     openHomeWorkspace();
-  }, [clientRouteConversationId, openHomeWorkspace, pathname]);
+  }, [
+    clientRouteConversationId,
+    openHomeWorkspace,
+    pathname,
+    setSelectedChat,
+    setTemporaryChats,
+  ]);
 
   const handleCloseTemporaryChat = useCallback(
     (tempChatId: string) => {
       closeTempChatCleanupRef.current(tempChatId);
-      const remaining = temporaryChats.filter((c) => c.id !== tempChatId);
-      setTemporaryChats(remaining);
+      let remaining: TemporaryChatSession[] = [];
+      setTemporaryChats((current) => {
+        remaining = current.filter((chat) => chat.id !== tempChatId);
+        return remaining;
+      });
 
       // If the closed chat wasn't selected, nothing else to do
       if (
-        selectedChat?.kind !== 'temporary' ||
-        selectedChat.tempChatId !== tempChatId
+        selectedChatRef.current?.kind !== 'temporary' ||
+        selectedChatRef.current.tempChatId !== tempChatId
       ) {
         return;
       }
@@ -1102,8 +1286,8 @@ export function HomeDataProvider({
       conversations,
       handleSelectConversation,
       handleSelectTemporaryChat,
-      selectedChat,
-      temporaryChats,
+      setSelectedChat,
+      setTemporaryChats,
     ]
   );
 
@@ -1117,6 +1301,82 @@ export function HomeDataProvider({
     }
     void refreshSidebarData();
   }, [initialNavigationData, skipInitialSidebarRefresh, refreshSidebarData]);
+
+  const nextShellDraftChats = draftChats.map((draft) => ({
+    id: draft.id,
+    mentor_id: draft.mentorId,
+    workspace_id: draft.workspaceId,
+    title: draft.title,
+    updated_at: draft.updatedAt,
+  }));
+  if (!haveSameSidebarItems(shellDraftChatsRef.current, nextShellDraftChats)) {
+    shellDraftChatsRef.current = nextShellDraftChats;
+  }
+
+  const nextShellTemporaryChats = temporaryChats.map((chat) => ({
+    id: chat.id,
+    title: chat.title,
+    updated_at: chat.updatedAt,
+  }));
+  if (
+    !haveSameSidebarItems(
+      shellTemporaryChatsRef.current,
+      nextShellTemporaryChats
+    )
+  ) {
+    shellTemporaryChatsRef.current = nextShellTemporaryChats;
+  }
+  const shellDraftChats = shellDraftChatsRef.current;
+  const shellTemporaryChats = shellTemporaryChatsRef.current;
+
+  const shellValue = useMemo<HomeShellContextValue>(
+    () => ({
+      chatModels: initialChatModels,
+      conversations,
+      workspaceGroups,
+      draftChats: shellDraftChats,
+      temporaryChats: shellTemporaryChats,
+      selectedChat,
+      setSelectedChat,
+      setDraftChats,
+      handleSelectConversation,
+      handleSelectDraft,
+      handleSelectTemporaryChat,
+      handleCreateDraftSelection,
+      handleCreateTemporaryChat,
+      handleCloseTemporaryChat,
+      refreshSidebarData,
+      upsertSidebarConversation,
+      upsertWorkspaceSummary,
+      removeWorkspaceSummary,
+      openPersistentConversation,
+      buildHomeHref,
+      openWorkspace,
+    }),
+    [
+      buildHomeHref,
+      conversations,
+      handleCloseTemporaryChat,
+      handleCreateDraftSelection,
+      handleCreateTemporaryChat,
+      handleSelectConversation,
+      handleSelectDraft,
+      handleSelectTemporaryChat,
+      initialChatModels,
+      openPersistentConversation,
+      openWorkspace,
+      refreshSidebarData,
+      removeWorkspaceSummary,
+      selectedChat,
+      setDraftChats,
+      setSelectedChat,
+      upsertSidebarConversation,
+      upsertWorkspaceSummary,
+      workspaceGroups,
+      shellDraftChats,
+      shellTemporaryChats,
+    ]
+  );
 
   const value: HomeDataContextValue = {
     mentors,
@@ -1174,8 +1434,10 @@ export function HomeDataProvider({
   };
 
   return (
-    <HomeDataContext.Provider value={value}>
-      {children}
-    </HomeDataContext.Provider>
+    <HomeShellContext.Provider value={shellValue}>
+      <HomeDataContext.Provider value={value}>
+        {children}
+      </HomeDataContext.Provider>
+    </HomeShellContext.Provider>
   );
 }

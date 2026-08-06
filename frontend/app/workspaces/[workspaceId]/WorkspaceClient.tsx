@@ -22,7 +22,7 @@ import {
   isChatModelThinkingOverrides,
 } from '@/app/home/components/chatPreferencePersistence';
 import { useChatModelCatalog } from '@/app/home/components/useChatModelCatalog';
-import { useHomeDataContext } from '@/app/home/components/HomeDataContext';
+import { useHomeShellContext } from '@/app/home/components/HomeDataContext';
 import { usePersistedJson } from '@/app/home/components/usePersistedJson';
 import { usePersistedString } from '@/app/home/components/usePersistedString';
 import {
@@ -134,7 +134,7 @@ export default function WorkspaceClient({
     selectedChat,
     setSelectedChat,
     setDraftChats,
-  } = useHomeDataContext();
+  } = useHomeShellContext();
 
   const [workspace, setWorkspace] = useState<WorkspaceDetail | null>(
     initialWorkspace
