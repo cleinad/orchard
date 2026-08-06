@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useRouter } from 'next/navigation';
+import { useOptionalViewer } from '@/app/components/ViewerContext';
 import {
   saveGlobalInstructions,
   signOut,
@@ -32,12 +33,17 @@ import {
 export default function SettingsClient({
   viewerResult,
 }: {
-  viewerResult: SettingsViewerResult;
+  viewerResult?: SettingsViewerResult;
 }) {
-  const viewer = viewerResult.viewer;
+  const viewerContext = useOptionalViewer();
+  const currentViewerResult = viewerContext?.viewerResult ?? viewerResult;
+  if (!currentViewerResult) {
+    throw new Error('SettingsClient requires ViewerProvider or viewerResult');
+  }
+  const viewer = currentViewerResult.viewer;
   const displayName =
-    viewerResult.status === 'ready'
-      ? viewerResult.viewer.fullName || 'Add your name'
+    currentViewerResult.status === 'ready'
+      ? currentViewerResult.viewer.fullName || 'Add your name'
       : 'Profile unavailable';
   const email = viewer.email || 'No email available';
 
@@ -66,10 +72,10 @@ export default function SettingsClient({
       </SettingsGroup>
 
       <SettingsGroup title="Instructions" id="instructions">
-        {viewerResult.status === 'ready' ? (
-          <GlobalInstructionsEditor viewer={viewerResult.viewer} />
+        {currentViewerResult.status === 'ready' ? (
+          <GlobalInstructionsEditor viewer={currentViewerResult.viewer} />
         ) : (
-          <ProfileRecovery status={viewerResult.status} />
+          <ProfileRecovery status={currentViewerResult.status} />
         )}
       </SettingsGroup>
 
@@ -139,6 +145,7 @@ function SettingsRow({
 }
 
 function GlobalInstructionsEditor({ viewer }: { viewer: SettingsViewer }) {
+  const viewerContext = useOptionalViewer();
   const [savedValue, setSavedValue] = useState(viewer.globalInstructions);
   const [draftValue, setDraftValue] = useState(viewer.globalInstructions);
   const [saving, setSaving] = useState(false);
@@ -173,6 +180,7 @@ function GlobalInstructionsEditor({ viewer }: { viewer: SettingsViewer }) {
 
       setSavedValue(result.value);
       setDraftValue(result.value);
+      viewerContext?.updateGlobalInstructions(result.value);
       setSavedConfirmation(true);
     } catch {
       setSaveError('Could not save your instructions. Please try again.');

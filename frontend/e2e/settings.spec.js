@@ -194,12 +194,16 @@ test('a transient profile failure can be retried in place', async ({ page }) => 
 test('the Settings link is eligible for production prefetch and navigates', async ({
   page,
 }) => {
-  await prepareAuthenticatedSettings(page, {
+  const userId = await prepareAuthenticatedSettings(page, {
     globalInstructions: 'Render this from the prefetched payload.',
     mockHome: true,
   });
 
   await page.goto('/home');
+  await expect.poll(async () => {
+    const state = await getFixtureState(userId);
+    return state.counters.profileReads;
+  }).toBe(1);
   await page.getByRole('button', { name: 'Open conversations' }).click();
 
   const settingsLink = page.getByRole('link', { name: 'Open settings' });
@@ -208,6 +212,9 @@ test('the Settings link is eligible for production prefetch and navigates', asyn
   await expect(page.getByLabel('Global instructions')).toHaveValue(
     'Render this from the prefetched payload.',
   );
+  const state = await getFixtureState(userId);
+  expect(state.counters.profileReads).toBe(1);
+  expect(state.counters.authUser).toBe(0);
 });
 
 test('an expired session is refreshed and still loads Settings', async ({

@@ -8,10 +8,7 @@ import {
   type Dispatch,
   type SetStateAction,
 } from 'react';
-import {
-  createPendingChatImageAttachments,
-  type PendingChatImageAttachment,
-} from '@/app/home/components/chatImageUploads';
+import type { PendingChatImageAttachment } from '@/app/home/components/chatImageUploads';
 import type { ChatModelId, ChatModelListItem } from '@/lib/chat-models';
 
 export const IMAGE_MODEL_UNSUPPORTED_MESSAGE =
@@ -105,6 +102,9 @@ export function useChatImageComposerState({
       return;
     }
 
+    const { createPendingChatImageAttachments } = await import(
+      '@/app/home/components/chatImageUploads'
+    );
     const result = await createPendingChatImageAttachments(
       files,
       pendingImageAttachments.length

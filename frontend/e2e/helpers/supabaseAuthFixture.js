@@ -166,12 +166,23 @@ function startServer() {
       profileReadFailures: options.profileReadFailures || 0,
       profileWriteFailures: options.profileWriteFailures || 0,
       logoutFailures: options.logoutFailures || 0,
+      mentors: Array.isArray(options.mentors) ? options.mentors : [],
+      workspaces: Array.isArray(options.workspaces) ? options.workspaces : [],
+      conversations: Array.isArray(options.conversations)
+        ? options.conversations
+        : [],
       counters: {
         authUser: 0,
         profileReads: 0,
         profileWrites: 0,
         refreshes: 0,
         logouts: 0,
+        mentorReads: 0,
+        workspaceListReads: 0,
+        workspaceDetailReads: 0,
+        workspaceWrites: 0,
+        workspaceDeletes: 0,
+        conversationReads: 0,
       },
     };
     state.accessToken = mintAccessToken(state, expiresIn);
@@ -416,6 +427,148 @@ function startServer() {
           sendJson(response, 200, singular ? state.profile : [state.profile]);
           return;
         }
+      }
+
+      if (request.method === 'GET' && requestUrl.pathname === '/rest/v1/mentors') {
+        const requestedUserId = requestUrl.searchParams
+          .get('user_id')
+          ?.replace(/^eq\./, '');
+        if (requestedUserId !== state.user.id) {
+          sendJson(response, 403, { message: 'Mentor access denied' });
+          return;
+        }
+
+        state.counters.mentorReads += 1;
+        sendJson(response, 200, state.mentors);
+        return;
+      }
+
+      if (
+        request.method === 'PATCH'
+        && requestUrl.pathname === '/rest/v1/workspaces'
+      ) {
+        const state = authenticate(request);
+        if (!state) {
+          sendJson(response, 401, { message: 'Invalid access token' });
+          return;
+        }
+
+        const requestedUserId = requestUrl.searchParams
+          .get('user_id')
+          ?.replace(/^eq\./, '');
+        const requestedWorkspaceId = requestUrl.searchParams
+          .get('id')
+          ?.replace(/^eq\./, '');
+        if (
+          requestedUserId !== state.user.id
+          || typeof requestedWorkspaceId !== 'string'
+        ) {
+          sendJson(response, 403, { message: 'Workspace access denied' });
+          return;
+        }
+
+        const workspace = state.workspaces.find(
+          (candidate) => candidate.id === requestedWorkspaceId,
+        );
+        if (!workspace) {
+          sendJson(response, 406, { message: 'Workspace does not exist' });
+          return;
+        }
+
+        Object.assign(workspace, await readJson(request), {
+          updated_at: new Date().toISOString(),
+        });
+        state.counters.workspaceWrites += 1;
+        const singular = request.headers.accept?.includes(
+          'application/vnd.pgrst.object',
+        );
+        sendJson(response, 200, singular ? workspace : [workspace]);
+        return;
+      }
+
+      if (
+        request.method === 'POST'
+        && requestUrl.pathname === '/rest/v1/rpc/delete_workspace_cascade'
+      ) {
+        const state = authenticate(request);
+        if (!state) {
+          sendJson(response, 401, { message: 'Invalid access token' });
+          return;
+        }
+
+        const { p_workspace_id: workspaceId } = await readJson(request);
+        const workspaceIndex = state.workspaces.findIndex(
+          (candidate) => candidate.id === workspaceId,
+        );
+        if (workspaceIndex < 0) {
+          sendJson(response, 200, {
+            workspace_deleted: false,
+            conversation_count: 0,
+            storage_paths: [],
+          });
+          return;
+        }
+
+        const conversationCount = state.conversations.filter(
+          (conversation) => conversation.workspace_id === workspaceId,
+        ).length;
+        state.workspaces.splice(workspaceIndex, 1);
+        state.conversations = state.conversations.filter(
+          (conversation) => conversation.workspace_id !== workspaceId,
+        );
+        state.counters.workspaceDeletes += 1;
+        sendJson(response, 200, {
+          workspace_deleted: true,
+          conversation_count: conversationCount,
+          storage_paths: [],
+        });
+        return;
+      }
+
+      if (
+        request.method === 'GET'
+        && requestUrl.pathname === '/rest/v1/workspaces'
+      ) {
+        const requestedUserId = requestUrl.searchParams
+          .get('user_id')
+          ?.replace(/^eq\./, '');
+        if (requestedUserId !== state.user.id) {
+          sendJson(response, 403, { message: 'Workspace access denied' });
+          return;
+        }
+
+        const requestedWorkspaceId = requestUrl.searchParams
+          .get('id')
+          ?.replace(/^eq\./, '');
+        if (requestedWorkspaceId) {
+          state.counters.workspaceDetailReads += 1;
+          const workspace = state.workspaces.find(
+            (candidate) => candidate.id === requestedWorkspaceId,
+          );
+          sendJson(response, 200, workspace || null);
+          return;
+        }
+
+        state.counters.workspaceListReads += 1;
+        sendJson(response, 200, state.workspaces);
+        return;
+      }
+
+      if (
+        request.method === 'GET'
+        && requestUrl.pathname === '/rest/v1/conversations'
+      ) {
+        const requestedUserId = requestUrl.searchParams
+          .get('user_id')
+          ?.replace(/^eq\./, '');
+        if (requestedUserId !== state.user.id) {
+          sendJson(response, 403, { message: 'Conversation access denied' });
+          return;
+        }
+
+        state.counters.conversationReads += 1;
+        sendJson(response, 200, state.conversations);
+        return;
       }
 
       sendJson(response, 404, { error: 'Not found' });

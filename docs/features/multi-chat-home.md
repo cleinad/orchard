@@ -45,6 +45,11 @@ incrementally. On desktop, the panel width is resizable and stored locally.
 Selecting a chat switches the active transcript without treating sidebar data
 as the message source of truth.
 
+The authenticated chat-shell layout initializes mentor, workspace-summary,
+conversation-summary, and model-catalog state on the server. Home and workspace
+navigation retains that provider state; normal navigation and focused
+workspace mutations do not repeat the complete sidebar bootstrap.
+
 ## Routing
 
 `/home` is the URL-less composer surface. `/home/<conversationId>` identifies a
@@ -83,8 +88,11 @@ Temporary chats derive a local title and never request title persistence.
 
 ## Key implementation
 
-- `frontend/app/home/[[...conversationId]]/page.tsx`
+- `frontend/app/(authenticated)/(chat-shell)/layout.tsx`
+- `frontend/app/(authenticated)/(chat-shell)/home/[[...conversationId]]/page.tsx`
+- `frontend/app/home/components/ChatShell.tsx`
 - `frontend/app/home/components/HomeDataContext.tsx`
+- `frontend/app/home/server-data.ts`
 - `frontend/app/home/components/useHomeData.ts`
 - `frontend/app/home/components/useRouteConversationHydration.ts`
 - `frontend/app/home/components/useHomeChatSwitchLifecycle.ts`

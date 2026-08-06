@@ -1,7 +1,9 @@
 import 'server-only';
 
+import { cache } from 'react';
 import { redirect } from 'next/navigation';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
+import { getViewerIdentity } from '@/lib/viewer-server';
 import { sanitizeGlobalInstructions } from '@/lib/global-instructions';
 import type {
   MinimalSettingsViewer,
@@ -14,37 +16,14 @@ function redirectToLogin(): never {
   redirect('/login?redirect=%2Fsettings');
 }
 
-export async function getSettingsViewer(): Promise<SettingsViewerResult> {
+const loadSettingsViewer = cache(async (): Promise<SettingsViewerResult> => {
+  const viewer = await getViewerIdentity();
+  if (!viewer) {
+    redirectToLogin();
+  }
+
   const supabase = await createSupabaseServerClient();
-
-  let claimsResult;
-  try {
-    claimsResult = await supabase.auth.getClaims();
-  } catch {
-    redirectToLogin();
-  }
-
-  const claims = claimsResult.data?.claims;
-  const userId = claims?.sub;
-  const emailClaim = claims?.email;
-
-  if (
-    claimsResult.error
-    || typeof userId !== 'string'
-    || userId.length === 0
-    || (
-      emailClaim !== undefined
-      && emailClaim !== null
-      && typeof emailClaim !== 'string'
-    )
-  ) {
-    redirectToLogin();
-  }
-
-  const viewer: MinimalSettingsViewer = {
-    id: userId,
-    email: typeof emailClaim === 'string' ? emailClaim : null,
-  };
+  const minimalViewer: MinimalSettingsViewer = viewer;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), PROFILE_TIMEOUT_MS);
 
@@ -52,7 +31,7 @@ export async function getSettingsViewer(): Promise<SettingsViewerResult> {
     const { data: profile, error } = await supabase
       .from('profiles')
       .select('full_name, global_instructions')
-      .eq('id', userId)
+      .eq('id', viewer.id)
       .abortSignal(controller.signal)
       .maybeSingle();
 
@@ -60,7 +39,7 @@ export async function getSettingsViewer(): Promise<SettingsViewerResult> {
       return {
         status: 'profile-unavailable',
         reason: 'timeout',
-        viewer,
+        viewer: minimalViewer,
       };
     }
 
@@ -68,18 +47,18 @@ export async function getSettingsViewer(): Promise<SettingsViewerResult> {
       return {
         status: 'profile-unavailable',
         reason: 'error',
-        viewer,
+        viewer: minimalViewer,
       };
     }
 
     if (!profile) {
-      return { status: 'profile-missing', viewer };
+      return { status: 'profile-missing', viewer: minimalViewer };
     }
 
     return {
       status: 'ready',
       viewer: {
-        ...viewer,
+        ...minimalViewer,
         fullName:
           typeof profile.full_name === 'string'
             ? profile.full_name.trim() || null
@@ -93,9 +72,13 @@ export async function getSettingsViewer(): Promise<SettingsViewerResult> {
     return {
       status: 'profile-unavailable',
       reason: controller.signal.aborted ? 'timeout' : 'error',
-      viewer,
+      viewer: minimalViewer,
     };
   } finally {
     clearTimeout(timeout);
   }
+});
+
+export function getSettingsViewer(): Promise<SettingsViewerResult> {
+  return loadSettingsViewer();
 }

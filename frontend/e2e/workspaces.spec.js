@@ -152,6 +152,13 @@ test('workspace view shows sessions, sidebar grouping, and editable context with
   await expect(page.getByText(sessionTitle)).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Instructions' })).toBeVisible();
   await expect(page.getByLabel('Message composer')).toBeVisible();
+  await expect.poll(() => state.requestCounts.workspaceLists).toBe(1);
+  await expect.poll(() => state.requestCounts.conversationLists).toBe(1);
+  const listReadsBeforeContextSave = {
+    mentors: state.requestCounts.mentorLists,
+    workspaces: state.requestCounts.workspaceLists,
+    conversations: state.requestCounts.conversationLists,
+  };
 
   const sidePanel = await ensureConversationsOpen(page);
   await expect(sidePanel.locator('#side-panel-section-workspaces')).toBeVisible();
@@ -178,6 +185,113 @@ test('workspace view shows sessions, sidebar grouping, and editable context with
   await expect(dialog).not.toBeVisible();
   await expect(page.getByText('Prefer practical training advice and concise caveats.')).toBeVisible();
   expect(state.workspaces[0].context).toBe('Prefer practical training advice and concise caveats.');
+  expect({
+    mentors: state.requestCounts.mentorLists,
+    workspaces: state.requestCounts.workspaceLists,
+    conversations: state.requestCounts.conversationLists,
+  }).toEqual(listReadsBeforeContextSave);
+});
+
+test('workspace rename rolls back shared state on failure and retries without list reloads', async ({ page }) => {
+  const workspaceId = 'workspace-rename';
+  const state = await mockHomeDataRoutes(page, {
+    workspaces: [
+      createWorkspace({
+        id: workspaceId,
+        name: 'Health',
+        description: 'Training',
+      }),
+    ],
+    workspacePatchFailures: 1,
+  });
+
+  await page.goto(`/workspaces/${workspaceId}?e2e=workspace-rename`);
+  await expect(page.getByRole('heading', { name: 'Health' })).toBeVisible();
+  await expect.poll(() => state.requestCounts.workspaceLists).toBe(1);
+  await expect.poll(() => state.requestCounts.conversationLists).toBe(1);
+  const listReadsBeforeRename = {
+    mentors: state.requestCounts.mentorLists,
+    workspaces: state.requestCounts.workspaceLists,
+    conversations: state.requestCounts.conversationLists,
+  };
+
+  await page.getByRole('button', { name: 'Rename workspace' }).click();
+  const nameInput = page.getByRole('textbox', { name: 'Workspace name' });
+  await nameInput.fill('Wellness');
+  await nameInput.press('Enter');
+
+  await expect(page.getByText('Injected workspace update failure')).toBeVisible();
+  await expect(nameInput).toHaveValue('Wellness');
+  expect(state.workspaces[0].name).toBe('Health');
+
+  const sidePanel = page
+    .locator('[role="region"][aria-label="Conversations and sections"]')
+    .first();
+  await expect(
+    sidePanel.getByTestId(`workspace-drop-target-${workspaceId}`).getByRole('link')
+  ).toContainText('Health');
+
+  await nameInput.press('Enter');
+  await expect(page.getByRole('heading', { name: 'Wellness' })).toBeVisible();
+  await ensureConversationsOpen(page);
+  await expect(
+    sidePanel.getByTestId(`workspace-drop-target-${workspaceId}`).getByRole('link')
+  ).toContainText('Wellness');
+  expect(state.workspaces[0].name).toBe('Wellness');
+  expect({
+    mentors: state.requestCounts.mentorLists,
+    workspaces: state.requestCounts.workspaceLists,
+    conversations: state.requestCounts.conversationLists,
+  }).toEqual(listReadsBeforeRename);
+});
+
+test('workspace instruction failure preserves the draft and retries without list reloads', async ({
+  page,
+}) => {
+  const workspaceId = 'workspace-context-retry';
+  const originalContext = 'Use the original workspace instructions.';
+  const updatedContext = 'Use the revised workspace instructions.';
+  const state = await mockHomeDataRoutes(page, {
+    workspaces: [
+      createWorkspace({
+        id: workspaceId,
+        name: 'Health',
+        context: originalContext,
+      }),
+    ],
+    workspacePatchFailures: 1,
+  });
+
+  await page.goto(`/workspaces/${workspaceId}?e2e=workspace-context-retry`);
+  await expect(page.getByText(originalContext)).toBeVisible();
+  await expect.poll(() => state.requestCounts.workspaceLists).toBe(1);
+  await expect.poll(() => state.requestCounts.conversationLists).toBe(1);
+  const listReadsBeforeSave = {
+    mentors: state.requestCounts.mentorLists,
+    workspaces: state.requestCounts.workspaceLists,
+    conversations: state.requestCounts.conversationLists,
+  };
+
+  await page.getByRole('button', { name: 'Edit workspace instructions' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Edit instructions' });
+  const contextBox = dialog.getByPlaceholder(/Add background/);
+  await contextBox.fill(updatedContext);
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+
+  await expect(page.getByText('Injected workspace update failure')).toBeVisible();
+  await expect(dialog).toBeVisible();
+  await expect(contextBox).toHaveValue(updatedContext);
+  expect(state.workspaces[0].context).toBe(originalContext);
+
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  await expect(page.getByText(updatedContext)).toBeVisible();
+  expect(state.workspaces[0].context).toBe(updatedContext);
+  expect({
+    mentors: state.requestCounts.mentorLists,
+    workspaces: state.requestCounts.workspaceLists,
+    conversations: state.requestCounts.conversationLists,
+  }).toEqual(listReadsBeforeSave);
 });
 
 test('open resized desktop sidebar stays open when navigating to a workspace', async ({ page }) => {
@@ -188,7 +302,7 @@ test('open resized desktop sidebar stays open when navigating to a workspace', a
   await page.addInitScript(({ width }) => {
     window.localStorage.setItem('keen-side-panel-width-v1', String(width));
   }, { width: expectedWidth });
-  await mockHomeDataRoutes(page, {
+  const state = await mockHomeDataRoutes(page, {
     workspaces: [
       createWorkspace({
         id: workspaceId,
@@ -200,13 +314,20 @@ test('open resized desktop sidebar stays open when navigating to a workspace', a
   await page.goto('/home?e2e=workspace-sidebar-navigation');
 
   const sidePanel = await ensureConversationsOpen(page);
+  await expect.poll(() => state.requestCounts.workspaceLists).toBe(1);
+  await expect.poll(() => state.requestCounts.conversationLists).toBe(1);
+  const bootstrapReadsBeforeNavigation = {
+    mentors: state.requestCounts.mentorLists,
+    workspaces: state.requestCounts.workspaceLists,
+    conversations: state.requestCounts.conversationLists,
+  };
   await expect.poll(async () =>
     Math.abs(Math.round((await sidePanel.boundingBox())?.width ?? 0) - expectedWidth)
   ).toBeLessThanOrEqual(1);
 
   await sidePanel
     .getByTestId(`workspace-drop-target-${workspaceId}`)
-    .getByRole('button')
+    .getByRole('link', { name: 'Health' })
     .first()
     .click();
 
@@ -226,6 +347,12 @@ test('open resized desktop sidebar stays open when navigating to a workspace', a
       - expectedWidth
     )
   ).toBeLessThanOrEqual(1);
+  expect({
+    mentors: state.requestCounts.mentorLists,
+    workspaces: state.requestCounts.workspaceLists,
+    conversations: state.requestCounts.conversationLists,
+  }).toEqual(bootstrapReadsBeforeNavigation);
+  expect(state.requestCounts.workspaceDetails).toBeGreaterThanOrEqual(1);
 });
 
 test('workspace delete requires confirmation and removes scoped data', async ({ page }) => {
@@ -265,6 +392,13 @@ test('workspace delete requires confirmation and removes scoped data', async ({ 
 
   await page.goto(`/workspaces/${workspaceId}?e2e=workspace-delete`);
   await expect(page.getByRole('heading', { name: 'Health' })).toBeVisible();
+  await expect.poll(() => state.requestCounts.workspaceLists).toBe(1);
+  await expect.poll(() => state.requestCounts.conversationLists).toBe(1);
+  const listReadsBeforeDelete = {
+    mentors: state.requestCounts.mentorLists,
+    workspaces: state.requestCounts.workspaceLists,
+    conversations: state.requestCounts.conversationLists,
+  };
 
   await page.getByRole('button', { name: 'Workspace actions' }).click();
   await page.mouse.move(0, 0);
@@ -301,6 +435,11 @@ test('workspace delete requires confirmation and removes scoped data', async ({ 
   await expect(sidePanel.getByTestId('workspace-drop-target-workspace-math')).toBeVisible();
   await expect(sidePanel.getByTestId(`workspace-drop-target-${workspaceId}`)).toHaveCount(0);
   await expect(sidePanel.getByRole('button', { name: /Health plan/ })).toHaveCount(0);
+  expect({
+    mentors: state.requestCounts.mentorLists,
+    workspaces: state.requestCounts.workspaceLists,
+    conversations: state.requestCounts.conversationLists,
+  }).toEqual(listReadsBeforeDelete);
 });
 
 test('workspace new chat preserves workspace selection after navigating home', async ({ page }) => {
@@ -821,7 +960,7 @@ test('workspace composer autosizes and hands first send to the normal home chat 
   const chatStarted = deferred();
   const chatBodies = [];
 
-  await mockHomeDataRoutes(page, {
+  const state = await mockHomeDataRoutes(page, {
     workspaces: [
       createWorkspace({
         id: workspaceId,
@@ -852,6 +991,13 @@ test('workspace composer autosizes and hands first send to the normal home chat 
 
   const composer = page.getByLabel('Message composer');
   await expect(composer).toBeVisible();
+  await expect.poll(() => state.requestCounts.workspaceLists).toBe(1);
+  await expect.poll(() => state.requestCounts.conversationLists).toBe(1);
+  const listReadsBeforeSend = {
+    mentors: state.requestCounts.mentorLists,
+    workspaces: state.requestCounts.workspaceLists,
+    conversations: state.requestCounts.conversationLists,
+  };
   const initialHeight = await composer.evaluate((node) => node.clientHeight);
   await composer.fill('line one\nline two\nline three\nline four');
   await expect.poll(async () =>
@@ -889,4 +1035,9 @@ test('workspace composer autosizes and hands first send to the normal home chat 
 
   chatRelease.resolve();
   await expect(page.getByText('Workspace answer')).toBeVisible();
+  expect({
+    mentors: state.requestCounts.mentorLists,
+    workspaces: state.requestCounts.workspaceLists,
+    conversations: state.requestCounts.conversationLists,
+  }).toEqual(listReadsBeforeSend);
 });

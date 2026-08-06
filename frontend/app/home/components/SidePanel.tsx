@@ -28,8 +28,9 @@ import {
   SIDE_PANEL_MIN_WIDTH_PX,
   clampSidePanelWidthPx,
 } from '@/app/home/components/SidePanelContext';
-import { useViewerIdentity } from '@/app/components/useViewerIdentity';
+import { useViewer } from '@/app/components/ViewerContext';
 import { initialsFor } from '@/lib/mentors/ui-helpers';
+import { useSidebarTimestampFormatter } from '@/app/home/components/sidebarTimestamp';
 import type {
   ConversationListItem,
   SidebarWorkspaceGroup,
@@ -75,6 +76,7 @@ interface Props {
   onSelectTemporaryChat: (tempChatId: string) => void;
   onCreateWorkspaceDraft: (workspaceId: string) => void;
   onCreateWorkspace: () => void;
+  buildWorkspaceHref: (workspaceId: string) => string;
   onOpenWorkspace: (workspaceId: string) => void;
   onCloseTemporaryChat: (tempChatId: string) => void;
   onMoveConversation: (
@@ -95,16 +97,6 @@ function getWorkspaceSelectionKey(
   if (selectedDraftId) return `${workspaceKey}:draft:${selectedDraftId}`;
   if (selectedConversationId) return `${workspaceKey}:conversation:${selectedConversationId}`;
   return null;
-}
-
-function formatDate(input: string): string {
-  const date = new Date(input);
-  const now = new Date();
-  const sameDay = date.toDateString() === now.toDateString();
-  if (sameDay) {
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  }
-  return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 
 const railIconButtonClass =
@@ -168,6 +160,7 @@ export default function SidePanel({
   onSelectTemporaryChat,
   onCreateWorkspaceDraft,
   onCreateWorkspace,
+  buildWorkspaceHref,
   onOpenWorkspace,
   onCloseTemporaryChat,
   onMoveConversation,
@@ -180,15 +173,20 @@ export default function SidePanel({
   const [movingConversationId, setMovingConversationId] = useState<string | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
   const [expandedSections, setExpandedSections] = useState(DEFAULT_EXPANDED_SECTIONS);
+  const formatTimestamp = useSidebarTimestampFormatter();
   const lastAutoExpandedWorkspaceSelectionRef = useRef<string | null>(null);
   const manuallyCollapsedWorkspaceSelectionRef = useRef<Record<string, string>>({});
-  const { viewer } = useViewerIdentity();
-  const profileName = viewer?.fullName || viewer?.email || 'Your profile';
+  const { viewerResult } = useViewer();
+  const profileName =
+    viewerResult.status === 'ready'
+      ? viewerResult.viewer.fullName
+        || viewerResult.viewer.email
+        || 'Your profile'
+      : viewerResult.viewer.email || 'Your profile';
   const profileInitials = initialsFor(profileName);
   const panelStyle = {
     '--side-panel-width': `${sidePanelWidthPx}px`,
   } as CSSProperties;
-
   const handleEscape = useCallback(
     (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose();
@@ -202,22 +200,6 @@ export default function SidePanel({
       return () => document.removeEventListener('keydown', handleEscape);
     }
   }, [isOpen, handleEscape]);
-
-  useEffect(() => {
-    const windowWithIdleCallback = window as typeof window & {
-      requestIdleCallback?: (callback: () => void) => number;
-      cancelIdleCallback?: (id: number) => void;
-    };
-    const prefetchSettings = () => router.prefetch('/settings');
-
-    if (windowWithIdleCallback.requestIdleCallback) {
-      const id = windowWithIdleCallback.requestIdleCallback(prefetchSettings);
-      return () => windowWithIdleCallback.cancelIdleCallback?.(id);
-    }
-
-    const id = window.setTimeout(prefetchSettings, 0);
-    return () => window.clearTimeout(id);
-  }, [router]);
 
   useEffect(() => {
     if (!selectedMentorId && !selectedWorkspaceId && !selectedDraftId && !selectedConversationId) {
@@ -576,6 +558,16 @@ export default function SidePanel({
     </span>
   );
 
+  const prefetchWorkspace = (href: string) => {
+    // Dynamic routes are only partially prefetched by default. The full mode
+    // includes the selected workspace detail so a subsequent click can render
+    // without waiting on a route request.
+    router.prefetch(
+      href,
+      { kind: 'full' } as NonNullable<Parameters<typeof router.prefetch>[1]>
+    );
+  };
+
   const workspaceList = (
     <div className="pb-3">
       {workspaceGroups.length === 0 ? (
@@ -583,6 +575,7 @@ export default function SidePanel({
       ) : (
         workspaceGroups.map((group) => {
           const workspaceKey = getWorkspaceKey(group.workspace_id);
+          const workspaceHref = buildWorkspaceHref(group.workspace_id);
           const draft = draftByWorkspaceKey.get(workspaceKey) || null;
           const isExpanded = expandedWorkspaces[workspaceKey] || false;
           const visibleCount = visibleCounts[workspaceKey] ?? 3;
@@ -607,9 +600,24 @@ export default function SidePanel({
                   getDropTargetClass(group.workspace_id)
                 )}
               >
-                <button
-                  type="button"
-                  onClick={() => onOpenWorkspace(group.workspace_id)}
+                <Link
+                  href={workspaceHref}
+                  prefetch={false}
+                  onPointerEnter={() => prefetchWorkspace(workspaceHref)}
+                  onFocus={() => prefetchWorkspace(workspaceHref)}
+                  onClick={(event) => {
+                    if (
+                      event.defaultPrevented
+                      || event.button !== 0
+                      || event.metaKey
+                      || event.ctrlKey
+                      || event.shiftKey
+                      || event.altKey
+                    ) {
+                      return;
+                    }
+                    onOpenWorkspace(group.workspace_id);
+                  }}
                   className={cx(
                     'flex min-w-0 flex-1 items-center gap-3 text-left',
                     buttonStyles.focus
@@ -619,7 +627,7 @@ export default function SidePanel({
                   <span className="min-w-0 flex-1 truncate font-sans text-[15px] text-foreground">
                     {group.workspace_name}
                   </span>
-                </button>
+                </Link>
                 <button
                   type="button"
                   onClick={() => {
@@ -700,9 +708,12 @@ export default function SidePanel({
                       )}
                     >
                       <span className="truncate font-sans text-sm text-foreground">{draft.title}</span>
-                      <span className="flex-shrink-0 font-sans text-[11px] text-muted">
-                        {formatDate(draft.updated_at)}
-                      </span>
+                      <time
+                        dateTime={draft.updated_at}
+                        className="flex-shrink-0 font-sans text-[11px] text-muted"
+                      >
+                        {formatTimestamp(draft.updated_at)}
+                      </time>
                     </button>
                   )}
 
@@ -725,9 +736,12 @@ export default function SidePanel({
                       <span className="truncate font-sans text-sm text-foreground/88">
                         {conversation.title}
                       </span>
-                      <span className="flex-shrink-0 font-sans text-[11px] text-muted">
-                        {formatDate(conversation.updated_at)}
-                      </span>
+                      <time
+                        dateTime={conversation.updated_at}
+                        className="flex-shrink-0 font-sans text-[11px] text-muted"
+                      >
+                        {formatTimestamp(conversation.updated_at)}
+                      </time>
                     </button>
                   ))}
 
@@ -804,9 +818,12 @@ export default function SidePanel({
               )}
             >
               <span className="truncate font-sans text-sm text-foreground">{globalDraft.title}</span>
-              <span className="flex-shrink-0 font-sans text-[11px] text-muted">
-                {formatDate(globalDraft.updated_at)}
-              </span>
+              <time
+                dateTime={globalDraft.updated_at}
+                className="flex-shrink-0 font-sans text-[11px] text-muted"
+              >
+                {formatTimestamp(globalDraft.updated_at)}
+              </time>
             </button>
           )}
 
@@ -829,9 +846,12 @@ export default function SidePanel({
               <span className="truncate font-sans text-sm text-foreground/88">
                 {conversation.title}
               </span>
-              <span className="flex-shrink-0 font-sans text-[11px] text-muted">
-                {formatDate(conversation.updated_at)}
-              </span>
+              <time
+                dateTime={conversation.updated_at}
+                className="flex-shrink-0 font-sans text-[11px] text-muted"
+              >
+                {formatTimestamp(conversation.updated_at)}
+              </time>
             </button>
           ))}
 
@@ -1160,9 +1180,12 @@ export default function SidePanel({
                                   <span className="min-w-0 flex-1 truncate font-sans text-sm text-foreground">
                                     {chat.title}
                                   </span>
-                                  <span className="flex-shrink-0 font-sans text-[11px] text-muted">
-                                    {formatDate(chat.updated_at)}
-                                  </span>
+                                  <time
+                                    dateTime={chat.updated_at}
+                                    className="flex-shrink-0 font-sans text-[11px] text-muted"
+                                  >
+                                    {formatTimestamp(chat.updated_at)}
+                                  </time>
                                 </button>
                                 <button
                                   type="button"
@@ -1274,7 +1297,9 @@ export default function SidePanel({
 
                 <Link
                   href="/settings"
-                  prefetch={true}
+                  prefetch={false}
+                  onPointerEnter={() => router.prefetch('/settings')}
+                  onFocus={() => router.prefetch('/settings')}
                   onClick={onClose}
                   className={cx(
                     'inline-flex h-8 w-8 items-center justify-center rounded-lg',

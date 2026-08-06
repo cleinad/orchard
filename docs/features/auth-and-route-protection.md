@@ -27,10 +27,17 @@ protected page requests with `getClaims()` and propagates any refreshed auth
 cookies. Authorization remains close to protected data access rather than
 relying on the proxy alone.
 
-Settings verifies claims again in its Server Component data loader, performs
-one RLS-protected profile query, and sends completed HTML without a
-browser-side viewer fetch. Its save action uses `getUser()` and derives the
-profile ID from the verified user; sign-out is also a server action.
+`frontend/lib/viewer-server.ts` request-deduplicates verified claims identity
+for protected Server Components. The authenticated layout builds the
+RLS-protected profile result once and initializes the persistent viewer
+provider. Settings consumes that provider without another page request, while
+a workspace route payload can authorize its selected-detail query without
+loading the profile again.
+
+Settings save actions use `getUser()` and derive the profile ID from the
+verified user; sign-out is also a server action. Workspace and other
+security-sensitive mutation routes likewise retain authoritative `getUser()`
+verification.
 
 ## Profile provisioning
 
@@ -72,6 +79,7 @@ the relevant requests. Production does not enable this path.
 - `frontend/proxy.ts`
 - `frontend/lib/supabase.ts`
 - `frontend/lib/supabase-server.ts`
+- `frontend/lib/viewer-server.ts`
 - `frontend/lib/auth-redirect.ts`
 - `frontend/app/components/AuthPage.tsx`
 - `frontend/app/settings/data.ts`

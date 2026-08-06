@@ -2,12 +2,8 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mockGetSettingsViewer = vi.hoisted(() => vi.fn());
 const mockRefresh = vi.hoisted(() => vi.fn());
 
-vi.mock('@/app/settings/data', () => ({
-  getSettingsViewer: () => mockGetSettingsViewer(),
-}));
 vi.mock('@/app/settings/actions', () => ({
   saveGlobalInstructions: vi.fn(),
   signOut: vi.fn(),
@@ -17,7 +13,7 @@ vi.mock('next/navigation', () => ({
 }));
 
 import SettingsClient from '@/app/settings/SettingsClient';
-import SettingsPage from '@/app/settings/page';
+import SettingsPage from '@/app/(authenticated)/settings/page';
 import type { SettingsViewerResult } from '@/app/settings/types';
 
 const readyViewer = {
@@ -35,14 +31,11 @@ describe('settings page rendering', () => {
     vi.clearAllMocks();
   });
 
-  it('awaits the server loader and passes its completed result to the client shell', async () => {
-    mockGetSettingsViewer.mockResolvedValue(readyViewer);
+  it('renders from the persistent viewer provider without a page data request', () => {
+    const result = SettingsPage();
 
-    const result = await SettingsPage();
-
-    expect(mockGetSettingsViewer).toHaveBeenCalledTimes(1);
     expect(result.type).toBe(SettingsClient);
-    expect(result.props).toEqual({ viewerResult: readyViewer });
+    expect(result.props).toEqual({});
   });
 
   it('renders ready settings HTML without a full-page loading spinner', () => {

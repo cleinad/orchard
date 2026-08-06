@@ -5,6 +5,8 @@ import { createMockSupabase } from '../helpers/mock-supabase';
 const mockCreateSupabaseServerClient = vi.fn();
 const mockStorageRemove = vi.fn();
 
+vi.mock('server-only', () => ({}));
+
 vi.mock('@/lib/supabase-server', () => ({
   createSupabaseServerClient: () => mockCreateSupabaseServerClient(),
 }));
@@ -71,8 +73,12 @@ describe('workspaces route', () => {
     expect(response.status).toBe(200);
     expect(body.workspaces).toHaveLength(1);
     expect(body.workspaces[0].name).toBe('Health');
-    expect(tracker.selects('workspaces')[0].filters).toMatchObject({
-      'eq:user_id': 'user-1',
+    expect(body.workspaces[0]).not.toHaveProperty('context');
+    expect(tracker.selects('workspaces')[0]).toMatchObject({
+      args: 'id, name, description, icon, accent_color, created_at, updated_at',
+      filters: {
+        'eq:user_id': 'user-1',
+      },
     });
   });
 

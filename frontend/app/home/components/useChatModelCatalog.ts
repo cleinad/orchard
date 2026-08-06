@@ -13,30 +13,39 @@ interface ChatModelsResponse {
   error?: string;
 }
 
+const EMPTY_CHAT_MODELS: ChatModelListItem[] = [];
+
 export function useChatModelCatalog(
   selectedModelId: ChatModelId,
-  setSelectedModelId: (modelId: ChatModelId) => void
+  setSelectedModelId: (modelId: ChatModelId) => void,
+  initialChatModels: ChatModelListItem[] = EMPTY_CHAT_MODELS
 ) {
   const [chatModels, setChatModels] = useState<ChatModelListItem[]>(
-    CHAT_MODEL_OPTIONS.map((option) => ({
-      id: option.id,
-      label: option.label,
-      provider: option.provider,
-      providerLabel: option.providerLabel,
-      iconKey: option.iconKey,
-      description: option.description,
-      available: true,
-      isDefault: option.id === DEFAULT_CHAT_MODEL_ID,
-      ...(option.effort ? { effort: option.effort } : {}),
-      supportsImages:
-        option.provider === 'auto' ? false : option.supportsImages ?? false,
-    }))
+    initialChatModels.length > 0
+      ? initialChatModels
+      : CHAT_MODEL_OPTIONS.map((option) => ({
+          id: option.id,
+          label: option.label,
+          provider: option.provider,
+          providerLabel: option.providerLabel,
+          iconKey: option.iconKey,
+          description: option.description,
+          available: true,
+          isDefault: option.id === DEFAULT_CHAT_MODEL_ID,
+          ...(option.effort ? { effort: option.effort } : {}),
+          supportsImages:
+            option.provider === 'auto' ? false : option.supportsImages ?? false,
+        }))
   );
 
   useEffect(() => {
     let cancelled = false;
 
     const loadChatModels = async () => {
+      if (initialChatModels.length > 0) {
+        return;
+      }
+
       try {
         const response = await fetch('/api/chat/models', { cache: 'no-store' });
         const data = (await response.json()) as ChatModelsResponse;
@@ -58,7 +67,7 @@ export function useChatModelCatalog(
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [initialChatModels]);
 
   useEffect(() => {
     const hasSelectedModel = chatModels.some(

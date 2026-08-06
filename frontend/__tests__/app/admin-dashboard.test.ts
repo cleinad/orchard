@@ -8,7 +8,7 @@ import {
   AdminDashboard,
   AdminDashboardError,
 } from '@/app/admin/AdminDashboard';
-import AdminLoading from '@/app/admin/loading';
+import AdminLoading from '@/app/(authenticated)/admin/loading';
 import type { AdminUsageDashboard as AdminUsageDashboardData } from '@/lib/admin/usage';
 
 function dashboardFixture(
