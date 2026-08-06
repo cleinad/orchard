@@ -9,7 +9,8 @@ function isPublicPage(pathname: string) {
   return pathname === '/'
     || pathname === '/login'
     || pathname === '/signup'
-    || pathname === '/icon.png';
+    || pathname === '/icon.png'
+    || pathname.startsWith('/demos/');
 }
 
 function isE2eBypassRoute(pathname: string) {
