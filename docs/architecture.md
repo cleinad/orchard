@@ -32,8 +32,15 @@ workspace regions rather than launching browser Auth, profile, model, or detail
 requests after hydration. Warm navigation retains the shared layouts and
 fetches or reuses only the selected route payload.
 
-Browser Supabase and image-upload code are loaded on attachment or
-conversation-detail intent rather than through the initial workspace bundle.
+A hard `/home/<conversationId>` entry likewise loads the selected transcript
+on the server and includes useful transcript HTML in the first response.
+Cached chat selection renders from the persistent client transcript store
+without another route or database read; sustained pointer or keyboard intent
+prefetches uncached routed chats.
+
+Browser Supabase, transcript rendering, conversation-map, thread-panel, and
+image-upload code are loaded only when the active route or user intent needs
+them rather than through an empty-home or workspace entry.
 
 ## Main chat flow
 
@@ -47,8 +54,10 @@ conversation-detail intent rather than through the initial workspace bundle.
    sources, and streams the model response.
 5. Persistent messages, branches, thread metadata, attachments, and search
    metadata are completed atomically.
-6. The client reconciles the streamed result with durable state and can recover
-   accepted persistent runs after navigation or reload.
+6. A completed linear run finalizes its stable local message and summary
+   directly. Branch creation or a restored run with incomplete terminal
+   identity performs one focused transcript reconciliation. Accepted
+   persistent runs can recover after navigation or reload.
 
 See [Chat run lifecycle](./features/chat-run-lifecycle.md) for the execution
 contract.
