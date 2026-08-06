@@ -7,6 +7,7 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
 function isPublicPage(pathname: string) {
   return pathname === '/'
+    || pathname === '/roadmap'
     || pathname === '/login'
     || pathname === '/signup'
     || pathname === '/icon.png'
