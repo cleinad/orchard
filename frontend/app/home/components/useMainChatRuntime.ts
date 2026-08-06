@@ -40,6 +40,7 @@ import {
   createTemporaryId,
   fallbackChatTitleFromMessage,
   toChatHistory,
+  toChatHistoryMessageIds,
 } from '@/lib/chat-session';
 import { getBrowserTimeZone } from '@/lib/browser-timezone';
 import type { ChatModelEffortLevel, ChatModelId } from '@/lib/chat-models';
@@ -1311,6 +1312,14 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
       })),
       timezone: getBrowserTimeZone(),
       chatMode: runMode,
+      ...(effectiveSelection.kind === 'persistent'
+        ? {
+            historyMessageIds: toChatHistoryMessageIds(
+              params.activeMessages,
+              previousMessageId
+            ),
+          }
+        : {}),
       run: {
         ...runIdentifiers,
         temporarySessionId:

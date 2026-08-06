@@ -23,6 +23,7 @@ import {
   type ConversationSummaryRow,
   type HomeNavigationData,
 } from '@/app/home/components/homeSidebarData';
+import { fetchCompleteMainTranscript } from '@/app/home/components/conversationTranscriptData';
 
 type ConversationRow = ConversationSummaryRow;
 
@@ -254,13 +255,10 @@ export function useHomeData(initialData?: HomeNavigationData | null) {
 
   const loadConversationMessages = useCallback(async (nextConversationId: string) => {
     const { supabase } = await import('@/lib/supabase');
-    const messagesRequest = supabase
-      .from('messages')
-      .select('id, role, content, created_at, search_metadata, previous_message_id')
-      .eq('conversation_id', nextConversationId)
-      .is('thread_id', null)
-      .order('created_at', { ascending: true })
-      .limit(200);
+    const messagesRequest = fetchCompleteMainTranscript(
+      supabase,
+      nextConversationId
+    );
 
     const branchesRequest = supabase
       .from('conversation_branches')
@@ -274,23 +272,12 @@ export function useHomeData(initialData?: HomeNavigationData | null) {
       .eq('conversation_id', nextConversationId);
 
     const [
-      { data, error },
+      transcriptResult,
       { data: branchRows, error: branchesError },
       { data: threadRows, error: threadsError },
     ] = await Promise.all([messagesRequest, branchesRequest, threadsRequest]);
 
-    if (error) {
-      throw new Error(error.message);
-    }
-
-    const nextMessages: Message[] = ((data || []) as Array<{
-      id: string;
-      role: 'user' | 'assistant';
-      content: string;
-      created_at: string;
-      search_metadata?: unknown;
-      previous_message_id: string | null;
-    }>).map((message) => {
+    const nextMessages: Message[] = transcriptResult.rows.map((message) => {
       const searchMetadata = parsePersistedSearchMetadata(message.search_metadata);
 
       return {
@@ -306,11 +293,26 @@ export function useHomeData(initialData?: HomeNavigationData | null) {
 
     const messageIds = nextMessages.map((message) => message.id);
     if (messageIds.length > 0) {
-      const { data: attachmentRows, error: attachmentsError } = await supabase
-        .from('message_attachments')
-        .select('id, message_id, storage_path, file_name, mime_type, size_bytes, width, height')
-        .in('message_id', messageIds)
-        .order('position', { ascending: true });
+      const attachmentResponses = await Promise.all(
+        Array.from(
+          { length: Math.ceil(messageIds.length / 100) },
+          (_, index) => messageIds.slice(index * 100, (index + 1) * 100)
+        ).map((messageIdChunk) =>
+          supabase
+            .from('message_attachments')
+            .select(
+              'id, message_id, storage_path, file_name, mime_type, size_bytes, width, height'
+            )
+            .in('message_id', messageIdChunk)
+            .order('position', { ascending: true })
+        )
+      );
+      const attachmentsError = attachmentResponses.find(
+        (response) => response.error
+      )?.error;
+      const attachmentRows = attachmentResponses.flatMap(
+        (response) => response.data ?? []
+      );
 
       if (!attachmentsError && attachmentRows && attachmentRows.length > 0) {
         const rows = attachmentRows as Array<{
@@ -375,6 +377,7 @@ export function useHomeData(initialData?: HomeNavigationData | null) {
         branches: nextBranches,
         selectedBranchIds: buildInitialBranchSelections(nextBranches) as BranchSelectionMap,
         threadsMap: new Map<string, ThreadMeta[]>(),
+        isComplete: transcriptResult.isComplete,
       };
     }
 
@@ -392,6 +395,7 @@ export function useHomeData(initialData?: HomeNavigationData | null) {
           selection_stream_version?: string | null;
         }>
       ),
+      isComplete: transcriptResult.isComplete,
     };
   }, []);
 

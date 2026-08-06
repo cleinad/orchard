@@ -10,6 +10,7 @@ export interface PersistentConversationTranscript {
   branches: ConversationBranch[];
   selectedBranchIds: BranchSelectionMap;
   threadsMap: Map<string, ThreadMeta[]>;
+  isComplete: boolean;
   loadedAt: number;
 }
 
@@ -18,8 +19,9 @@ export type PersistentConversationTranscriptRecord =
 
 export type PersistentConversationTranscriptInput = Omit<
   PersistentConversationTranscript,
-  'loadedAt'
+  'isComplete' | 'loadedAt'
 > & {
+  isComplete?: boolean;
   loadedAt?: number;
 };
 
@@ -31,6 +33,7 @@ export function createEmptyPersistentConversationTranscript(
     branches: [],
     selectedBranchIds: {},
     threadsMap: new Map(),
+    isComplete: true,
     loadedAt,
   };
 }
@@ -43,6 +46,7 @@ export function normalizePersistentConversationTranscript(
     branches: transcript.branches,
     selectedBranchIds: transcript.selectedBranchIds,
     threadsMap: transcript.threadsMap,
+    isComplete: transcript.isComplete ?? true,
     loadedAt: transcript.loadedAt ?? Date.now(),
   };
 }

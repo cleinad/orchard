@@ -80,6 +80,7 @@ export function createMockSupabase(options: MockSupabaseOptions = {}) {
     let singleMode: 'single' | 'maybeSingle' | null = null;
     let selectCalled = false;
     let limitCount: number | null = null;
+    let rangeSpec: { from: number; to: number } | null = null;
     let orderSpec: { column: string; ascending: boolean } | null = null;
 
     const chain: Record<string, unknown> = {};
@@ -101,6 +102,10 @@ export function createMockSupabase(options: MockSupabaseOptions = {}) {
     };
     chain.limit = (count: number) => {
       limitCount = count;
+      return chain;
+    };
+    chain.range = (from: number, to: number) => {
+      rangeSpec = { from, to };
       return chain;
     };
     chain.single = () => {
@@ -153,17 +158,20 @@ export function createMockSupabase(options: MockSupabaseOptions = {}) {
           const rows = sortRows(filterRows(tableConf?.rows ?? [], filters), orderSpec);
           const limitedRows =
             typeof limitCount === 'number' ? rows.slice(0, Math.max(0, limitCount)) : rows;
+          const rangedRows = rangeSpec
+            ? limitedRows.slice(rangeSpec.from, rangeSpec.to + 1)
+            : limitedRows;
           queries.push({ table, operation, args, filters });
 
           if (singleMode === 'single') {
             resolve({
-              data: limitedRows[0] ?? null,
-              error: limitedRows.length === 0 ? { message: 'not found' } : null,
+              data: rangedRows[0] ?? null,
+              error: rangedRows.length === 0 ? { message: 'not found' } : null,
             });
           } else if (singleMode === 'maybeSingle') {
-            resolve({ data: limitedRows[0] ?? null, error: null });
+            resolve({ data: rangedRows[0] ?? null, error: null });
           } else {
-            resolve({ data: limitedRows, error: null });
+            resolve({ data: rangedRows, error: null });
           }
         }
       } catch (err) {
