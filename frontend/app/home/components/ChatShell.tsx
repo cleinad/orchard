@@ -193,6 +193,7 @@ function HomeShell({ children }: { children: ReactNode }) {
     refreshSidebarData,
     upsertWorkspaceSummary,
     buildHomeHref,
+    prefetchPersistentConversation,
     openWorkspace,
   } = useHomeShellContext();
   const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false);
@@ -379,6 +380,10 @@ function HomeShell({ children }: { children: ReactNode }) {
           if (window.innerWidth < SIDE_PANEL_DRAWER_BREAKPOINT_PX) handleCloseSidePanel();
         }}
         onCreateWorkspace={openCreateWorkspaceModal}
+        buildConversationHref={(conversationId) =>
+          buildHomeHref(`/home/${encodeURIComponent(conversationId)}`)
+        }
+        onPrefetchConversation={prefetchPersistentConversation}
         buildWorkspaceHref={(workspaceId) =>
           buildHomeHref(`/workspaces/${encodeURIComponent(workspaceId)}`)
         }

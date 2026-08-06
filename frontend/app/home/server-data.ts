@@ -12,6 +12,11 @@ import {
 } from '@/app/home/components/homeSidebarData';
 import { mapWorkspaceSummary, type WorkspaceSummary } from '@/lib/workspaces';
 import type { MentorListItem } from '@/lib/mentors/types';
+import { loadCompleteConversationTranscript } from '@/app/home/components/conversationTranscriptData';
+import {
+  serializeConversationTranscript,
+  type HomeConversationInitialData,
+} from '@/app/home/components/homeConversationInitialData';
 
 export interface HomeBootstrapData {
   navigation: HomeNavigationData;
@@ -79,3 +84,52 @@ export const getHomeBootstrap = cache(async (): Promise<HomeBootstrapData> => {
     chatModels: getChatModelListItems(),
   };
 });
+
+export const getHomeConversationInitialData = cache(
+  async (
+    conversationId: string
+  ): Promise<HomeConversationInitialData | null> => {
+    const viewer = await getViewerIdentity();
+    if (!viewer) {
+      throw new Error('Authenticated viewer is unavailable');
+    }
+
+    const supabase = await createSupabaseServerClient();
+    const transcriptPromise = loadCompleteConversationTranscript(
+      supabase,
+      conversationId
+    );
+    const [bootstrap, transcript] = await Promise.all([
+      getHomeBootstrap(),
+      transcriptPromise,
+    ]);
+    let conversation =
+      bootstrap.navigation.conversations.find(
+        (entry) => entry.id === conversationId
+      ) ?? null;
+
+    if (!conversation) {
+      const { data, error } = await supabase
+        .from('conversations')
+        .select('id, title, mentor_id, workspace_id, updated_at, created_at')
+        .eq('user_id', viewer.id)
+        .eq('id', conversationId)
+        .single();
+
+      if (error || !data) {
+        return null;
+      }
+
+      conversation = mapConversationSummary(
+        data as ConversationSummaryRow,
+        bootstrap.navigation.mentors,
+        bootstrap.navigation.workspaces
+      );
+    }
+
+    return {
+      conversation,
+      transcript: serializeConversationTranscript(transcript),
+    };
+  }
+);

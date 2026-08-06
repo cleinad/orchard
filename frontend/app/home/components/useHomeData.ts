@@ -1,20 +1,9 @@
 import { useCallback, useRef, useState } from 'react';
 import type { MentorListItem } from '@/lib/mentors/types';
-import { parsePersistedSearchMetadata } from '@/lib/search-citations';
-import {
-  type ChatImageAttachment,
-  type ChatImageMimeType,
-} from '@/lib/chat-attachments';
 import type {
-  BranchSelectionMap,
-  ConversationBranch,
   ConversationListItem,
-  Message,
 } from '@/app/home/types';
-import type { ThreadMeta } from '@/app/home/components/threadTypes';
-import { buildInitialBranchSelections } from '@/app/home/components/conversationTree';
 import type { WorkspaceSummary } from '@/lib/workspaces';
-import { getSelectionStreamVersion } from '@/app/home/components/markdownSelectableStream';
 import {
   buildSidebarGroups,
   buildWorkspaceGroups,
@@ -23,7 +12,7 @@ import {
   type ConversationSummaryRow,
   type HomeNavigationData,
 } from '@/app/home/components/homeSidebarData';
-import { fetchCompleteMainTranscript } from '@/app/home/components/conversationTranscriptData';
+import { loadCompleteConversationTranscript } from '@/app/home/components/conversationTranscriptData';
 
 type ConversationRow = ConversationSummaryRow;
 
@@ -35,36 +24,6 @@ type SidebarConversationInput = {
   updatedAt?: string | null;
   createdAt?: string | null;
 };
-
-
-function buildThreadsMap(
-  threadRows: Array<{
-    id: string;
-    source_message_id: string;
-    highlighted_text: string;
-    start_offset: number;
-    end_offset: number;
-    selection_stream_version?: string | null;
-  }>
-) {
-  const nextThreadsMap = new Map<string, ThreadMeta[]>();
-
-  for (const thread of threadRows) {
-    const key = thread.source_message_id;
-    const existing = nextThreadsMap.get(key) || [];
-    existing.push({
-      threadId: thread.id,
-      highlightedText: thread.highlighted_text,
-      sourceMessageId: thread.source_message_id,
-      startOffset: thread.start_offset,
-      endOffset: thread.end_offset,
-      selectionStreamVersion: getSelectionStreamVersion(thread.selection_stream_version),
-    });
-    nextThreadsMap.set(key, existing);
-  }
-
-  return nextThreadsMap;
-}
 
 export function useHomeData(initialData?: HomeNavigationData | null) {
   const [mentors, setMentors] = useState<MentorListItem[]>(initialData?.mentors ?? []);
@@ -255,148 +214,7 @@ export function useHomeData(initialData?: HomeNavigationData | null) {
 
   const loadConversationMessages = useCallback(async (nextConversationId: string) => {
     const { supabase } = await import('@/lib/supabase');
-    const messagesRequest = fetchCompleteMainTranscript(
-      supabase,
-      nextConversationId
-    );
-
-    const branchesRequest = supabase
-      .from('conversation_branches')
-      .select('id, source_message_id, entry_message_id, title, is_main, position')
-      .eq('conversation_id', nextConversationId)
-      .order('position', { ascending: true });
-
-    const threadsRequest = supabase
-      .from('threads')
-      .select('id, source_message_id, highlighted_text, start_offset, end_offset, selection_stream_version')
-      .eq('conversation_id', nextConversationId);
-
-    const [
-      transcriptResult,
-      { data: branchRows, error: branchesError },
-      { data: threadRows, error: threadsError },
-    ] = await Promise.all([messagesRequest, branchesRequest, threadsRequest]);
-
-    const nextMessages: Message[] = transcriptResult.rows.map((message) => {
-      const searchMetadata = parsePersistedSearchMetadata(message.search_metadata);
-
-      return {
-        id: message.id,
-        role: message.role,
-        content: message.content,
-        timestamp: new Date(message.created_at),
-        searchMetadata,
-        searchActivity: searchMetadata?.version === 2 ? searchMetadata.activity ?? null : null,
-        previousMessageId: message.previous_message_id ?? null,
-      };
-    });
-
-    const messageIds = nextMessages.map((message) => message.id);
-    if (messageIds.length > 0) {
-      const attachmentResponses = await Promise.all(
-        Array.from(
-          { length: Math.ceil(messageIds.length / 100) },
-          (_, index) => messageIds.slice(index * 100, (index + 1) * 100)
-        ).map((messageIdChunk) =>
-          supabase
-            .from('message_attachments')
-            .select(
-              'id, message_id, storage_path, file_name, mime_type, size_bytes, width, height'
-            )
-            .in('message_id', messageIdChunk)
-            .order('position', { ascending: true })
-        )
-      );
-      const attachmentsError = attachmentResponses.find(
-        (response) => response.error
-      )?.error;
-      const attachmentRows = attachmentResponses.flatMap(
-        (response) => response.data ?? []
-      );
-
-      if (!attachmentsError && attachmentRows && attachmentRows.length > 0) {
-        const rows = attachmentRows as Array<{
-          id: string;
-          message_id: string;
-          storage_path: string;
-          file_name: string;
-          mime_type: ChatImageMimeType;
-          size_bytes: number;
-          width: number | null;
-          height: number | null;
-        }>;
-        const attachmentsByMessageId = new Map<string, ChatImageAttachment[]>();
-
-        for (const row of rows) {
-          const existing = attachmentsByMessageId.get(row.message_id) || [];
-          existing.push({
-            id: row.id,
-            messageId: row.message_id,
-            storagePath: row.storage_path,
-            fileName: row.file_name,
-            mimeType: row.mime_type,
-            sizeBytes: row.size_bytes,
-            width: row.width,
-            height: row.height,
-            url: `/api/chat/images/${row.id}`,
-          });
-          attachmentsByMessageId.set(row.message_id, existing);
-        }
-
-        for (const message of nextMessages) {
-          message.attachments = attachmentsByMessageId.get(message.id) || [];
-        }
-      } else if (attachmentsError) {
-        console.error('Failed to load message attachments:', attachmentsError);
-      }
-    }
-
-    const nextBranches: ConversationBranch[] = branchesError
-      ? []
-      : ((branchRows || []) as Array<{
-          id: string;
-          source_message_id: string;
-          entry_message_id: string;
-          title: string;
-          is_main: boolean;
-          position: number;
-        }>).map((branch) => ({
-          id: branch.id,
-          sourceMessageId: branch.source_message_id,
-          entryMessageId: branch.entry_message_id,
-          title: branch.title,
-          isMain: branch.is_main,
-          position: branch.position,
-        }));
-
-    if (threadsError) {
-      console.error('Failed to load threads:', threadsError);
-
-      return {
-        messages: nextMessages,
-        branches: nextBranches,
-        selectedBranchIds: buildInitialBranchSelections(nextBranches) as BranchSelectionMap,
-        threadsMap: new Map<string, ThreadMeta[]>(),
-        isComplete: transcriptResult.isComplete,
-      };
-    }
-
-    return {
-      messages: nextMessages,
-      branches: nextBranches,
-      selectedBranchIds: buildInitialBranchSelections(nextBranches) as BranchSelectionMap,
-      threadsMap: buildThreadsMap(
-        (threadRows || []) as Array<{
-          id: string;
-          source_message_id: string;
-          highlighted_text: string;
-          start_offset: number;
-          end_offset: number;
-          selection_stream_version?: string | null;
-        }>
-      ),
-      isComplete: transcriptResult.isComplete,
-    };
+    return loadCompleteConversationTranscript(supabase, nextConversationId);
   }, []);
 
   const loadConversationById = useCallback(async (nextConversationId: string) => {

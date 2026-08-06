@@ -4,6 +4,7 @@ const { gzipSync } = require('node:zlib');
 const {
   createAuthenticatedCookie,
   getFixtureState,
+  updateFixtureState,
 } = require('./helpers/supabaseAuthFixture');
 const { mockHomeDataRoutes } = require('./helpers/homeRouteMocks');
 const {
@@ -540,7 +541,7 @@ test.describe('home production performance baseline', () => {
     );
   });
 
-  test('hard routed home records the current browser transcript waterfall', async ({
+  test('hard routed home server renders the transcript without browser data reads', async ({
     page,
   }, testInfo) => {
     test.setTimeout(120_000);
@@ -554,6 +555,9 @@ test.describe('home production performance baseline', () => {
       await createAuthenticatedCookie({
         userId,
         conversations: [conversation],
+        messagesByConversationId: {
+          [conversation.id]: messages,
+        },
       }),
     ]);
     await mockHomeDataRoutes(page, {
@@ -574,7 +578,7 @@ test.describe('home production performance baseline', () => {
 
     for (let sample = 0; sample < 10; sample += 1) {
       const response = await page.goto(
-        `/home/${conversation.id}?sample=${sample}`,
+        `/home/${conversation.id}?sample=${sample}&e2e=public-query`,
         { waitUntil: 'domcontentloaded' }
       );
       expect(response?.ok()).toBe(true);
@@ -599,14 +603,15 @@ test.describe('home production performance baseline', () => {
       layoutShiftSamples.push(metrics.layoutShift);
     }
 
-    expect(firstHtml).not.toContain(messages[0].content);
-    const expectedRequests = Array.from({ length: 10 }, () => [
-      'GET /rest/v1/conversation_branches',
-      'GET /rest/v1/message_attachments',
-      'GET /rest/v1/messages',
-      'GET /rest/v1/threads',
-    ]).flat();
-    expect(browserDataRequests.sort()).toEqual(expectedRequests.sort());
+    expect(firstHtml).toContain(messages[0].content);
+    expect(browserDataRequests).toEqual([]);
+    const fixtureState = await getFixtureState(userId);
+    expect(fixtureState.counters).toMatchObject({
+      messageReads: 10,
+      branchReads: 10,
+      threadReads: 10,
+      attachmentReads: 10,
+    });
     console.log(
       `home-hard-routed-metrics ${JSON.stringify({
         samples: transcriptVisibleSamples.length,
@@ -620,6 +625,25 @@ test.describe('home production performance baseline', () => {
         transferredJavaScript,
       })}`
     );
+  });
+
+  test('missing routed conversation renders not found without browser fallback reads', async ({
+    page,
+  }, testInfo) => {
+    const userId = `home-missing-routed-${testInfo.workerIndex}`;
+    await page.context().addCookies([
+      await createAuthenticatedCookie({
+        userId,
+        conversations: [],
+        messagesByConversationId: {},
+      }),
+    ]);
+    const browserDataRequests = recordBrowserDataRequests(page);
+
+    await page.goto('/home/missing-conversation');
+
+    expect(browserDataRequests).toEqual([]);
+    await expect(page.getByText('This page could not be found.')).toBeVisible();
   });
 
   test('map, thread, and upload first-intent JavaScript costs are reported separately', async ({
@@ -763,6 +787,7 @@ test.describe('home production performance baseline', () => {
       await createAuthenticatedCookie({
         userId,
         conversations: [first, second],
+        messagesByConversationId,
       }),
     ]);
     await mockHomeDataRoutes(page, {
@@ -776,20 +801,38 @@ test.describe('home production performance baseline', () => {
     await expect(page.getByText(messagesByConversationId[first.id][0].content))
       .toBeVisible();
     const sidePanel = await ensureConversationsOpen(page);
-    await sidePanel.getByTestId(`conversation-row-${second.id}`).click();
+    const secondRow = sidePanel.getByTestId(`conversation-row-${second.id}`);
+    await secondRow.hover();
+    await page.waitForTimeout(150);
+    const fixtureAfterPrefetch = await getFixtureState(userId);
+    expect(fixtureAfterPrefetch.counters).toMatchObject({
+      messageReads: 2,
+      branchReads: 2,
+      threadReads: 2,
+      attachmentReads: 2,
+    });
+    await secondRow.click();
     await expect(page.getByText(messagesByConversationId[second.id][0].content))
       .toBeVisible();
     const requestsBeforeReturn = browserDataRequests.length;
-    await sidePanel.getByTestId(`conversation-row-${first.id}`).click();
+    const fixtureBeforeReturn = await getFixtureState(userId);
+    expect(fixtureBeforeReturn.counters).toEqual(
+      fixtureAfterPrefetch.counters
+    );
+    const firstRow = sidePanel.getByTestId(`conversation-row-${first.id}`);
+    await firstRow.hover();
+    await page.waitForTimeout(150);
+    expect((await getFixtureState(userId)).counters).toEqual(
+      fixtureBeforeReturn.counters
+    );
+    await firstRow.click();
     await expect(page.getByText(messagesByConversationId[first.id][0].content))
       .toBeVisible();
+    const fixtureAfterReturn = await getFixtureState(userId);
 
     expect(browserDataRequests.length).toBe(requestsBeforeReturn);
-    expect(
-      browserDataRequests.filter((request) =>
-        request.startsWith('GET /rest/v1/')
-      )
-    ).toHaveLength(8);
+    expect(browserDataRequests).toEqual([]);
+    expect(fixtureAfterReturn.counters).toEqual(fixtureBeforeReturn.counters);
   });
 
   test('completed send records the current duplicate reconciliation request graph', async ({
@@ -802,6 +845,9 @@ test.describe('home production performance baseline', () => {
       await createAuthenticatedCookie({
         userId,
         conversations: [conversation],
+        messagesByConversationId: {
+          [conversation.id]: messages,
+        },
       }),
     ]);
     await mockHomeDataRoutes(page, {
@@ -865,6 +911,9 @@ test.describe('home production performance baseline', () => {
         userId,
         workspaces: [source, target],
         conversations: [conversation],
+        messagesByConversationId: {
+          [conversation.id]: messages,
+        },
       }),
     ]);
     await mockHomeDataRoutes(page, {
@@ -1220,6 +1269,7 @@ test.describe('home production performance baseline', () => {
       await createAuthenticatedCookie({
         userId,
         conversations,
+        messagesByConversationId,
       }),
     ]);
     const state = await mockHomeDataRoutes(page, {
@@ -1261,6 +1311,9 @@ test.describe('home production performance baseline', () => {
     state.messagesByConversationId = Object.fromEntries(
       conversations.map((conversation) => [conversation.id, []])
     );
+    await updateFixtureState(userId, {
+      messagesByConversationId: state.messagesByConversationId,
+    });
     await page.goto(`/home/${conversations[0].id}?heap-control=1`);
     await waitForHomeRegions(page);
     const controlSidePanel = await ensureConversationsOpen(page);

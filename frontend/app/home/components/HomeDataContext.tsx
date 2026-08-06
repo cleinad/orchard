@@ -436,6 +436,10 @@ interface HomeShellContextValue {
   upsertWorkspaceSummary: (workspace: WorkspaceSummary) => void;
   removeWorkspaceSummary: (workspaceId: string) => void;
   openPersistentConversation: (id: string, opts?: { replace?: boolean }) => void;
+  prefetchPersistentConversation: (
+    id: string,
+    onInvalidate: () => void
+  ) => boolean;
   buildHomeHref: (pathname: string) => string;
   openWorkspace: (
     workspaceId: string,
@@ -505,7 +509,20 @@ export function HomeDataProvider({
 
   const [draftChats, setDraftChatsState] = useState<PersistentDraftChat[]>([]);
   const [temporaryChats, setTemporaryChatsState] = useState<TemporaryChatSession[]>([]);
-  const [selectedChat, setSelectedChatState] = useState<SelectedChat | null>(null);
+  const [selectedChat, setSelectedChatState] = useState<SelectedChat | null>(
+    () => {
+      if (!routeConversationId || !initialNavigationData) return null;
+      const conversation = initialNavigationData?.conversations.find(
+        (entry) => entry.id === routeConversationId
+      );
+      return {
+        kind: 'persistent',
+        conversationId: routeConversationId,
+        mentorId: conversation?.mentor_id ?? null,
+        workspaceId: conversation?.workspace_id ?? null,
+      };
+    }
+  );
   const [clientRouteConversationId, setClientRouteConversationId] =
     useState<string | null>(routeConversationId);
   const [pendingRouteConversationId, setPendingRouteConversationId] =
@@ -513,7 +530,7 @@ export function HomeDataProvider({
   const [persistentConversationCache, setPersistentConversationCacheState] =
     useState<PersistentConversationTranscriptRecord>({});
 
-  const selectedChatRef = useRef<SelectedChat | null>(null);
+  const selectedChatRef = useRef<SelectedChat | null>(selectedChat);
   const draftChatsRef = useRef<PersistentDraftChat[]>([]);
   const temporaryChatsRef = useRef<TemporaryChatSession[]>([]);
   const shellDraftChatsRef = useRef<HomeShellDraftChat[]>([]);
@@ -1058,12 +1075,37 @@ export function HomeDataProvider({
   const openPersistentConversation = useCallback(
     (conversationId: string, options?: { replace?: boolean }) => {
       const href = buildHomeHref(`/home/${encodeURIComponent(conversationId)}`);
+      if (persistentConversationCacheRef.current[conversationId]) {
+        setClientRouteConversationId(conversationId);
+        setPendingRouteConversationId(null);
+        window.history[options?.replace ? 'replaceState' : 'pushState'](
+          window.history.state,
+          '',
+          href
+        );
+        return;
+      }
       setPendingRouteConversationId(conversationId);
       if (options?.replace) {
         router.replace(href, { scroll: false });
       } else {
         router.push(href, { scroll: false });
       }
+    },
+    [buildHomeHref, router]
+  );
+
+  const prefetchPersistentConversation = useCallback(
+    (conversationId: string, onInvalidate: () => void) => {
+      if (persistentConversationCacheRef.current[conversationId]) return false;
+      router.prefetch(
+        buildHomeHref(`/home/${encodeURIComponent(conversationId)}`),
+        {
+          kind: 'full',
+          onInvalidate,
+        } as NonNullable<Parameters<typeof router.prefetch>[1]>
+      );
+      return true;
     },
     [buildHomeHref, router]
   );
@@ -1350,6 +1392,7 @@ export function HomeDataProvider({
       upsertWorkspaceSummary,
       removeWorkspaceSummary,
       openPersistentConversation,
+      prefetchPersistentConversation,
       buildHomeHref,
       openWorkspace,
     }),
@@ -1364,6 +1407,7 @@ export function HomeDataProvider({
       handleSelectTemporaryChat,
       initialChatModels,
       openPersistentConversation,
+      prefetchPersistentConversation,
       openWorkspace,
       refreshSidebarData,
       removeWorkspaceSummary,

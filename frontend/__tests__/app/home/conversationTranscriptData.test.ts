@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   fetchCompleteMainTranscript,
+  loadCompleteConversationTranscript,
   MAIN_TRANSCRIPT_PAGE_SIZE,
 } from '@/app/home/components/conversationTranscriptData';
 import { createMockSupabase } from '../../helpers/mock-supabase';
@@ -78,5 +79,90 @@ describe('fetchCompleteMainTranscript', () => {
         'conversation-long'
       )
     ).rejects.toThrow('message page unavailable');
+  });
+});
+
+describe('loadCompleteConversationTranscript', () => {
+  it('builds the same message, branch, thread, and attachment model for server and browser callers', async () => {
+    const root = createRow(1, null);
+    const reply = createRow(2, root.id);
+    const { client } = createMockSupabase({
+      tables: {
+        messages: { rows: [root, reply] },
+        conversation_branches: {
+          rows: [{
+            id: 'branch-main',
+            conversation_id: 'conversation-long',
+            source_message_id: root.id,
+            entry_message_id: reply.id,
+            title: 'Main',
+            is_main: true,
+            position: 0,
+          }],
+        },
+        threads: {
+          rows: [{
+            id: 'thread-1',
+            conversation_id: 'conversation-long',
+            source_message_id: reply.id,
+            highlighted_text: 'Transcript',
+            start_offset: 0,
+            end_offset: 10,
+            selection_stream_version: 'markdown-structure-v2',
+          }],
+        },
+        message_attachments: {
+          rows: [{
+            id: 'attachment-1',
+            message_id: reply.id,
+            storage_path: 'user/conversation/image.png',
+            file_name: 'image.png',
+            mime_type: 'image/png',
+            size_bytes: 128,
+            width: 1,
+            height: 1,
+            position: 0,
+          }],
+        },
+      },
+    });
+
+    const result = await loadCompleteConversationTranscript(
+      client as unknown as Parameters<
+        typeof loadCompleteConversationTranscript
+      >[0],
+      'conversation-long'
+    );
+
+    expect(result.messages[1].attachments).toEqual([{
+      id: 'attachment-1',
+      messageId: reply.id,
+      storagePath: 'user/conversation/image.png',
+      fileName: 'image.png',
+      mimeType: 'image/png',
+      sizeBytes: 128,
+      width: 1,
+      height: 1,
+      url: '/api/chat/images/attachment-1',
+    }]);
+    expect(result.branches).toEqual([{
+      id: 'branch-main',
+      sourceMessageId: root.id,
+      entryMessageId: reply.id,
+      title: 'Main',
+      isMain: true,
+      position: 0,
+    }]);
+    expect(result.selectedBranchIds).toEqual({
+      [root.id]: 'branch-main',
+    });
+    expect(result.threadsMap.get(reply.id)).toEqual([{
+      threadId: 'thread-1',
+      highlightedText: 'Transcript',
+      sourceMessageId: reply.id,
+      startOffset: 0,
+      endOffset: 10,
+      selectionStreamVersion: 'markdown-structure-v2',
+    }]);
   });
 });

@@ -171,6 +171,24 @@ function startServer() {
       conversations: Array.isArray(options.conversations)
         ? options.conversations
         : [],
+      messagesByConversationId:
+        options.messagesByConversationId
+        && typeof options.messagesByConversationId === 'object'
+          ? options.messagesByConversationId
+          : {},
+      branchesByConversationId:
+        options.branchesByConversationId
+        && typeof options.branchesByConversationId === 'object'
+          ? options.branchesByConversationId
+          : {},
+      threadsByConversationId:
+        options.threadsByConversationId
+        && typeof options.threadsByConversationId === 'object'
+          ? options.threadsByConversationId
+          : {},
+      attachments: Array.isArray(options.attachments)
+        ? options.attachments
+        : [],
       counters: {
         authUser: 0,
         profileReads: 0,
@@ -183,6 +201,10 @@ function startServer() {
         workspaceWrites: 0,
         workspaceDeletes: 0,
         conversationReads: 0,
+        messageReads: 0,
+        branchReads: 0,
+        threadReads: 0,
+        attachmentReads: 0,
       },
     };
     state.accessToken = mintAccessToken(state, expiresIn);
@@ -317,6 +339,12 @@ function startServer() {
               full_name: state.user.user_metadata.full_name,
               global_instructions: updates.globalInstructions || '',
             };
+          }
+          if (
+            updates.messagesByConversationId
+            && typeof updates.messagesByConversationId === 'object'
+          ) {
+            state.messagesByConversationId = updates.messagesByConversationId;
           }
           sendJson(response, 200, publicState(state));
           return;
@@ -567,7 +595,96 @@ function startServer() {
         }
 
         state.counters.conversationReads += 1;
+        const requestedConversationId = requestUrl.searchParams
+          .get('id')
+          ?.replace(/^eq\./, '');
+        if (requestedConversationId) {
+          const conversation = state.conversations.find(
+            (candidate) => candidate.id === requestedConversationId,
+          );
+          sendJson(response, 200, conversation || null);
+          return;
+        }
         sendJson(response, 200, state.conversations);
+        return;
+      }
+
+      if (
+        request.method === 'GET'
+        && requestUrl.pathname === '/rest/v1/messages'
+      ) {
+        state.counters.messageReads += 1;
+        const conversationId = requestUrl.searchParams
+          .get('conversation_id')
+          ?.replace(/^eq\./, '');
+        const rows = Array.isArray(
+          state.messagesByConversationId[conversationId],
+        )
+          ? state.messagesByConversationId[conversationId]
+          : [];
+        const range = request.headers.range?.match(/^(\d+)-(\d+)$/);
+        const from = range ? Number(range[1]) : 0;
+        const to = range ? Number(range[2]) : rows.length - 1;
+        sendJson(response, 200, rows.slice(from, to + 1), {
+          'content-range':
+            rows.length === 0
+              ? '*/0'
+              : `${from}-${Math.min(to, rows.length - 1)}/${rows.length}`,
+        });
+        return;
+      }
+
+      if (
+        request.method === 'GET'
+        && requestUrl.pathname === '/rest/v1/conversation_branches'
+      ) {
+        state.counters.branchReads += 1;
+        const conversationId = requestUrl.searchParams
+          .get('conversation_id')
+          ?.replace(/^eq\./, '');
+        sendJson(
+          response,
+          200,
+          state.branchesByConversationId[conversationId] ?? [],
+        );
+        return;
+      }
+
+      if (
+        request.method === 'GET'
+        && requestUrl.pathname === '/rest/v1/threads'
+      ) {
+        state.counters.threadReads += 1;
+        const conversationId = requestUrl.searchParams
+          .get('conversation_id')
+          ?.replace(/^eq\./, '');
+        sendJson(
+          response,
+          200,
+          state.threadsByConversationId[conversationId] ?? [],
+        );
+        return;
+      }
+
+      if (
+        request.method === 'GET'
+        && requestUrl.pathname === '/rest/v1/message_attachments'
+      ) {
+        state.counters.attachmentReads += 1;
+        const requestedIds = requestUrl.searchParams
+          .get('message_id')
+          ?.replace(/^in\.\(/, '')
+          .replace(/\)$/, '')
+          .split(',')
+          .map((id) => decodeURIComponent(id));
+        const requestedIdSet = new Set(requestedIds ?? []);
+        sendJson(
+          response,
+          200,
+          state.attachments.filter((attachment) =>
+            requestedIdSet.has(attachment.message_id)
+          ),
+        );
         return;
       }
 

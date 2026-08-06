@@ -30,6 +30,7 @@ interface LoadedConversationMessages {
 interface UseRouteConversationHydrationParams {
   activeMessagesLength: number;
   conversations: ConversationListItem[];
+  deferRouteConversationLoad: boolean;
   effectiveRouteConversationId: string | null;
   getPersistentConversationTranscript: (
     conversationId: string
@@ -53,6 +54,7 @@ interface UseRouteConversationHydrationParams {
 export function useRouteConversationHydration({
   activeMessagesLength,
   conversations,
+  deferRouteConversationLoad,
   effectiveRouteConversationId,
   getPersistentConversationTranscript,
   hasRouteConversationTranscript,
@@ -92,6 +94,14 @@ export function useRouteConversationHydration({
     if (isHomeE2eFixture) {
       routeLoadConversationIdRef.current = null;
       setIsRouteConversationLoading(false);
+      setRouteConversationError(null);
+      return;
+    }
+
+    if (deferRouteConversationLoad) {
+      routeLoadRequestIdRef.current += 1;
+      routeLoadConversationIdRef.current = null;
+      setIsRouteConversationLoading(true);
       setRouteConversationError(null);
       return;
     }
@@ -223,6 +233,10 @@ export function useRouteConversationHydration({
       if (
         routeLoadRequestIdRef.current !== requestId
         || activeRouteConversationIdRef.current !== effectiveRouteConversationId
+        || (
+          selectedChatRef.current?.kind === 'persistent'
+          && selectedChatRef.current.conversationId !== effectiveRouteConversationId
+        )
       ) {
         return;
       }
@@ -252,6 +266,7 @@ export function useRouteConversationHydration({
     });
   }, [
     conversations,
+    deferRouteConversationLoad,
     effectiveRouteConversationId,
     getPersistentConversationTranscript,
     invokePrepareForChatSwitch,

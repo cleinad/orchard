@@ -77,6 +77,11 @@ interface Props {
   onSelectTemporaryChat: (tempChatId: string) => void;
   onCreateWorkspaceDraft: (workspaceId: string) => void;
   onCreateWorkspace: () => void;
+  buildConversationHref: (conversationId: string) => string;
+  onPrefetchConversation: (
+    conversationId: string,
+    onInvalidate: () => void
+  ) => boolean;
   buildWorkspaceHref: (workspaceId: string) => string;
   onOpenWorkspace: (workspaceId: string) => void;
   onCloseTemporaryChat: (tempChatId: string) => void;
@@ -161,6 +166,8 @@ export default function SidePanel({
   onSelectTemporaryChat,
   onCreateWorkspaceDraft,
   onCreateWorkspace,
+  buildConversationHref,
+  onPrefetchConversation,
   buildWorkspaceHref,
   onOpenWorkspace,
   onCloseTemporaryChat,
@@ -178,6 +185,10 @@ export default function SidePanel({
   const formatTimestamp = useSidebarTimestampFormatter();
   const lastAutoExpandedWorkspaceSelectionRef = useRef<string | null>(null);
   const manuallyCollapsedWorkspaceSelectionRef = useRef<Record<string, string>>({});
+  const prefetchedConversationHrefsRef = useRef(new Set<string>());
+  const conversationPrefetchTimersRef = useRef(
+    new Map<string, ReturnType<typeof setTimeout>>()
+  );
   const { viewerResult } = useViewer();
   const profileName =
     viewerResult.status === 'ready'
@@ -202,6 +213,14 @@ export default function SidePanel({
       return () => document.removeEventListener('keydown', handleEscape);
     }
   }, [isOpen, handleEscape]);
+
+  useEffect(
+    () => () => {
+      conversationPrefetchTimersRef.current.forEach(clearTimeout);
+      conversationPrefetchTimersRef.current.clear();
+    },
+    []
+  );
 
   useEffect(() => {
     if (!selectedMentorId && !selectedWorkspaceId && !selectedDraftId && !selectedConversationId) {
@@ -570,6 +589,42 @@ export default function SidePanel({
     );
   };
 
+  const prefetchConversation = (conversationId: string) => {
+    const href = buildConversationHref(conversationId);
+    if (prefetchedConversationHrefsRef.current.has(href)) return;
+    const didPrefetch = onPrefetchConversation(conversationId, () => {
+      prefetchedConversationHrefsRef.current.delete(href);
+    });
+    if (didPrefetch) {
+      prefetchedConversationHrefsRef.current.add(href);
+    }
+  };
+
+  const scheduleConversationPrefetch = (conversationId: string) => {
+    const href = buildConversationHref(conversationId);
+    if (
+      prefetchedConversationHrefsRef.current.has(href)
+      || conversationPrefetchTimersRef.current.has(href)
+    ) {
+      return;
+    }
+    conversationPrefetchTimersRef.current.set(
+      href,
+      setTimeout(() => {
+        conversationPrefetchTimersRef.current.delete(href);
+        prefetchConversation(conversationId);
+      }, 100)
+    );
+  };
+
+  const cancelScheduledConversationPrefetch = (conversationId: string) => {
+    const href = buildConversationHref(conversationId);
+    const timer = conversationPrefetchTimersRef.current.get(href);
+    if (!timer) return;
+    clearTimeout(timer);
+    conversationPrefetchTimersRef.current.delete(href);
+  };
+
   const workspaceList = (
     <div className="pb-3">
       {workspaceGroups.length === 0 ? (
@@ -724,6 +779,21 @@ export default function SidePanel({
                       key={conversation.id}
                       type="button"
                       onClick={() => onSelectConversation(conversation)}
+                      onPointerEnter={() =>
+                        scheduleConversationPrefetch(conversation.id)
+                      }
+                      onPointerLeave={() =>
+                        cancelScheduledConversationPrefetch(conversation.id)
+                      }
+                      onPointerDown={() =>
+                        cancelScheduledConversationPrefetch(conversation.id)
+                      }
+                      onFocus={() =>
+                        scheduleConversationPrefetch(conversation.id)
+                      }
+                      onBlur={() =>
+                        cancelScheduledConversationPrefetch(conversation.id)
+                      }
                       {...getConversationDragProps(conversation)}
                       className={cx(
                         'mr-2 flex w-[calc(100%-0.5rem)] items-center justify-between gap-3 rounded-xl px-3 py-1.5 text-left',
@@ -834,6 +904,21 @@ export default function SidePanel({
               key={conversation.id}
               type="button"
               onClick={() => onSelectConversation(conversation)}
+              onPointerEnter={() =>
+                scheduleConversationPrefetch(conversation.id)
+              }
+              onPointerLeave={() =>
+                cancelScheduledConversationPrefetch(conversation.id)
+              }
+              onPointerDown={() =>
+                cancelScheduledConversationPrefetch(conversation.id)
+              }
+              onFocus={() =>
+                scheduleConversationPrefetch(conversation.id)
+              }
+              onBlur={() =>
+                cancelScheduledConversationPrefetch(conversation.id)
+              }
               {...getConversationDragProps(conversation)}
               className={cx(
                 'mr-2 flex w-[calc(100%-0.5rem)] items-center justify-between gap-3 rounded-xl px-3 py-1.5 text-left',
