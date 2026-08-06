@@ -70,14 +70,26 @@ async function mockHomeDataRoutes(page, state) {
     threadsByConversationId: {},
     chatModels: DEFAULT_CHAT_MODELS,
     createdConversations: [],
+    workspacePatchFailures: 0,
+    requestCounts: {},
     ...state,
+  };
+  resolvedState.requestCounts = {
+    mentorLists: 0,
+    workspaceLists: 0,
+    workspaceDetails: 0,
+    conversationLists: 0,
+    modelLists: 0,
+    ...resolvedState.requestCounts,
   };
 
   await page.route('**/api/chat/models', async (route) => {
+    resolvedState.requestCounts.modelLists += 1;
     await fulfillJson(route, { models: resolvedState.chatModels });
   });
 
   await page.route('**/api/mentors', async (route) => {
+    resolvedState.requestCounts.mentorLists += 1;
     await fulfillJson(route, resolvedState.mentors);
   });
 
@@ -102,6 +114,7 @@ async function mockHomeDataRoutes(page, state) {
       return;
     }
 
+    resolvedState.requestCounts.workspaceLists += 1;
     await fulfillJson(route, { workspaces: resolvedState.workspaces });
   });
 
@@ -117,6 +130,12 @@ async function mockHomeDataRoutes(page, state) {
     }
 
     if (method === 'PATCH') {
+      if (resolvedState.workspacePatchFailures > 0) {
+        resolvedState.workspacePatchFailures -= 1;
+        await fulfillJson(route, { error: 'Injected workspace update failure' }, 500);
+        return;
+      }
+
       const body = route.request().postDataJSON();
       Object.assign(workspace, {
         ...(Object.prototype.hasOwnProperty.call(body, 'name') ? { name: body.name } : {}),
@@ -156,6 +175,7 @@ async function mockHomeDataRoutes(page, state) {
       return;
     }
 
+    resolvedState.requestCounts.workspaceDetails += 1;
     await fulfillJson(route, { workspace });
   });
 
@@ -328,6 +348,7 @@ async function mockHomeDataRoutes(page, state) {
       return;
     }
 
+    resolvedState.requestCounts.conversationLists += 1;
     await fulfillJson(route, resolvedState.conversations);
   });
 

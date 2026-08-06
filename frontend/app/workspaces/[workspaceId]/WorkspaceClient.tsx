@@ -9,14 +9,11 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from 'react';
-import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Tooltip from '@/app/components/Tooltip';
 import ChatComposer from '@/app/home/components/ChatComposer';
 import { persistInitialSendHandoff } from '@/app/home/components/initialSendHandoff';
-import {
-  uploadChatImageAttachments,
-  type UploadedChatImageAttachment,
-} from '@/app/home/components/chatImageUploads';
+import type { UploadedChatImageAttachment } from '@/app/home/components/chatImageUploads';
 import {
   CHAT_MODEL_EFFORT_OVERRIDES_STORAGE_KEY,
   CHAT_MODEL_STORAGE_KEY,
@@ -43,9 +40,16 @@ import {
 } from '@/lib/chat-models';
 import { DEFAULT_RESPONSE_STYLE, type ResponseStyle } from '@/lib/response-style';
 import { DEFAULT_SEARCH_MODE, type SearchMode } from '@/lib/chat-search';
-import type { WorkspaceListItem } from '@/lib/workspaces';
+import {
+  toWorkspaceSummary,
+  type WorkspaceDetail,
+  type WorkspaceInput,
+} from '@/lib/workspaces';
 import { CHAT_IMAGE_BUCKET } from '@/lib/chat-attachments';
-import { supabase } from '@/lib/supabase';
+import {
+  deleteWorkspace as deleteWorkspaceAction,
+  updateWorkspace as updateWorkspaceAction,
+} from '@/app/workspaces/[workspaceId]/actions';
 
 function formatDate(input: string): string {
   const date = new Date(input);
@@ -105,30 +109,45 @@ function EllipsisIcon({ className = 'h-4 w-4' }: { className?: string }) {
   );
 }
 
-export default function WorkspacePage() {
-  const params = useParams<{ workspaceId: string }>();
+export default function WorkspaceClient({
+  workspaceId,
+  initialWorkspace,
+  loadWorkspaceInBrowser = false,
+}: {
+  workspaceId: string;
+  initialWorkspace: WorkspaceDetail | null;
+  loadWorkspaceInBrowser?: boolean;
+}) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const workspaceId = params.workspaceId;
   const {
+    chatModels: initialChatModels,
     conversations,
     handleSelectConversation,
     handleCreateDraftSelection,
     openPersistentConversation,
-    refreshSidebarData,
+    upsertSidebarConversation,
+    upsertWorkspaceSummary,
+    removeWorkspaceSummary,
     selectedChat,
     setSelectedChat,
     setDraftChats,
   } = useHomeDataContext();
 
-  const [workspace, setWorkspace] = useState<WorkspaceListItem | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [workspace, setWorkspace] = useState<WorkspaceDetail | null>(
+    initialWorkspace
+  );
+  const [loading, setLoading] = useState(loadWorkspaceInBrowser);
   const [error, setError] = useState<string | null>(null);
-  const [contextDraft, setContextDraft] = useState('');
+  const [contextDraft, setContextDraft] = useState(
+    initialWorkspace?.context ?? ''
+  );
   const [editingContext, setEditingContext] = useState(false);
   const [savingContext, setSavingContext] = useState(false);
   const [renamingWorkspace, setRenamingWorkspace] = useState(false);
-  const [workspaceNameDraft, setWorkspaceNameDraft] = useState('');
+  const [workspaceNameDraft, setWorkspaceNameDraft] = useState(
+    initialWorkspace?.name ?? ''
+  );
   const [savingWorkspaceName, setSavingWorkspaceName] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -162,7 +181,11 @@ export default function WorkspacePage() {
   const nameInputRef = useRef<HTMLInputElement | null>(null);
   const savingWorkspaceNameRef = useRef(false);
 
-  const chatModels = useChatModelCatalog(selectedModelId, setSelectedModelId);
+  const chatModels = useChatModelCatalog(
+    selectedModelId,
+    setSelectedModelId,
+    initialChatModels
+  );
   const selectedChatModel = chatModels.find((model) => model.id === selectedModelId) ?? null;
   const selectedModelEffortCandidate = modelEffortOverrides[selectedModelId] ?? null;
   const selectedModelEffort =
@@ -215,6 +238,14 @@ export default function WorkspacePage() {
   }, [setThinkingEnabledOverrides]);
 
   useEffect(() => {
+    if (!loadWorkspaceInBrowser) {
+      setWorkspace(initialWorkspace);
+      setWorkspaceNameDraft(initialWorkspace?.name ?? '');
+      setContextDraft(initialWorkspace?.context ?? '');
+      setLoading(false);
+      return;
+    }
+
     let cancelled = false;
 
     const run = async () => {
@@ -248,7 +279,7 @@ export default function WorkspacePage() {
     return () => {
       cancelled = true;
     };
-  }, [workspaceId]);
+  }, [initialWorkspace, loadWorkspaceInBrowser, workspaceId]);
 
   useEffect(() => {
     if (!renamingWorkspace) return;
@@ -293,19 +324,52 @@ export default function WorkspacePage() {
     setConfirmingDelete(false);
   };
 
+  const updateWorkspace = async (input: WorkspaceInput) => {
+    if (!loadWorkspaceInBrowser) {
+      const result = await updateWorkspaceAction(workspaceId, input);
+      if (result.status === 'error') {
+        throw new Error(result.error);
+      }
+      return result.workspace;
+    }
+
+    const response = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+    const payload = await response.json();
+    if (!response.ok || payload.error || !payload.workspace) {
+      throw new Error(payload.error || 'Failed to update workspace');
+    }
+    return payload.workspace as WorkspaceDetail;
+  };
+
+  const deleteWorkspace = async () => {
+    if (!loadWorkspaceInBrowser) {
+      const result = await deleteWorkspaceAction(workspaceId);
+      if (result.status === 'error') {
+        throw new Error(result.error);
+      }
+      return;
+    }
+
+    const response = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}`, {
+      method: 'DELETE',
+    });
+    const payload = await response.json();
+    if (!response.ok || payload.error) {
+      throw new Error(payload.error || 'Failed to delete workspace');
+    }
+  };
+
   const handleDeleteWorkspace = async () => {
     if (deletingWorkspace) return;
 
     setDeletingWorkspace(true);
     setError(null);
     try {
-      const response = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}`, {
-        method: 'DELETE',
-      });
-      const payload = await response.json();
-      if (!response.ok || payload.error) {
-        throw new Error(payload.error || 'Failed to delete workspace');
-      }
+      await deleteWorkspace();
 
       setDraftChats((drafts) =>
         drafts.filter((draft) => draft.workspaceId !== workspaceId)
@@ -319,9 +383,9 @@ export default function WorkspacePage() {
         setSelectedChat(null);
       }
 
-      await refreshSidebarData();
+      removeWorkspaceSummary(workspaceId);
       const e2e = searchParams.get('e2e');
-      router.push(e2e ? `/home?e2e=${encodeURIComponent(e2e)}` : '/home');
+      router.replace(e2e ? `/home?e2e=${encodeURIComponent(e2e)}` : '/home');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete workspace');
       setConfirmingDelete(false);
@@ -368,21 +432,26 @@ export default function WorkspacePage() {
     savingWorkspaceNameRef.current = true;
     setSavingWorkspaceName(true);
     setError(null);
+    const previousWorkspace = workspace;
+    if (previousWorkspace) {
+      const optimisticWorkspace = {
+        ...previousWorkspace,
+        name: normalizedName,
+      };
+      setWorkspace(optimisticWorkspace);
+      upsertWorkspaceSummary(toWorkspaceSummary(optimisticWorkspace));
+    }
     try {
-      const response = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: normalizedName }),
-      });
-      const payload = await response.json();
-      if (!response.ok || payload.error) {
-        throw new Error(payload.error || 'Failed to rename workspace');
-      }
-      setWorkspace(payload.workspace);
-      setWorkspaceNameDraft(payload.workspace?.name ?? normalizedName);
+      const updatedWorkspace = await updateWorkspace({ name: normalizedName });
+      setWorkspace(updatedWorkspace);
+      setWorkspaceNameDraft(updatedWorkspace.name);
+      upsertWorkspaceSummary(toWorkspaceSummary(updatedWorkspace));
       setRenamingWorkspace(false);
-      await refreshSidebarData();
     } catch (err) {
+      if (previousWorkspace) {
+        setWorkspace(previousWorkspace);
+        upsertWorkspaceSummary(toWorkspaceSummary(previousWorkspace));
+      }
       setError(err instanceof Error ? err.message : 'Failed to rename workspace');
       setRenamingWorkspace(true);
       requestAnimationFrame(() => nameInputRef.current?.focus());
@@ -425,21 +494,22 @@ export default function WorkspacePage() {
 
     setSavingContext(true);
     setError(null);
-    try {
-      const response = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ context: contextDraft }),
+    const previousWorkspace = workspace;
+    if (previousWorkspace) {
+      setWorkspace({
+        ...previousWorkspace,
+        context: contextDraft,
       });
-      const payload = await response.json();
-      if (!response.ok || payload.error) {
-        throw new Error(payload.error || 'Failed to save instructions');
-      }
-      setWorkspace(payload.workspace);
-      setContextDraft(payload.workspace?.context ?? '');
+    }
+    try {
+      const updatedWorkspace = await updateWorkspace({ context: contextDraft });
+      setWorkspace(updatedWorkspace);
+      setContextDraft(updatedWorkspace.context ?? '');
       setEditingContext(false);
-      await refreshSidebarData();
     } catch (err) {
+      if (previousWorkspace) {
+        setWorkspace(previousWorkspace);
+      }
       setError(err instanceof Error ? err.message : 'Failed to save instructions');
     } finally {
       setSavingContext(false);
@@ -480,6 +550,9 @@ export default function WorkspacePage() {
 
     try {
       if (imagesToSend.length > 0) {
+        const { uploadChatImageAttachments } = await import(
+          '@/app/home/components/chatImageUploads'
+        );
         uploadedAttachments = await uploadChatImageAttachments(imagesToSend);
       }
 
@@ -513,10 +586,18 @@ export default function WorkspacePage() {
       setComposerInput('');
       setPendingImageAttachments([]);
       shouldRevokeLocalImageUrls = imagesToSend.length > 0;
+      upsertSidebarConversation({
+        id: conversationId,
+        title: payload.conversation?.title ?? (message || 'Image question'),
+        mentorId: payload.conversation?.mentorId ?? null,
+        workspaceId,
+        createdAt: payload.conversation?.createdAt ?? null,
+        updatedAt: payload.conversation?.updatedAt ?? null,
+      });
       openPersistentConversation(conversationId);
-      void refreshSidebarData();
     } catch (err) {
       if (uploadedAttachments.length > 0) {
+        const { supabase } = await import('@/lib/supabase');
         await supabase.storage
           .from(CHAT_IMAGE_BUCKET)
           .remove(uploadedAttachments.map((attachment) => attachment.storagePath));
@@ -578,7 +659,10 @@ export default function WorkspacePage() {
       className="side-panel-content flex min-h-0 flex-1 flex-col overflow-y-auto bg-background text-foreground transition-[padding-left] duration-300 ease-out lg:overflow-hidden"
     >
       <div className="mx-auto flex min-h-full w-full max-w-[92rem] flex-col px-4 pt-5 sm:px-6 lg:h-full lg:min-h-0 lg:px-8">
-        <header className="flex flex-wrap items-start justify-between gap-4 pb-5">
+        <header
+          className="flex flex-wrap items-start justify-between gap-4 pb-5"
+          data-workspace-region="identity"
+        >
           <div className="flex min-w-0 items-start gap-4">
             <div
               className="flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-full border border-border-subtle text-foreground"
@@ -682,7 +766,10 @@ export default function WorkspacePage() {
         )}
 
         <div className="grid border-t border-border-subtle lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_22.5rem]">
-          <section className="flex flex-col overflow-visible lg:min-h-0 lg:overflow-hidden lg:pr-6">
+          <section
+            className="flex flex-col overflow-visible lg:min-h-0 lg:overflow-hidden lg:pr-6"
+            data-workspace-region="conversations"
+          >
             <div className="py-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
               <div className="space-y-1">
                 {workspaceConversations.length === 0 ? (
@@ -713,7 +800,10 @@ export default function WorkspacePage() {
               </div>
             </div>
 
-            <div className="border-t border-border-subtle py-3">
+            <div
+              className="border-t border-border-subtle py-3"
+              data-workspace-region="composer"
+            >
               <ChatComposer
                 chatModels={chatModels}
                 input={composerInput}
@@ -744,7 +834,10 @@ export default function WorkspacePage() {
             </div>
           </section>
 
-          <aside className="min-h-0 border-t border-border-subtle py-5 lg:overflow-y-auto lg:border-l lg:border-t-0 lg:pl-6">
+          <aside
+            className="min-h-0 border-t border-border-subtle py-5 lg:overflow-y-auto lg:border-l lg:border-t-0 lg:pl-6"
+            data-workspace-region="instructions"
+          >
             <section aria-labelledby="workspace-instructions-heading">
               <div className="mb-3 flex items-start justify-between gap-3">
                 <div>

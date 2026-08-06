@@ -2,12 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
 import {
   mapWorkspaceRow,
+  mapWorkspaceSummary,
   sanitizeWorkspaceAccentColor,
   sanitizeWorkspaceContext,
   sanitizeWorkspaceDescription,
   sanitizeWorkspaceIcon,
   sanitizeWorkspaceName,
   type WorkspaceListItem,
+  type WorkspaceSummary,
 } from '@/lib/workspaces';
 
 function isJsonObject(value: unknown): value is Record<string, unknown> {
@@ -46,7 +48,7 @@ export async function GET() {
 
     const { data, error } = await supabase
       .from('workspaces')
-      .select('id, name, description, context, icon, accent_color, created_at, updated_at')
+      .select('id, name, description, icon, accent_color, created_at, updated_at')
       .eq('user_id', user.id)
       .order('updated_at', { ascending: false })
       .limit(100);
@@ -57,7 +59,7 @@ export async function GET() {
     }
 
     return NextResponse.json({
-      workspaces: ((data || []) as WorkspaceListItem[]).map(mapWorkspaceRow),
+      workspaces: ((data || []) as WorkspaceSummary[]).map(mapWorkspaceSummary),
     });
   } catch (error) {
     console.error('Workspaces GET route error:', error);

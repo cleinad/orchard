@@ -145,6 +145,7 @@ export default function HomePage() {
 
 function HomePageInner() {
   const chatRunCoordinator = useChatRunCoordinator();
+  const { chatModels: initialChatModels } = useHomeDataContext();
   const [selectedModelId, setSelectedModelId] = usePersistedString<ChatModelId>(
     CHAT_MODEL_STORAGE_KEY,
     DEFAULT_CHAT_MODEL_ID,
@@ -166,7 +167,11 @@ function HomePageInner() {
     CHAT_WIDE_LAYOUT_STORAGE_KEY,
     false
   );
-  const chatModels = useChatModelCatalog(selectedModelId, setSelectedModelId);
+  const chatModels = useChatModelCatalog(
+    selectedModelId,
+    setSelectedModelId,
+    initialChatModels
+  );
   const selectedChatModel = chatModels.find((model) => model.id === selectedModelId) ?? null;
   const selectedModelEffortCandidate = modelEffortOverrides[selectedModelId] ?? null;
   const selectedModelEffortOverride = selectedChatModel?.effort

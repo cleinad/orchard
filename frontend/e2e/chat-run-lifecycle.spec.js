@@ -672,7 +672,7 @@ test('returning to a chat with an active response blocks another submission', as
 
   await page.getByRole('button', { name: 'Open conversations' }).click();
   await page.getByTestId(`workspace-drop-target-${workspaceId}`)
-    .getByRole('button')
+    .getByRole('link')
     .first()
     .click();
   await expect(page).toHaveURL(new RegExp(`/workspaces/${workspaceId}`));
