@@ -1,45 +1,44 @@
-'use client';
+"use client";
 
-import { useEffect, useState } from 'react';
-import Image from 'next/image';
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabase';
-import { getSafeRedirectPath } from '@/lib/auth-redirect';
-import orchardDuskBackdrop from '../assets/orchard-dusk-backdrop.png';
-import OrchardBrand from './OrchardBrand';
+import { useEffect, useState } from "react";
+import Image from "next/image";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase";
+import { getSafeRedirectPath } from "@/lib/auth-redirect";
+import landingFruitApple from "../assets/landing-fruit-apple-collage.jpg";
+import landingFruitPeach from "../assets/landing-fruit-peach-collage.jpg";
+import PublicHeader from "./PublicHeader";
+import { buttonStyles, cx } from "./buttonStyles";
 
 const inputClassName =
-  'mt-2 min-h-12 w-full rounded-lg border border-white/15 bg-white/10 px-4 font-sans text-[15px] text-white outline-none transition placeholder:text-white/65 focus:border-white/35 focus:bg-white/14 focus:ring-2 focus:ring-white/20 disabled:cursor-not-allowed disabled:opacity-60';
+  "mt-2 h-11 w-full rounded-lg border border-[#d8dee8] bg-white/75 px-3.5 font-sans text-[15px] text-[#111827] outline-none transition-colors placeholder:text-[#9aa3b1] focus:border-[#3749ad]/55 focus:bg-white focus:ring-2 focus:ring-[#3749ad]/12 disabled:cursor-not-allowed disabled:opacity-60";
 
-function AuthFrame({ children }: { children: React.ReactNode }) {
+function AuthFrame({
+  children,
+  initialSignUp,
+  alternateHref,
+}: {
+  children: React.ReactNode;
+  initialSignUp: boolean;
+  alternateHref: string;
+}) {
   return (
     <div
-      className="relative min-h-[100dvh] overflow-hidden bg-[#111411] text-white"
-      style={{ colorScheme: 'dark' }}
+      className={`flex min-h-[100dvh] flex-col text-[#111827] ${
+        initialSignUp
+          ? "bg-[linear-gradient(160deg,#f7f9fc_0%,#f7f4f5_48%,#f7eef1_100%)]"
+          : "bg-[linear-gradient(160deg,#f7f9fc_0%,#eef1f8_48%,#e5e9f6_100%)]"
+      }`}
+      style={{ colorScheme: "light" }}
     >
-      <Image
-        src={orchardDuskBackdrop}
-        alt=""
-        fill
-        priority
-        sizes="100vw"
-        className="scale-[1.01] object-cover object-center"
+      <PublicHeader
+        authPage={initialSignUp ? "signup" : "login"}
+        alternateHref={alternateHref}
       />
-      <div
-        aria-hidden="true"
-        className="absolute inset-0 bg-[linear-gradient(180deg,rgba(7,10,7,0.38),rgba(7,10,7,0.28)_42%,rgba(7,10,7,0.68)),linear-gradient(90deg,rgba(7,10,7,0.36),transparent_45%,rgba(7,10,7,0.24))]"
-      />
-
-      <div className="relative z-10 flex min-h-[100dvh] flex-col px-5 pb-8 pt-5 sm:px-10 sm:pb-10 sm:pt-8 lg:px-14">
-        <header className="flex w-full items-center">
-          <OrchardBrand className="text-white" />
-        </header>
-
-        <main className="flex flex-1 items-center justify-center py-10">
-          {children}
-        </main>
-      </div>
+      <main className="mx-auto flex w-full max-w-[74rem] flex-1 items-center px-5 pb-10 pt-5 sm:px-10 sm:pb-14 sm:pt-8 lg:px-12">
+        {children}
+      </main>
     </div>
   );
 }
@@ -50,17 +49,17 @@ type AuthPageProps = {
 
 export default function AuthPage({ initialSignUp = false }: AuthPageProps) {
   const router = useRouter();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const [redirectPath, setRedirectPath] = useState('/home');
+  const [redirectPath, setRedirectPath] = useState("/home");
 
   useEffect(() => {
     const nextRedirectPath = getSafeRedirectPath(
-      new URLSearchParams(window.location.search).get('redirect')
+      new URLSearchParams(window.location.search).get("redirect"),
     );
     setRedirectPath(nextRedirectPath);
 
@@ -74,7 +73,7 @@ export default function AuthPage({ initialSignUp = false }: AuthPageProps) {
           router.refresh();
         }
       } catch (err) {
-        console.error('Error checking auth:', err);
+        console.error("Error checking auth:", err);
       } finally {
         setCheckingAuth(false);
       }
@@ -106,7 +105,7 @@ export default function AuthPage({ initialSignUp = false }: AuthPageProps) {
 
         if (data.user) {
           setMessage(
-            'Account created. Please check your email to verify your address.'
+            "Account created. Please check your email to verify your address.",
           );
         }
       } else {
@@ -125,128 +124,149 @@ export default function AuthPage({ initialSignUp = false }: AuthPageProps) {
       }
     } catch (err: unknown) {
       setError(
-        err instanceof Error ? err.message : 'An error occurred. Please try again.'
+        err instanceof Error
+          ? err.message
+          : "An error occurred. Please try again.",
       );
     } finally {
       setLoading(false);
     }
   };
 
-  const heading = initialSignUp ? 'Create your account' : 'Welcome back';
-  const supportingCopy = initialSignUp
-    ? 'Create an account and give your ideas room to grow.'
-    : 'Sign in to continue your research.';
+  const heading = initialSignUp ? "Sign up" : "Welcome back";
   const submitLabel = loading
-    ? 'Please wait...'
+    ? "Please wait..."
     : initialSignUp
-      ? 'Create account'
-      : 'Sign in';
+      ? "Create account"
+      : "Sign in";
   const alternateHref = initialSignUp
     ? `/login?redirect=${encodeURIComponent(redirectPath)}`
     : `/signup?redirect=${encodeURIComponent(redirectPath)}`;
 
   if (checkingAuth) {
     return (
-      <AuthFrame>
-        <div className="w-full max-w-[27rem]">
-          <p className="font-sans text-sm text-white/65">Loading...</p>
+      <AuthFrame initialSignUp={initialSignUp} alternateHref={alternateHref}>
+        <div className="mx-auto w-full max-w-[27rem]">
+          <p className="font-sans text-sm text-[#687385]">Loading...</p>
         </div>
       </AuthFrame>
     );
   }
 
   return (
-    <AuthFrame>
-      <section className="w-full max-w-[27rem] rounded-lg border border-white/15 bg-[#101410]/72 p-6 shadow-[0_24px_80px_rgba(0,0,0,0.28)] backdrop-blur-xl sm:p-8">
-        <div>
-          <h1 className="text-balance font-serif text-[clamp(2.7rem,8vw,3.8rem)] font-normal leading-[0.92] text-white">
-            {heading}
-          </h1>
-          <p className="mt-4 max-w-md font-sans text-[1rem] leading-[1.6] text-white/68">
-            {supportingCopy}
-          </p>
+    <AuthFrame initialSignUp={initialSignUp} alternateHref={alternateHref}>
+      <div className="grid w-full items-center gap-8 py-4 sm:gap-10 lg:grid-cols-[1.14fr_0.86fr] lg:gap-16 lg:py-10">
+        <div
+          aria-hidden="true"
+          className="relative h-36 overflow-hidden rounded-[1.4rem] shadow-[0_28px_70px_-40px_rgba(24,33,58,0.5)] sm:h-52 sm:rounded-[1.75rem] lg:h-auto lg:aspect-[5/4]"
+        >
+          <Image
+            src={initialSignUp ? landingFruitPeach : landingFruitApple}
+            alt=""
+            fill
+            priority
+            sizes="(max-width: 1024px) calc(100vw - 2.5rem), 39rem"
+            className="object-cover"
+          />
+          <div className="absolute inset-0 bg-[#3749ad]/[0.025]" />
+          <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-[#dfe5ec]/35 to-transparent" />
         </div>
 
-        <form onSubmit={handleSubmit} className="mt-8 space-y-5">
+        <section className="mx-auto w-full max-w-[27rem] lg:mx-0">
           <div>
-            <label
-              htmlFor="email"
-              className="block font-sans text-xs font-medium text-white/65"
-            >
-              Email
-            </label>
-            <input
-              id="email"
-              type="email"
-              inputMode="email"
-              autoComplete="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              required
-              placeholder="you@example.com"
-              disabled={loading}
-              className={inputClassName}
-            />
+            <h1 className="text-balance font-serif text-[clamp(2rem,4.5vw,2.65rem)] font-normal leading-[0.98] tracking-[-0.02em] text-[#111827]">
+              {heading}
+            </h1>
           </div>
 
-          <div>
-            <label
-              htmlFor="password"
-              className="block font-sans text-xs font-medium text-white/65"
-            >
-              Password
-            </label>
-            <input
-              id="password"
-              type="password"
-              autoComplete={initialSignUp ? 'new-password' : 'current-password'}
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              required
-              minLength={6}
-              placeholder="••••••••"
+          <form onSubmit={handleSubmit} className="mt-8 space-y-5">
+            <div>
+              <label
+                htmlFor="email"
+                className="block font-sans text-xs font-medium text-[#5f6875]"
+              >
+                Email
+              </label>
+              <input
+                id="email"
+                type="email"
+                inputMode="email"
+                autoComplete="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                required
+                placeholder="you@example.com"
+                disabled={loading}
+                className={inputClassName}
+              />
+            </div>
+
+            <div>
+              <label
+                htmlFor="password"
+                className="block font-sans text-xs font-medium text-[#5f6875]"
+              >
+                Password
+              </label>
+              <input
+                id="password"
+                type="password"
+                autoComplete={
+                  initialSignUp ? "new-password" : "current-password"
+                }
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                required
+                minLength={6}
+                placeholder="••••••••"
+                disabled={loading}
+                className={inputClassName}
+              />
+            </div>
+
+            {error ? (
+              <div
+                role="alert"
+                className="rounded-lg border border-[#e8c5cd] bg-[#fbeff2] px-4 py-3 font-sans text-sm text-[#8a3549]"
+              >
+                {error}
+              </div>
+            ) : null}
+
+            {message ? (
+              <div
+                role="status"
+                className="rounded-lg border border-[#cadbbd] bg-[#f0f6ea] px-4 py-3 font-sans text-sm text-[#446234]"
+              >
+                {message}
+              </div>
+            ) : null}
+
+            <button
+              type="submit"
               disabled={loading}
-              className={inputClassName}
-            />
-          </div>
-
-          {error ? (
-            <div
-              role="alert"
-              className="rounded-lg border border-rose-300/25 bg-rose-950/55 px-4 py-3 font-sans text-sm text-rose-100"
+              className={cx(
+                "h-11 w-full rounded-lg bg-[#3749ad] px-4 font-sans text-sm font-medium text-white hover:bg-[#2f3f96] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#3749ad] disabled:cursor-not-allowed disabled:opacity-55",
+                buttonStyles.transition,
+              )}
             >
-              {error}
-            </div>
-          ) : null}
+              {submitLabel}
+            </button>
+          </form>
 
-          {message ? (
-            <div
-              role="status"
-              className="rounded-lg border border-emerald-300/25 bg-emerald-950/55 px-4 py-3 font-sans text-sm text-emerald-100"
+          <p className="mt-6 font-sans text-sm text-[#687385]">
+            {initialSignUp
+              ? "Already have an account?"
+              : "Don't have an account?"}{" "}
+            <Link
+              href={alternateHref}
+              className="font-medium text-[#3749ad] underline decoration-[#3749ad]/25 underline-offset-4 transition hover:decoration-[#3749ad]/70 focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[#3749ad]"
             >
-              {message}
-            </div>
-          ) : null}
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="min-h-12 w-full rounded-lg border border-[#27573e] bg-[#27573e] px-4 font-sans text-sm font-medium text-white transition hover:-translate-y-px hover:bg-[#31684b] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white disabled:cursor-not-allowed disabled:opacity-55 motion-reduce:transform-none"
-          >
-            {submitLabel}
-          </button>
-        </form>
-
-        <p className="mt-6 font-sans text-sm text-white/58">
-          {initialSignUp ? 'Already have an account?' : "Don't have an account?"}{' '}
-          <Link
-            href={alternateHref}
-            className="text-white underline decoration-white/25 underline-offset-4 transition hover:decoration-white/70 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white"
-          >
-            {initialSignUp ? 'Sign in' : 'Sign up'}
-          </Link>
-        </p>
-      </section>
+              {initialSignUp ? "Sign in" : "Sign up"}
+            </Link>
+          </p>
+        </section>
+      </div>
     </AuthFrame>
   );
 }
