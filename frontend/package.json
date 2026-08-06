@@ -8,6 +8,7 @@
     "validate:build-env": "node scripts/validate-build-env.mjs",
     "start": "next start",
     "lint": "eslint",
+    "measure:workspace-bundle": "node scripts/measure-workspace-bundle.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
