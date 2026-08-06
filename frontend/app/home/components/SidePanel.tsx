@@ -30,6 +30,7 @@ import {
 } from '@/app/home/components/SidePanelContext';
 import { useViewer } from '@/app/components/ViewerContext';
 import { initialsFor } from '@/lib/mentors/ui-helpers';
+import { useSidebarTimestampFormatter } from '@/app/home/components/sidebarTimestamp';
 import type {
   ConversationListItem,
   SidebarWorkspaceGroup,
@@ -96,16 +97,6 @@ function getWorkspaceSelectionKey(
   if (selectedDraftId) return `${workspaceKey}:draft:${selectedDraftId}`;
   if (selectedConversationId) return `${workspaceKey}:conversation:${selectedConversationId}`;
   return null;
-}
-
-function formatDate(input: string): string {
-  const date = new Date(input);
-  const now = new Date();
-  const sameDay = date.toDateString() === now.toDateString();
-  if (sameDay) {
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  }
-  return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 
 const railIconButtonClass =
@@ -182,6 +173,7 @@ export default function SidePanel({
   const [movingConversationId, setMovingConversationId] = useState<string | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
   const [expandedSections, setExpandedSections] = useState(DEFAULT_EXPANDED_SECTIONS);
+  const formatTimestamp = useSidebarTimestampFormatter();
   const lastAutoExpandedWorkspaceSelectionRef = useRef<string | null>(null);
   const manuallyCollapsedWorkspaceSelectionRef = useRef<Record<string, string>>({});
   const { viewerResult } = useViewer();
@@ -195,7 +187,6 @@ export default function SidePanel({
   const panelStyle = {
     '--side-panel-width': `${sidePanelWidthPx}px`,
   } as CSSProperties;
-
   const handleEscape = useCallback(
     (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose();
@@ -717,9 +708,12 @@ export default function SidePanel({
                       )}
                     >
                       <span className="truncate font-sans text-sm text-foreground">{draft.title}</span>
-                      <span className="flex-shrink-0 font-sans text-[11px] text-muted">
-                        {formatDate(draft.updated_at)}
-                      </span>
+                      <time
+                        dateTime={draft.updated_at}
+                        className="flex-shrink-0 font-sans text-[11px] text-muted"
+                      >
+                        {formatTimestamp(draft.updated_at)}
+                      </time>
                     </button>
                   )}
 
@@ -742,9 +736,12 @@ export default function SidePanel({
                       <span className="truncate font-sans text-sm text-foreground/88">
                         {conversation.title}
                       </span>
-                      <span className="flex-shrink-0 font-sans text-[11px] text-muted">
-                        {formatDate(conversation.updated_at)}
-                      </span>
+                      <time
+                        dateTime={conversation.updated_at}
+                        className="flex-shrink-0 font-sans text-[11px] text-muted"
+                      >
+                        {formatTimestamp(conversation.updated_at)}
+                      </time>
                     </button>
                   ))}
 
@@ -821,9 +818,12 @@ export default function SidePanel({
               )}
             >
               <span className="truncate font-sans text-sm text-foreground">{globalDraft.title}</span>
-              <span className="flex-shrink-0 font-sans text-[11px] text-muted">
-                {formatDate(globalDraft.updated_at)}
-              </span>
+              <time
+                dateTime={globalDraft.updated_at}
+                className="flex-shrink-0 font-sans text-[11px] text-muted"
+              >
+                {formatTimestamp(globalDraft.updated_at)}
+              </time>
             </button>
           )}
 
@@ -846,9 +846,12 @@ export default function SidePanel({
               <span className="truncate font-sans text-sm text-foreground/88">
                 {conversation.title}
               </span>
-              <span className="flex-shrink-0 font-sans text-[11px] text-muted">
-                {formatDate(conversation.updated_at)}
-              </span>
+              <time
+                dateTime={conversation.updated_at}
+                className="flex-shrink-0 font-sans text-[11px] text-muted"
+              >
+                {formatTimestamp(conversation.updated_at)}
+              </time>
             </button>
           ))}
 
@@ -1177,9 +1180,12 @@ export default function SidePanel({
                                   <span className="min-w-0 flex-1 truncate font-sans text-sm text-foreground">
                                     {chat.title}
                                   </span>
-                                  <span className="flex-shrink-0 font-sans text-[11px] text-muted">
-                                    {formatDate(chat.updated_at)}
-                                  </span>
+                                  <time
+                                    dateTime={chat.updated_at}
+                                    className="flex-shrink-0 font-sans text-[11px] text-muted"
+                                  >
+                                    {formatTimestamp(chat.updated_at)}
+                                  </time>
                                 </button>
                                 <button
                                   type="button"

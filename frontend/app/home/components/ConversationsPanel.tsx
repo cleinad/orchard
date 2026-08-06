@@ -1,5 +1,7 @@
 'use client';
 
+import { useSidebarTimestampFormatter } from '@/app/home/components/sidebarTimestamp';
+
 export interface ConversationListItem {
   id: string;
   mentor_id: string | null;
@@ -20,16 +22,6 @@ interface Props {
   onNewDefaultChat: () => void;
 }
 
-function formatDate(input: string): string {
-  const date = new Date(input);
-  const now = new Date();
-  const sameDay = date.toDateString() === now.toDateString();
-  if (sameDay) {
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  }
-  return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
-}
-
 export default function ConversationsPanel({
   isOpen,
   onClose,
@@ -38,6 +30,8 @@ export default function ConversationsPanel({
   onSelectConversation,
   onNewDefaultChat,
 }: Props) {
+  const formatTimestamp = useSidebarTimestampFormatter();
+
   return (
     <div
       className={`fixed inset-0 z-40 transition-all duration-300 ${
@@ -138,9 +132,12 @@ export default function ConversationsPanel({
                             {conversation.mentor_name}
                           </span>
                         </div>
-                        <span className="flex-shrink-0 text-xs text-muted">
-                          {formatDate(conversation.updated_at)}
-                        </span>
+                        <time
+                          dateTime={conversation.updated_at}
+                          className="flex-shrink-0 text-xs text-muted"
+                        >
+                          {formatTimestamp(conversation.updated_at)}
+                        </time>
                       </div>
                       <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted">
                         {conversation.title || 'New chat'}
