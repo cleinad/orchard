@@ -1,7 +1,5 @@
 'use client';
 
-import AsciiTesseract from '@/app/home/components/AsciiTesseract';
-
 interface EmptyConversationStateProps {
   emptyTitle: string;
   emptySubtitle: string;
@@ -83,9 +81,6 @@ export default function EmptyConversationState({
             <h1 className="font-heading text-[clamp(1.65rem,2.5vw,2.25rem)] leading-[0.95] text-foreground">
               Let&apos;s explore
             </h1>
-            <div className="mt-10 flex w-full justify-center sm:mt-14">
-              <AsciiTesseract />
-            </div>
             <p className="sr-only">
               {emptyTitle}. {emptySubtitle}
             </p>
