@@ -1643,7 +1643,7 @@ test.describe('home production performance baseline', () => {
     expect(metrics.counters['side-panel-render'] ?? 0).toBe(0);
   });
 
-  test('representative transcript cache cardinality and retained heap are recorded', async ({
+  test('representative transcript cache cardinality stays within its retained heap budget', async ({
     page,
   }, testInfo) => {
     test.setTimeout(120_000);
@@ -1728,8 +1728,13 @@ test.describe('home production performance baseline', () => {
     }
     await session.send('HeapProfiler.collectGarbage');
     const controlAfter = await session.send('Runtime.getHeapUsage');
+    const controlMetrics = await page.evaluate(() =>
+      window.__readHomePerformance()
+    );
     const controlDeltaUsedBytes =
       controlAfter.usedSize - controlBefore.usedSize;
+    const attributedDifferenceBytes =
+      populatedDeltaUsedBytes - controlDeltaUsedBytes;
 
     console.log(
       `home-cache-retained-heap ${JSON.stringify({
@@ -1737,9 +1742,28 @@ test.describe('home production performance baseline', () => {
         messagesPerConversation: 12,
         populatedDeltaUsedBytes,
         emptyControlDeltaUsedBytes: controlDeltaUsedBytes,
-        attributedDifferenceBytes:
-          populatedDeltaUsedBytes - controlDeltaUsedBytes,
+        attributedDifferenceBytes,
       })}`
+    );
+
+    // The control pass navigates through the same 25 conversations, so its
+    // cache cardinality must match the populated pass; otherwise the two
+    // deltas are not comparable and this test cannot attribute memory to
+    // cached transcript content at all.
+    expect(controlMetrics.gauges['persistent-conversation-cache-size']).toBe(
+      conversations.length
+    );
+
+    // Recorded evidence (Slice 1 baseline) put the attributed difference for
+    // 25 cached conversations x 12 messages at ~55 KiB, well under this
+    // budget. This is a coarse regression guard, not a precise byte target:
+    // it is sized to tolerate normal heap-measurement noise while still
+    // failing on a real regression, such as retaining full duplicate
+    // transcript payloads per cached conversation instead of the intended
+    // bounded records.
+    const MAX_ATTRIBUTED_DIFFERENCE_BYTES = 3 * 1024 * 1024;
+    expect(attributedDifferenceBytes).toBeLessThan(
+      MAX_ATTRIBUTED_DIFFERENCE_BYTES
     );
   });
 
