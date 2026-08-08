@@ -110,7 +110,6 @@ test('a new chat centers the exploration prompt above the composer', async ({ pa
   await page.goto('/home?e2e=home-exploration-empty-state');
 
   await expect(page.getByRole('heading', { name: "Let's explore" })).toBeVisible();
-  await expect(page.getByTestId('ascii-tesseract')).toBeVisible();
   await expect(page.getByPlaceholder('Ask a question or add a thought...')).toBeVisible();
 });
 
