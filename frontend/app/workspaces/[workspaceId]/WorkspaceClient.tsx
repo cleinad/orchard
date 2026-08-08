@@ -22,7 +22,7 @@ import {
   isChatModelThinkingOverrides,
 } from '@/app/home/components/chatPreferencePersistence';
 import { useChatModelCatalog } from '@/app/home/components/useChatModelCatalog';
-import { useHomeDataContext } from '@/app/home/components/HomeDataContext';
+import { useHomeShellContext } from '@/app/home/components/HomeDataContext';
 import { usePersistedJson } from '@/app/home/components/usePersistedJson';
 import { usePersistedString } from '@/app/home/components/usePersistedString';
 import {
@@ -50,6 +50,7 @@ import {
   deleteWorkspace as deleteWorkspaceAction,
   updateWorkspace as updateWorkspaceAction,
 } from '@/app/workspaces/[workspaceId]/actions';
+import { recordHomePerformanceEvent } from '@/app/home/components/homePerformanceInstrumentation';
 
 function formatDate(input: string): string {
   const date = new Date(input);
@@ -118,6 +119,7 @@ export default function WorkspaceClient({
   initialWorkspace: WorkspaceDetail | null;
   loadWorkspaceInBrowser?: boolean;
 }) {
+  recordHomePerformanceEvent('workspace-client-render');
   const router = useRouter();
   const searchParams = useSearchParams();
   const {
@@ -132,7 +134,7 @@ export default function WorkspaceClient({
     selectedChat,
     setSelectedChat,
     setDraftChats,
-  } = useHomeDataContext();
+  } = useHomeShellContext();
 
   const [workspace, setWorkspace] = useState<WorkspaceDetail | null>(
     initialWorkspace

@@ -10,6 +10,7 @@ import {
   type SetStateAction,
 } from 'react';
 import {
+  writeTemporaryChatsToStorage,
   type SelectedChat,
   type PersistentDraftChat,
   type TemporaryChatSession,
@@ -17,6 +18,10 @@ import {
 import type {
   PersistentConversationTranscript,
   PersistentConversationTranscriptInput,
+} from '@/app/home/components/persistentConversationCache';
+import {
+  mergeReloadedPersistentConversationTranscript,
+  normalizePersistentConversationTranscript,
 } from '@/app/home/components/persistentConversationCache';
 import {
   applyUserMessageToTree,
@@ -29,9 +34,11 @@ import {
 import { logResolvedChatModel } from '@/app/home/components/logResolvedChatModel';
 import type { UploadedChatImageAttachment } from '@/app/home/components/chatImageUploads';
 import type { ThreadMeta } from '@/app/home/components/threadTypes';
+import type { ConversationMetadataStatus } from '@/app/home/components/conversationTranscriptData';
 import type {
   BranchSelectionMap,
   ConversationBranch,
+  ConversationListItem,
   Message,
 } from '@/app/home/types';
 import type { SearchMetadata, SearchMode } from '@/lib/chat-search';
@@ -40,6 +47,7 @@ import {
   createTemporaryId,
   fallbackChatTitleFromMessage,
   toChatHistory,
+  toChatHistoryMessageIds,
 } from '@/lib/chat-session';
 import { getBrowserTimeZone } from '@/lib/browser-timezone';
 import type { ChatModelEffortLevel, ChatModelId } from '@/lib/chat-models';
@@ -52,7 +60,6 @@ import {
   isTerminalChatRunStatus,
   type ChatRunSnapshot,
 } from '@/lib/chat-runs/protocol';
-import { mergeThreadsMaps } from '@/app/home/components/persistentThreadRuntime';
 import {
   getDraftSelectionForPromotion,
   isDefinitivePreAcceptanceFailure,
@@ -61,11 +68,16 @@ import {
   storeProvisionalChatPromotion,
   type ProvisionalChatPromotion,
 } from '@/app/home/components/provisionalChatPromotion';
+import {
+  recordHomePerformanceEvent,
+  setHomePerformanceGauge,
+} from '@/app/home/components/homePerformanceInstrumentation';
 
 export interface ChatResponse {
   message?: string;
   conversationId?: string;
   conversationTitle?: string | null;
+  conversationTitleSource?: 'fallback' | 'generated' | 'user' | null;
   mentorId?: string | null;
   workspaceId?: string | null;
   threadId?: string | null;
@@ -250,81 +262,80 @@ export function mergeReloadedBranchSelections(params: {
   return mergedSelections;
 }
 
-function sortMessagesForRender(messages: Message[]) {
-  return [...messages].sort((a, b) => {
-    const byTime = a.timestamp.getTime() - b.timestamp.getTime();
-    if (byTime !== 0) {
-      return byTime;
-    }
+export function shouldReloadCompletedPersistentRun(
+  run: ChatRunSnapshot,
+  transcript: PersistentConversationTranscript | null
+) {
+  if (run.target.kind === 'branch') {
+    return true;
+  }
+  if (!transcript) {
+    return true;
+  }
 
-    return a.id.localeCompare(b.id);
-  });
-}
-
-function isLikelySamePersistedMessage(a: Message, b: Message) {
+  const messageIds = new Set(transcript.messages.map((message) => message.id));
   return (
-    a.role === b.role
-    && a.content === b.content
-    && Math.abs(a.timestamp.getTime() - b.timestamp.getTime()) < 60_000
+    !messageIds.has(run.userMessageId)
+    || !messageIds.has(run.assistantMessageId)
   );
 }
 
-function getSearchActivityFromMessage(message: Message) {
-  return (
-    message.searchActivity
-    ?? (message.searchMetadata?.version === 2 ? message.searchMetadata.activity ?? null : null)
+export function applyCompletedPersistentRun(
+  transcript: PersistentConversationTranscript,
+  run: ChatRunSnapshot
+) {
+  const existingAssistant = transcript.messages.find(
+    (message) => message.id === run.assistantMessageId
   );
+  const assistant: Message = {
+    id: run.assistantMessageId,
+    renderId: existingAssistant?.renderId ?? run.assistantMessageId,
+    role: 'assistant',
+    content: run.response ?? existingAssistant?.content ?? '',
+    timestamp: existingAssistant?.timestamp ?? new Date(run.updatedAt),
+    previousMessageId: existingAssistant?.previousMessageId ?? run.userMessageId,
+    isStreaming: false,
+    isError: false,
+    searchMetadata:
+      run.search?.metadata ?? existingAssistant?.searchMetadata ?? null,
+    searchActivity:
+      run.searchActivity ?? existingAssistant?.searchActivity ?? null,
+  };
+
+  return {
+    ...transcript,
+    messages: existingAssistant
+      ? transcript.messages.map((message) =>
+          message.id === run.assistantMessageId ? assistant : message
+        )
+      : [...transcript.messages, assistant],
+  };
 }
 
-function mergeReloadedMessagesForRender(params: {
-  loadedMessages: Message[];
-  currentMessages: Message[];
+export function mergeCompletedPersistentRunReload(params: {
+  loaded: LoadedConversationMessages;
+  current: PersistentConversationTranscript;
+  baseline: PersistentConversationTranscript | null;
+  branchSourceMessageId: string | null;
+  pendingBranchSelectionId: string | null;
 }) {
-  const currentById = new Map(params.currentMessages.map((message) => [message.id, message]));
-  const usedCurrentRenderIds = new Set<string>();
-
-  const mergedLoadedMessages = params.loadedMessages.map((loadedMessage) => {
-    const currentByExactId = currentById.get(loadedMessage.id) ?? null;
-    const currentMessage =
-      currentByExactId
-      ?? params.currentMessages.find((candidate) => {
-        const candidateRenderId = candidate.renderId ?? candidate.id;
-
-        return (
-          !usedCurrentRenderIds.has(candidateRenderId)
-          && isLikelySamePersistedMessage(candidate, loadedMessage)
-        );
-      })
-      ?? null;
-
-    if (!currentMessage) {
-      return loadedMessage;
-    }
-
-    usedCurrentRenderIds.add(currentMessage.renderId ?? currentMessage.id);
-
-    if (!currentMessage.renderId) {
-      return loadedMessage;
-    }
-
-    return {
-      ...loadedMessage,
-      renderId: currentMessage.renderId,
-      searchMetadata: currentMessage.searchMetadata ?? loadedMessage.searchMetadata ?? null,
-      searchActivity:
-        getSearchActivityFromMessage(currentMessage)
-        ?? getSearchActivityFromMessage(loadedMessage),
-    };
+  const merged = mergeReloadedPersistentConversationTranscript({
+    loaded: normalizePersistentConversationTranscript(params.loaded),
+    current: params.current,
+    baseline: params.baseline,
+  });
+  const selectedBranchIds = mergeReloadedBranchSelections({
+    loadedSelectedBranchIds: params.loaded.selectedBranchIds,
+    latestSelectedBranchIds: params.current.selectedBranchIds,
+    loadedBranches: merged.branches,
+    branchSourceMessageId: params.branchSourceMessageId,
+    pendingBranchSelectionId: params.pendingBranchSelectionId,
   });
 
-  const loadedIds = new Set(params.loadedMessages.map((message) => message.id));
-  const localMessagesMissingFromReload = params.currentMessages.filter((message) => {
-    const renderId = message.renderId ?? message.id;
-
-    return !usedCurrentRenderIds.has(renderId) && !loadedIds.has(message.id);
-  });
-
-  return sortMessagesForRender([...mergedLoadedMessages, ...localMessagesMissingFromReload]);
+  return {
+    ...merged,
+    selectedBranchIds,
+  };
 }
 
 function scheduleDeferredRenderWork(callback: () => void) {
@@ -351,6 +362,7 @@ interface LoadedConversationMessages {
   branches: ConversationBranch[];
   selectedBranchIds: BranchSelectionMap;
   threadsMap: Map<string, ThreadMeta[]>;
+  metadataStatus: ConversationMetadataStatus;
 }
 
 interface MainChatRuntimeParams {
@@ -361,7 +373,12 @@ interface MainChatRuntimeParams {
   getOrCreateDraft: (mentorId: string | null, workspaceId?: string | null) => PersistentDraftChat;
   hydratedRouteConversationId: string | null;
   hydratedRouteConversationIdRef: MutableRefObject<string | null>;
-  isHomeE2eFixture: boolean;
+  getPersistentConversationTranscript: (
+    conversationId: string
+  ) => PersistentConversationTranscript | null;
+  getSidebarConversation: (
+    conversationId: string
+  ) => ConversationListItem | null;
   loadConversationMessages: (id: string) => Promise<LoadedConversationMessages>;
   movePendingChatRequestBetweenSelections: (
     fromSelection: SelectedChat,
@@ -380,7 +397,6 @@ interface MainChatRuntimeParams {
   persistentBranches: ConversationBranch[];
   persistentMessages: Message[];
   persistentSelectedBranchIds: BranchSelectionMap;
-  refreshSidebarData: () => Promise<void>;
   upsertSidebarConversation: (conversation: {
     id: string;
     title?: string | null;
@@ -459,6 +475,11 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
   const chatRunCoordinator = useOptionalChatRunCoordinator();
   const paramsRef = useRef(params);
   const appliedRunVersionsRef = useRef(new Set<string>());
+  // The initiating callback owns only the completed snapshot while its local
+  // state publication is still in flight. Failures and later reconciliations
+  // remain subscriber-owned.
+  const locallyOwnedRunIdsRef = useRef(new Set<string>());
+  const terminalReconciliationClaimsRef = useRef(new Set<string>());
 
   useEffect(() => {
     paramsRef.current = params;
@@ -471,6 +492,43 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
       appliedRunVersionsRef.current.clear();
     }
   }, [params.hydratedRouteConversationId]);
+
+  const reloadCompletedPersistentRun = useCallback((
+    runId: string,
+    conversationId: string,
+    branchSourceMessageId: string | null,
+    pendingBranchSelectionId: string | null,
+    baseline: PersistentConversationTranscript | null,
+    current: MainChatRuntimeParams
+  ) => {
+    if (terminalReconciliationClaimsRef.current.has(runId)) {
+      return;
+    }
+    terminalReconciliationClaimsRef.current.add(runId);
+
+    void current.loadConversationMessages(conversationId)
+      .then((loaded) => {
+        current.updatePersistentConversationTranscript(
+          conversationId,
+          (transcript) =>
+            mergeCompletedPersistentRunReload({
+              loaded,
+              current: transcript,
+              baseline,
+              branchSourceMessageId,
+              pendingBranchSelectionId,
+            })
+        );
+      })
+      .catch(() => {
+        console.warn('[home-data]', {
+          routeClass: 'transcript',
+          resource: 'run-reconciliation',
+          status: 'unavailable',
+          reason: 'error',
+        });
+      });
+  }, []);
 
   useEffect(() => {
     if (!chatRunCoordinator) return;
@@ -485,6 +543,12 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
     if (!chatId) return;
 
     const applySnapshot = (run: ChatRunSnapshot) => {
+      if (
+        run.status === 'completed'
+        && locallyOwnedRunIdsRef.current.has(run.runId)
+      ) {
+        return;
+      }
       if (run.acceptedAt) {
         removeProvisionalChatPromotion(run.runId);
       }
@@ -602,27 +666,26 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
       }
 
       if (run.status === 'completed') {
-        void current.loadConversationMessages(chatId).then((loaded) => {
-          current.updatePersistentConversationTranscript(chatId, (transcript) => ({
-            ...transcript,
-            messages: mergeReloadedMessagesForRender({
-              loadedMessages: loaded.messages,
-              currentMessages: transcript.messages.filter(
-                (message) => message.id !== run.assistantMessageId || !message.isStreaming
-              ),
-            }),
-            branches: loaded.branches,
-            selectedBranchIds: mergeReloadedBranchSelections({
-              loadedSelectedBranchIds: loaded.selectedBranchIds,
-              latestSelectedBranchIds: transcript.selectedBranchIds,
-              loadedBranches: loaded.branches,
-              branchSourceMessageId: run.target.branchSourceMessageId,
-              pendingBranchSelectionId: run.target.branchId,
-            }),
-            threadsMap: mergeThreadsMaps(loaded.threadsMap, transcript.threadsMap),
-          }));
-          void current.refreshSidebarData();
-        }).catch(() => null);
+        const transcript =
+          current.getPersistentConversationTranscript(chatId);
+        const needsReload = shouldReloadCompletedPersistentRun(run, transcript);
+        current.updatePersistentConversationTranscript(
+          chatId,
+          (currentTranscript) =>
+            applyCompletedPersistentRun(currentTranscript, run)
+        );
+        if (needsReload) {
+          const reconciliationBaseline =
+            current.getPersistentConversationTranscript(chatId);
+          reloadCompletedPersistentRun(
+            run.runId,
+            chatId,
+            run.target.branchSourceMessageId,
+            run.target.branchId,
+            reconciliationBaseline,
+            current
+          );
+        }
         return;
       }
 
@@ -656,6 +719,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
     chatRunCoordinator,
     params.hydratedRouteConversationId,
     params.selectedChat,
+    reloadCompletedPersistentRun,
   ]);
 
   return useCallback(async (
@@ -1037,31 +1101,123 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
     let visibleAssistantMessage: Message | null = null;
     let visibleFinalized = false;
     let latestSearchActivity: SearchActivitySummary | null = null;
+    let visiblePublicationFrame: number | null = null;
+    let visiblePublicationActive = true;
+    let publishedVisibleContent = '';
+
+    const publishVisibleAssistantContent = (content: string) => {
+      if (!visiblePublicationActive || content === publishedVisibleContent) return;
+      publishedVisibleContent = content;
+      if (effectiveSelection.kind === 'temporary') {
+        params.updateTemporaryChat(effectiveSelection.tempChatId, (chat) => {
+          recordHomePerformanceEvent('visible-stream-publication');
+          return {
+            ...chat,
+            messages: chat.messages.map((m) =>
+              m.id === streamingMessageId ? { ...m, content } : m
+            ),
+          };
+        });
+      } else if (effectiveSelection.kind === 'persistent') {
+        updatePersistentMessagesForSelection(effectiveSelection, (prev) => {
+          recordHomePerformanceEvent('visible-stream-publication');
+          return prev.map((m) =>
+            m.id === streamingMessageId ? { ...m, content } : m
+          );
+        });
+      } else if (effectiveDraft) {
+        params.updateDraftChat(effectiveDraft.id, (draft) => {
+          recordHomePerformanceEvent('visible-stream-publication');
+          return {
+            ...draft,
+            messages: draft.messages.map((m) =>
+              m.id === streamingMessageId ? { ...m, content } : m
+            ),
+          };
+        });
+      }
+    };
+
+    const cancelVisiblePublication = () => {
+      visiblePublicationActive = false;
+      if (visiblePublicationFrame !== null) {
+        cancelAnimationFrame(visiblePublicationFrame);
+        visiblePublicationFrame = null;
+      }
+    };
+
+    const flushVisiblePublication = () => {
+      if (!visiblePublicationActive) return;
+      if (visiblePublicationFrame !== null) {
+        cancelAnimationFrame(visiblePublicationFrame);
+        visiblePublicationFrame = null;
+      }
+      publishVisibleAssistantContent(latestStreamedContent);
+    };
+
+    const temporaryStreamChatId =
+      effectiveSelection.kind === 'temporary'
+        ? effectiveSelection.tempChatId
+        : null;
+    const persistLatestTemporaryStream = () => {
+      if (!temporaryStreamChatId) return;
+      const snapshot = params.temporaryChatsRef.current.map((chat) =>
+        chat.id === temporaryStreamChatId
+          ? {
+              ...chat,
+              messages: chat.messages.map((message) =>
+                message.id === streamingMessageId
+                  ? { ...message, content: latestStreamedContent }
+                  : message
+              ),
+            }
+          : chat
+      );
+      try {
+        if (
+          writeTemporaryChatsToStorage(
+            window.sessionStorage,
+            snapshot
+          )
+        ) {
+          recordHomePerformanceEvent('temporary-chat-storage-write');
+          return;
+        }
+      } catch {
+        // Accessing sessionStorage itself can throw in restricted environments.
+      }
+      recordHomePerformanceEvent('temporary-chat-storage-error');
+    };
+
+    const flushVisiblePublicationOnPageHide = () => {
+      recordHomePerformanceEvent('stream-pagehide-flush');
+      setHomePerformanceGauge(
+        'stream-pagehide-content-length',
+        latestStreamedContent.length
+      );
+      flushVisiblePublication();
+      if (effectiveSelection.kind !== 'temporary') return;
+      params.updateTemporaryChat(effectiveSelection.tempChatId, (chat) => ({
+        ...chat,
+        messages: chat.messages.map((message) =>
+          message.id === streamingMessageId
+            ? { ...message, content: latestStreamedContent }
+            : message
+        ),
+      }));
+      persistLatestTemporaryStream();
+      queueMicrotask(persistLatestTemporaryStream);
+    };
+    window.addEventListener('pagehide', flushVisiblePublicationOnPageHide);
 
     const appendChunk = (delta: string) => {
+      if (!visiblePublicationActive) return;
       latestStreamedContent += delta;
-
-      if (effectiveSelection.kind === 'temporary') {
-        params.updateTemporaryChat(effectiveSelection.tempChatId, (chat) => ({
-          ...chat,
-          messages: chat.messages.map((m) =>
-            m.id === streamingMessageId ? { ...m, content: m.content + delta } : m
-          ),
-        }));
-      } else if (effectiveSelection.kind === 'persistent') {
-        updatePersistentMessagesForSelection(effectiveSelection, (prev) =>
-          prev.map((m) =>
-            m.id === streamingMessageId ? { ...m, content: m.content + delta } : m
-          )
-        );
-      } else if (effectiveDraft) {
-        params.updateDraftChat(effectiveDraft.id, (draft) => ({
-          ...draft,
-          messages: draft.messages.map((m) =>
-            m.id === streamingMessageId ? { ...m, content: m.content + delta } : m
-          ),
-        }));
-      }
+      if (visiblePublicationFrame !== null) return;
+      visiblePublicationFrame = requestAnimationFrame(() => {
+        visiblePublicationFrame = null;
+        publishVisibleAssistantContent(latestStreamedContent);
+      });
     };
 
     const updateSearchActivity = (activity: SearchActivitySummary) => {
@@ -1120,7 +1276,9 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
         return visibleAssistantMessage;
       }
 
+      flushVisiblePublication();
       visibleFinalized = true;
+      visiblePublicationActive = false;
       visibleAssistantMessage = {
         id: streamingMessageId,
         renderId: streamingMessageId,
@@ -1140,6 +1298,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
     };
 
     const removeStreamingMessage = () => {
+      cancelVisiblePublication();
       if (effectiveSelection.kind === 'temporary') {
         params.updateTemporaryChat(effectiveSelection.tempChatId, (chat) => ({
           ...chat,
@@ -1303,6 +1462,14 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
       })),
       timezone: getBrowserTimeZone(),
       chatMode: runMode,
+      ...(effectiveSelection.kind === 'persistent'
+        ? {
+            historyMessageIds: toChatHistoryMessageIds(
+              params.activeMessages,
+              previousMessageId
+            ),
+          }
+        : {}),
       run: {
         ...runIdentifiers,
         temporarySessionId:
@@ -1324,6 +1491,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
       let data: ChatResponse;
       if (chatRunCoordinator) {
         requestAccepted = !provisionalPromotion;
+        locallyOwnedRunIdsRef.current.add(runIdentifiers.runId);
         const run = await chatRunCoordinator.start({
           request: requestBody,
           initialSnapshot: initialRunSnapshot,
@@ -1352,6 +1520,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
           message: run.response ?? undefined,
           conversationId: run.target.conversationId ?? undefined,
           conversationTitle: run.title.value,
+          conversationTitleSource: run.title.source,
           userMessageId: run.userMessageId,
           assistantMessageId: run.assistantMessageId,
           threadId: run.createdThreadId,
@@ -1393,6 +1562,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
         canApplyTemporaryResponseForSelection(effectiveSelection);
 
       if (data.error) {
+        cancelVisiblePublication();
         if (!chatRunCoordinator) showErrorMessage(data.error);
         return { accepted: true, completed: false, error: data.error, uploadedAttachments };
       }
@@ -1517,52 +1687,40 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
         }));
       } else if (effectiveSelection.kind === 'persistent') {
         const persistentSelection = effectiveSelection;
-        scheduleDeferredRenderWork(() => {
-          void (async () => {
-            try {
-              const loadedConversation = await params.loadConversationMessages(
-                persistentSelection.conversationId
-              );
-
-              params.updatePersistentConversationTranscript(
-                persistentSelection.conversationId,
-                (transcript) => {
-                  const mergedSelections = mergeReloadedBranchSelections({
-                    loadedSelectedBranchIds: loadedConversation.selectedBranchIds,
-                    latestSelectedBranchIds: transcript.selectedBranchIds,
-                    loadedBranches: loadedConversation.branches,
-                    branchSourceMessageId,
-                    pendingBranchSelectionId,
-                  });
-
-                  return {
-                    ...transcript,
-                    messages: mergeReloadedMessagesForRender({
-                      loadedMessages: loadedConversation.messages,
-                      currentMessages: transcript.messages,
-                    }),
-                    branches: loadedConversation.branches,
-                    selectedBranchIds: mergedSelections,
-                    threadsMap: mergeThreadsMaps(
-                      loadedConversation.threadsMap,
-                      transcript.threadsMap
-                    ),
-                  };
-                }
-              );
-            } catch (error) {
-              if (isSameSelectedChat(params.selectedChatRef.current, persistentSelection)) {
-                params.setListError(
-                  error instanceof Error ? error.message : 'Failed to reload conversation'
-                );
-              }
-            } finally {
-              if (!params.isHomeE2eFixture) {
-                void params.refreshSidebarData();
-              }
-            }
-          })();
-        });
+        const existingConversation = params.getSidebarConversation(
+          persistentSelection.conversationId
+        );
+        if (existingConversation) {
+          params.upsertSidebarConversation({
+            id: existingConversation.id,
+            title:
+              createConversationForRun
+                ? data.conversationTitle ?? existingConversation.title
+                : data.conversationTitleSource === 'generated'
+                  ? data.conversationTitle
+                  : existingConversation.title,
+            mentorId: existingConversation.mentor_id,
+            workspaceId: existingConversation.workspace_id,
+            createdAt: existingConversation.created_at,
+            updatedAt: nextUpdatedAt,
+          });
+        }
+        if (branchSourceMessageId) {
+          const reconciliationBaseline =
+            params.getPersistentConversationTranscript(
+              persistentSelection.conversationId
+            );
+          scheduleDeferredRenderWork(() => {
+            reloadCompletedPersistentRun(
+              runIdentifiers.runId,
+              persistentSelection.conversationId,
+              branchSourceMessageId,
+              pendingBranchSelectionId,
+              reconciliationBaseline,
+              params
+            );
+          });
+        }
       }
 
       attachSearchMetadata(
@@ -1571,6 +1729,16 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
         streamingMessageId,
         finalSearchMetadata
       );
+
+      if (chatRunCoordinator) {
+        const completedRun =
+          chatRunCoordinator.getSnapshot(runIdentifiers.runId);
+        if (completedRun?.status === 'completed') {
+          appliedRunVersionsRef.current.add(
+            `${completedRun.runId}:${completedRun.status}:${completedRun.updatedAt}`
+          );
+        }
+      }
 
       return { accepted: true, completed: true, uploadedAttachments };
     } catch (error) {
@@ -1648,7 +1816,10 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
       }
       return { accepted: true, completed: false, uploadedAttachments };
     } finally {
+      locallyOwnedRunIdsRef.current.delete(runIdentifiers.runId);
+      window.removeEventListener('pagehide', flushVisiblePublicationOnPageHide);
+      cancelVisiblePublication();
       params.clearPendingChatRequestForSelection(effectiveSelection);
     }
-  }, [chatRunCoordinator]);
+  }, [chatRunCoordinator, reloadCompletedPersistentRun]);
 }

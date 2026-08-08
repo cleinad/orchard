@@ -359,6 +359,20 @@ async function mockHomeDataRoutes(page, state) {
     const messages = conversationId
       ? resolvedState.messagesByConversationId[conversationId] || []
       : [];
+    const limit = Number(url.searchParams.get('limit'));
+    const offset = Number(url.searchParams.get('offset'));
+    const normalizedOffset =
+      Number.isFinite(offset) && offset >= 0 ? offset : 0;
+    const rangeHeader = route.request().headers().range;
+    const rangeMatch = rangeHeader?.match(/^(\d+)-(\d+)$/);
+    const rangedMessages = Number.isFinite(limit) && limit >= 0
+      ? messages.slice(normalizedOffset, normalizedOffset + limit)
+      : rangeMatch
+        ? messages.slice(
+          Number(rangeMatch[1]),
+          Number(rangeMatch[2]) + 1
+        )
+        : messages;
 
     if (typeof resolvedState.onMessagesRequest === 'function') {
       const handled = await resolvedState.onMessagesRequest({
@@ -366,7 +380,7 @@ async function mockHomeDataRoutes(page, state) {
         url,
         conversationId,
         select,
-        messages,
+        messages: rangedMessages,
         fulfillJson,
       });
 
@@ -381,7 +395,7 @@ async function mockHomeDataRoutes(page, state) {
       return;
     }
 
-    await fulfillJson(route, messages);
+    await fulfillJson(route, rangedMessages);
   });
 
   await page.route('**/rest/v1/message_attachments*', async (route) => {

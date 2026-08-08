@@ -63,6 +63,7 @@ import type {
 import {
   fallbackChatTitleFromMessage,
   isUuid,
+  MAX_CHAT_HISTORY_MESSAGES,
   sanitizeGeneratedChatTitle,
 } from '@/lib/chat-session';
 import { getSelectionStreamVersion } from '@/app/home/components/markdownSelectableStream';
@@ -84,6 +85,7 @@ import {
   startDeferredModelUsageCall,
   type ModelUsageTerminalRecorder,
 } from '@/lib/telemetry/deferred';
+import { fetchPersistentMainPathToMessage } from '@/app/api/chat/persistentMainPath';
 
 const BASE_SYSTEM_PROMPT = `You are Keen, a thinking partner. You explain things to the user with precision, accuracy, and understandability.
 
@@ -108,8 +110,6 @@ $$
 const MAX_THREAD_SELECTED_TEXT_CHARS = 20_000;
 const MAX_THREAD_SOURCE_CONTEXT_CHARS = 24_000;
 const THREAD_SOURCE_EXCERPT_RADIUS = 1_000;
-const MAX_THREAD_ANCHOR_PATH_MESSAGES = 50;
-const MAX_THREAD_ANCHOR_FALLBACK_FETCHES = 5;
 const REDACTED_SEARCH_PLANNER_LOGGER = {
   info: () => undefined,
   warn: () => undefined,
@@ -189,162 +189,10 @@ interface ChatRequest {
   timezone?: string;
   chatMode?: ChatMode;
   history?: ChatHistoryMessage[];
+  historyMessageIds?: string[];
   threadHistory?: ChatHistoryMessage[];
   attachments?: ChatImageAttachmentRequest[];
   run?: ChatRunRequestMetadata;
-}
-
-interface PersistedMainMessage {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  previous_message_id: string | null;
-  created_at: string;
-  search_metadata?: unknown;
-}
-
-function normalizePersistedMainMessage(row: unknown): PersistedMainMessage | null {
-  if (
-    !row
-    || typeof row !== 'object'
-    || typeof (row as { id?: unknown }).id !== 'string'
-    || ((row as { role?: unknown }).role !== 'user' && (row as { role?: unknown }).role !== 'assistant')
-    || typeof (row as { content?: unknown }).content !== 'string'
-  ) {
-    return null;
-  }
-
-  const message = row as {
-    id: string;
-    role: 'user' | 'assistant';
-    content: string;
-    previous_message_id?: unknown;
-    created_at?: unknown;
-    search_metadata?: unknown;
-  };
-
-  return {
-    id: message.id,
-    role: message.role,
-    content: message.content,
-    previous_message_id:
-      typeof message.previous_message_id === 'string' ? message.previous_message_id : null,
-    created_at: typeof message.created_at === 'string' ? message.created_at : '',
-    search_metadata: message.search_metadata,
-  };
-}
-
-function buildPathHistory(
-  messages: PersistedMainMessage[],
-  tailMessageId: string | null
-): PersistedMainMessage[] {
-  if (!tailMessageId) {
-    return [];
-  }
-
-  const byId = new Map(messages.map((message) => [message.id, message]));
-  const path: PersistedMainMessage[] = [];
-  const seen = new Set<string>();
-  let current = byId.get(tailMessageId) ?? null;
-
-  while (current && !seen.has(current.id)) {
-    path.push(current);
-    seen.add(current.id);
-    current = current.previous_message_id
-      ? byId.get(current.previous_message_id) ?? null
-      : null;
-  }
-
-  return path.reverse();
-}
-
-async function fetchPersistentMainMessageById(
-  supabase: SupabaseServerClient,
-  conversationId: string,
-  messageId: string
-): Promise<PersistedMainMessage | null> {
-  const { data: row } = await supabase
-    .from('messages')
-    .select('id, role, content, previous_message_id, created_at, search_metadata')
-    .eq('id', messageId)
-    .eq('conversation_id', conversationId)
-    .is('thread_id', null)
-    .maybeSingle();
-
-  return normalizePersistedMainMessage(row);
-}
-
-async function fetchPersistentMainAnchorWindow(
-  supabase: SupabaseServerClient,
-  conversationId: string,
-  sourceMessage: PersistedMainMessage
-) {
-  const query = supabase
-    .from('messages')
-    .select('id, role, content, previous_message_id, created_at, search_metadata')
-    .eq('conversation_id', conversationId)
-    .is('thread_id', null);
-
-  const { data: rows } = await (
-    sourceMessage.created_at
-      ? query.lte('created_at', sourceMessage.created_at)
-      : query
-  )
-    .order('created_at', { ascending: false })
-    .limit(MAX_THREAD_ANCHOR_PATH_MESSAGES);
-
-  return (rows || [])
-    .map((row) => normalizePersistedMainMessage(row))
-    .filter((row): row is PersistedMainMessage => row !== null);
-}
-
-async function fetchPersistentMainPathToMessage(
-  supabase: SupabaseServerClient,
-  conversationId: string | null,
-  messageId: string | null
-): Promise<PersistedMainMessage[]> {
-  if (!conversationId || !messageId) {
-    return [];
-  }
-
-  const sourceMessage = await fetchPersistentMainMessageById(supabase, conversationId, messageId);
-  if (!sourceMessage) {
-    return [];
-  }
-
-  const anchorWindow = await fetchPersistentMainAnchorWindow(
-    supabase,
-    conversationId,
-    sourceMessage
-  );
-  const messagesById = new Map(anchorWindow.map((message) => [message.id, message]));
-  messagesById.set(sourceMessage.id, sourceMessage);
-
-  const path: PersistedMainMessage[] = [];
-  const seen = new Set<string>();
-  let fallbackFetchCount = 0;
-  let currentId: string | null = messageId;
-
-  while (currentId && path.length < MAX_THREAD_ANCHOR_PATH_MESSAGES && !seen.has(currentId)) {
-    seen.add(currentId);
-    let row: PersistedMainMessage | null = messagesById.get(currentId) ?? null;
-    if (!row && fallbackFetchCount < MAX_THREAD_ANCHOR_FALLBACK_FETCHES) {
-      row = await fetchPersistentMainMessageById(supabase, conversationId, currentId);
-      fallbackFetchCount += 1;
-      if (row) {
-        messagesById.set(row.id, row);
-      }
-    }
-
-    if (!row) {
-      break;
-    }
-
-    path.push(row);
-    currentId = row.previous_message_id;
-  }
-
-  return path.reverse();
 }
 
 async function persistentContextHasImage({
@@ -354,6 +202,7 @@ async function persistentContextHasImage({
   previousMessageId,
   threadId,
   sourceMessageId,
+  historyMessageIds,
 }: {
   supabase: SupabaseServerClient;
   userId: string;
@@ -361,6 +210,7 @@ async function persistentContextHasImage({
   previousMessageId: string | null;
   threadId: string | null;
   sourceMessageId: string | null;
+  historyMessageIds: string[];
 }) {
   if (!conversationId) {
     return false;
@@ -369,7 +219,8 @@ async function persistentContextHasImage({
   const mainPath = await fetchPersistentMainPathToMessage(
     supabase,
     conversationId,
-    sourceMessageId ?? previousMessageId
+    sourceMessageId ?? previousMessageId,
+    historyMessageIds
   );
   const messageIds = mainPath.map((message) => message.id);
 
@@ -850,6 +701,18 @@ function sanitizeHistoryAttachmentRequests(
 
 function normalizeOptionalId(value: string | undefined) {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+function sanitizeHistoryMessageIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+
+  return Array.from(
+    new Set(
+      value.filter(
+        (id): id is string => typeof id === 'string' && isUuid(id)
+      )
+    )
+  ).slice(-MAX_CHAT_HISTORY_MESSAGES);
 }
 
 function validateAttachmentsForModel(
@@ -1350,6 +1213,7 @@ export async function POST(request: NextRequest) {
       timezone,
       chatMode = 'persistent',
       history,
+      historyMessageIds,
       threadHistory,
       attachments: attachmentInput,
       run: runMetadata,
@@ -1373,6 +1237,8 @@ export async function POST(request: NextRequest) {
     const isTemporaryChat = chatMode === 'temporary';
     isTemporaryRequest = isTemporaryChat;
     const sanitizedHistory = sanitizeHistoryMessages(history, 50, user.id);
+    const sanitizedHistoryMessageIds =
+      sanitizeHistoryMessageIds(historyMessageIds);
     const sanitizedThreadHistory = sanitizeHistoryMessages(threadHistory, 30, user.id);
     const responseStyle = sanitizeResponseStyle(responseStyleFromBody);
 
@@ -1536,6 +1402,7 @@ export async function POST(request: NextRequest) {
                   normalizedPreviousMessageId ?? normalizedBranchSourceMessageId,
                 threadId: normalizedThreadId,
                 sourceMessageId: normalizedSourceMessageId,
+                historyMessageIds: sanitizedHistoryMessageIds,
               })
         )
       );
@@ -2323,7 +2190,8 @@ export async function POST(request: NextRequest) {
       const mainPathThroughSource = await fetchPersistentMainPathToMessage(
         supabase,
         activeConversationId,
-        threadSourceMessageId
+        threadSourceMessageId,
+        sanitizedHistoryMessageIds
       );
       const sourceMessageRow = mainPathThroughSource.at(-1) ?? null;
 
@@ -2348,17 +2216,11 @@ export async function POST(request: NextRequest) {
         messages = [{ id: null, role: 'user', content: messageForPrompt, searchMetadata: null }];
       }
     } else {
-      const { data: historyRows } = await supabase
-        .from('messages')
-        .select('id, role, content, previous_message_id, created_at, search_metadata')
-        .eq('conversation_id', activeConversationId)
-        .is('thread_id', null)
-        .order('created_at', { ascending: true })
-        .limit(200);
-
-      const pathHistory = buildPathHistory(
-        (historyRows || []) as PersistedMainMessage[],
-        latestUserMessageId
+      const pathHistory = await fetchPersistentMainPathToMessage(
+        supabase,
+        activeConversationId,
+        latestUserMessageId,
+        sanitizedHistoryMessageIds
       );
 
       messages = sanitizeHistoryMessages(pathHistory, 50, user.id);

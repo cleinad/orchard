@@ -24,7 +24,7 @@ function buildFixtureThreadsMap(threads: ThreadMeta[]) {
   return next;
 }
 
-interface UseHomeFixtureRuntimeParams {
+export interface UseHomeFixtureRuntimeParams {
   composerDraftInputsStorageKey: string;
   endProgrammaticTranscriptNavigation: () => void;
   fixture: HomeE2eFixture | null;
