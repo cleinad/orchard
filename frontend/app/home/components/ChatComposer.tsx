@@ -343,7 +343,10 @@ export default function ChatComposer({
   };
 
   return (
-    <div className="mx-auto w-full max-w-2xl px-4">
+    <div
+      data-home-region="composer"
+      className="mx-auto w-full max-w-2xl px-4"
+    >
       <div className="shrink-0 pb-2 pt-2">
         <form
           onSubmit={onSubmit}

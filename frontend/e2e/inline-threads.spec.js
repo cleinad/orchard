@@ -206,7 +206,7 @@ test('promotes an unsent popover draft into the thread panel', async ({ page }) 
       })
     );
   }, highlightBox);
-  await expect(page.getByTestId('thread-panel')).toHaveAttribute('data-state', 'closed');
+  await expect(page.getByTestId('thread-panel')).toHaveCount(0);
 
   const draft = 'Why does that happen?';
   await page.getByTestId('selection-popover-input').fill(draft);

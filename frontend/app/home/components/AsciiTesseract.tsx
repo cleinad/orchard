@@ -28,9 +28,9 @@ type TriangleSample = {
 };
 
 const LOOP_DURATION_MS = 30_000;
-const TARGET_FPS = 15;
-const DESKTOP_COLUMNS = 84;
-const MOBILE_COLUMNS = 58;
+const TARGET_FPS = 4;
+const DESKTOP_COLUMNS = 40;
+const MOBILE_COLUMNS = 32;
 const GLYPH_RAMP = " .·,:;i1tfLCG08@";
 
 const VERTICES: HyperPoint[] = Array.from({ length: 16 }, (_, index) => ({

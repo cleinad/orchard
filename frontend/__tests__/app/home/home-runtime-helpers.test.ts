@@ -32,8 +32,10 @@ import {
   storeProvisionalChatPromotion,
 } from '@/app/home/components/provisionalChatPromotion';
 import {
+  commitSynchronizedStateAction,
   deserializeTemporaryChats,
   serializeTemporaryChats,
+  writeTemporaryChatsToStorage,
 } from '@/app/home/components/HomeDataContext';
 import { createQueuedChatRunSnapshot } from '@/lib/chat-runs/protocol';
 
@@ -131,6 +133,28 @@ describe('homeStorage helpers', () => {
 });
 
 describe('temporary chat storage', () => {
+  it('makes consecutive state mutations visible before React renders again', () => {
+    const stateRef = { current: ['existing'] };
+    const commits: string[][] = [];
+
+    commitSynchronizedStateAction(
+      (current) => ['first', ...current],
+      stateRef,
+      (next) => commits.push(next)
+    );
+    commitSynchronizedStateAction(
+      (current) => ['second', ...current],
+      stateRef,
+      (next) => commits.push(next)
+    );
+
+    expect(stateRef.current).toEqual(['second', 'first', 'existing']);
+    expect(commits).toEqual([
+      ['first', 'existing'],
+      ['second', 'first', 'existing'],
+    ]);
+  });
+
   it('loads legacy memoryMode data and rewrites the session without it', () => {
     const restored = deserializeTemporaryChats(JSON.stringify([
       {
@@ -171,6 +195,34 @@ describe('temporary chat storage', () => {
       id: 'temp-legacy',
       title: 'Legacy temporary chat',
     });
+  });
+
+  it('keeps the active chat usable when session storage rejects a write', () => {
+    const chats = deserializeTemporaryChats(JSON.stringify([
+      {
+        id: 'temp-storage-error',
+        title: 'Temporary chat',
+        createdAt: '2026-07-27T10:00:00.000Z',
+        updatedAt: '2026-07-27T10:01:00.000Z',
+        messages: [],
+        branches: [],
+        selectedBranchIds: {},
+        threadsMap: {},
+        threadMessages: {},
+        threadStatuses: {},
+      },
+    ]));
+    const blockedStorage = {
+      setItem: () => {
+        throw new Error('Storage blocked');
+      },
+      removeItem: () => {
+        throw new Error('Storage blocked');
+      },
+    };
+
+    expect(writeTemporaryChatsToStorage(blockedStorage, chats)).toBe(false);
+    expect(writeTemporaryChatsToStorage(blockedStorage, [])).toBe(false);
   });
 });
 

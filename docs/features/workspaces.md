@@ -44,7 +44,10 @@ workspace context.
 
 The move is performed by
 `PATCH /api/conversations/<conversationId>/context` and the
-`move_conversation_context` database function.
+`move_conversation_context` database function. On success, the returned
+conversation summary updates the selected chat and affected sidebar groups
+without reloading mentors, workspaces, or conversations. A failed PATCH leaves
+the local placement unchanged.
 
 ## Deletion
 

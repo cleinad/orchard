@@ -65,6 +65,8 @@ Current browser suites:
 
 - `home-routing.spec.js` — routed hydration, sidebar navigation, drafts, and
   temporary-chat handoffs
+- `home-performance.spec.js` — production-build request, timing, bundle,
+  render-isolation, streaming, and failure budgets
 - `inline-threads.spec.js` — selection, popover, panel, and temporary threads
 - `persistent-inline-threads.spec.js` — persistence, offset anchors, Markdown,
   code, math, and tables
@@ -100,8 +102,29 @@ npm test -- \
   __tests__/app/home/useMainChatRuntime.test.ts \
   __tests__/lib/chat-run-protocol.test.ts \
   __tests__/lib/chat-run-reconciliation.test.ts
-npx playwright test e2e/home-routing.spec.js e2e/chat-run-lifecycle.spec.js
+npx playwright test \
+  e2e/home-routing.spec.js \
+  e2e/chat-run-lifecycle.spec.js
 ```
+
+The production-only home budgets require the dedicated local server-data
+fixture build:
+
+```bash
+NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54329 \
+NEXT_PUBLIC_SUPABASE_ANON_KEY=e2e-anon-key \
+SUPABASE_SERVICE_ROLE_KEY=test-service-role \
+NEXT_PUBLIC_HOME_E2E_FIXTURES=1 \
+npm run build
+
+PLAYWRIGHT_E2E_SERVER_DATA=1 \
+PLAYWRIGHT_PRODUCTION_SERVER=1 \
+NEXT_PUBLIC_HOME_E2E_FIXTURES=1 \
+npx playwright test e2e/home-performance.spec.js
+```
+
+Build once more without `NEXT_PUBLIC_HOME_E2E_FIXTURES` before measuring or
+shipping production artifacts.
 
 ### Search
 

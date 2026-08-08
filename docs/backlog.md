@@ -27,6 +27,8 @@ is not obvious.
 - [ ] Add server-side cleanup for image uploads that are abandoned before a
   message is saved.
 - [ ] Validate and tune live search against real provider traffic.
+- [ ] Add keyset sidebar pagination when real account distributions justify
+  loading beyond the current 200-conversation and 100-workspace bootstrap.
 - [ ] More keyboard shortcuts
 
 ## Feature ideas

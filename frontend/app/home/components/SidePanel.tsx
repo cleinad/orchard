@@ -22,6 +22,7 @@ import {
   RailIconWorkspace,
 } from '@/app/home/components/home-rail-icons';
 import { buttonStyles, cx } from '@/app/components/buttonStyles';
+import { recordHomePerformanceEvent } from '@/app/home/components/homePerformanceInstrumentation';
 import {
   SIDE_PANEL_COLLAPSED_WIDTH_PX,
   SIDE_PANEL_MAX_WIDTH_PX,
@@ -35,6 +36,7 @@ import type {
   ConversationListItem,
   SidebarWorkspaceGroup,
 } from '@/app/home/types';
+import type { HomeNavigationStatus } from '@/app/home/components/homeSidebarData';
 
 interface DraftChatListItem {
   id: string;
@@ -64,6 +66,7 @@ interface Props {
   onOpenAllChats: () => void;
   workspaceGroups: SidebarWorkspaceGroup[];
   conversations: ConversationListItem[];
+  navigationStatus: HomeNavigationStatus;
   draftChats: DraftChatListItem[];
   temporaryChats: TemporaryChatListItem[];
   selectedConversationId: string | null;
@@ -76,6 +79,11 @@ interface Props {
   onSelectTemporaryChat: (tempChatId: string) => void;
   onCreateWorkspaceDraft: (workspaceId: string) => void;
   onCreateWorkspace: () => void;
+  buildConversationHref: (conversationId: string) => string;
+  onPrefetchConversation: (
+    conversationId: string,
+    onInvalidate: () => void
+  ) => boolean;
   buildWorkspaceHref: (workspaceId: string) => string;
   onOpenWorkspace: (workspaceId: string) => void;
   onCloseTemporaryChat: (tempChatId: string) => void;
@@ -148,6 +156,7 @@ export default function SidePanel({
   onOpenAllChats,
   workspaceGroups,
   conversations,
+  navigationStatus,
   draftChats,
   temporaryChats,
   selectedConversationId,
@@ -160,11 +169,14 @@ export default function SidePanel({
   onSelectTemporaryChat,
   onCreateWorkspaceDraft,
   onCreateWorkspace,
+  buildConversationHref,
+  onPrefetchConversation,
   buildWorkspaceHref,
   onOpenWorkspace,
   onCloseTemporaryChat,
   onMoveConversation,
 }: Props) {
+  recordHomePerformanceEvent('side-panel-render');
   const router = useRouter();
   const [expandedWorkspaces, setExpandedWorkspaces] = useState<Record<string, boolean>>({});
   const [visibleCounts, setVisibleCounts] = useState<Record<string, number>>({});
@@ -176,6 +188,10 @@ export default function SidePanel({
   const formatTimestamp = useSidebarTimestampFormatter();
   const lastAutoExpandedWorkspaceSelectionRef = useRef<string | null>(null);
   const manuallyCollapsedWorkspaceSelectionRef = useRef<Record<string, string>>({});
+  const prefetchedConversationHrefsRef = useRef(new Set<string>());
+  const conversationPrefetchTimersRef = useRef(
+    new Map<string, ReturnType<typeof setTimeout>>()
+  );
   const { viewerResult } = useViewer();
   const profileName =
     viewerResult.status === 'ready'
@@ -200,6 +216,14 @@ export default function SidePanel({
       return () => document.removeEventListener('keydown', handleEscape);
     }
   }, [isOpen, handleEscape]);
+
+  useEffect(
+    () => () => {
+      conversationPrefetchTimersRef.current.forEach(clearTimeout);
+      conversationPrefetchTimersRef.current.clear();
+    },
+    []
+  );
 
   useEffect(() => {
     if (!selectedMentorId && !selectedWorkspaceId && !selectedDraftId && !selectedConversationId) {
@@ -568,10 +592,50 @@ export default function SidePanel({
     );
   };
 
+  const prefetchConversation = (conversationId: string) => {
+    const href = buildConversationHref(conversationId);
+    if (prefetchedConversationHrefsRef.current.has(href)) return;
+    const didPrefetch = onPrefetchConversation(conversationId, () => {
+      prefetchedConversationHrefsRef.current.delete(href);
+    });
+    if (didPrefetch) {
+      prefetchedConversationHrefsRef.current.add(href);
+    }
+  };
+
+  const scheduleConversationPrefetch = (conversationId: string) => {
+    const href = buildConversationHref(conversationId);
+    if (
+      prefetchedConversationHrefsRef.current.has(href)
+      || conversationPrefetchTimersRef.current.has(href)
+    ) {
+      return;
+    }
+    conversationPrefetchTimersRef.current.set(
+      href,
+      setTimeout(() => {
+        conversationPrefetchTimersRef.current.delete(href);
+        prefetchConversation(conversationId);
+      }, 100)
+    );
+  };
+
+  const cancelScheduledConversationPrefetch = (conversationId: string) => {
+    const href = buildConversationHref(conversationId);
+    const timer = conversationPrefetchTimersRef.current.get(href);
+    if (!timer) return;
+    clearTimeout(timer);
+    conversationPrefetchTimersRef.current.delete(href);
+  };
+
   const workspaceList = (
     <div className="pb-3">
       {workspaceGroups.length === 0 ? (
-        <div className="px-3 py-2 text-xs text-muted">No workspaces yet.</div>
+        <div className="px-3 py-2 text-xs text-muted">
+          {navigationStatus.workspaces.status === 'unavailable'
+            ? 'Workspaces unavailable.'
+            : 'No workspaces yet.'}
+        </div>
       ) : (
         workspaceGroups.map((group) => {
           const workspaceKey = getWorkspaceKey(group.workspace_id);
@@ -722,6 +786,21 @@ export default function SidePanel({
                       key={conversation.id}
                       type="button"
                       onClick={() => onSelectConversation(conversation)}
+                      onPointerEnter={() =>
+                        scheduleConversationPrefetch(conversation.id)
+                      }
+                      onPointerLeave={() =>
+                        cancelScheduledConversationPrefetch(conversation.id)
+                      }
+                      onPointerDown={() =>
+                        cancelScheduledConversationPrefetch(conversation.id)
+                      }
+                      onFocus={() =>
+                        scheduleConversationPrefetch(conversation.id)
+                      }
+                      onBlur={() =>
+                        cancelScheduledConversationPrefetch(conversation.id)
+                      }
                       {...getConversationDragProps(conversation)}
                       className={cx(
                         'mr-2 flex w-[calc(100%-0.5rem)] items-center justify-between gap-3 rounded-xl px-3 py-1.5 text-left',
@@ -801,7 +880,11 @@ export default function SidePanel({
   const chatList = (
     <div className="space-y-px pb-6">
       {!globalDraft && globalConversations.length === 0 ? (
-        <p className="px-3 py-2 font-sans text-xs text-muted">No chats yet.</p>
+        <p className="px-3 py-2 font-sans text-xs text-muted">
+          {navigationStatus.conversations.status === 'unavailable'
+            ? 'Chats unavailable.'
+            : 'No chats yet.'}
+        </p>
       ) : (
         <>
           {globalDraft && (
@@ -832,6 +915,21 @@ export default function SidePanel({
               key={conversation.id}
               type="button"
               onClick={() => onSelectConversation(conversation)}
+              onPointerEnter={() =>
+                scheduleConversationPrefetch(conversation.id)
+              }
+              onPointerLeave={() =>
+                cancelScheduledConversationPrefetch(conversation.id)
+              }
+              onPointerDown={() =>
+                cancelScheduledConversationPrefetch(conversation.id)
+              }
+              onFocus={() =>
+                scheduleConversationPrefetch(conversation.id)
+              }
+              onBlur={() =>
+                cancelScheduledConversationPrefetch(conversation.id)
+              }
               {...getConversationDragProps(conversation)}
               className={cx(
                 'mr-2 flex w-[calc(100%-0.5rem)] items-center justify-between gap-3 rounded-xl px-3 py-1.5 text-left',
@@ -970,6 +1068,7 @@ export default function SidePanel({
       />
 
       <div
+        data-home-region="sidebar"
         data-open={isOpen}
         className="side-panel-shell fixed left-0 top-0 z-50 flex h-dvh overflow-hidden border-r border-foreground/[0.06] bg-background transition-[width] duration-300 ease-out dark:border-foreground/[0.08]"
         style={panelStyle}

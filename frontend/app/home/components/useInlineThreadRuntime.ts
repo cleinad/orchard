@@ -41,6 +41,7 @@ import type { Message } from '@/app/home/types';
 import {
   createTemporaryId,
   toChatHistory,
+  toChatHistoryMessageIds,
 } from '@/lib/chat-session';
 import { getBrowserTimeZone } from '@/lib/browser-timezone';
 import type { ChatModelEffortLevel } from '@/lib/chat-models';
@@ -627,6 +628,14 @@ export function useInlineThreadRuntime({
               : {}),
             timezone: getBrowserTimeZone(),
             chatMode: params.selection.kind === 'temporary' ? 'temporary' : 'persistent',
+            ...(params.selection.kind === 'persistent'
+              ? {
+                  historyMessageIds: toChatHistoryMessageIds(
+                    activeMessages,
+                    params.source.sourceMessageId
+                  ),
+                }
+              : {}),
             run: {
               ...params.identifiers,
               temporarySessionId:

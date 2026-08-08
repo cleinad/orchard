@@ -1,20 +1,9 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MentorListItem } from '@/lib/mentors/types';
-import { parsePersistedSearchMetadata } from '@/lib/search-citations';
-import {
-  type ChatImageAttachment,
-  type ChatImageMimeType,
-} from '@/lib/chat-attachments';
 import type {
-  BranchSelectionMap,
-  ConversationBranch,
   ConversationListItem,
-  Message,
 } from '@/app/home/types';
-import type { ThreadMeta } from '@/app/home/components/threadTypes';
-import { buildInitialBranchSelections } from '@/app/home/components/conversationTree';
 import type { WorkspaceSummary } from '@/lib/workspaces';
-import { getSelectionStreamVersion } from '@/app/home/components/markdownSelectableStream';
 import {
   buildSidebarGroups,
   buildWorkspaceGroups,
@@ -22,7 +11,12 @@ import {
   sortConversationsByUpdatedAtDesc,
   type ConversationSummaryRow,
   type HomeNavigationData,
+  type HomeNavigationStatus,
 } from '@/app/home/components/homeSidebarData';
+import { loadCompleteConversationTranscript } from '@/app/home/components/conversationTranscriptData';
+
+const HOME_NAVIGATION_RETRY_TIMEOUT_MS = 2_000;
+const HOME_TRANSCRIPT_RETRY_TIMEOUT_MS = 4_000;
 
 type ConversationRow = ConversationSummaryRow;
 
@@ -35,37 +29,10 @@ type SidebarConversationInput = {
   createdAt?: string | null;
 };
 
-
-function buildThreadsMap(
-  threadRows: Array<{
-    id: string;
-    source_message_id: string;
-    highlighted_text: string;
-    start_offset: number;
-    end_offset: number;
-    selection_stream_version?: string | null;
-  }>
+export function useHomeData(
+  initialData?: HomeNavigationData | null,
+  initialStatus?: HomeNavigationStatus
 ) {
-  const nextThreadsMap = new Map<string, ThreadMeta[]>();
-
-  for (const thread of threadRows) {
-    const key = thread.source_message_id;
-    const existing = nextThreadsMap.get(key) || [];
-    existing.push({
-      threadId: thread.id,
-      highlightedText: thread.highlighted_text,
-      sourceMessageId: thread.source_message_id,
-      startOffset: thread.start_offset,
-      endOffset: thread.end_offset,
-      selectionStreamVersion: getSelectionStreamVersion(thread.selection_stream_version),
-    });
-    nextThreadsMap.set(key, existing);
-  }
-
-  return nextThreadsMap;
-}
-
-export function useHomeData(initialData?: HomeNavigationData | null) {
   const [mentors, setMentors] = useState<MentorListItem[]>(initialData?.mentors ?? []);
   const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>(
     initialData?.workspaces ?? []
@@ -87,6 +54,13 @@ export function useHomeData(initialData?: HomeNavigationData | null) {
   );
   const [loadingLists, setLoadingLists] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
+  const [navigationStatus, setNavigationStatus] = useState<HomeNavigationStatus>(
+    initialStatus ?? {
+      mentors: { status: 'ready' },
+      workspaces: { status: 'ready' },
+      conversations: { status: 'ready' },
+    }
+  );
   const mentorsRef = useRef<MentorListItem[]>(initialData?.mentors ?? []);
   const workspacesRef = useRef<WorkspaceSummary[]>(
     initialData?.workspaces ?? []
@@ -94,78 +68,197 @@ export function useHomeData(initialData?: HomeNavigationData | null) {
   const conversationsRef = useRef<ConversationListItem[]>(
     initialData?.conversations ?? []
   );
+  const refreshSidebarPromiseRef = useRef<Promise<void> | null>(null);
+
+  useEffect(() => {
+    if (!initialData || !initialStatus) return;
+    if (initialStatus.mentors.status === 'ready') {
+      mentorsRef.current = initialData.mentors;
+      setMentors(initialData.mentors);
+    }
+    if (initialStatus.workspaces.status === 'ready') {
+      workspacesRef.current = initialData.workspaces;
+      setWorkspaces(initialData.workspaces);
+    }
+    if (initialStatus.conversations.status === 'ready') {
+      conversationsRef.current = initialData.conversations;
+      setConversations(initialData.conversations);
+    }
+    setWorkspaceGroups(
+      buildWorkspaceGroups(workspacesRef.current, conversationsRef.current)
+    );
+    setMentorGroups(
+      buildSidebarGroups(mentorsRef.current, conversationsRef.current)
+    );
+    setNavigationStatus(initialStatus);
+  }, [initialData, initialStatus]);
 
   const loadMentors = useCallback(async (): Promise<MentorListItem[]> => {
-    const response = await fetch('/api/mentors', { cache: 'no-store' });
-    const data = await response.json();
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      HOME_NAVIGATION_RETRY_TIMEOUT_MS
+    );
+    try {
+      const response = await fetch('/api/mentors', {
+        cache: 'no-store',
+        signal: controller.signal,
+      });
+      const data = await response.json();
 
-    if (!response.ok || data.error) {
-      throw new Error(data.error || 'Failed to load mentors');
+      if (!response.ok || data.error) {
+        throw new Error('Failed to load mentors');
+      }
+
+      return data as MentorListItem[];
+    } finally {
+      clearTimeout(timeout);
     }
-
-    return data as MentorListItem[];
   }, []);
 
   const loadWorkspaces = useCallback(async (): Promise<WorkspaceSummary[]> => {
-    const response = await fetch('/api/workspaces', { cache: 'no-store' });
-    const data = await response.json();
-
-    if (!response.ok || data.error) {
-      throw new Error(data.error || 'Failed to load workspaces');
-    }
-
-    return Array.isArray(data.workspaces) ? data.workspaces : [];
-  }, []);
-
-  const loadConversations = useCallback(async (
-    mentorSource: MentorListItem[],
-    workspaceSource: WorkspaceSummary[]
-  ) => {
-    const { supabase } = await import('@/lib/supabase');
-    const { data: conversationRows, error: conversationError } = await supabase
-      .from('conversations')
-      .select('id, title, mentor_id, workspace_id, updated_at, created_at')
-      .order('updated_at', { ascending: false })
-      .limit(200);
-
-    if (conversationError) {
-      throw new Error(conversationError.message);
-    }
-
-    const rows = (conversationRows || []) as ConversationRow[];
-    const nextConversations: ConversationListItem[] = rows.map((row) =>
-      mapConversationSummary(row, mentorSource, workspaceSource)
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      HOME_NAVIGATION_RETRY_TIMEOUT_MS
     );
+    try {
+      const response = await fetch('/api/workspaces', {
+        cache: 'no-store',
+        signal: controller.signal,
+      });
+      const data = await response.json();
 
-    conversationsRef.current = nextConversations;
-    setConversations(nextConversations);
-    setWorkspaceGroups(buildWorkspaceGroups(workspaceSource, nextConversations));
-    setMentorGroups(buildSidebarGroups(mentorSource, nextConversations));
+      if (!response.ok || data.error) {
+        throw new Error('Failed to load workspaces');
+      }
+
+      return Array.isArray(data.workspaces) ? data.workspaces : [];
+    } finally {
+      clearTimeout(timeout);
+    }
   }, []);
 
-  const refreshSidebarData = useCallback(async () => {
+  const loadConversations = useCallback(async (): Promise<ConversationRow[]> => {
+    const { supabase } = await import('@/lib/supabase');
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      HOME_NAVIGATION_RETRY_TIMEOUT_MS
+    );
+    try {
+      const { data: conversationRows, error: conversationError } = await supabase
+        .from('conversations')
+        .select('id, title, mentor_id, workspace_id, updated_at, created_at')
+        .order('updated_at', { ascending: false })
+        .limit(200)
+        .abortSignal(controller.signal);
+
+      if (conversationError) {
+        if (controller.signal.aborted) {
+          throw new DOMException('Navigation request timed out', 'AbortError');
+        }
+        throw new Error('Failed to load conversations');
+      }
+
+      return (conversationRows || []) as ConversationRow[];
+    } finally {
+      clearTimeout(timeout);
+    }
+  }, []);
+
+  const refreshSidebarData = useCallback(() => {
+    if (refreshSidebarPromiseRef.current) {
+      return refreshSidebarPromiseRef.current;
+    }
+
     setLoadingLists(true);
     setListError(null);
+    const refresh = (async () => {
+      try {
+        const [
+          mentorResult,
+          workspaceResult,
+          conversationResult,
+        ] = await Promise.allSettled([
+          loadMentors(),
+          loadWorkspaces(),
+          loadConversations(),
+        ]);
+        const nextStatus: HomeNavigationStatus = {
+          mentors:
+            mentorResult.status === 'fulfilled'
+              ? { status: 'ready' }
+              : {
+                  status: 'unavailable',
+                  reason:
+                    mentorResult.reason instanceof DOMException
+                    && mentorResult.reason.name === 'AbortError'
+                      ? 'timeout'
+                      : 'error',
+                },
+          workspaces:
+            workspaceResult.status === 'fulfilled'
+              ? { status: 'ready' }
+              : {
+                  status: 'unavailable',
+                  reason:
+                    workspaceResult.reason instanceof DOMException
+                    && workspaceResult.reason.name === 'AbortError'
+                      ? 'timeout'
+                      : 'error',
+                },
+          conversations:
+            conversationResult.status === 'fulfilled'
+              ? { status: 'ready' }
+              : {
+                  status: 'unavailable',
+                  reason:
+                    conversationResult.reason instanceof DOMException
+                    && conversationResult.reason.name === 'AbortError'
+                      ? 'timeout'
+                      : 'error',
+                },
+        };
 
-    try {
-      const [nextMentors, nextWorkspaces] = await Promise.all([
-        loadMentors(),
-        loadWorkspaces(),
-      ]);
-      mentorsRef.current = nextMentors;
-      workspacesRef.current = nextWorkspaces;
-      setMentors(nextMentors);
-      setWorkspaces(nextWorkspaces);
-      await loadConversations(nextMentors, nextWorkspaces);
-    } catch (error) {
-      setListError(
-        error instanceof Error
-          ? error.message
-          : 'Failed to load mentors and conversations'
-      );
-    } finally {
-      setLoadingLists(false);
-    }
+        if (mentorResult.status === 'fulfilled') {
+          mentorsRef.current = mentorResult.value;
+          setMentors(mentorResult.value);
+        }
+        if (workspaceResult.status === 'fulfilled') {
+          workspacesRef.current = workspaceResult.value;
+          setWorkspaces(workspaceResult.value);
+        }
+        if (conversationResult.status === 'fulfilled') {
+          const nextConversations = conversationResult.value.map((row) =>
+            mapConversationSummary(
+              row,
+              mentorsRef.current,
+              workspacesRef.current
+            )
+          );
+          conversationsRef.current = nextConversations;
+          setConversations(nextConversations);
+        }
+        setWorkspaceGroups(
+          buildWorkspaceGroups(workspacesRef.current, conversationsRef.current)
+        );
+        setMentorGroups(
+          buildSidebarGroups(mentorsRef.current, conversationsRef.current)
+        );
+        setNavigationStatus(nextStatus);
+      } finally {
+        setLoadingLists(false);
+      }
+    })();
+    refreshSidebarPromiseRef.current = refresh;
+    const clearRefresh = () => {
+      if (refreshSidebarPromiseRef.current === refresh) {
+        refreshSidebarPromiseRef.current = null;
+      }
+    };
+    void refresh.then(clearRefresh, clearRefresh);
+    return refresh;
   }, [loadConversations, loadMentors, loadWorkspaces]);
 
   const upsertSidebarConversation = useCallback((conversation: SidebarConversationInput) => {
@@ -195,6 +288,14 @@ export function useHomeData(initialData?: HomeNavigationData | null) {
     );
     setMentorGroups(buildSidebarGroups(mentorsRef.current, nextConversations));
   }, []);
+
+  const getSidebarConversation = useCallback(
+    (conversationId: string) =>
+      conversationsRef.current.find(
+        (conversation) => conversation.id === conversationId
+      ) ?? null,
+    []
+  );
 
   const removeSidebarConversation = useCallback((conversationId: string) => {
     const nextConversations = conversationsRef.current.filter(
@@ -254,166 +355,71 @@ export function useHomeData(initialData?: HomeNavigationData | null) {
 
   const loadConversationMessages = useCallback(async (nextConversationId: string) => {
     const { supabase } = await import('@/lib/supabase');
-    const messagesRequest = supabase
-      .from('messages')
-      .select('id, role, content, created_at, search_metadata, previous_message_id')
-      .eq('conversation_id', nextConversationId)
-      .is('thread_id', null)
-      .order('created_at', { ascending: true })
-      .limit(200);
-
-    const branchesRequest = supabase
-      .from('conversation_branches')
-      .select('id, source_message_id, entry_message_id, title, is_main, position')
-      .eq('conversation_id', nextConversationId)
-      .order('position', { ascending: true });
-
-    const threadsRequest = supabase
-      .from('threads')
-      .select('id, source_message_id, highlighted_text, start_offset, end_offset, selection_stream_version')
-      .eq('conversation_id', nextConversationId);
-
-    const [
-      { data, error },
-      { data: branchRows, error: branchesError },
-      { data: threadRows, error: threadsError },
-    ] = await Promise.all([messagesRequest, branchesRequest, threadsRequest]);
-
-    if (error) {
-      throw new Error(error.message);
-    }
-
-    const nextMessages: Message[] = ((data || []) as Array<{
-      id: string;
-      role: 'user' | 'assistant';
-      content: string;
-      created_at: string;
-      search_metadata?: unknown;
-      previous_message_id: string | null;
-    }>).map((message) => {
-      const searchMetadata = parsePersistedSearchMetadata(message.search_metadata);
-
-      return {
-        id: message.id,
-        role: message.role,
-        content: message.content,
-        timestamp: new Date(message.created_at),
-        searchMetadata,
-        searchActivity: searchMetadata?.version === 2 ? searchMetadata.activity ?? null : null,
-        previousMessageId: message.previous_message_id ?? null,
-      };
-    });
-
-    const messageIds = nextMessages.map((message) => message.id);
-    if (messageIds.length > 0) {
-      const { data: attachmentRows, error: attachmentsError } = await supabase
-        .from('message_attachments')
-        .select('id, message_id, storage_path, file_name, mime_type, size_bytes, width, height')
-        .in('message_id', messageIds)
-        .order('position', { ascending: true });
-
-      if (!attachmentsError && attachmentRows && attachmentRows.length > 0) {
-        const rows = attachmentRows as Array<{
-          id: string;
-          message_id: string;
-          storage_path: string;
-          file_name: string;
-          mime_type: ChatImageMimeType;
-          size_bytes: number;
-          width: number | null;
-          height: number | null;
-        }>;
-        const attachmentsByMessageId = new Map<string, ChatImageAttachment[]>();
-
-        for (const row of rows) {
-          const existing = attachmentsByMessageId.get(row.message_id) || [];
-          existing.push({
-            id: row.id,
-            messageId: row.message_id,
-            storagePath: row.storage_path,
-            fileName: row.file_name,
-            mimeType: row.mime_type,
-            sizeBytes: row.size_bytes,
-            width: row.width,
-            height: row.height,
-            url: `/api/chat/images/${row.id}`,
-          });
-          attachmentsByMessageId.set(row.message_id, existing);
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      HOME_TRANSCRIPT_RETRY_TIMEOUT_MS
+    );
+    try {
+      return await loadCompleteConversationTranscript(
+        supabase,
+        nextConversationId,
+        {
+          signal: controller.signal,
+          optionalMetadataTimeoutMs: HOME_NAVIGATION_RETRY_TIMEOUT_MS,
         }
-
-        for (const message of nextMessages) {
-          message.attachments = attachmentsByMessageId.get(message.id) || [];
-        }
-      } else if (attachmentsError) {
-        console.error('Failed to load message attachments:', attachmentsError);
-      }
+      );
+    } finally {
+      clearTimeout(timeout);
     }
-
-    const nextBranches: ConversationBranch[] = branchesError
-      ? []
-      : ((branchRows || []) as Array<{
-          id: string;
-          source_message_id: string;
-          entry_message_id: string;
-          title: string;
-          is_main: boolean;
-          position: number;
-        }>).map((branch) => ({
-          id: branch.id,
-          sourceMessageId: branch.source_message_id,
-          entryMessageId: branch.entry_message_id,
-          title: branch.title,
-          isMain: branch.is_main,
-          position: branch.position,
-        }));
-
-    if (threadsError) {
-      console.error('Failed to load threads:', threadsError);
-
-      return {
-        messages: nextMessages,
-        branches: nextBranches,
-        selectedBranchIds: buildInitialBranchSelections(nextBranches) as BranchSelectionMap,
-        threadsMap: new Map<string, ThreadMeta[]>(),
-      };
-    }
-
-    return {
-      messages: nextMessages,
-      branches: nextBranches,
-      selectedBranchIds: buildInitialBranchSelections(nextBranches) as BranchSelectionMap,
-      threadsMap: buildThreadsMap(
-        (threadRows || []) as Array<{
-          id: string;
-          source_message_id: string;
-          highlighted_text: string;
-          start_offset: number;
-          end_offset: number;
-          selection_stream_version?: string | null;
-        }>
-      ),
-    };
   }, []);
 
   const loadConversationById = useCallback(async (nextConversationId: string) => {
     const { supabase } = await import('@/lib/supabase');
-    const { data, error } = await supabase
-      .from('conversations')
-      .select('id, title, mentor_id, workspace_id, updated_at, created_at')
-      .eq('id', nextConversationId)
-      .single();
-
-    const row = data as ConversationRow | null;
-
-    if (error || !row || row.id !== nextConversationId) {
-      throw new Error(error?.message || 'Conversation not found');
-    }
-
-    return mapConversationSummary(
-      row,
-      mentorsRef.current,
-      workspacesRef.current
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      HOME_TRANSCRIPT_RETRY_TIMEOUT_MS
     );
+    try {
+      const { data, error, status } = await supabase
+        .from('conversations')
+        .select('id, title, mentor_id, workspace_id, updated_at, created_at')
+        .eq('id', nextConversationId)
+        .abortSignal(controller.signal)
+        .maybeSingle();
+
+      if (controller.signal.aborted) {
+        throw new Error('The conversation took too long to load.');
+      }
+      const row = data as ConversationRow | null;
+      if (error) {
+        const errorCode =
+          typeof error === 'object' && error !== null && 'code' in error
+            ? String(error.code)
+            : '';
+        if (status === 404 || errorCode === 'PGRST116') {
+          throw new Error('Conversation not found');
+        }
+        throw new Error('The conversation could not be loaded.');
+      }
+      if (!row || row.id !== nextConversationId) {
+        throw new Error('Conversation not found');
+      }
+
+      return mapConversationSummary(
+        row,
+        mentorsRef.current,
+        workspacesRef.current
+      );
+    } catch (error) {
+      if (controller.signal.aborted) {
+        throw new Error('The conversation took too long to load.');
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
   }, []);
 
   return {
@@ -424,8 +430,10 @@ export function useHomeData(initialData?: HomeNavigationData | null) {
     mentorGroups,
     loadingLists,
     listError,
+    navigationStatus,
     setListError,
     refreshSidebarData,
+    getSidebarConversation,
     upsertSidebarConversation,
     removeSidebarConversation,
     upsertWorkspaceSummary,

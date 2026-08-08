@@ -21,7 +21,10 @@ export default function HomeHeader({
   onCreateTemporaryChat,
 }: HomeHeaderProps) {
   return (
-    <header className="flex h-16 items-center justify-between">
+    <header
+      data-home-region="header"
+      className="flex h-16 items-center justify-between"
+    >
       <div className="flex min-w-0 items-center gap-3">
         <div className="min-w-0">
           <div className="truncate font-serif text-lg font-normal text-foreground/85">

@@ -90,6 +90,7 @@ module.exports = defineConfig({
             CONFIGURED_SUPABASE_URL || SUPABASE_AUTH_FIXTURE_URL,
           NEXT_PUBLIC_SUPABASE_ANON_KEY:
             CONFIGURED_SUPABASE_ANON_KEY || 'e2e-anon-key',
+          NEXT_PUBLIC_HOME_E2E_FIXTURES: '1',
         },
       },
     ],

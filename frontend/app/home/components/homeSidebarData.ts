@@ -17,6 +17,18 @@ export interface HomeNavigationData {
   conversations: ConversationListItem[];
 }
 
+export type HomeDataUnavailableReason = 'timeout' | 'error';
+
+export type HomeResourceStatus =
+  | { status: 'ready' }
+  | { status: 'unavailable'; reason: HomeDataUnavailableReason };
+
+export interface HomeNavigationStatus {
+  mentors: HomeResourceStatus;
+  workspaces: HomeResourceStatus;
+  conversations: HomeResourceStatus;
+}
+
 export function buildSidebarGroups(
   mentorSource: MentorListItem[],
   conversationSource: ConversationListItem[]
