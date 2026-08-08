@@ -1,6 +1,7 @@
 "use client";
 
 import Tooltip from '@/app/components/Tooltip';
+import { buttonStyles, cx } from '@/app/components/buttonStyles';
 import {
   headerIconBase,
   headerIconOff,
@@ -11,18 +12,20 @@ interface ConversationMapToggleProps {
   nodeCount: number;
   isOpen: boolean;
   onToggle: () => void;
+  compact?: boolean;
 }
 
 export default function ConversationMapToggle({
   nodeCount,
   isOpen,
   onToggle,
+  compact = false,
 }: ConversationMapToggleProps) {
   if (nodeCount === 0) {
     return null;
   }
 
-  const label = isOpen ? 'Hide conversation map' : 'Conversation map';
+  const label = isOpen ? 'Hide conversation map' : 'View the full conversation map and its branches';
 
   return (
     <Tooltip content={label}>
@@ -32,10 +35,18 @@ export default function ConversationMapToggle({
         aria-pressed={isOpen}
         aria-label={label}
         data-testid="conversation-map-toggle"
-        className={`${headerIconBase} ${isOpen ? headerIconOn : headerIconOff}`}
+        className={compact
+          ? cx(
+              'inline-flex h-8 w-8 items-center justify-center rounded-lg border',
+              buttonStyles.transition,
+              isOpen ? buttonStyles.controlActive : buttonStyles.controlInactiveMuted,
+              buttonStyles.controlShadow,
+              buttonStyles.controlFocus
+            )
+          : `${headerIconBase} ${isOpen ? headerIconOn : headerIconOff}`}
       >
         <svg
-          className="h-5 w-5"
+          className={compact ? 'h-4 w-4' : 'h-5 w-5'}
           fill="none"
           stroke="currentColor"
           strokeWidth="1.5"

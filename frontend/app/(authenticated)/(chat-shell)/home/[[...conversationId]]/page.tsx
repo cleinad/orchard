@@ -1001,9 +1001,6 @@ function HomePageInner() {
             isTemporaryChat={isTemporaryChat}
             loadingLists={loadingLists}
             onCreateTemporaryChat={handleCreateTemporaryChat}
-            conversationMapNodeCount={conversationMapModel.nodes.length}
-            conversationMapOpen={conversationMapOpen}
-            onToggleConversationMap={handleToggleConversationMap}
           />
         </div>
 
@@ -1100,6 +1097,8 @@ function HomePageInner() {
           thinkingEnabledOverrides={thinkingEnabledOverrides}
           searchMode={activeSearchMode}
           isWideLayout={isChatWideLayout}
+          conversationMapNodeCount={conversationMapModel.nodes.length}
+          conversationMapOpen={conversationMapOpen}
           searchWarning={activeSearchState?.warning ?? null}
           imageWarning={imageWarning}
           textareaRef={textareaRef}
@@ -1115,6 +1114,7 @@ function HomePageInner() {
           }
           onSearchModeChange={(mode) => setSearchModeForSelection(composerStateSelection, mode)}
           onToggleWideLayout={() => setIsChatWideLayout((current) => !current)}
+          onToggleConversationMap={handleToggleConversationMap}
           onSubmit={handleSubmit}
           onStop={() => {
             if (activeMainChatRun) {
