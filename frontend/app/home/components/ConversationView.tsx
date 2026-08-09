@@ -2,6 +2,7 @@
 
 import { useCallback, useState, type RefObject } from 'react';
 import AsciiTesseract from '@/app/home/components/AsciiTesseract';
+import GeneratingIndicator from '@/app/home/components/GeneratingIndicator';
 import MessageRow from '@/app/home/components/MessageRow';
 import type { InlineThreadMarker, ThreadSource } from '@/app/home/components/threadTypes';
 import type { Message } from '@/app/home/types';
@@ -170,27 +171,12 @@ export default function ConversationView({
             );
           })}
 
-          {/* Bouncing dots only while waiting for the first token (no streaming message yet) */}
-          {isLoading && !messages.some((m) => m.isStreaming) && (
-            <div
-              role="status"
-              aria-label="Generating response"
-              className="flex items-center gap-1.5 py-4 font-sans"
-            >
-              <span
-                className="h-2 w-2 animate-bounce rounded-full bg-muted/40"
-                style={{ animationDelay: '0ms' }}
-              />
-              <span
-                className="h-2 w-2 animate-bounce rounded-full bg-muted/40"
-                style={{ animationDelay: '150ms' }}
-              />
-              <span
-                className="h-2 w-2 animate-bounce rounded-full bg-muted/40"
-                style={{ animationDelay: '300ms' }}
-              />
-            </div>
-          )}
+          {/*
+            Only while waiting without a streaming placeholder. Once the
+            placeholder exists, MessageRow owns the waiting state so the
+            indicator sits where the reply will appear.
+          */}
+          {isLoading && !messages.some((m) => m.isStreaming) && <GeneratingIndicator />}
 
           <div ref={messagesEndRef} />
         </div>

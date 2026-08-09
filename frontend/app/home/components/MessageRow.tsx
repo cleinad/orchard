@@ -15,6 +15,7 @@ import AssistantCopyControl from '@/app/home/components/AssistantCopyControl';
 import ChatMessageFrame, {
   chatMessageContentClassName,
 } from '@/app/home/components/ChatMessageFrame';
+import GeneratingIndicator from '@/app/home/components/GeneratingIndicator';
 import MarkdownWithThreads from '@/app/home/components/MarkdownWithThreads';
 import SearchSourcesTray from '@/app/home/components/SearchSourcesTray';
 import ThreadHighlightOverlay, {
@@ -138,6 +139,9 @@ function MessageRow({
     ?? [];
   const canExpandSearchActivity = searchActivitySteps.length > 0;
   const hasSources = hasUsableSearchSources(replySearchMetadata);
+  /* Whitespace-only deltas still read as an empty reply, so keep waiting. */
+  const isAwaitingFirstToken =
+    Boolean(message.isStreaming) && message.content.trim().length === 0;
   const setMessageContentNode = useCallback((node: HTMLDivElement | null) => {
     messageContentRef.current = node;
     setMessageContentEl((current) => (current === node ? current : node));
@@ -404,7 +408,11 @@ function MessageRow({
             onCitationClick={hasSources ? handleCitationClick : undefined}
           />
           {message.isStreaming && (
-            <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-foreground/50 align-middle" />
+            isAwaitingFirstToken ? (
+              <GeneratingIndicator inline searchActivity={searchActivity} />
+            ) : (
+              <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-foreground/50 align-middle" />
+            )
           )}
         </div>
 

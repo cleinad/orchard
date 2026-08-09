@@ -156,6 +156,12 @@ Branch controls should reveal structure without interrupting reading flow.
 Place errors, warnings, loading states, and confirmations near the action they
 govern. Destructive confirmations must state what will be removed.
 
+While a reply is being generated, the chat transcript shows the animated Orchard
+mark, the current phase, and elapsed seconds where the reply will appear. The
+phase is read from real run activity rather than cycled for effect, so the
+indicator reports work instead of decorating the wait. Motion is limited to the
+brand mark and is disabled under `prefers-reduced-motion`.
+
 ## Copy
 
 Copy should be clear, direct, and specific about the learning action.
