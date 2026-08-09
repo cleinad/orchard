@@ -805,6 +805,63 @@ body {
   animation: shimmer 2s linear infinite;
 }
 
+/*
+ * Orchard orbit mark — the animated form of the brand mark in OrchardBrand.tsx.
+ * A static outer ring holds two perpendicular rings whose foreshortening runs
+ * half a period apart, reading as one slowly rotating sphere. Proportions match
+ * the brand mark: inner rings span 62.5% of the outer diameter.
+ *
+ * Weight and tone come from the parent's `color`, so callers set presence with
+ * a single text utility rather than a second opacity knob here.
+ */
+.orchard-orbit {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  width: 1.25rem;
+  height: 1.25rem;
+  border: 1.25px solid currentColor;
+  border-radius: 9999px;
+}
+
+.orchard-orbit::before,
+.orchard-orbit::after {
+  content: "";
+  position: absolute;
+  top: 18.75%;
+  left: 18.75%;
+  width: 62.5%;
+  height: 62.5%;
+  border: 1.25px solid currentColor;
+  border-radius: 9999px;
+  animation: orchard-orbit-meridian 2600ms ease-in-out infinite;
+}
+
+.orchard-orbit::after {
+  animation-name: orchard-orbit-equator;
+}
+
+@keyframes orchard-orbit-meridian {
+  0%, 100% { transform: scaleX(1); }
+  50% { transform: scaleX(0.14); }
+}
+
+@keyframes orchard-orbit-equator {
+  0%, 100% { transform: scaleY(0.14); }
+  50% { transform: scaleY(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orchard-orbit::before,
+  .orchard-orbit::after {
+    animation: none;
+  }
+
+  /* Rest in the brand mark's static proportions. */
+  .orchard-orbit::before { transform: scaleX(0.3); }
+  .orchard-orbit::after { transform: scaleY(0.3); }
+}
+
 .side-panel-content {
   padding-left: 3.5rem;
 }
