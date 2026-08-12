@@ -28,12 +28,32 @@ interface TextSelectionPopoverProps {
   onOpenThreadDraft: (source: ThreadSource, draftInput: string) => void;
 }
 
-export default function TextSelectionPopover({
+export interface SelectionPopoverState {
+  anchorRect: PopoverState["anchorRect"];
+  /** Text sources supply a quote. Image-region sources supply a preview instead. */
+  selectedText?: string;
+  /** Optional preview image shown in place of the quoted-text line. */
+  previewImageUrl?: string;
+  previewImageAlt?: string;
+}
+
+interface SelectionPopoverProps<TState extends SelectionPopoverState> {
+  popoverState: TState | null;
+  onDismiss: () => void;
+  onSubmitQuestion: (source: TState, question: string) => void;
+  onOpenThreadDraft?: (source: TState, draftInput: string) => void;
+  quickActionLabel?: string;
+  onQuickAction?: (source: TState) => void;
+}
+
+export function SelectionPopover<TState extends SelectionPopoverState>({
   popoverState,
   onDismiss,
   onSubmitQuestion,
   onOpenThreadDraft,
-}: TextSelectionPopoverProps) {
+  quickActionLabel,
+  onQuickAction,
+}: SelectionPopoverProps<TState>) {
   const [customQuestion, setCustomQuestion] = useState("");
   const [fallbackPlacement, setFallbackPlacement] = useState<"top" | "bottom">("top");
   const [fallbackLeft, setFallbackLeft] = useState<number | null>(null);
@@ -101,6 +121,8 @@ export default function TextSelectionPopover({
   useEffect(() => {
     if (!popoverState) return;
 
+    const selectedText = popoverState.selectedText;
+
     const isEditableTarget = (target: EventTarget | null) => {
       return (
         target instanceof HTMLElement
@@ -109,6 +131,7 @@ export default function TextSelectionPopover({
     };
 
     const handleCopy = (event: ClipboardEvent) => {
+      if (!selectedText) return;
       const input = inputRef.current;
       if (input && event.target === input) {
         const hasInputSelection =
@@ -120,7 +143,7 @@ export default function TextSelectionPopover({
           return;
         }
 
-        event.clipboardData?.setData("text/plain", popoverState.selectedText);
+        event.clipboardData?.setData("text/plain", selectedText);
         event.preventDefault();
         return;
       }
@@ -129,13 +152,14 @@ export default function TextSelectionPopover({
         return;
       }
 
-      event.clipboardData?.setData("text/plain", popoverState.selectedText);
+      event.clipboardData?.setData("text/plain", selectedText);
       event.preventDefault();
     };
 
     const handleOpenThreadShortcut = (event: KeyboardEvent) => {
       if (
-        !event.ctrlKey
+        !onOpenThreadDraft
+        || !event.ctrlKey
         || event.metaKey
         || event.shiftKey
         || event.altKey
@@ -155,7 +179,10 @@ export default function TextSelectionPopover({
       onOpenThreadDraft(popoverState, draftInput);
     };
 
-    document.addEventListener("copy", handleCopy);
+    // A region source has no copyable text, so the copy override stays off.
+    if (selectedText) {
+      document.addEventListener("copy", handleCopy);
+    }
     document.addEventListener("keydown", handleOpenThreadShortcut, true);
     return () => {
       document.removeEventListener("copy", handleCopy);
@@ -254,9 +281,21 @@ export default function TextSelectionPopover({
       >
         {/* Flat toolbar: hairline border + light shadow (not a heavy “card orb”). */}
         {/* UI chrome: `font-sans`; field uses `font-reading` (body font). */}
-        <p className="mb-2 line-clamp-2 border-b border-border-subtle pb-1.5 text-[11px] leading-snug text-muted/75">
-          &ldquo;{popoverState.selectedText}&rdquo;
-        </p>
+        {popoverState.previewImageUrl ? (
+          <div className="mb-2 border-b border-border-subtle pb-1.5">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={popoverState.previewImageUrl}
+              alt={popoverState.previewImageAlt ?? "Selected region preview"}
+              data-testid="selection-popover-preview"
+              className="max-h-24 w-full rounded-sm border border-border-subtle bg-surface object-contain"
+            />
+          </div>
+        ) : (
+          <p className="mb-2 line-clamp-2 border-b border-border-subtle pb-1.5 text-[11px] leading-snug text-muted/75">
+            &ldquo;{popoverState.selectedText}&rdquo;
+          </p>
+        )}
 
         <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-2">
           <form onSubmit={handleCustomSubmit} className="min-w-0 flex-1">
@@ -273,8 +312,21 @@ export default function TextSelectionPopover({
               className="h-8 w-full rounded-md border border-border-subtle bg-foreground/[0.03] px-2.5 font-sans font-reading text-xs text-foreground placeholder:text-muted/45 outline-none transition-colors focus:border-foreground/[0.18] focus:ring-1 focus:ring-foreground/10"
             />
           </form>
+          {quickActionLabel && onQuickAction ? (
+            <button
+              type="button"
+              onClick={() => onQuickAction(popoverState)}
+              className="h-8 shrink-0 rounded-md border border-border-subtle px-2.5 text-xs text-muted transition-colors hover:bg-foreground/[0.04] hover:text-foreground"
+            >
+              {quickActionLabel}
+            </button>
+          ) : null}
         </div>
       </div>
     </>
   );
+}
+
+export default function TextSelectionPopover(props: TextSelectionPopoverProps) {
+  return <SelectionPopover {...props} />;
 }
