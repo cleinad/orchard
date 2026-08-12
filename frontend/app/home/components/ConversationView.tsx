@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useState, type RefObject } from 'react';
-import GeneratingIndicator from '@/app/home/components/GeneratingIndicator';
+import ResponseActivity from '@/app/home/components/ResponseActivity';
 import MessageRow from '@/app/home/components/MessageRow';
 import type { InlineThreadMarker, ThreadSource } from '@/app/home/components/threadTypes';
 import type { Message } from '@/app/home/types';
@@ -142,7 +142,7 @@ export default function ConversationView({
             placeholder exists, MessageRow owns the waiting state so the
             indicator sits where the reply will appear.
           */}
-          {isLoading && !messages.some((m) => m.isStreaming) && <GeneratingIndicator />}
+          {isLoading && !messages.some((m) => m.isStreaming) && <ResponseActivity live />}
 
           <div ref={messagesEndRef} />
       </div>
