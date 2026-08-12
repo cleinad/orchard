@@ -777,12 +777,33 @@ describe('chat route contract', () => {
       thread_id: null,
       search_metadata: null,
     }));
+    const sourceMessage = {
+      id: sourceMessageId,
+      role: 'assistant',
+      content: 'Anchor source: 锚点 should still be visible.',
+      previous_message_id: chainMessages.at(-1)?.id ?? null,
+      created_at: '2026-01-01T04:00:00.000Z',
+      thread_id: null,
+      search_metadata: null,
+    };
+    const newerSiblingRows = Array.from({ length: 501 }, (_, index) => ({
+      id: `aaaaaaaa-aaaa-4aaa-8aaa-${index.toString().padStart(12, '0')}`,
+      role: 'assistant',
+      content: `Newer sibling ${index}`,
+      previous_message_id: null,
+      created_at: `2026-01-02T${String(Math.floor(index / 60) % 24).padStart(2, '0')}:${String(index % 60).padStart(2, '0')}:00.000Z`,
+      thread_id: null,
+      search_metadata: null,
+    }));
 
     const { response, tracker } = await runChatRequest(
       {
         message: 'Pronounce this',
         conversationId,
         threadId,
+        historyMessageIds: [...chainMessages, sourceMessage]
+          .slice(-50)
+          .map((message) => message.id),
       },
       {
         conversations: {
@@ -803,15 +824,8 @@ describe('chat route contract', () => {
         messages: {
           rows: [
             ...chainMessages,
-            {
-              id: sourceMessageId,
-              role: 'assistant',
-              content: 'Anchor source: 锚点 should still be visible.',
-              previous_message_id: chainMessages.at(-1)?.id ?? null,
-              created_at: '2026-01-01T04:00:00.000Z',
-              thread_id: null,
-              search_metadata: null,
-            },
+            sourceMessage,
+            ...newerSiblingRows,
           ],
           returnOnMutate: [
             { id: '44444444-4444-4444-8444-444444444444' },
@@ -836,7 +850,8 @@ describe('chat route contract', () => {
 
     const messageSelects = tracker.selects('messages');
     expect(messageSelects.filter((query) => query.filters['eq:id'])).toHaveLength(1);
-    expect(messageSelects.some((query) => query.filters['lte:created_at'])).toBe(true);
+    expect(messageSelects.some((query) => query.filters['in:id'])).toBe(true);
+    expect(messageSelects.some((query) => query.filters['lte:created_at'])).toBe(false);
   });
 
   it('rejects invalid persistent thread source ids before creating a thread', async () => {

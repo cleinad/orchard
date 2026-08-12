@@ -89,6 +89,8 @@ function readJson(request) {
 function sendJson(response, status, body, headers = {}) {
   response.writeHead(status, {
     'content-type': 'application/json',
+    'access-control-allow-origin': '*',
+    'access-control-expose-headers': 'content-range',
     ...headers,
   });
   response.end(JSON.stringify(body));
@@ -166,10 +168,42 @@ function startServer() {
       profileReadFailures: options.profileReadFailures || 0,
       profileWriteFailures: options.profileWriteFailures || 0,
       logoutFailures: options.logoutFailures || 0,
+      mentorReadDelayMs: options.mentorReadDelayMs || 0,
+      mentorReadFailures: options.mentorReadFailures || 0,
+      workspaceReadDelayMs: options.workspaceReadDelayMs || 0,
+      workspaceReadFailures: options.workspaceReadFailures || 0,
+      conversationReadDelayMs: options.conversationReadDelayMs || 0,
+      conversationReadFailures: options.conversationReadFailures || 0,
+      messageReadDelayMs: options.messageReadDelayMs || 0,
+      messageReadFailures: options.messageReadFailures || 0,
+      branchReadDelayMs: options.branchReadDelayMs || 0,
+      branchReadFailures: options.branchReadFailures || 0,
+      threadReadDelayMs: options.threadReadDelayMs || 0,
+      threadReadFailures: options.threadReadFailures || 0,
+      attachmentReadDelayMs: options.attachmentReadDelayMs || 0,
+      attachmentReadFailures: options.attachmentReadFailures || 0,
       mentors: Array.isArray(options.mentors) ? options.mentors : [],
       workspaces: Array.isArray(options.workspaces) ? options.workspaces : [],
       conversations: Array.isArray(options.conversations)
         ? options.conversations
+        : [],
+      messagesByConversationId:
+        options.messagesByConversationId
+        && typeof options.messagesByConversationId === 'object'
+          ? options.messagesByConversationId
+          : {},
+      branchesByConversationId:
+        options.branchesByConversationId
+        && typeof options.branchesByConversationId === 'object'
+          ? options.branchesByConversationId
+          : {},
+      threadsByConversationId:
+        options.threadsByConversationId
+        && typeof options.threadsByConversationId === 'object'
+          ? options.threadsByConversationId
+          : {},
+      attachments: Array.isArray(options.attachments)
+        ? options.attachments
         : [],
       counters: {
         authUser: 0,
@@ -183,6 +217,10 @@ function startServer() {
         workspaceWrites: 0,
         workspaceDeletes: 0,
         conversationReads: 0,
+        messageReads: 0,
+        branchReads: 0,
+        threadReads: 0,
+        attachmentReads: 0,
       },
     };
     state.accessToken = mintAccessToken(state, expiresIn);
@@ -253,6 +291,18 @@ function startServer() {
     );
 
     try {
+      if (request.method === 'OPTIONS') {
+        response.writeHead(204, {
+          'access-control-allow-origin': '*',
+          'access-control-allow-methods': 'GET, POST, PATCH, DELETE, OPTIONS',
+          'access-control-allow-headers':
+            'accept-profile, apikey, authorization, content-profile, content-type, prefer, range, x-client-info',
+          'access-control-max-age': '600',
+        });
+        response.end();
+        return;
+      }
+
       if (request.method === 'GET' && requestUrl.pathname === '/health') {
         sendJson(response, 200, { ok: true });
         return;
@@ -307,6 +357,20 @@ function startServer() {
             'profileReadFailures',
             'profileWriteFailures',
             'logoutFailures',
+            'mentorReadDelayMs',
+            'mentorReadFailures',
+            'workspaceReadDelayMs',
+            'workspaceReadFailures',
+            'conversationReadDelayMs',
+            'conversationReadFailures',
+            'messageReadDelayMs',
+            'messageReadFailures',
+            'branchReadDelayMs',
+            'branchReadFailures',
+            'threadReadDelayMs',
+            'threadReadFailures',
+            'attachmentReadDelayMs',
+            'attachmentReadFailures',
           ]) {
             if (typeof updates[key] === 'number') state[key] = updates[key];
           }
@@ -317,6 +381,12 @@ function startServer() {
               full_name: state.user.user_metadata.full_name,
               global_instructions: updates.globalInstructions || '',
             };
+          }
+          if (
+            updates.messagesByConversationId
+            && typeof updates.messagesByConversationId === 'object'
+          ) {
+            state.messagesByConversationId = updates.messagesByConversationId;
           }
           sendJson(response, 200, publicState(state));
           return;
@@ -439,6 +509,16 @@ function startServer() {
         }
 
         state.counters.mentorReads += 1;
+        if (state.mentorReadDelayMs > 0) {
+          await new Promise((resolve) =>
+            setTimeout(resolve, state.mentorReadDelayMs),
+          );
+        }
+        if (state.mentorReadFailures > 0) {
+          state.mentorReadFailures -= 1;
+          sendJson(response, 500, { message: 'Injected mentor read failure' });
+          return;
+        }
         sendJson(response, 200, state.mentors);
         return;
       }
@@ -550,6 +630,16 @@ function startServer() {
         }
 
         state.counters.workspaceListReads += 1;
+        if (state.workspaceReadDelayMs > 0) {
+          await new Promise((resolve) =>
+            setTimeout(resolve, state.workspaceReadDelayMs),
+          );
+        }
+        if (state.workspaceReadFailures > 0) {
+          state.workspaceReadFailures -= 1;
+          sendJson(response, 500, { message: 'Injected workspace read failure' });
+          return;
+        }
         sendJson(response, 200, state.workspaces);
         return;
       }
@@ -567,7 +657,150 @@ function startServer() {
         }
 
         state.counters.conversationReads += 1;
+        if (state.conversationReadDelayMs > 0) {
+          await new Promise((resolve) =>
+            setTimeout(resolve, state.conversationReadDelayMs),
+          );
+        }
+        if (state.conversationReadFailures > 0) {
+          state.conversationReadFailures -= 1;
+          sendJson(response, 500, {
+            message: 'Injected conversation read failure',
+          });
+          return;
+        }
+        const requestedConversationId = requestUrl.searchParams
+          .get('id')
+          ?.replace(/^eq\./, '');
+        if (requestedConversationId) {
+          const conversation = state.conversations.find(
+            (candidate) => candidate.id === requestedConversationId,
+          );
+          sendJson(response, 200, conversation || null);
+          return;
+        }
         sendJson(response, 200, state.conversations);
+        return;
+      }
+
+      if (
+        request.method === 'GET'
+        && requestUrl.pathname === '/rest/v1/messages'
+      ) {
+        state.counters.messageReads += 1;
+        if (state.messageReadDelayMs > 0) {
+          await new Promise((resolve) =>
+            setTimeout(resolve, state.messageReadDelayMs),
+          );
+        }
+        if (state.messageReadFailures > 0) {
+          state.messageReadFailures -= 1;
+          sendJson(response, 500, { message: 'Injected message read failure' });
+          return;
+        }
+        const conversationId = requestUrl.searchParams
+          .get('conversation_id')
+          ?.replace(/^eq\./, '');
+        const rows = Array.isArray(
+          state.messagesByConversationId[conversationId],
+        )
+          ? state.messagesByConversationId[conversationId]
+          : [];
+        const range = request.headers.range?.match(/^(\d+)-(\d+)$/);
+        const from = range ? Number(range[1]) : 0;
+        const to = range ? Number(range[2]) : rows.length - 1;
+        sendJson(response, 200, rows.slice(from, to + 1), {
+          'content-range':
+            rows.length === 0
+              ? '*/0'
+              : `${from}-${Math.min(to, rows.length - 1)}/${rows.length}`,
+        });
+        return;
+      }
+
+      if (
+        request.method === 'GET'
+        && requestUrl.pathname === '/rest/v1/conversation_branches'
+      ) {
+        state.counters.branchReads += 1;
+        if (state.branchReadDelayMs > 0) {
+          await new Promise((resolve) =>
+            setTimeout(resolve, state.branchReadDelayMs),
+          );
+        }
+        if (state.branchReadFailures > 0) {
+          state.branchReadFailures -= 1;
+          sendJson(response, 500, { message: 'Injected branch read failure' });
+          return;
+        }
+        const conversationId = requestUrl.searchParams
+          .get('conversation_id')
+          ?.replace(/^eq\./, '');
+        sendJson(
+          response,
+          200,
+          state.branchesByConversationId[conversationId] ?? [],
+        );
+        return;
+      }
+
+      if (
+        request.method === 'GET'
+        && requestUrl.pathname === '/rest/v1/threads'
+      ) {
+        state.counters.threadReads += 1;
+        if (state.threadReadDelayMs > 0) {
+          await new Promise((resolve) =>
+            setTimeout(resolve, state.threadReadDelayMs),
+          );
+        }
+        if (state.threadReadFailures > 0) {
+          state.threadReadFailures -= 1;
+          sendJson(response, 500, { message: 'Injected thread read failure' });
+          return;
+        }
+        const conversationId = requestUrl.searchParams
+          .get('conversation_id')
+          ?.replace(/^eq\./, '');
+        sendJson(
+          response,
+          200,
+          state.threadsByConversationId[conversationId] ?? [],
+        );
+        return;
+      }
+
+      if (
+        request.method === 'GET'
+        && requestUrl.pathname === '/rest/v1/message_attachments'
+      ) {
+        state.counters.attachmentReads += 1;
+        if (state.attachmentReadDelayMs > 0) {
+          await new Promise((resolve) =>
+            setTimeout(resolve, state.attachmentReadDelayMs),
+          );
+        }
+        if (state.attachmentReadFailures > 0) {
+          state.attachmentReadFailures -= 1;
+          sendJson(response, 500, {
+            message: 'Injected attachment read failure',
+          });
+          return;
+        }
+        const requestedIds = requestUrl.searchParams
+          .get('message_id')
+          ?.replace(/^in\.\(/, '')
+          .replace(/\)$/, '')
+          .split(',')
+          .map((id) => decodeURIComponent(id));
+        const requestedIdSet = new Set(requestedIds ?? []);
+        sendJson(
+          response,
+          200,
+          state.attachments.filter((attachment) =>
+            requestedIdSet.has(attachment.message_id)
+          ),
+        );
         return;
       }
 

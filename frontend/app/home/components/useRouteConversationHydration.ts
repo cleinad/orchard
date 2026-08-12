@@ -10,6 +10,7 @@ import {
 } from 'react';
 import type { SelectedChat } from '@/app/home/components/HomeDataContext';
 import type { ThreadMeta } from '@/app/home/components/threadTypes';
+import type { ConversationMetadataStatus } from '@/app/home/components/conversationTranscriptData';
 import type {
   BranchSelectionMap,
   ConversationBranch,
@@ -25,17 +26,20 @@ interface LoadedConversationMessages {
   branches: ConversationBranch[];
   selectedBranchIds: BranchSelectionMap;
   threadsMap: Map<string, ThreadMeta[]>;
+  metadataStatus: ConversationMetadataStatus;
 }
 
 interface UseRouteConversationHydrationParams {
   activeMessagesLength: number;
   conversations: ConversationListItem[];
+  deferRouteConversationLoad: boolean;
   effectiveRouteConversationId: string | null;
   getPersistentConversationTranscript: (
     conversationId: string
   ) => PersistentConversationTranscript | null;
   hasRouteConversationTranscript: boolean;
   isHomeE2eFixture: boolean;
+  initialRouteConversationError: string | null;
   listError: string | null;
   loadConversationById: (id: string) => Promise<ConversationListItem>;
   loadConversationMessages: (id: string) => Promise<LoadedConversationMessages>;
@@ -53,10 +57,12 @@ interface UseRouteConversationHydrationParams {
 export function useRouteConversationHydration({
   activeMessagesLength,
   conversations,
+  deferRouteConversationLoad,
   effectiveRouteConversationId,
   getPersistentConversationTranscript,
   hasRouteConversationTranscript,
   isHomeE2eFixture,
+  initialRouteConversationError,
   listError,
   loadConversationById,
   loadConversationMessages,
@@ -68,7 +74,10 @@ export function useRouteConversationHydration({
   setSelectedChat,
 }: UseRouteConversationHydrationParams) {
   const [isRouteConversationLoading, setIsRouteConversationLoading] = useState(false);
-  const [routeConversationError, setRouteConversationError] = useState<string | null>(null);
+  const [routeConversationError, setRouteConversationError] = useState<string | null>(
+    initialRouteConversationError
+  );
+  const [retryAttempt, setRetryAttempt] = useState(0);
   const [hydratedRouteConversationId, setHydratedRouteConversationId] = useState<string | null>(null);
   const hydratedRouteConversationIdRef = useRef<string | null>(null);
   const routeLoadRequestIdRef = useRef(0);
@@ -89,9 +98,37 @@ export function useRouteConversationHydration({
   }, []);
 
   useEffect(() => {
+    if (initialRouteConversationError) {
+      setRouteConversationError(initialRouteConversationError);
+      setIsRouteConversationLoading(false);
+      return;
+    }
+    setRouteConversationError((current) =>
+      current === 'The conversation took too long to load.'
+      || current === 'The conversation could not be loaded.'
+        ? null
+        : current
+    );
+  }, [initialRouteConversationError]);
+
+  useEffect(() => {
     if (isHomeE2eFixture) {
       routeLoadConversationIdRef.current = null;
       setIsRouteConversationLoading(false);
+      setRouteConversationError(null);
+      return;
+    }
+
+    if (initialRouteConversationError) {
+      routeLoadConversationIdRef.current = null;
+      setIsRouteConversationLoading(false);
+      return;
+    }
+
+    if (deferRouteConversationLoad) {
+      routeLoadRequestIdRef.current += 1;
+      routeLoadConversationIdRef.current = null;
+      setIsRouteConversationLoading(true);
       setRouteConversationError(null);
       return;
     }
@@ -223,6 +260,10 @@ export function useRouteConversationHydration({
       if (
         routeLoadRequestIdRef.current !== requestId
         || activeRouteConversationIdRef.current !== effectiveRouteConversationId
+        || (
+          selectedChatRef.current?.kind === 'persistent'
+          && selectedChatRef.current.conversationId !== effectiveRouteConversationId
+        )
       ) {
         return;
       }
@@ -252,10 +293,12 @@ export function useRouteConversationHydration({
     });
   }, [
     conversations,
+    deferRouteConversationLoad,
     effectiveRouteConversationId,
     getPersistentConversationTranscript,
     invokePrepareForChatSwitch,
     isHomeE2eFixture,
+    initialRouteConversationError,
     loadConversationById,
     loadConversationMessages,
     loadPersistentConversationTranscript,
@@ -263,7 +306,15 @@ export function useRouteConversationHydration({
     selectedChatRef,
     setListError,
     setSelectedChat,
+    retryAttempt,
   ]);
+
+  const retryRouteConversation = () => {
+    routeConversationMissingRef.current = false;
+    routeLoadConversationIdRef.current = null;
+    setRouteConversationError(null);
+    setRetryAttempt((current) => current + 1);
+  };
 
   const shouldShowRouteConversationLoading =
     effectiveRouteConversationId !== null
@@ -289,6 +340,7 @@ export function useRouteConversationHydration({
     hydratedRouteConversationIdRef,
     isRouteConversationLoading,
     routeConversationError,
+    retryRouteConversation,
     shouldShowRouteConversationError,
     shouldShowRouteConversationLoading,
   };

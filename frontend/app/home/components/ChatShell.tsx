@@ -5,17 +5,22 @@ import {
   useEffect,
   useRef,
   useState,
+  useTransition,
   type CSSProperties,
   type FormEvent,
   type ReactNode,
 } from 'react';
-import { useParams, useSearchParams } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { SidePanelProvider } from '@/app/home/components/SidePanelContext';
 import { useSidePanel } from '@/app/home/components/SidePanelContext';
-import { HomeDataProvider, useHomeDataContext } from '@/app/home/components/HomeDataContext';
+import {
+  HomeDataProvider,
+  useHomeShellContext,
+} from '@/app/home/components/HomeDataContext';
 import SidePanel from '@/app/home/components/SidePanel';
-import { getHomeE2eFixture } from '@/app/home/e2eFixtures';
+import { isHomeE2eFixtureKey } from '@/app/home/homeE2eFixtureKeys';
 import type { HomeBootstrapData } from '@/app/home/server-data';
+import { recordHomePerformanceEvent } from '@/app/home/components/homePerformanceInstrumentation';
 
 const SIDE_PANEL_DRAWER_BREAKPOINT_PX = 768;
 
@@ -160,6 +165,7 @@ function CreateWorkspaceModal({
 }
 
 function HomeShell({ children }: { children: ReactNode }) {
+  recordHomePerformanceEvent('home-shell-render');
   const {
     isOpen: sidePanelOpen,
     widthPx: sidePanelWidthPx,
@@ -177,6 +183,7 @@ function HomeShell({ children }: { children: ReactNode }) {
     conversations,
     draftChats,
     temporaryChats,
+    navigationStatus,
     selectedChat,
     setSelectedChat,
     handleSelectConversation,
@@ -185,15 +192,25 @@ function HomeShell({ children }: { children: ReactNode }) {
     handleCreateDraftSelection,
     handleCreateTemporaryChat,
     handleCloseTemporaryChat,
-    refreshSidebarData,
+    upsertSidebarConversation,
     upsertWorkspaceSummary,
     buildHomeHref,
+    prefetchPersistentConversation,
     openWorkspace,
-  } = useHomeDataContext();
+  } = useHomeShellContext();
+  const router = useRouter();
+  const [isNavigationRetryPending, startNavigationRetry] = useTransition();
   const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false);
   const [workspaceNameDraft, setWorkspaceNameDraft] = useState('');
   const [createWorkspaceError, setCreateWorkspaceError] = useState<string | null>(null);
   const [creatingWorkspace, setCreatingWorkspace] = useState(false);
+  const unavailableNavigationResources = (
+    Object.entries(navigationStatus) as Array<
+      [keyof typeof navigationStatus, (typeof navigationStatus)[keyof typeof navigationStatus]]
+    >
+  )
+    .filter(([, status]) => status.status === 'unavailable')
+    .map(([resource]) => resource);
 
   // Scroll the sidebar to the requested section after it opens
   useEffect(() => {
@@ -288,31 +305,62 @@ function HomeShell({ children }: { children: ReactNode }) {
       throw new Error(payload.error || 'Could not move chat.');
     }
 
+    const movedConversation = payload.conversation;
+    if (!movedConversation || movedConversation.id !== conversation.id) {
+      throw new Error('Could not move chat.');
+    }
     const nextWorkspaceId =
-      typeof payload.conversation?.workspaceId === 'string'
-        ? payload.conversation.workspaceId
+      typeof movedConversation.workspaceId === 'string'
+        ? movedConversation.workspaceId
         : null;
 
     setSelectedChat((current) =>
       current?.kind === 'persistent' && current.conversationId === conversation.id
         ? {
             ...current,
-            mentorId: null,
+            mentorId:
+              typeof movedConversation.mentorId === 'string'
+                ? movedConversation.mentorId
+                : null,
             workspaceId: nextWorkspaceId,
           }
         : current
     );
-
-    await refreshSidebarData();
+    upsertSidebarConversation(movedConversation);
   };
 
   return (
     <div
+      data-home-region="shell"
       className="side-panel-layout relative flex h-dvh min-h-0 flex-col overflow-hidden bg-background text-foreground"
       data-side-panel-open={sidePanelOpen}
       style={{ '--side-panel-width': `${sidePanelWidthPx}px` } as CSSProperties}
     >
       {children}
+
+      {unavailableNavigationResources.length > 0 && (
+        <div
+          role="status"
+          className="fixed bottom-4 right-4 z-[95] max-w-sm rounded-lg border border-amber-300/70 bg-amber-50 px-3 py-2 font-sans text-xs text-amber-950 shadow-lg dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100"
+        >
+          <span>
+            Some navigation data is unavailable (
+            {unavailableNavigationResources.join(', ')}).
+          </span>
+          <button
+            type="button"
+            onClick={() =>
+              startNavigationRetry(() => {
+                router.refresh();
+              })
+            }
+            disabled={isNavigationRetryPending}
+            className="ml-2 font-semibold underline underline-offset-2 disabled:opacity-50"
+          >
+            {isNavigationRetryPending ? 'Retrying…' : 'Retry'}
+          </button>
+        </div>
+      )}
 
       <CreateWorkspaceModal
         open={createWorkspaceOpen}
@@ -341,18 +389,9 @@ function HomeShell({ children }: { children: ReactNode }) {
         onOpenAllChats={() => openWithScroll('all')}
         workspaceGroups={workspaceGroups}
         conversations={conversations}
-        draftChats={draftChats.map((d) => ({
-          id: d.id,
-          mentor_id: d.mentorId,
-          workspace_id: d.workspaceId,
-          title: d.title,
-          updated_at: d.updatedAt,
-        }))}
-        temporaryChats={temporaryChats.map((c) => ({
-          id: c.id,
-          title: c.title,
-          updated_at: c.updatedAt,
-        }))}
+        navigationStatus={navigationStatus}
+        draftChats={draftChats}
+        temporaryChats={temporaryChats}
         selectedConversationId={
           selectedChat?.kind === 'persistent' ? selectedChat.conversationId : null
         }
@@ -383,6 +422,10 @@ function HomeShell({ children }: { children: ReactNode }) {
           if (window.innerWidth < SIDE_PANEL_DRAWER_BREAKPOINT_PX) handleCloseSidePanel();
         }}
         onCreateWorkspace={openCreateWorkspaceModal}
+        buildConversationHref={(conversationId) =>
+          buildHomeHref(`/home/${encodeURIComponent(conversationId)}`)
+        }
+        onPrefetchConversation={prefetchPersistentConversation}
         buildWorkspaceHref={(workspaceId) =>
           buildHomeHref(`/workspaces/${encodeURIComponent(workspaceId)}`)
         }
@@ -416,7 +459,7 @@ function ChatShellInner({
       ? params.conversationId[0]
       : null;
   const e2eQueryParam = searchParams.get('e2e');
-  const skipInitialSidebarRefresh = getHomeE2eFixture(e2eQueryParam) !== null;
+  const skipInitialSidebarRefresh = isHomeE2eFixtureKey(e2eQueryParam);
 
   return (
     <>
@@ -426,6 +469,7 @@ function ChatShellInner({
         e2eQueryParam={e2eQueryParam}
         skipInitialSidebarRefresh={skipInitialSidebarRefresh}
         initialNavigationData={initialBootstrap?.navigation}
+        initialNavigationStatus={initialBootstrap?.navigationStatus}
         initialChatModels={initialBootstrap?.chatModels}
       >
         <HomeShell>{children}</HomeShell>

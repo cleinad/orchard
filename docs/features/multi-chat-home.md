@@ -40,7 +40,10 @@ The sidebar is organized into:
 - General Chats
 
 Chats are ordered by recent activity. Long sections reveal more items
-incrementally. On desktop, the panel width is resizable and stored locally.
+incrementally from the bounded server bootstrap. The initial navigation payload
+contains at most 200 conversations and 100 workspaces; keyset pagination beyond
+those limits is not implemented yet. On desktop, the panel width is resizable
+and stored locally.
 
 Selecting a chat switches the active transcript without treating sidebar data
 as the message source of truth.
@@ -50,20 +53,29 @@ conversation-summary, and model-catalog state on the server. Home and workspace
 navigation retains that provider state; normal navigation and focused
 workspace mutations do not repeat the complete sidebar bootstrap.
 
+Each bootstrap resource has an independent deadline and status. A mentor,
+workspace, or conversation-summary failure leaves the shell and composer
+usable, preserves successful data, and offers one focused retry.
+
 ## Routing
 
 `/home` is the URL-less composer surface. `/home/<conversationId>` identifies a
 persistent chat.
 
-When a selected routed chat changes:
+On hard entry, the routed page verifies the viewer and conversation, loads
+messages plus branch/thread/attachment metadata on the server, and sends the
+complete transcript in the initial response.
 
-1. the route parameter becomes the intended persistent selection
-2. cached transcript data may render immediately
-3. the client fetches current conversation data
-4. the loaded path replaces or reconciles with the cache
+On client navigation:
 
-The UI shows a routed-history loading state instead of briefly displaying an
-empty composer.
+1. a cached transcript becomes the intended selection and renders immediately
+2. an uncached chat uses an intent-prefetched route payload when available
+3. otherwise the retained shell shows a routed-history loading state while the
+   server payload arrives
+4. the result merges against the pre-request cache baseline so a late response
+   cannot overwrite newer local messages, branch choices, or metadata
+
+Returning to a cached chat performs no transcript read.
 
 Selecting a draft or temporary chat while on a conversation route uses a
 session-scoped handoff, navigates to `/home`, and restores the intended local
@@ -86,6 +98,11 @@ or older runs from overwriting a newer title.
 
 Temporary chats derive a local title and never request title persistence.
 
+Successful linear sends finalize the streamed message and affected sidebar
+summary locally without reloading the transcript or navigation lists. Branch
+creation and ambiguous restored runs retain one focused transcript reload for
+server-owned topology or missing terminal identity.
+
 ## Key implementation
 
 - `frontend/app/(authenticated)/(chat-shell)/layout.tsx`
@@ -101,6 +118,8 @@ Temporary chats derive a local title and never request title persistence.
 ## Verification
 
 - `frontend/e2e/home-routing.spec.js`
+- `frontend/e2e/home-performance.spec.js`
+- `frontend/e2e/chat-run-lifecycle.spec.js`
 - `frontend/__tests__/app/home/home-runtime-helpers.test.ts`
 - `frontend/__tests__/app/home/useMainChatRuntime.test.ts`
 

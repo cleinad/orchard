@@ -30,6 +30,7 @@ import { hasUsableSearchSources } from '@/lib/search-citations';
 import type { SearchActivityEvent } from '@/lib/search/types';
 import SourceFavicon from '@/app/home/components/SourceFavicon';
 import { buttonStyles, cx } from '@/app/components/buttonStyles';
+import { recordHomePerformanceEvent } from '@/app/home/components/homePerformanceInstrumentation';
 
 function getHighlightSourceIdAtPoint(root: HTMLElement, clientX: number, clientY: number) {
   const overlayRects = Array.from(
@@ -120,6 +121,15 @@ function MessageRow({
   onThreadClick,
   onTraySourceSelect,
 }: MessageRowProps) {
+  recordHomePerformanceEvent('message-row-render');
+  recordHomePerformanceEvent(
+    `message-row-render:${message.renderId ?? message.id}`
+  );
+  recordHomePerformanceEvent(
+    message.isStreaming
+      ? 'streaming-message-row-render'
+      : 'finalized-message-row-render'
+  );
   const [selectedImage, setSelectedImage] = useState<ChatImageAttachment | null>(null);
   const [emphasizedThreadMarkerId, setEmphasizedThreadMarkerId] = useState<string | null>(null);
   const messageContentRef = useRef<HTMLDivElement | null>(null);

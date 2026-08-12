@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createMockSupabase } from '../helpers/mock-supabase';
 
 const mockCreateSupabaseServerClient = vi.hoisted(() => vi.fn());
@@ -43,6 +43,10 @@ describe('workspace server data', () => {
         isDefault: true,
       },
     ]);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('loads scoped navigation summaries without workspace context', async () => {
@@ -128,6 +132,11 @@ describe('workspace server data', () => {
       workspace_name: 'Health',
     });
     expect(result.chatModels).toHaveLength(1);
+    expect(result.navigationStatus).toEqual({
+      mentors: { status: 'ready' },
+      workspaces: { status: 'ready' },
+      conversations: { status: 'ready' },
+    });
 
     expect(tracker.selects('mentors')[0]).toMatchObject({
       args: 'id, slug, name, tagline, description, is_builtin, accent_color, avatar_url',
@@ -140,6 +149,191 @@ describe('workspace server data', () => {
     expect(tracker.selects('conversations')[0]).toMatchObject({
       args: 'id, title, mentor_id, workspace_id, updated_at, created_at',
       filters: { 'eq:user_id': 'user-1' },
+    });
+  });
+
+  it.each([
+    ['mentors', 'mentors'],
+    ['workspaces', 'workspaces'],
+    ['conversations', 'conversations'],
+  ] as const)(
+    'preserves successful navigation resources when %s fails',
+    async (failedTable, statusKey) => {
+      const { client } = createMockSupabase({
+        tables: {
+          mentors: {
+            rows: [{
+              id: 'mentor-1',
+              user_id: 'user-1',
+              slug: 'math',
+              name: 'Math',
+              tagline: 'Learn math',
+              description: null,
+              is_builtin: true,
+              accent_color: null,
+              avatar_url: null,
+            }],
+            ...(failedTable === 'mentors'
+              ? { queryError: { message: 'private backend detail' } }
+              : {}),
+          },
+          workspaces: {
+            rows: [{
+              id: 'workspace-1',
+              user_id: 'user-1',
+              name: 'Health',
+              description: null,
+              icon: null,
+              accent_color: null,
+              created_at: '2026-08-01T00:00:00.000Z',
+              updated_at: '2026-08-02T00:00:00.000Z',
+            }],
+            ...(failedTable === 'workspaces'
+              ? { queryError: { message: 'private backend detail' } }
+              : {}),
+          },
+          conversations: {
+            rows: [{
+              id: 'conversation-1',
+              user_id: 'user-1',
+              title: 'Test',
+              mentor_id: 'mentor-1',
+              workspace_id: null,
+              created_at: '2026-08-01T00:00:00.000Z',
+              updated_at: '2026-08-02T00:00:00.000Z',
+            }],
+            ...(failedTable === 'conversations'
+              ? { queryError: { message: 'private backend detail' } }
+              : {}),
+          },
+        },
+      });
+      mockCreateSupabaseServerClient.mockResolvedValue(client);
+
+      const { getHomeBootstrap } = await import('@/app/home/server-data');
+      const result = await getHomeBootstrap();
+
+      expect(result.navigationStatus[statusKey]).toEqual({
+        status: 'unavailable',
+        reason: 'error',
+      });
+      for (const resource of ['mentors', 'workspaces', 'conversations'] as const) {
+        if (resource === statusKey) continue;
+        expect(result.navigationStatus[resource]).toEqual({ status: 'ready' });
+      }
+      if (failedTable !== 'conversations') {
+        expect(result.navigation.conversations).toHaveLength(1);
+      }
+    }
+  );
+
+  it('aborts a slow navigation resource after two seconds without rejecting bootstrap', async () => {
+    vi.useFakeTimers();
+    const { client } = createMockSupabase({
+      tables: {
+        mentors: { rows: [], queryDelayMs: 10_000 },
+        workspaces: { rows: [] },
+        conversations: { rows: [] },
+      },
+    });
+    mockCreateSupabaseServerClient.mockResolvedValue(client);
+
+    const { getHomeBootstrap } = await import('@/app/home/server-data');
+    const resultPromise = getHomeBootstrap();
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    await expect(resultPromise).resolves.toMatchObject({
+      navigationStatus: {
+        mentors: { status: 'unavailable', reason: 'timeout' },
+        workspaces: { status: 'ready' },
+        conversations: { status: 'ready' },
+      },
+    });
+  });
+
+  it('distinguishes a missing conversation from a failed transcript', async () => {
+    const missingClient = createMockSupabase({
+      tables: {
+        mentors: { rows: [] },
+        workspaces: { rows: [] },
+        conversations: { rows: [] },
+        messages: { rows: [] },
+        conversation_branches: { rows: [] },
+        threads: { rows: [] },
+      },
+    }).client;
+    mockCreateSupabaseServerClient.mockResolvedValue(missingClient);
+    let serverData = await import('@/app/home/server-data');
+
+    await expect(
+      serverData.getHomeConversationInitialData('missing')
+    ).resolves.toEqual({ status: 'not-found' });
+
+    vi.resetModules();
+    const failedClient = createMockSupabase({
+      tables: {
+        mentors: { rows: [] },
+        workspaces: { rows: [] },
+        conversations: {
+          rows: [{
+            id: 'conversation-1',
+            user_id: 'user-1',
+            title: 'Test',
+            mentor_id: null,
+            workspace_id: null,
+            created_at: '2026-08-01T00:00:00.000Z',
+            updated_at: '2026-08-02T00:00:00.000Z',
+          }],
+        },
+        messages: {
+          rows: [],
+          queryError: { message: 'private backend detail' },
+        },
+        conversation_branches: { rows: [] },
+        threads: { rows: [] },
+      },
+    }).client;
+    mockCreateSupabaseServerClient.mockResolvedValue(failedClient);
+    serverData = await import('@/app/home/server-data');
+
+    await expect(
+      serverData.getHomeConversationInitialData('conversation-1')
+    ).resolves.toEqual({ status: 'unavailable', reason: 'error' });
+  });
+
+  it('returns a controlled timeout when the required transcript exceeds four seconds', async () => {
+    vi.useFakeTimers();
+    const { client } = createMockSupabase({
+      tables: {
+        mentors: { rows: [] },
+        workspaces: { rows: [] },
+        conversations: {
+          rows: [{
+            id: 'conversation-1',
+            user_id: 'user-1',
+            title: 'Test',
+            mentor_id: null,
+            workspace_id: null,
+            created_at: '2026-08-01T00:00:00.000Z',
+            updated_at: '2026-08-02T00:00:00.000Z',
+          }],
+        },
+        messages: { rows: [], queryDelayMs: 10_000 },
+        conversation_branches: { rows: [] },
+        threads: { rows: [] },
+      },
+    });
+    mockCreateSupabaseServerClient.mockResolvedValue(client);
+
+    const { getHomeConversationInitialData } = await import(
+      '@/app/home/server-data'
+    );
+    const resultPromise = getHomeConversationInitialData('conversation-1');
+    await vi.advanceTimersByTimeAsync(4_000);
+
+    await expect(resultPromise).resolves.toEqual({
+      status: 'unavailable',
+      reason: 'timeout',
     });
   });
 

@@ -3,8 +3,11 @@ import type { ConversationBranch, Message } from '@/app/home/types';
 import {
   buildConversationMapModel,
   type ConversationMapModel,
+} from '@/app/home/components/conversationMapLayout';
+import {
   getMapNavigationAnchorMessageId,
   getRouteSelectionPatch,
+  normalizeMessages,
 } from '@/app/home/components/conversationMapModel';
 
 function createMessage(
@@ -62,6 +65,21 @@ function expectNoHorizontalOverlap(projection: ConversationMapModel) {
 }
 
 describe('conversationMapModel', () => {
+  it('preserves message identity when predecessor topology is already valid', () => {
+    const messages: Message[] = [
+      createMessage('m1', 'user', null, 0),
+      createMessage('m2', 'assistant', 'm1', 1),
+      createMessage('m3', 'user', 'm2', 2),
+    ];
+
+    const normalized = normalizeMessages(messages);
+
+    expect(normalized).not.toBe(messages);
+    expect(normalized[0]).toBe(messages[0]);
+    expect(normalized[1]).toBe(messages[1]);
+    expect(normalized[2]).toBe(messages[2]);
+  });
+
   it('builds merged turn-card nodes and keeps prompt-only turns usable', () => {
     const messages: Message[] = [
       createMessage('m1', 'user', null, 0),

@@ -110,8 +110,21 @@ test('a new chat centers the exploration prompt above the composer', async ({ pa
   await page.goto('/home?e2e=home-exploration-empty-state');
 
   await expect(page.getByRole('heading', { name: "Let's explore" })).toBeVisible();
-  await expect(page.getByTestId('ascii-tesseract')).toBeVisible();
   await expect(page.getByPlaceholder('Ask a question or add a thought...')).toBeVisible();
+});
+
+test('unexpected home errors render the route boundary and Retry resets it', async ({
+  page,
+}) => {
+  await mockHomeDataRoutes(page, {});
+
+  await page.goto('/home?e2e=home-error-boundary');
+
+  await expect(page.getByRole('heading', { name: 'Home could not be loaded' }))
+    .toBeVisible();
+  await page.getByRole('button', { name: 'Retry' }).click();
+  await expect(page.getByRole('heading', { name: "Let's explore" }))
+    .toBeVisible();
 });
 
 test('hydrates a persistent conversation on direct /home/[conversationId] entry', async ({ page }) => {
@@ -149,6 +162,142 @@ test('hydrates a persistent conversation on direct /home/[conversationId] entry'
   await expect(page).toHaveURL(new RegExp(`/home/${conversationId}\\?e2e=home-routing-direct$`));
   await expect(page.getByText(question)).toBeVisible();
   await expect(page.getByText(answer)).toBeVisible({ timeout: 10000 });
+});
+
+test('loads complete linear and branched history beyond 200 main messages', async ({
+  page,
+}) => {
+  test.setTimeout(45_000);
+  const conversationId = 'conversation-long-branched-history';
+  const latestMainContent =
+    'Latest main-path content beyond the former cap.';
+  let transcriptPageReads = 0;
+  const mainMessages = Array.from({ length: 505 }, (_, index) => {
+    const number = index + 1;
+    return {
+      id: `message-long-${String(number).padStart(3, '0')}`,
+      role: number % 2 === 0 ? 'assistant' : 'user',
+      content:
+        number === 505
+          ? latestMainContent
+          : `Long main-path message ${number}`,
+      created_at: new Date(
+        Date.UTC(2026, 0, 1, 0, 0, number)
+      ).toISOString(),
+      previous_message_id:
+        number === 1
+          ? null
+          : `message-long-${String(number - 1).padStart(3, '0')}`,
+    };
+  });
+  const alternateMessages = [
+    {
+      id: 'message-long-alt-user',
+      role: 'user',
+      content: 'Take the alternate path after message 500.',
+      created_at: new Date(Date.UTC(2026, 0, 1, 0, 4, 0)).toISOString(),
+      previous_message_id: 'message-long-500',
+    },
+    {
+      id: 'message-long-alt-assistant',
+      role: 'assistant',
+      content: 'Alternate content beyond the former cap.',
+      created_at: new Date(Date.UTC(2026, 0, 1, 0, 4, 1)).toISOString(),
+      previous_message_id: 'message-long-alt-user',
+    },
+  ];
+
+  await mockHomeDataRoutes(page, {
+    conversations: [
+      createConversation({
+        id: conversationId,
+        title: 'Long branched history',
+      }),
+    ],
+    messagesByConversationId: {
+      [conversationId]: [...mainMessages, ...alternateMessages],
+    },
+    branchesByConversationId: {
+      [conversationId]: [
+        {
+          id: 'branch-long-main',
+          source_message_id: 'message-long-500',
+          entry_message_id: 'message-long-501',
+          title: 'Main',
+          is_main: true,
+          position: 0,
+        },
+        {
+          id: 'branch-long-alternate',
+          source_message_id: 'message-long-500',
+          entry_message_id: 'message-long-alt-user',
+          title: 'Alternate',
+          is_main: false,
+          position: 1,
+        },
+      ],
+    },
+    threadsByConversationId: {
+      [conversationId]: [
+        {
+          id: 'thread-long-history',
+          source_message_id: 'message-long-505',
+          highlighted_text: 'former cap',
+          start_offset: latestMainContent.indexOf('former cap'),
+          end_offset:
+            latestMainContent.indexOf('former cap') + 'former cap'.length,
+          selection_stream_version: 'markdown-structure-v2',
+        },
+      ],
+    },
+    attachmentsByMessageId: {
+      'message-long-505': [
+        {
+          id: 'attachment-long-history',
+          message_id: 'message-long-505',
+          storage_path: 'user-1/long-history.png',
+          file_name: 'long-history.png',
+          mime_type: 'image/png',
+          size_bytes: 68,
+          width: 1,
+          height: 1,
+        },
+      ],
+    },
+    onMessagesRequest: async ({ conversationId: requestedId, select }) => {
+      if (requestedId === conversationId && select !== 'content') {
+        transcriptPageReads += 1;
+      }
+      return false;
+    },
+  });
+
+  await page.goto(`/home/${conversationId}?e2e=long-branched-history`);
+
+  await expect(
+    page.getByText('Long main-path message 1', { exact: true })
+  ).toBeVisible();
+  await expect(
+    page.getByText('Latest main-path content beyond the former cap.')
+  ).toBeVisible();
+  await expect(page.getByAltText('long-history.png')).toBeVisible();
+  await expect(
+    page.locator(
+      '[data-testid="inline-thread-link"][data-thread-id="thread-long-history"]'
+    )
+  ).toHaveCount(1);
+  await expect(page.locator('[data-message-id]')).toHaveCount(505);
+  expect(transcriptPageReads).toBe(2);
+
+  await page.getByTestId('conversation-map-toggle').click();
+  await page
+    .locator('[data-map-node-id="message-long-alt-assistant"]')
+    .click();
+  await expect(
+    page
+      .getByTestId('home-scroll-container')
+      .getByText('Alternate content beyond the former cap.')
+  ).toBeVisible();
 });
 
 test('repairs the production math fixture for rendering and both markdown copy formats', async ({

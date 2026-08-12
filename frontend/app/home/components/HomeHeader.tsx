@@ -2,7 +2,6 @@
 
 import ThemePicker from "@/app/components/ThemePicker";
 import Tooltip from "@/app/components/Tooltip";
-import ConversationMapToggle from "@/app/home/components/ConversationMapToggle";
 import {
   headerIconBase,
   headerIconOff,
@@ -13,9 +12,6 @@ type HomeHeaderProps = {
   isTemporaryChat: boolean;
   loadingLists: boolean;
   onCreateTemporaryChat: () => void;
-  conversationMapNodeCount: number;
-  conversationMapOpen: boolean;
-  onToggleConversationMap: () => void;
 };
 
 export default function HomeHeader({
@@ -23,12 +19,12 @@ export default function HomeHeader({
   isTemporaryChat,
   loadingLists,
   onCreateTemporaryChat,
-  conversationMapNodeCount,
-  conversationMapOpen,
-  onToggleConversationMap,
 }: HomeHeaderProps) {
   return (
-    <header className="flex h-16 items-center justify-between">
+    <header
+      data-home-region="header"
+      className="flex h-16 items-center justify-between"
+    >
       <div className="flex min-w-0 items-center gap-3">
         <div className="min-w-0">
           <div className="truncate font-serif text-lg font-normal text-foreground/85">
@@ -47,12 +43,6 @@ export default function HomeHeader({
         >
           loading...
         </span>
-        <ConversationMapToggle
-          nodeCount={conversationMapNodeCount}
-          isOpen={conversationMapOpen}
-          onToggle={onToggleConversationMap}
-        />
-
         <Tooltip content="New temporary chat">
           <button
             type="button"
