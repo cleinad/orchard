@@ -87,18 +87,35 @@ function createActivitySummary(events: SearchActivityEvent[]): SearchActivitySum
   };
 }
 
+/**
+ * The client sees the plan and the executed queries. Decision and relevance
+ * deliberation stay server-side: they expose reasoning about the prompt rather
+ * than the work the reply was built from. The planner model id is dropped so it
+ * is not streamed to the browser or persisted with the reply.
+ */
 function createVisibleActivitySummary(events: SearchActivityEvent[]): SearchActivitySummary {
   return createActivitySummary(
-    events.filter(
-      (event) =>
-        event.type !== 'planning_started'
-        && event.type !== 'search_decision_started'
-        && event.type !== 'search_decision_completed'
-        && event.type !== 'search_skipped'
-        && event.type !== 'plan_selected'
-        && event.type !== 'prior_sources_checked'
-        && event.type !== 'relevance_checked'
-    )
+    events
+      .filter(
+        (event) =>
+          event.type !== 'planning_started'
+          && event.type !== 'search_decision_started'
+          && event.type !== 'search_decision_completed'
+          && event.type !== 'search_skipped'
+          && event.type !== 'prior_sources_checked'
+          && event.type !== 'relevance_checked'
+      )
+      .map((event) =>
+        event.type === 'plan_selected'
+          ? {
+              type: 'plan_selected' as const,
+              resolvedIntent: event.resolvedIntent,
+              queries: event.queries,
+              reusePriorSources: event.reusePriorSources,
+              plannerSource: event.plannerSource,
+            }
+          : event
+      )
   );
 }
 

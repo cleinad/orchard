@@ -143,9 +143,11 @@ interface ReplyContext {
   userName: string | null;
 }
 
+const SEARCH_UNAVAILABLE_LABEL = 'Search was unavailable for this reply';
+
 function createRequiredSearchFailureActivity(query: string | null): SearchActivitySummary {
   return {
-    collapsedLabel: 'Search was unavailable for this reply',
+    collapsedLabel: SEARCH_UNAVAILABLE_LABEL,
     events: [
       {
         type: 'search_started',
@@ -155,8 +157,24 @@ function createRequiredSearchFailureActivity(query: string | null): SearchActivi
       {
         type: 'search_completed',
         sourceCount: 0,
-        collapsedLabel: 'Search was unavailable for this reply',
+        collapsedLabel: SEARCH_UNAVAILABLE_LABEL,
       },
+    ],
+  };
+}
+
+/**
+ * Auto-mode activity streams live, so a late infrastructure failure cannot be
+ * hidden by withholding it. Settle the streamed timeline honestly instead.
+ */
+function createUnavailableActivity(
+  streamed: SearchActivitySummary
+): SearchActivitySummary {
+  return {
+    collapsedLabel: SEARCH_UNAVAILABLE_LABEL,
+    events: [
+      ...streamed.events,
+      { type: 'search_completed', sourceCount: 0, collapsedLabel: SEARCH_UNAVAILABLE_LABEL },
     ],
   };
 }
@@ -2545,8 +2563,9 @@ export async function POST(request: NextRequest) {
 
           searchTelemetry.logRequestStarted({ searchMode });
 
-          const bufferedAutoActivities: SearchActivitySummary[] = [];
+          let lastStreamedActivity: SearchActivitySummary | null = null;
           const writeSearchActivity = (activity: SearchActivitySummary) => {
+            lastStreamedActivity = activity;
             writer.write({
               type: 'data-searchActivity',
               data: activity,
@@ -2583,14 +2602,7 @@ export async function POST(request: NextRequest) {
                   });
                   return runSearchPipeline(query, { telemetry: queryTelemetry });
                 },
-                activityWriter: (activity) => {
-                  if (searchMode === 'auto') {
-                    bufferedAutoActivities.push(activity);
-                    return;
-                  }
-
-                  writeSearchActivity(activity);
-                },
+                activityWriter: writeSearchActivity,
                 ...(isTemporaryChat ? { logger: REDACTED_SEARCH_PLANNER_LOGGER } : {}),
               }
             );
@@ -2606,13 +2618,12 @@ export async function POST(request: NextRequest) {
                 traceId: searchTraceId,
                 conversationId: activeConversationId,
                 latestMessage: messageForPrompt,
-                activity: bufferedAutoActivities.at(-1) ?? searchRun.activity,
+                activity: lastStreamedActivity ?? searchRun.activity,
                 error: searchRun.metadata?.status ?? 'auto_search_failed',
                 redactContent: isTemporaryChat,
               });
-            } else if (searchMode === 'auto') {
-              for (const activity of bufferedAutoActivities) {
-                writeSearchActivity(activity);
+              if (lastStreamedActivity) {
+                writeSearchActivity(createUnavailableActivity(lastStreamedActivity));
               }
             }
 
@@ -2644,7 +2655,7 @@ export async function POST(request: NextRequest) {
                 traceId: searchTraceId,
                 conversationId: activeConversationId,
                 latestMessage: messageForPrompt,
-                activity: bufferedAutoActivities.at(-1) ?? null,
+                activity: lastStreamedActivity ?? null,
                 error,
                 redactContent: isTemporaryChat,
               });
@@ -2663,11 +2674,12 @@ export async function POST(request: NextRequest) {
               failureActivity ?? undefined
             );
             persistedSearchMetadata = search.metadata;
-            if (failureActivity) {
-              writer.write({
-                type: 'data-searchActivity',
-                data: failureActivity,
-              });
+            /* Settle whatever the client already streamed, in either mode. */
+            const terminalActivity =
+              failureActivity
+              ?? (lastStreamedActivity ? createUnavailableActivity(lastStreamedActivity) : null);
+            if (terminalActivity) {
+              writeSearchActivity(terminalActivity);
             }
             finalSystemPrompt = baseSystemPrompt;
           }

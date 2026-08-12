@@ -30,6 +30,9 @@ is not obvious.
 
 ## Important improvements
 
+- [ ] Re-confirm auto search failure visibility before unhiding auto mode. The
+  composer only toggles required and off today. Auto activity now streams live,
+  so a late failure settles as unavailable instead of staying invisible.
 - [ ] Add server-side cleanup for image uploads that are abandoned before a
   message is saved.
 - [ ] Validate and tune live search against real provider traffic.

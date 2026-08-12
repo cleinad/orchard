@@ -46,8 +46,10 @@ model context.
 
 ## Failure behavior
 
-Auto failures are silent to the user: Orchard answers without search and logs
-the failure.
+Auto failures are not disclosed in the answer: Orchard answers without search
+and logs the failure. Because activity streams while the run is in flight, any
+searches the reader already saw settle as unavailable rather than disappearing,
+and no search metadata is persisted with the reply.
 
 Always search failures or missing configuration produce a disclosure that the
 answer could not be grounded with live results. A partial provider failure may

@@ -196,6 +196,10 @@ async function runChatRequest(
   return { response, body: metadata, parts, tracker };
 }
 
+function lastSearchActivity(parts: Record<string, unknown>[]) {
+  return parts.filter((part) => part.type === 'data-searchActivity').at(-1)?.data ?? null;
+}
+
 describe('chat route search citations', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -536,7 +540,7 @@ describe('chat route search citations', () => {
     );
   });
 
-  it('keeps thrown auto search failures invisible to the user but logs internally', async () => {
+  it('settles thrown auto search failures as unavailable without persisting metadata', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-01-02T03:04:05.000Z'));
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -559,7 +563,9 @@ describe('chat route search citations', () => {
     );
 
     expect(response.status).toBe(200);
-    expect(parts.some((part) => part.type === 'data-searchActivity')).toBe(false);
+    expect(lastSearchActivity(parts)).toMatchObject({
+      collapsedLabel: 'Search was unavailable for this reply',
+    });
     expect(body.message).toBe('General answer without source narration.');
     expect(body.search).toMatchObject({
       mode: 'auto',
@@ -582,7 +588,7 @@ describe('chat route search citations', () => {
     warnSpy.mockRestore();
   });
 
-  it('keeps non-throwing auto provider failures invisible to the user but logs internally', async () => {
+  it('settles non-throwing auto provider failures as unavailable without persisting metadata', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-01-02T03:04:05.000Z'));
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -612,7 +618,9 @@ describe('chat route search citations', () => {
     );
 
     expect(response.status).toBe(200);
-    expect(parts.some((part) => part.type === 'data-searchActivity')).toBe(false);
+    expect(lastSearchActivity(parts)).toMatchObject({
+      collapsedLabel: 'Search was unavailable for this reply',
+    });
     expect(body.message).toBe('General answer after provider failure.');
     expect(body.search).toMatchObject({
       mode: 'auto',
