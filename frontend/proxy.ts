@@ -9,11 +9,14 @@ function isPublicPage(pathname: string) {
   return pathname === '/'
     || pathname === '/login'
     || pathname === '/signup'
-    || pathname === '/icon.png';
+    || pathname === '/icon.png'
+    || pathname.startsWith('/pdfjs/');
 }
 
 function isE2eBypassRoute(pathname: string) {
-  return pathname.startsWith('/home') || pathname.startsWith('/workspaces');
+  return pathname.startsWith('/home')
+    || pathname.startsWith('/workspaces')
+    || pathname.startsWith('/paper-demo');
 }
 
 export async function proxy(request: NextRequest) {
@@ -72,6 +75,6 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    '/((?!api|_next/static|_next/image|favicon.ico|icon.png|robots.txt|sitemap.xml).*)',
+    '/((?!api|_next/static|_next/image|pdfjs|favicon.ico|icon.png|robots.txt|sitemap.xml).*)',
   ],
 };

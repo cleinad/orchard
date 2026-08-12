@@ -49,6 +49,14 @@ describe('proxy auth protection', () => {
     expect(mockCreateServerClient).not.toHaveBeenCalled();
   });
 
+  it('allows PDF.js decoder assets through without consulting Supabase', async () => {
+    const response = await proxy(createRequest('/pdfjs/wasm/jbig2.wasm'));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('location')).toBeNull();
+    expect(mockCreateServerClient).not.toHaveBeenCalled();
+  });
+
   it('redirects unauthenticated protected routes to login', async () => {
     mockCreateServerClient.mockReturnValue(createSupabaseClient(null));
 

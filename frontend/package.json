@@ -3,13 +3,18 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "pdfjs:assets": "node scripts/sync-pdfjs-assets.mjs",
+    "predev": "npm run pdfjs:assets",
     "dev": "next dev",
+    "prebuild": "npm run pdfjs:assets",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",
+    "pretest:e2e": "npm run pdfjs:assets",
     "test:e2e": "playwright test",
+    "pretest:e2e:ui": "npm run pdfjs:assets",
     "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {
@@ -23,6 +28,7 @@
     "@supabase/supabase-js": "^2.91.1",
     "ai": "^6.0.86",
     "next": "^16.1.6",
+    "pdfjs-dist": "^6.1.200",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-markdown": "^9.0.1",
