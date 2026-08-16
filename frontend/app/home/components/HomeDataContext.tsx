@@ -946,6 +946,9 @@ export function HomeDataProvider({
                       content: assistantMessage.content
                         || chat.messages.find((message) => message.id === run.assistantMessageId)?.content
                         || '',
+                      reasoning: chat.messages.find(
+                        (message) => message.id === run.assistantMessageId
+                      )?.reasoning,
                     }]),
               ],
             };

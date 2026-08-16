@@ -210,7 +210,7 @@ describe('chat model resolver', () => {
         effort: 'max',
         thinkingEnabled: true,
       })
-    ).toEqual({ openai: { reasoningEffort: 'max' } });
+    ).toEqual({ openai: { reasoningEffort: 'max', reasoningSummary: 'auto' } });
     expect(
       getChatModelProviderOptions('claude-sonnet-5', {
         effort: 'low',

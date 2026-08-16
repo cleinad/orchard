@@ -142,7 +142,7 @@ export default function ConversationView({
             placeholder exists, MessageRow owns the waiting state so the
             indicator sits where the reply will appear.
           */}
-          {isLoading && !messages.some((m) => m.isStreaming) && <ResponseActivity live />}
+          {isLoading && !messages.some((m) => m.isStreaming) && <ResponseActivity live awaitingFirstToken />}
 
           <div ref={messagesEndRef} />
       </div>

@@ -29,6 +29,7 @@ import type { SearchActivitySummary } from '@/lib/search/types';
 interface StartRunHandlers {
   onDelta?: (delta: string) => void;
   onSearchActivity?: (activity: SearchActivitySummary) => void;
+  onReasoningDelta?: (delta: string, partId: string) => void;
   onSnapshot?: (snapshot: ChatRunSnapshot) => void;
 }
 
@@ -94,12 +95,15 @@ async function readRunStream(
     try {
       const event = JSON.parse(payload) as {
         type?: unknown;
+        id?: unknown;
         delta?: unknown;
         data?: unknown;
         errorText?: unknown;
       };
       if (event.type === 'text-delta' && typeof event.delta === 'string') {
         handlers.onDelta?.(event.delta);
+      } else if (event.type === 'reasoning-delta' && typeof event.delta === 'string') {
+        handlers.onReasoningDelta?.(event.delta, String(event.id ?? ''));
       } else if (event.type === 'data-searchActivity' && event.data) {
         handlers.onSearchActivity?.(event.data as SearchActivitySummary);
       } else if (event.type === 'data-chatRun' && event.data) {

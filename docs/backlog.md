@@ -33,6 +33,9 @@ is not obvious.
 - [ ] Re-confirm auto search failure visibility before unhiding auto mode. The
   composer only toggles required and off today. Auto activity now streams live,
   so a late failure settles as unavailable instead of staying invisible.
+- [ ] Say something other than "Thinking" while a reply runs with thinking
+  turned off. The phase label does not know the per-model thinking setting, so
+  it claims reasoning that was never requested and never streams.
 - [ ] Add server-side cleanup for image uploads that are abandoned before a
   message is saved.
 - [ ] Validate and tune live search against real provider traffic.

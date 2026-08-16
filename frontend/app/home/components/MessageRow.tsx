@@ -343,8 +343,13 @@ function MessageRow({
             : undefined
         }
       >
-        {(isAwaitingFirstToken || searchActivity) && (
-          <ResponseActivity live={isAwaitingFirstToken} searchActivity={searchActivity} />
+        {(message.isStreaming || searchActivity || message.reasoning) && (
+          <ResponseActivity
+            live={Boolean(message.isStreaming)}
+            awaitingFirstToken={isAwaitingFirstToken}
+            searchActivity={searchActivity}
+            reasoning={message.reasoning}
+          />
         )}
 
         <div

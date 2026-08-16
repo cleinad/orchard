@@ -78,6 +78,33 @@ describe('readChatStream', () => {
       searchActivity: activity,
     });
   });
+
+  it('reports reasoning deltas without adding them to the answer text', async () => {
+    const onChunk = vi.fn();
+    const onReasoningDelta = vi.fn();
+
+    const metadata = await readChatStream(
+      streamResponse([
+        { type: 'reasoning-start', id: 'r1' },
+        { type: 'reasoning-delta', id: 'r1', delta: 'Weighing ' },
+        { type: 'reasoning-delta', id: 'r1', delta: 'the options.' },
+        { type: 'reasoning-end', id: 'r1' },
+        { type: 'reasoning-delta', id: 'r2', delta: 'Then checking.' },
+        { type: 'text-delta', delta: 'Answer' },
+        { type: 'data-chatMeta', data: { message: 'Answer' } },
+      ]),
+      onChunk,
+      { onReasoningDelta }
+    );
+
+    expect(onReasoningDelta.mock.calls).toEqual([
+      ['Weighing ', 'r1'],
+      ['the options.', 'r1'],
+      ['Then checking.', 'r2'],
+    ]);
+    expect(onChunk.mock.calls).toEqual([['Answer']]);
+    expect(metadata).toMatchObject({ message: 'Answer' });
+  });
 });
 
 describe('mergeReloadedBranchSelections', () => {

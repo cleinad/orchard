@@ -1,12 +1,16 @@
 "use client";
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { SearchActivityEvent, SearchActivitySummary } from '@/lib/search/types';
 
 interface ResponseActivityProps {
-  /** The run is still working and has not produced answer text yet. */
+  /** The run is still working, whether or not answer text has started. */
   live?: boolean;
+  /** No answer text has arrived yet. */
+  awaitingFirstToken?: boolean;
   searchActivity?: SearchActivitySummary | null;
+  /** Streamed model reasoning. Shown live only; not every model emits it. */
+  reasoning?: string;
 }
 
 /** Elapsed seconds stay hidden until the first tick, so fast replies never flash a counter. */
@@ -40,8 +44,8 @@ function phaseLabel(searchActivity: SearchActivitySummary | null) {
   return 'Thinking';
 }
 
-function countLabel(count: number, noun: string) {
-  return `${count} ${count === 1 ? noun : `${noun}s`}`;
+function countLabel(count: number, singular: string, plural: string) {
+  return `${count} ${count === 1 ? singular : plural}`;
 }
 
 /** One line describing the work a settled reply was built from. */
@@ -49,18 +53,20 @@ function settledSummary(searchActivity: SearchActivitySummary) {
   const searchCount = searchActivity.events.filter(
     (event) => event.type === 'search_started'
   ).length;
-  if (searchCount === 0) {
-    return searchActivity.collapsedLabel;
-  }
-
   const completed = [...searchActivity.events]
     .reverse()
     .find((event): event is SearchCompleted => event.type === 'search_completed');
   const sourceCount = completed?.sourceCount ?? 0;
 
-  return sourceCount > 0
-    ? `${countLabel(searchCount, 'search')} · ${countLabel(sourceCount, 'source')}`
-    : countLabel(searchCount, 'search');
+  /*
+   * Counts only describe a reply that actually got sources. Without them the
+   * label carries the reason, such as a search being off or unavailable.
+   */
+  if (searchCount === 0 || sourceCount === 0) {
+    return searchActivity.collapsedLabel;
+  }
+
+  return `${countLabel(searchCount, 'search', 'searches')} · ${countLabel(sourceCount, 'source', 'sources')}`;
 }
 
 /**
@@ -70,9 +76,12 @@ function settledSummary(searchActivity: SearchActivitySummary) {
  */
 export default function ResponseActivity({
   live = false,
+  awaitingFirstToken = false,
   searchActivity = null,
+  reasoning = '',
 }: ResponseActivityProps) {
   const [elapsedSeconds, setElapsedSeconds] = useState<number | null>(null);
+  const reasoningRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!live) return;
@@ -84,6 +93,14 @@ export default function ResponseActivity({
 
     return () => window.clearInterval(interval);
   }, [live]);
+
+  /* Keep the newest reasoning in view without moving the rest of the page. */
+  useEffect(() => {
+    const node = reasoningRef.current;
+    if (node) {
+      node.scrollTop = node.scrollHeight;
+    }
+  }, [reasoning]);
 
   const steps = activitySteps(searchActivity, live);
 
@@ -97,7 +114,9 @@ export default function ResponseActivity({
       >
         <div className="flex items-center gap-2 font-medium text-foreground/75">
           <span aria-hidden="true" className="orchard-orbit" />
-          <span aria-hidden="true">{phaseLabel(searchActivity)}</span>
+          <span aria-hidden="true">
+            {awaitingFirstToken ? phaseLabel(searchActivity) : 'Writing'}
+          </span>
           {elapsedSeconds !== null && elapsedSeconds > 0 && (
             <span aria-hidden="true" className="tabular-nums text-foreground/40">
               {elapsedSeconds}s
@@ -111,16 +130,21 @@ export default function ResponseActivity({
             ))}
           </ol>
         )}
+        {reasoning && (
+          <div
+            ref={reasoningRef}
+            aria-hidden="true"
+            className="composer-scrollbar mt-2 max-h-24 overflow-y-auto whitespace-pre-wrap pl-8 leading-relaxed text-muted/55"
+          >
+            {reasoning}
+          </div>
+        )}
       </div>
     );
   }
 
-  if (!searchActivity) {
-    return null;
-  }
-
-  const summary = settledSummary(searchActivity);
-  if (!summary) {
+  const summary = searchActivity ? settledSummary(searchActivity) : 'Reasoning';
+  if (!summary || (!searchActivity && !reasoning)) {
     return null;
   }
 
@@ -130,19 +154,26 @@ export default function ResponseActivity({
       className="mt-2 font-sans text-xs text-muted/70"
       onPointerUp={(event) => event.stopPropagation()}
     >
-      {steps.length > 0 ? (
+      {steps.length > 0 || reasoning ? (
         <details className="group">
           <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 rounded-md py-0.5 text-muted/80 transition-colors hover:text-foreground">
             <span>{summary}</span>
             <span className="text-muted/45 transition group-open:rotate-90">&gt;</span>
           </summary>
-          <ol className="mt-1.5 space-y-1 pl-3 text-muted/60">
-            {steps.map((step) => (
-              <li key={step} className="list-decimal pl-1">
-                {step}
-              </li>
-            ))}
-          </ol>
+          {steps.length > 0 && (
+            <ol className="mt-1.5 space-y-1 pl-3 text-muted/60">
+              {steps.map((step) => (
+                <li key={step} className="list-decimal pl-1">
+                  {step}
+                </li>
+              ))}
+            </ol>
+          )}
+          {reasoning && (
+            <div className="mt-1.5 whitespace-pre-wrap pl-3 leading-relaxed text-muted/55">
+              {reasoning}
+            </div>
+          )}
         </details>
       ) : (
         <span>{summary}</span>
