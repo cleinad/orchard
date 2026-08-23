@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from 'react';
+import type { PersistedResponseActivitySummary } from '@/lib/search-citations';
 import type { SearchActivityEvent, SearchActivitySummary } from '@/lib/search/types';
 
 interface ResponseActivityProps {
@@ -9,6 +10,8 @@ interface ResponseActivityProps {
   /** No answer text has arrived yet. */
   awaitingFirstToken?: boolean;
   searchActivity?: SearchActivitySummary | null;
+  /** Durable timing summary for the completed response. */
+  responseActivity?: PersistedResponseActivitySummary | null;
   /** Streamed model reasoning. Shown live only; not every model emits it. */
   reasoning?: string;
 }
@@ -48,8 +51,13 @@ function countLabel(count: number, singular: string, plural: string) {
   return `${count} ${count === 1 ? singular : plural}`;
 }
 
+function formatDuration(durationMs: number | undefined) {
+  if (!durationMs || durationMs < 1_000) return null;
+  return `${Math.round(durationMs / 1_000)}s`;
+}
+
 /** One line describing the work a settled reply was built from. */
-function settledSummary(searchActivity: SearchActivitySummary) {
+function settledSearchSummary(searchActivity: SearchActivitySummary) {
   const searchCount = searchActivity.events.filter(
     (event) => event.type === 'search_started'
   ).length;
@@ -78,6 +86,7 @@ export default function ResponseActivity({
   live = false,
   awaitingFirstToken = false,
   searchActivity = null,
+  responseActivity = null,
   reasoning = '',
 }: ResponseActivityProps) {
   const [elapsedSeconds, setElapsedSeconds] = useState<number | null>(null);
@@ -143,10 +152,17 @@ export default function ResponseActivity({
     );
   }
 
-  const summary = searchActivity ? settledSummary(searchActivity) : 'Reasoning';
-  if (!summary || (!searchActivity && !reasoning)) {
+  const thoughtDuration = formatDuration(responseActivity?.reasoningMs);
+  const searchDuration = formatDuration(responseActivity?.searchMs);
+  const summary = [
+    thoughtDuration ? `Thought for ${thoughtDuration}` : null,
+    searchActivity ? settledSearchSummary(searchActivity) : null,
+    !searchActivity && reasoning ? 'Reasoning' : null,
+  ].filter((part): part is string => Boolean(part)).join(' · ');
+  if (!summary) {
     return null;
   }
+  const hasDetails = steps.length > 0 || reasoning || Boolean(searchDuration);
 
   return (
     <div
@@ -154,7 +170,7 @@ export default function ResponseActivity({
       className="mt-2 font-sans text-xs text-muted/70"
       onPointerUp={(event) => event.stopPropagation()}
     >
-      {steps.length > 0 || reasoning ? (
+      {hasDetails ? (
         <details className="group">
           <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 rounded-md py-0.5 text-muted/80 transition-colors hover:text-foreground">
             <span>{summary}</span>
@@ -168,6 +184,9 @@ export default function ResponseActivity({
                 </li>
               ))}
             </ol>
+          )}
+          {searchDuration && (
+            <div className="mt-1.5 pl-3 text-muted/60">Search took {searchDuration}</div>
           )}
           {reasoning && (
             <div className="mt-1.5 whitespace-pre-wrap pl-3 leading-relaxed text-muted/55">

@@ -164,9 +164,11 @@ interleave reasoning with the answer, so the block stays for the whole run rathe
 than only until the first token. The phase is read from real run activity rather
 than cycled for effect, so the indicator reports work instead of decorating the
 wait. Once the run finishes, the block collapses to one line summarizing the work
-behind the reply, which expands to the same detail. Reasoning is kept only for the
-session and is not stored. Motion is limited to the brand mark and is disabled
-under `prefers-reduced-motion`.
+behind the reply, which expands to the same detail. Reasoning text is kept only
+for the session and is not stored. Persistent replies retain only the time until
+their first visible answer token and any search duration, so the settled summary
+survives reload without retaining the reasoning itself. Motion is limited to the
+brand mark and is disabled under `prefers-reduced-motion`.
 
 ## Copy
 

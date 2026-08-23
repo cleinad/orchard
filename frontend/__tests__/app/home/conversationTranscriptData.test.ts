@@ -174,6 +174,44 @@ describe('loadCompleteConversationTranscript', () => {
     });
   });
 
+  it('restores the durable response activity summary without restoring reasoning text', async () => {
+    const reply = {
+      ...createRow(2, 'message-0001'),
+      search_metadata: {
+        version: 3,
+        mode: 'off',
+        profile: null,
+        status: 'not_attempted',
+        query: null,
+        responseActivity: { reasoningMs: 3_200 },
+        providers: [],
+        sources: [],
+      },
+    };
+    const { client } = createMockSupabase({
+      tables: {
+        messages: { rows: [reply] },
+        conversation_branches: { rows: [] },
+        threads: { rows: [] },
+        message_attachments: { rows: [] },
+      },
+    });
+
+    const result = await loadCompleteConversationTranscript(
+      client as unknown as Parameters<typeof loadCompleteConversationTranscript>[0],
+      'conversation-long'
+    );
+
+    expect(result.messages[0]).toMatchObject({
+      searchMetadata: {
+        version: 3,
+        responseActivity: { reasoningMs: 3_200 },
+      },
+      searchActivity: null,
+    });
+    expect(result.messages[0].reasoning).toBeUndefined();
+  });
+
   it.each([
     ['conversation_branches', 'branches'],
     ['threads', 'threads'],

@@ -9,7 +9,7 @@ import {
   type ChatImageAttachment,
   type ChatImageMimeType,
 } from '@/lib/chat-attachments';
-import { parsePersistedSearchMetadata } from '@/lib/search-citations';
+import { getSearchActivity, parsePersistedSearchMetadata } from '@/lib/search-citations';
 import { buildInitialBranchSelections } from '@/app/home/components/conversationTree';
 import { getSelectionStreamVersion } from '@/app/home/components/markdownSelectableStream';
 import type {
@@ -314,8 +314,7 @@ export async function loadCompleteConversationTranscript(
       content: message.content,
       timestamp: new Date(message.created_at),
       searchMetadata,
-      searchActivity:
-        searchMetadata?.version === 2 ? searchMetadata.activity ?? null : null,
+      searchActivity: getSearchActivity(searchMetadata),
       previousMessageId: message.previous_message_id,
     };
   });

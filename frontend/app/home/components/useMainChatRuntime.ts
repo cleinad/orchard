@@ -42,6 +42,7 @@ import type {
   Message,
 } from '@/app/home/types';
 import type { SearchMetadata, SearchMode } from '@/lib/chat-search';
+import { getSearchActivity } from '@/lib/search-citations';
 import type { SearchActivitySummary } from '@/lib/search/types';
 import {
   createTemporaryId,
@@ -1604,9 +1605,8 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
       const finalSearchMetadata = data.search?.metadata ?? null;
       const finalSearchActivity =
         data.searchActivity
-        ?? (finalSearchMetadata?.version === 2
-          ? finalSearchMetadata.activity ?? latestSearchActivity
-          : latestSearchActivity);
+        ?? getSearchActivity(finalSearchMetadata)
+        ?? latestSearchActivity;
       const visibleContent = visibleAssistantContent || latestStreamedContent;
       const assistantMessage: Message = {
         id:

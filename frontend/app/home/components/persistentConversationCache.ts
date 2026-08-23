@@ -6,6 +6,7 @@ import type {
 } from '@/app/home/types';
 import type { ConversationMetadataStatus } from '@/app/home/components/conversationTranscriptData';
 import { mergeThreadsMaps } from '@/app/home/components/persistentThreadRuntime';
+import { getSearchActivity } from '@/lib/search-citations';
 
 const READY_METADATA_STATUS: ConversationMetadataStatus = {
   branches: { status: 'ready' },
@@ -81,11 +82,7 @@ function isLikelySamePersistedMessage(a: Message, b: Message) {
 function getSearchActivityFromMessage(message: Message) {
   return (
     message.searchActivity
-    ?? (
-      message.searchMetadata?.version === 2
-        ? message.searchMetadata.activity ?? null
-        : null
-    )
+    ?? getSearchActivity(message.searchMetadata)
   );
 }
 

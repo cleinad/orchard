@@ -26,7 +26,11 @@ import type { InlineThreadMarker, ThreadSource } from '@/app/home/components/thr
 import type { Message } from '@/app/home/types';
 import { getSelectionStreamVersion } from '@/app/home/components/markdownSelectableStream';
 import type { ChatImageAttachment } from '@/lib/chat-attachments';
-import { hasUsableSearchSources } from '@/lib/search-citations';
+import {
+  getResponseActivitySummary,
+  getSearchActivity,
+  hasUsableSearchSources,
+} from '@/lib/search-citations';
 import SourceFavicon from '@/app/home/components/SourceFavicon';
 import { buttonStyles, cx } from '@/app/components/buttonStyles';
 import { recordHomePerformanceEvent } from '@/app/home/components/homePerformanceInstrumentation';
@@ -118,8 +122,10 @@ function MessageRow({
   const searchActivity =
     message.role === 'assistant'
       ? message.searchActivity
-        ?? (replySearchMetadata?.version === 2 ? replySearchMetadata.activity ?? null : null)
+        ?? getSearchActivity(replySearchMetadata)
       : null;
+  const responseActivity =
+    message.role === 'assistant' ? getResponseActivitySummary(replySearchMetadata) : null;
   const hasSources = hasUsableSearchSources(replySearchMetadata);
   /* Whitespace-only deltas still read as an empty reply, so keep waiting. */
   const isAwaitingFirstToken =
@@ -343,11 +349,12 @@ function MessageRow({
             : undefined
         }
       >
-        {(message.isStreaming || searchActivity || message.reasoning) && (
+        {(message.isStreaming || searchActivity || responseActivity || message.reasoning) && (
           <ResponseActivity
             live={Boolean(message.isStreaming)}
             awaitingFirstToken={isAwaitingFirstToken}
             searchActivity={searchActivity}
+            responseActivity={responseActivity}
             reasoning={message.reasoning}
           />
         )}

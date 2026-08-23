@@ -57,7 +57,8 @@ thinking level, adaptive thinking, or a thinking budget.
 
 When thinking is enabled, providers that return reasoning stream it into the
 transcript while the reply runs. OpenAI does not expose raw reasoning, so a
-summary is requested instead. Reasoning is displayed live and is never stored.
+summary is requested instead. Reasoning text is displayed live and is never
+stored; the durable reply summary retains only the pre-answer wait time.
 
 The OpenAI catalog includes GPT-5.6 Sol, Terra, and Luna. The Anthropic
 catalog includes Claude Sonnet 5 and Claude Opus 5. DeepSeek V4 Pro remains
