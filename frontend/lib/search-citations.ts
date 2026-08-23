@@ -19,6 +19,10 @@ export type LegacySearchMode = (typeof LEGACY_SEARCH_MODES)[number];
 export const SEARCH_ATTEMPT_STATUSES = SEARCH_PIPELINE_STATUSES;
 export type SearchAttemptStatus = (typeof SEARCH_ATTEMPT_STATUSES)[number];
 
+export const PERSISTED_SEARCH_MODES = ['auto', 'required', 'off'] as const;
+export type PersistedSearchMode = (typeof PERSISTED_SEARCH_MODES)[number];
+export type PersistedSearchStatus = SearchAttemptStatus | 'not_attempted';
+
 export interface SearchSource {
   id: number;
   title: string;
@@ -53,9 +57,37 @@ export interface PersistedSearchMetadataV2 {
   sources: SearchSource[];
 }
 
+/** Durable timings for the activity that led to a reply, never its reasoning text. */
+export interface PersistedResponseActivitySummary {
+  /** Search retrieval time, when a query actually ran. */
+  searchMs?: number;
+  /** Model start until the first visible answer token, excluding search. */
+  reasoningMs?: number;
+}
+
+/**
+ * V3 retains the normalized search shape while adding a reply-activity summary.
+ * It also represents a reasoning-only response when search was off.
+ */
+export interface PersistedSearchMetadataV3 {
+  version: 3;
+  mode: PersistedSearchMode;
+  profile: SearchProfile | null;
+  status: PersistedSearchStatus;
+  query: string | null;
+  queries?: string[];
+  resolvedIntent?: string;
+  topicEntities?: string[];
+  activity?: SearchActivitySummary;
+  responseActivity: PersistedResponseActivitySummary;
+  providers: SearchProvider[];
+  sources: SearchSource[];
+}
+
 export type PersistedSearchMetadata =
   | PersistedSearchMetadataV1
-  | PersistedSearchMetadataV2;
+  | PersistedSearchMetadataV2
+  | PersistedSearchMetadataV3;
 
 export type CitationPart =
   | { type: 'text'; text: string }
@@ -106,6 +138,35 @@ function normalizeSearchActivitySummary(value: unknown): SearchActivitySummary |
   };
 }
 
+function normalizeResponseActivitySummary(
+  value: unknown
+): PersistedResponseActivitySummary | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const { searchMs, reasoningMs } = value;
+  if (
+    (searchMs !== undefined && (
+      typeof searchMs !== 'number' || !Number.isInteger(searchMs) || searchMs < 0
+    ))
+    || (reasoningMs !== undefined && (
+      typeof reasoningMs !== 'number' || !Number.isInteger(reasoningMs) || reasoningMs < 0
+    ))
+  ) {
+    return null;
+  }
+
+  if (searchMs === undefined && reasoningMs === undefined) {
+    return null;
+  }
+
+  return {
+    ...(typeof searchMs === 'number' ? { searchMs } : {}),
+    ...(typeof reasoningMs === 'number' ? { reasoningMs } : {}),
+  };
+}
+
 function truncateText(value: string, maxLength: number) {
   const normalized = value.replace(/\s+/g, ' ').trim();
   if (normalized.length <= maxLength) {
@@ -117,6 +178,10 @@ function truncateText(value: string, maxLength: number) {
 
 function isLegacySearchMode(value: unknown): value is LegacySearchMode {
   return typeof value === 'string' && LEGACY_SEARCH_MODES.includes(value as LegacySearchMode);
+}
+
+function isPersistedSearchMode(value: unknown): value is PersistedSearchMode {
+  return typeof value === 'string' && PERSISTED_SEARCH_MODES.includes(value as PersistedSearchMode);
 }
 
 function isVersion1Status(
@@ -297,6 +362,59 @@ export function hasUsableSearchSources(
   }
 
   return searchMetadata.status === 'success' || searchMetadata.status === 'partial';
+}
+
+export function getSearchActivity(
+  searchMetadata: PersistedSearchMetadata | null | undefined
+) {
+  return searchMetadata?.version === 2 || searchMetadata?.version === 3
+    ? searchMetadata.activity ?? null
+    : null;
+}
+
+export function getResponseActivitySummary(
+  searchMetadata: PersistedSearchMetadata | null | undefined
+) {
+  return searchMetadata?.version === 3 ? searchMetadata.responseActivity : null;
+}
+
+export function createPersistedResponseActivityMetadata(
+  searchMetadata: PersistedSearchMetadata | null,
+  responseActivity: PersistedResponseActivitySummary,
+  fallbackMode: PersistedSearchMode = 'off'
+): PersistedSearchMetadataV3 {
+  return {
+    version: 3,
+    mode: searchMetadata?.mode ?? fallbackMode,
+    profile:
+      searchMetadata?.version === 2 || searchMetadata?.version === 3
+        ? searchMetadata.profile
+        : null,
+    status: searchMetadata?.status ?? 'not_attempted',
+    query: searchMetadata?.query ?? null,
+    ...(
+      (searchMetadata?.version === 2 || searchMetadata?.version === 3)
+      && searchMetadata.queries
+        ? { queries: searchMetadata.queries }
+        : {}
+    ),
+    ...(
+      (searchMetadata?.version === 2 || searchMetadata?.version === 3)
+      && searchMetadata.resolvedIntent
+        ? { resolvedIntent: searchMetadata.resolvedIntent }
+        : {}
+    ),
+    ...(
+      (searchMetadata?.version === 2 || searchMetadata?.version === 3)
+      && searchMetadata.topicEntities
+        ? { topicEntities: searchMetadata.topicEntities }
+        : {}
+    ),
+    ...(getSearchActivity(searchMetadata) ? { activity: getSearchActivity(searchMetadata)! } : {}),
+    responseActivity,
+    providers: searchMetadata?.version === 1 ? [] : searchMetadata?.providers ?? [],
+    sources: searchMetadata?.sources ?? [],
+  };
 }
 
 export function getSourceDomain(url: string) {
@@ -487,6 +605,85 @@ export function parsePersistedSearchMetadata(
       ...('activity' in value
         ? { activity: normalizeSearchActivitySummary(value.activity) ?? undefined }
         : {}),
+      providers,
+      sources: normalizedSources,
+    };
+  }
+
+  if (version === 3) {
+    const {
+      mode,
+      profile,
+      status,
+      query,
+      providers,
+      sources,
+      responseActivity,
+    } = value;
+    if (
+      !isPersistedSearchMode(mode)
+      || (profile !== null && !isSearchProfile(profile))
+      || (status !== 'not_attempted' && !isSearchPipelineStatus(status))
+      || (query !== null && typeof query !== 'string')
+      || ('queries' in value && value.queries !== undefined && !Array.isArray(value.queries))
+      || (
+        'queries' in value
+        && Array.isArray(value.queries)
+        && value.queries.some((item) => typeof item !== 'string')
+      )
+      || (
+        'resolvedIntent' in value
+        && value.resolvedIntent !== undefined
+        && typeof value.resolvedIntent !== 'string'
+      )
+      || (
+        'topicEntities' in value
+        && value.topicEntities !== undefined
+        && !Array.isArray(value.topicEntities)
+      )
+      || (
+        'topicEntities' in value
+        && Array.isArray(value.topicEntities)
+        && value.topicEntities.some((item) => typeof item !== 'string')
+      )
+      || (
+        'activity' in value
+        && value.activity !== undefined
+        && normalizeSearchActivitySummary(value.activity) === null
+      )
+      || normalizeResponseActivitySummary(responseActivity) === null
+      || !Array.isArray(providers)
+      || providers.some((provider) => !isSearchProvider(provider))
+      || !Array.isArray(sources)
+    ) {
+      return null;
+    }
+
+    const normalizedSources = sources
+      .map(normalizeSource)
+      .filter((source): source is SearchSource => source !== null);
+
+    if (normalizedSources.length !== sources.length) {
+      return null;
+    }
+
+    return {
+      version: 3,
+      mode,
+      profile,
+      status,
+      query,
+      ...('queries' in value && Array.isArray(value.queries) ? { queries: value.queries } : {}),
+      ...('resolvedIntent' in value && typeof value.resolvedIntent === 'string'
+        ? { resolvedIntent: value.resolvedIntent }
+        : {}),
+      ...('topicEntities' in value && Array.isArray(value.topicEntities)
+        ? { topicEntities: value.topicEntities }
+        : {}),
+      ...('activity' in value
+        ? { activity: normalizeSearchActivitySummary(value.activity) ?? undefined }
+        : {}),
+      responseActivity: normalizeResponseActivitySummary(responseActivity)!,
       providers,
       sources: normalizedSources,
     };

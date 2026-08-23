@@ -61,7 +61,9 @@ Secrets and full private prompt context must not be written to logs.
 ## Persistence
 
 Persistent response metadata is stored on the assistant message in
-`messages.search_metadata`.
+`messages.search_metadata`. It includes normalized sources and activity plus,
+when measurable, search duration and the model's pre-answer wait time. It never
+includes streamed reasoning text.
 
 Temporary chats keep the same metadata shape in browser session state and do
 not write it to the database.

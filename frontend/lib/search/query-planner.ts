@@ -202,8 +202,10 @@ function collectPriorSearches(input: SearchPlannerInput) {
     ...(input.priorSearches ?? []),
     ...input.recentMessages
       .map((message) => message.searchMetadata ?? null)
-      .filter((metadata): metadata is PersistedSearchMetadata => metadata !== null),
-  ];
+  ].filter(
+    (metadata): metadata is PersistedSearchMetadata =>
+      metadata !== null && metadata.status !== 'not_attempted'
+  );
 }
 
 function findRecentTopic(input: Pick<SearchPlannerInput, 'recentMessages' | 'priorSearches'>) {
@@ -211,7 +213,7 @@ function findRecentTopic(input: Pick<SearchPlannerInput, 'recentMessages' | 'pri
   const priorSearches = input.priorSearches ?? [];
 
   for (const search of [...priorSearches].reverse()) {
-    if (search.version === 2) {
+    if (search.version !== 1) {
       if (search.resolvedIntent) texts.push(search.resolvedIntent);
       if (search.topicEntities?.length) texts.push(search.topicEntities.join(' '));
     }
@@ -661,8 +663,8 @@ ${JSON.stringify(input.recentMessages.slice(-8).map(({ role, content }) => ({ ro
 <prior_searches_json>
 ${JSON.stringify(priorSearches.slice(-4).map((search) => ({
   query: search.query,
-  resolvedIntent: search.version === 2 ? search.resolvedIntent : undefined,
-  topicEntities: search.version === 2 ? search.topicEntities : undefined,
+  resolvedIntent: search.version !== 1 ? search.resolvedIntent : undefined,
+  topicEntities: search.version !== 1 ? search.topicEntities : undefined,
   sources: search.sources.slice(0, 4).map((source) => ({
     title: source.title,
     snippet: source.snippet,
@@ -740,7 +742,7 @@ ${JSON.stringify(input.recentMessages.slice(-8).map(({ role, content }) => ({ ro
 <prior_searches_json>
 ${JSON.stringify(priorSearches.slice(-4).map((search) => ({
   query: search.query,
-  resolvedIntent: search.version === 2 ? search.resolvedIntent : undefined,
+  resolvedIntent: search.version !== 1 ? search.resolvedIntent : undefined,
   sources: search.sources.slice(0, 3).map((source) => ({
     title: source.title,
     snippet: source.snippet,
