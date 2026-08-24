@@ -48,14 +48,14 @@ and stored locally.
 Selecting a chat switches the active transcript without treating sidebar data
 as the message source of truth.
 
-The authenticated chat-shell layout initializes mentor, workspace-summary,
+The authenticated chat-shell layout initializes workspace-summary,
 conversation-summary, and model-catalog state on the server. Home and workspace
 navigation retains that provider state; normal navigation and focused
 workspace mutations do not repeat the complete sidebar bootstrap.
 
-Each bootstrap resource has an independent deadline and status. A mentor,
-workspace, or conversation-summary failure leaves the shell and composer
-usable, preserves successful data, and offers one focused retry.
+Each bootstrap resource has an independent deadline and status. A workspace or
+conversation-summary failure leaves the shell and composer usable, preserves
+successful data, and offers one focused retry.
 
 ## Routing
 

@@ -15,7 +15,6 @@ import {
   type HomeResourceStatus,
 } from '@/app/home/components/homeSidebarData';
 import { mapWorkspaceSummary, type WorkspaceSummary } from '@/lib/workspaces';
-import type { MentorListItem } from '@/lib/mentors/types';
 import {
   loadCompleteConversationTranscript,
   TranscriptLoadError,
@@ -134,17 +133,7 @@ export const getHomeBootstrap = cache(async (): Promise<HomeBootstrapData> => {
   const userId = viewer.id;
   const supabase = await createSupabaseServerClient();
 
-  const [mentorResult, workspaceResult, conversationResult] = await Promise.all([
-    loadNavigationResource<MentorListItem>('mentors', (signal) =>
-      supabase
-        .from('mentors')
-        .select(
-          'id, slug, name, tagline, description, is_builtin, accent_color, avatar_url'
-        )
-        .eq('user_id', userId)
-        .order('name', { ascending: true })
-        .abortSignal(signal)
-    ),
+  const [workspaceResult, conversationResult] = await Promise.all([
     loadNavigationResource<WorkspaceSummary>('workspaces', (signal) =>
       supabase
         .from('workspaces')
@@ -165,22 +154,22 @@ export const getHomeBootstrap = cache(async (): Promise<HomeBootstrapData> => {
     ),
   ]);
 
-  const mentors = mentorResult.data;
   const workspaces = workspaceResult.data.map(
     mapWorkspaceSummary
   );
   const conversations = conversationResult.data.map((row) =>
-    mapConversationSummary(row, mentors, workspaces)
+    mapConversationSummary(row, [], workspaces)
   );
 
   return {
     navigation: {
-      mentors,
+      // Mentor management is isolated to /mentors, not the shared chat shell.
+      mentors: [],
       workspaces,
       conversations,
     },
     navigationStatus: {
-      mentors: mentorResult.status,
+      mentors: { status: 'ready' },
       workspaces: workspaceResult.status,
       conversations: conversationResult.status,
     },

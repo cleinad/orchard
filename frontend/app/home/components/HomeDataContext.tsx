@@ -461,7 +461,7 @@ interface Props {
   children: ReactNode;
   routeConversationId: string | null;
   e2eQueryParam: string | null;
-  /** When true, skip the automatic mentors/conversations fetch (home e2e fixtures supply their own data) */
+  /** When true, skip the automatic navigation refresh (home e2e fixtures supply their own data) */
   skipInitialSidebarRefresh?: boolean;
   initialNavigationData?: HomeNavigationData | null;
   initialNavigationStatus?: HomeNavigationStatus;

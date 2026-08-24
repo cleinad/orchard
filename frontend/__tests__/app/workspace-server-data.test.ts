@@ -52,21 +52,6 @@ describe('workspace server data', () => {
   it('loads scoped navigation summaries without workspace context', async () => {
     const { client, tracker } = createMockSupabase({
       tables: {
-        mentors: {
-          rows: [
-            {
-              id: 'mentor-1',
-              user_id: 'user-1',
-              slug: 'math',
-              name: 'Math',
-              tagline: 'Learn math',
-              description: null,
-              is_builtin: true,
-              accent_color: '#2563eb',
-              avatar_url: null,
-            },
-          ],
-        },
         workspaces: {
           rows: [
             {
@@ -138,10 +123,7 @@ describe('workspace server data', () => {
       conversations: { status: 'ready' },
     });
 
-    expect(tracker.selects('mentors')[0]).toMatchObject({
-      args: 'id, slug, name, tagline, description, is_builtin, accent_color, avatar_url',
-      filters: { 'eq:user_id': 'user-1' },
-    });
+    expect(tracker.selects('mentors')).toHaveLength(0);
     expect(tracker.selects('workspaces')[0]).toMatchObject({
       args: 'id, name, description, icon, accent_color, created_at, updated_at',
       filters: { 'eq:user_id': 'user-1' },
@@ -153,7 +135,6 @@ describe('workspace server data', () => {
   });
 
   it.each([
-    ['mentors', 'mentors'],
     ['workspaces', 'workspaces'],
     ['conversations', 'conversations'],
   ] as const)(
@@ -161,22 +142,6 @@ describe('workspace server data', () => {
     async (failedTable, statusKey) => {
       const { client } = createMockSupabase({
         tables: {
-          mentors: {
-            rows: [{
-              id: 'mentor-1',
-              user_id: 'user-1',
-              slug: 'math',
-              name: 'Math',
-              tagline: 'Learn math',
-              description: null,
-              is_builtin: true,
-              accent_color: null,
-              avatar_url: null,
-            }],
-            ...(failedTable === 'mentors'
-              ? { queryError: { message: 'private backend detail' } }
-              : {}),
-          },
           workspaces: {
             rows: [{
               id: 'workspace-1',
@@ -231,8 +196,7 @@ describe('workspace server data', () => {
     vi.useFakeTimers();
     const { client } = createMockSupabase({
       tables: {
-        mentors: { rows: [], queryDelayMs: 10_000 },
-        workspaces: { rows: [] },
+        workspaces: { rows: [], queryDelayMs: 10_000 },
         conversations: { rows: [] },
       },
     });
@@ -244,8 +208,8 @@ describe('workspace server data', () => {
 
     await expect(resultPromise).resolves.toMatchObject({
       navigationStatus: {
-        mentors: { status: 'unavailable', reason: 'timeout' },
-        workspaces: { status: 'ready' },
+        mentors: { status: 'ready' },
+        workspaces: { status: 'unavailable', reason: 'timeout' },
         conversations: { status: 'ready' },
       },
     });
@@ -254,7 +218,6 @@ describe('workspace server data', () => {
   it('distinguishes a missing conversation from a failed transcript', async () => {
     const missingClient = createMockSupabase({
       tables: {
-        mentors: { rows: [] },
         workspaces: { rows: [] },
         conversations: { rows: [] },
         messages: { rows: [] },
@@ -272,7 +235,6 @@ describe('workspace server data', () => {
     vi.resetModules();
     const failedClient = createMockSupabase({
       tables: {
-        mentors: { rows: [] },
         workspaces: { rows: [] },
         conversations: {
           rows: [{
@@ -305,7 +267,6 @@ describe('workspace server data', () => {
     vi.useFakeTimers();
     const { client } = createMockSupabase({
       tables: {
-        mentors: { rows: [] },
         workspaces: { rows: [] },
         conversations: {
           rows: [{

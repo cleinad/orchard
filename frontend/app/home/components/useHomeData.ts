@@ -93,29 +93,6 @@ export function useHomeData(
     setNavigationStatus(initialStatus);
   }, [initialData, initialStatus]);
 
-  const loadMentors = useCallback(async (): Promise<MentorListItem[]> => {
-    const controller = new AbortController();
-    const timeout = setTimeout(
-      () => controller.abort(),
-      HOME_NAVIGATION_RETRY_TIMEOUT_MS
-    );
-    try {
-      const response = await fetch('/api/mentors', {
-        cache: 'no-store',
-        signal: controller.signal,
-      });
-      const data = await response.json();
-
-      if (!response.ok || data.error) {
-        throw new Error('Failed to load mentors');
-      }
-
-      return data as MentorListItem[];
-    } finally {
-      clearTimeout(timeout);
-    }
-  }, []);
-
   const loadWorkspaces = useCallback(async (): Promise<WorkspaceSummary[]> => {
     const controller = new AbortController();
     const timeout = setTimeout(
@@ -177,26 +154,14 @@ export function useHomeData(
     const refresh = (async () => {
       try {
         const [
-          mentorResult,
           workspaceResult,
           conversationResult,
         ] = await Promise.allSettled([
-          loadMentors(),
           loadWorkspaces(),
           loadConversations(),
         ]);
         const nextStatus: HomeNavigationStatus = {
-          mentors:
-            mentorResult.status === 'fulfilled'
-              ? { status: 'ready' }
-              : {
-                  status: 'unavailable',
-                  reason:
-                    mentorResult.reason instanceof DOMException
-                    && mentorResult.reason.name === 'AbortError'
-                      ? 'timeout'
-                      : 'error',
-                },
+          mentors: { status: 'ready' },
           workspaces:
             workspaceResult.status === 'fulfilled'
               ? { status: 'ready' }
@@ -221,10 +186,6 @@ export function useHomeData(
                 },
         };
 
-        if (mentorResult.status === 'fulfilled') {
-          mentorsRef.current = mentorResult.value;
-          setMentors(mentorResult.value);
-        }
         if (workspaceResult.status === 'fulfilled') {
           workspacesRef.current = workspaceResult.value;
           setWorkspaces(workspaceResult.value);
@@ -259,7 +220,7 @@ export function useHomeData(
     };
     void refresh.then(clearRefresh, clearRefresh);
     return refresh;
-  }, [loadConversations, loadMentors, loadWorkspaces]);
+  }, [loadConversations, loadWorkspaces]);
 
   const upsertSidebarConversation = useCallback((conversation: SidebarConversationInput) => {
     const now = new Date().toISOString();
