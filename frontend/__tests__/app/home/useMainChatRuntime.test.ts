@@ -1,11 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   applyCompletedPersistentRun,
+  createActivePersistentAssistant,
   mergeCompletedPersistentRunReload,
   mergeReloadedBranchSelections,
   readChatStream,
   shouldReloadCompletedPersistentRun,
 } from '@/app/home/components/useMainChatRuntime';
+import { createPersistedResponseActivityMetadata } from '@/lib/search-citations';
 import {
   normalizePersistentConversationTranscript,
 } from '@/app/home/components/persistentConversationCache';
@@ -219,6 +221,40 @@ function createMessage(
 }
 
 describe('completed persistent run reconciliation', () => {
+  it('preserves live activity when a nonterminal run snapshot has no activity yet', () => {
+    const searchMetadata = createPersistedResponseActivityMetadata(null, {
+      reasoningMs: 1_200,
+    });
+    const searchActivity: SearchActivitySummary = {
+      collapsedLabel: 'Searching docs',
+      events: [{ type: 'search_started', query: 'docs', attempt: 1 }],
+    };
+    const existingAssistant: Message = {
+      ...createMessage('assistant-1', 'assistant', 'Partial answer', 'user-1'),
+      renderId: 'streaming-assistant-1',
+      isStreaming: true,
+      searchMetadata,
+      searchActivity,
+      reasoning: 'Checking the evidence.',
+    };
+    const run = createCompletedRun({
+      status: 'streaming',
+      response: null,
+      search: null,
+      searchActivity: null,
+      completedAt: null,
+    });
+
+    expect(createActivePersistentAssistant(run, existingAssistant)).toMatchObject({
+      content: 'Partial answer',
+      renderId: 'streaming-assistant-1',
+      searchMetadata,
+      searchActivity,
+      reasoning: 'Checking the evidence.',
+      isStreaming: true,
+    });
+  });
+
   it('keeps a complete linear run local', () => {
     const run = createCompletedRun();
     const transcript = normalizePersistentConversationTranscript({

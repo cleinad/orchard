@@ -286,6 +286,28 @@ export function shouldReloadCompletedPersistentRun(
   );
 }
 
+export function createActivePersistentAssistant(
+  run: ChatRunSnapshot,
+  existingAssistant: Message | undefined
+): Message {
+  return {
+    id: run.assistantMessageId,
+    renderId: existingAssistant?.renderId ?? run.assistantMessageId,
+    role: 'assistant',
+    content: run.response
+      ?? (existingAssistant?.isError ? '' : existingAssistant?.content ?? ''),
+    timestamp: new Date(run.updatedAt),
+    previousMessageId: run.userMessageId,
+    isStreaming: true,
+    isError: false,
+    searchMetadata:
+      run.search?.metadata ?? existingAssistant?.searchMetadata ?? null,
+    searchActivity:
+      run.searchActivity ?? existingAssistant?.searchActivity ?? null,
+    reasoning: existingAssistant?.reasoning,
+  };
+}
+
 export function applyCompletedPersistentRun(
   transcript: PersistentConversationTranscript,
   run: ChatRunSnapshot
@@ -649,17 +671,10 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
           const existingAssistant = transcript.messages.find(
             (message) => message.id === run.assistantMessageId
           );
-          const nextAssistant: Message = {
-            id: run.assistantMessageId,
-            renderId: existingAssistant?.renderId ?? run.assistantMessageId,
-            role: 'assistant',
-            content: run.response
-              ?? (existingAssistant?.isError ? '' : existingAssistant?.content ?? ''),
-            timestamp: new Date(run.updatedAt),
-            previousMessageId: run.userMessageId,
-            isStreaming: true,
-            isError: false,
-          };
+          const nextAssistant = createActivePersistentAssistant(
+            run,
+            existingAssistant
+          );
           return {
             ...transcript,
             messages: [
