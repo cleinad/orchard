@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  createPersistedResponseActivityMetadata,
   createPersistedSearchMetadata,
   createPersistedSearchMetadataV2,
+  getResponseActivitySummary,
+  getSearchActivity,
   hasUsableSearchSources,
   parsePersistedSearchMetadata,
   splitTextWithCitations,
@@ -176,6 +179,54 @@ describe('search citations helpers', () => {
         sources: [{ ...searchMetadata.sources[0], provider: 'invalid' }],
       })
     ).toBeNull();
+  });
+
+  it('persists a v3 response activity summary without reasoning text', () => {
+    const metadata = createPersistedResponseActivityMetadata(searchMetadata, {
+      searchMs: 1_250,
+      reasoningMs: 4_800,
+    });
+
+    expect(parsePersistedSearchMetadata(metadata)).toMatchObject({
+      version: 3,
+      status: 'partial',
+      sources: searchMetadata.sources,
+      responseActivity: {
+        searchMs: 1_250,
+        reasoningMs: 4_800,
+      },
+    });
+    expect(getSearchActivity(metadata)).toBeNull();
+    expect(getResponseActivitySummary(metadata)).toEqual({
+      searchMs: 1_250,
+      reasoningMs: 4_800,
+    });
+  });
+
+  it('represents reasoning activity when search was off and rejects invalid timing', () => {
+    const reasoningOnly = createPersistedResponseActivityMetadata(null, {
+      reasoningMs: 2_400,
+    });
+
+    expect(parsePersistedSearchMetadata(reasoningOnly)).toMatchObject({
+      version: 3,
+      mode: 'off',
+      status: 'not_attempted',
+      responseActivity: { reasoningMs: 2_400 },
+      sources: [],
+    });
+    expect(parsePersistedSearchMetadata({
+      ...reasoningOnly,
+      responseActivity: { reasoningMs: -1 },
+    })).toBeNull();
+    expect(parsePersistedSearchMetadata({
+      ...reasoningOnly,
+      responseActivity: { reasoningMs: 1.5 },
+    })).toBeNull();
+    expect(createPersistedResponseActivityMetadata(null, { searchMs: 900 }, 'auto')).toMatchObject({
+      mode: 'auto',
+      status: 'not_attempted',
+    });
   });
 
   it('splits valid citation markers into separate compact parts', () => {

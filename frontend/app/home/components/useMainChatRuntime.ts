@@ -42,6 +42,7 @@ import type {
   Message,
 } from '@/app/home/types';
 import type { SearchMetadata, SearchMode } from '@/lib/chat-search';
+import { getSearchActivity } from '@/lib/search-citations';
 import type { SearchActivitySummary } from '@/lib/search/types';
 import {
   createTemporaryId,
@@ -94,6 +95,7 @@ export interface ChatResponse {
 interface ReadChatStreamOptions {
   onTextEnd?: (content: string) => void;
   onSearchActivity?: (activity: SearchActivitySummary) => void;
+  onReasoningDelta?: (delta: string, partId: string) => void;
 }
 
 interface PendingChatRequest {
@@ -165,6 +167,10 @@ export async function readChatStream(
       }
     } else if (event.type === 'text-end' || event.type === 'finish') {
       finishVisibleText();
+    } else if (event.type === 'reasoning-delta' && typeof event.delta === 'string') {
+      if (event.delta) {
+        options.onReasoningDelta?.(event.delta, String(event.id ?? ''));
+      }
     } else if (event.type === 'data-chatMeta' && event.data) {
       metadata = event.data as ChatResponse;
     } else if (event.type === 'data-searchActivity' && event.data) {
@@ -280,6 +286,28 @@ export function shouldReloadCompletedPersistentRun(
   );
 }
 
+export function createActivePersistentAssistant(
+  run: ChatRunSnapshot,
+  existingAssistant: Message | undefined
+): Message {
+  return {
+    id: run.assistantMessageId,
+    renderId: existingAssistant?.renderId ?? run.assistantMessageId,
+    role: 'assistant',
+    content: run.response
+      ?? (existingAssistant?.isError ? '' : existingAssistant?.content ?? ''),
+    timestamp: new Date(run.updatedAt),
+    previousMessageId: run.userMessageId,
+    isStreaming: true,
+    isError: false,
+    searchMetadata:
+      run.search?.metadata ?? existingAssistant?.searchMetadata ?? null,
+    searchActivity:
+      run.searchActivity ?? existingAssistant?.searchActivity ?? null,
+    reasoning: existingAssistant?.reasoning,
+  };
+}
+
 export function applyCompletedPersistentRun(
   transcript: PersistentConversationTranscript,
   run: ChatRunSnapshot
@@ -300,6 +328,7 @@ export function applyCompletedPersistentRun(
       run.search?.metadata ?? existingAssistant?.searchMetadata ?? null,
     searchActivity:
       run.searchActivity ?? existingAssistant?.searchActivity ?? null,
+    reasoning: existingAssistant?.reasoning,
   };
 
   return {
@@ -621,6 +650,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
             isError: run.status === 'failed' || run.status === 'interrupted',
             searchMetadata: run.search?.metadata ?? null,
             searchActivity: run.searchActivity,
+            reasoning: existingAssistant?.reasoning,
           };
           return {
             ...chat,
@@ -641,17 +671,10 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
           const existingAssistant = transcript.messages.find(
             (message) => message.id === run.assistantMessageId
           );
-          const nextAssistant: Message = {
-            id: run.assistantMessageId,
-            renderId: existingAssistant?.renderId ?? run.assistantMessageId,
-            role: 'assistant',
-            content: run.response
-              ?? (existingAssistant?.isError ? '' : existingAssistant?.content ?? ''),
-            timestamp: new Date(run.updatedAt),
-            previousMessageId: run.userMessageId,
-            isStreaming: true,
-            isError: false,
-          };
+          const nextAssistant = createActivePersistentAssistant(
+            run,
+            existingAssistant
+          );
           return {
             ...transcript,
             messages: [
@@ -1101,6 +1124,9 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
     let visibleAssistantMessage: Message | null = null;
     let visibleFinalized = false;
     let latestSearchActivity: SearchActivitySummary | null = null;
+    let latestReasoning = '';
+    let latestReasoningPartId: string | null = null;
+    let reasoningFrame: number | null = null;
     let visiblePublicationFrame: number | null = null;
     let visiblePublicationActive = true;
     let publishedVisibleContent = '';
@@ -1220,31 +1246,46 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
       });
     };
 
-    const updateSearchActivity = (activity: SearchActivitySummary) => {
-      latestSearchActivity = activity;
-
-      const applyActivity = (messages: Message[]) =>
+    const patchStreamingMessage = (patch: Partial<Message>) => {
+      const apply = (messages: Message[]) =>
         messages.map((message) =>
           message.id === streamingMessageId || message.renderId === streamingMessageId
-            ? { ...message, searchActivity: activity }
+            ? { ...message, ...patch }
             : message
         );
 
       if (effectiveSelection.kind === 'temporary') {
         params.updateTemporaryChat(effectiveSelection.tempChatId, (chat) => ({
           ...chat,
-          messages: applyActivity(chat.messages),
+          messages: apply(chat.messages),
         }));
       } else if (effectiveSelection.kind === 'persistent') {
-        updatePersistentMessagesForSelection(effectiveSelection, (prev) =>
-          applyActivity(prev)
-        );
+        updatePersistentMessagesForSelection(effectiveSelection, apply);
       } else if (effectiveDraft) {
         params.updateDraftChat(effectiveDraft.id, (draft) => ({
           ...draft,
-          messages: applyActivity(draft.messages),
+          messages: apply(draft.messages),
         }));
       }
+    };
+
+    const updateSearchActivity = (activity: SearchActivitySummary) => {
+      latestSearchActivity = activity;
+      patchStreamingMessage({ searchActivity: activity });
+    };
+
+    const appendReasoning = (delta: string, partId: string) => {
+      /* Providers can emit several reasoning parts; keep them visually apart. */
+      if (latestReasoning && partId !== latestReasoningPartId) {
+        latestReasoning += '\n\n';
+      }
+      latestReasoningPartId = partId;
+      latestReasoning += delta;
+      if (reasoningFrame !== null) return;
+      reasoningFrame = requestAnimationFrame(() => {
+        reasoningFrame = null;
+        patchStreamingMessage({ reasoning: latestReasoning });
+      });
     };
 
     const replaceStreamingMessage = (finalMessage: Message) => {
@@ -1287,6 +1328,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
         timestamp: new Date(),
         searchMetadata: null,
         searchActivity: latestSearchActivity,
+        reasoning: latestReasoning || undefined,
         previousMessageId: userMessage.id,
       };
       visibleAssistantContent = content;
@@ -1497,6 +1539,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
           initialSnapshot: initialRunSnapshot,
           onDelta: appendChunk,
           onSearchActivity: updateSearchActivity,
+          onReasoningDelta: appendReasoning,
         });
         requestAccepted = Boolean(run.acceptedAt);
         if (run.acceptedAt) {
@@ -1544,6 +1587,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
         requestAccepted = true;
         data = await readChatStream(response, appendChunk, {
           onSearchActivity: updateSearchActivity,
+          onReasoningDelta: appendReasoning,
           onTextEnd: (content) => {
             if (canApplyTemporaryResponseForSelection(effectiveSelection)) {
               finalizeVisibleAssistant(content || latestStreamedContent);
@@ -1576,9 +1620,8 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
       const finalSearchMetadata = data.search?.metadata ?? null;
       const finalSearchActivity =
         data.searchActivity
-        ?? (finalSearchMetadata?.version === 2
-          ? finalSearchMetadata.activity ?? latestSearchActivity
-          : latestSearchActivity);
+        ?? getSearchActivity(finalSearchMetadata)
+        ?? latestSearchActivity;
       const visibleContent = visibleAssistantContent || latestStreamedContent;
       const assistantMessage: Message = {
         id:
@@ -1591,6 +1634,7 @@ export function useMainChatRuntime(params: MainChatRuntimeParams) {
         timestamp: new Date(),
         searchMetadata: null,
         searchActivity: finalSearchActivity,
+        reasoning: latestReasoning || undefined,
         previousMessageId: userMessage.id,
       };
 

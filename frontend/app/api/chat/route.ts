@@ -39,6 +39,8 @@ import {
   withSearchDebugMetadata,
 } from '@/lib/chat-search';
 import {
+  createPersistedResponseActivityMetadata,
+  getSearchActivity,
   hasUsableSearchSources,
   type PersistedSearchMetadata,
   parsePersistedSearchMetadata,
@@ -143,9 +145,11 @@ interface ReplyContext {
   userName: string | null;
 }
 
+const SEARCH_UNAVAILABLE_LABEL = 'Search was unavailable for this reply';
+
 function createRequiredSearchFailureActivity(query: string | null): SearchActivitySummary {
   return {
-    collapsedLabel: 'Search was unavailable for this reply',
+    collapsedLabel: SEARCH_UNAVAILABLE_LABEL,
     events: [
       {
         type: 'search_started',
@@ -155,8 +159,24 @@ function createRequiredSearchFailureActivity(query: string | null): SearchActivi
       {
         type: 'search_completed',
         sourceCount: 0,
-        collapsedLabel: 'Search was unavailable for this reply',
+        collapsedLabel: SEARCH_UNAVAILABLE_LABEL,
       },
+    ],
+  };
+}
+
+/**
+ * Auto-mode activity streams live, so a late infrastructure failure cannot be
+ * hidden by withholding it. Settle the streamed timeline honestly instead.
+ */
+function createUnavailableActivity(
+  streamed: SearchActivitySummary
+): SearchActivitySummary {
+  return {
+    collapsedLabel: SEARCH_UNAVAILABLE_LABEL,
+    events: [
+      ...streamed.events,
+      { type: 'search_completed', sourceCount: 0, collapsedLabel: SEARCH_UNAVAILABLE_LABEL },
     ],
   };
 }
@@ -2531,10 +2551,12 @@ export async function POST(request: NextRequest) {
         let search = createNotAttemptedSearchMetadata(searchMode);
         let persistedSearchMetadata: PersistedSearchMetadata | null = null;
         let finalSystemPrompt = baseSystemPrompt;
+        let searchMs: number | null = null;
+        let searchStartedAt: number | null = null;
 
         if (searchMode !== 'off') {
           const searchTraceId = crypto.randomUUID();
-          const searchStartedAt = Date.now();
+          const searchRunStartedAt = Date.now();
           const localDateLabel = formatCurrentDate(requestTimestamp, normalizedTimeZone);
           const searchTelemetry = createSearchTelemetry({
             traceId: searchTraceId,
@@ -2545,8 +2567,15 @@ export async function POST(request: NextRequest) {
 
           searchTelemetry.logRequestStarted({ searchMode });
 
-          const bufferedAutoActivities: SearchActivitySummary[] = [];
+          let lastStreamedActivity: SearchActivitySummary | null = null;
           const writeSearchActivity = (activity: SearchActivitySummary) => {
+            if (
+              searchStartedAt === null
+              && activity.events.some((event) => event.type === 'search_started')
+            ) {
+              searchStartedAt = Date.now();
+            }
+            lastStreamedActivity = activity;
             writer.write({
               type: 'data-searchActivity',
               data: activity,
@@ -2583,14 +2612,7 @@ export async function POST(request: NextRequest) {
                   });
                   return runSearchPipeline(query, { telemetry: queryTelemetry });
                 },
-                activityWriter: (activity) => {
-                  if (searchMode === 'auto') {
-                    bufferedAutoActivities.push(activity);
-                    return;
-                  }
-
-                  writeSearchActivity(activity);
-                },
+                activityWriter: writeSearchActivity,
                 ...(isTemporaryChat ? { logger: REDACTED_SEARCH_PLANNER_LOGGER } : {}),
               }
             );
@@ -2606,13 +2628,12 @@ export async function POST(request: NextRequest) {
                 traceId: searchTraceId,
                 conversationId: activeConversationId,
                 latestMessage: messageForPrompt,
-                activity: bufferedAutoActivities.at(-1) ?? searchRun.activity,
+                activity: lastStreamedActivity ?? searchRun.activity,
                 error: searchRun.metadata?.status ?? 'auto_search_failed',
                 redactContent: isTemporaryChat,
               });
-            } else if (searchMode === 'auto') {
-              for (const activity of bufferedAutoActivities) {
-                writeSearchActivity(activity);
+              if (lastStreamedActivity) {
+                writeSearchActivity(createUnavailableActivity(lastStreamedActivity));
               }
             }
 
@@ -2636,7 +2657,7 @@ export async function POST(request: NextRequest) {
             finalSystemPrompt = groundedSystemPrompt;
           } catch (error) {
             searchTelemetry.logPipelineFailed({
-              durationMs: Date.now() - searchStartedAt,
+              durationMs: Date.now() - searchRunStartedAt,
               error,
             });
             if (searchMode === 'auto') {
@@ -2644,7 +2665,7 @@ export async function POST(request: NextRequest) {
                 traceId: searchTraceId,
                 conversationId: activeConversationId,
                 latestMessage: messageForPrompt,
-                activity: bufferedAutoActivities.at(-1) ?? null,
+                activity: lastStreamedActivity ?? null,
                 error,
                 redactContent: isTemporaryChat,
               });
@@ -2663,14 +2684,18 @@ export async function POST(request: NextRequest) {
               failureActivity ?? undefined
             );
             persistedSearchMetadata = search.metadata;
-            if (failureActivity) {
-              writer.write({
-                type: 'data-searchActivity',
-                data: failureActivity,
-              });
+            /* Settle whatever the client already streamed, in either mode. */
+            const terminalActivity =
+              failureActivity
+              ?? (lastStreamedActivity ? createUnavailableActivity(lastStreamedActivity) : null);
+            if (terminalActivity) {
+              writeSearchActivity(terminalActivity);
             }
             finalSystemPrompt = baseSystemPrompt;
           }
+          searchMs = searchStartedAt === null
+            ? null
+            : Math.max(0, Date.now() - searchStartedAt);
         }
 
         finalSystemPrompt = [
@@ -2697,6 +2722,8 @@ export async function POST(request: NextRequest) {
         });
 
         try {
+          const responseStartedAt = Date.now();
+          let firstTextDeltaAt: number | null = null;
           const result = streamText({
             model: chatModel,
             system: finalSystemPrompt,
@@ -2707,6 +2734,15 @@ export async function POST(request: NextRequest) {
               : {}),
             onAbort: () => {
               recordResponseTerminal({ status: 'cancelled' });
+            },
+            onChunk: ({ chunk }) => {
+              if (
+                firstTextDeltaAt === null
+                && chunk.type === 'text-delta'
+                && chunk.text.trim()
+              ) {
+                firstTextDeltaAt = Date.now();
+              }
             },
             onError: async ({ error }) => {
               recordResponseTerminal({ status: failedModelUsageStatus(error) });
@@ -2843,6 +2879,27 @@ export async function POST(request: NextRequest) {
                   ? stripInvalidCitationMarkers(assistantText, capturedPersistedSearchMetadata)
                   : assistantText;
               const assistantResponse = applySearchDisclosure(normalizedText, capturedSearch);
+              const responseActivity = {
+                ...(searchMs !== null ? { searchMs } : {}),
+                reasoningMs: Math.max(
+                  0,
+                  (firstTextDeltaAt ?? Date.now()) - responseStartedAt
+                ),
+              };
+              const hasResponseActivity = Object.values(responseActivity).some(
+                (durationMs) => durationMs > 0
+              );
+              const finalSearch = {
+                ...capturedSearch,
+                metadata: hasResponseActivity
+                  && (searchMode !== 'auto' || capturedPersistedSearchMetadata !== null)
+                  ? createPersistedResponseActivityMetadata(
+                      capturedPersistedSearchMetadata,
+                      responseActivity,
+                      searchMode
+                    )
+                  : capturedSearch.metadata,
+              };
             const finalSearchStatus = searchMode === 'off'
               ? 'skipped'
               : capturedSearch.status === 'missing_config'
@@ -2851,9 +2908,7 @@ export async function POST(request: NextRequest) {
                 ? 'failed'
                 : 'completed';
             const finalSearchActivity =
-              capturedPersistedSearchMetadata?.version === 2
-                ? capturedPersistedSearchMetadata.activity ?? null
-                : null;
+              getSearchActivity(finalSearch.metadata);
 
             let assistantMessageId: string | null = runMetadata?.assistantMessageId ?? null;
             let assistantWasCommitted = isTemporaryChat;
@@ -2864,9 +2919,9 @@ export async function POST(request: NextRequest) {
                   {
                     p_run_id: activeRunId,
                     p_content: assistantResponse,
-                    p_message_search_metadata: capturedSearch.metadata,
+                    p_message_search_metadata: finalSearch.metadata,
                     p_run_search_status: finalSearchStatus,
-                    p_run_search_metadata: capturedSearch,
+                    p_run_search_metadata: finalSearch,
                     p_search_activity: finalSearchActivity,
                     p_thread_id: activeThreadId,
                     p_parent_message_id: threadSourceMessageId,
@@ -2894,7 +2949,7 @@ export async function POST(request: NextRequest) {
                     user_id: user.id,
                     role: 'assistant',
                     content: assistantResponse,
-                    search_metadata: capturedSearch.metadata,
+                    search_metadata: finalSearch.metadata,
                     ...(activeThreadId
                       ? { thread_id: activeThreadId, parent_message_id: threadSourceMessageId }
                       : { previous_message_id: latestUserMessageId }),
@@ -2937,7 +2992,7 @@ export async function POST(request: NextRequest) {
                       response_status: 'failed',
                       response_text: assistantResponse,
                       search_status: finalSearchStatus,
-                      search_metadata: capturedSearch,
+                      search_metadata: finalSearch,
                       search_activity: finalSearchActivity,
                       error_code: 'assistant_commit_failed',
                       error_message: 'The generated assistant message could not be saved.',
@@ -2973,11 +3028,8 @@ export async function POST(request: NextRequest) {
                 assistantMessageId,
                 resolvedModelId: resolvedSelection.id,
                 resolvedProvider: resolvedSelection.provider,
-                search: capturedSearch,
-                searchActivity:
-                  capturedPersistedSearchMetadata?.version === 2
-                    ? capturedPersistedSearchMetadata.activity ?? null
-                    : null,
+                search: finalSearch,
+                searchActivity: finalSearchActivity,
                 runId: runMetadata?.runId ?? activeRunId,
                 run: completedRun,
               },

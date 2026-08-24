@@ -11,6 +11,7 @@ import {
   planSearchAction,
   planSearchQuery,
 } from '@/lib/search/query-planner';
+import type { PersistedSearchMetadata } from '@/lib/search-citations';
 
 function searchPlannerInput({
   latestMessage,
@@ -715,6 +716,65 @@ describe('search query planner', () => {
         usage,
       },
     }]);
+  });
+
+  it('keeps timing-only replies out of the prior-search prompt budget', async () => {
+    const sourcedSearch: PersistedSearchMetadata = {
+      version: 2,
+      mode: 'required',
+      profile: 'fresh_web',
+      status: 'success',
+      query: 'official model documentation',
+      providers: ['brave'],
+      sources: [{
+        id: 1,
+        title: 'Source that must remain available',
+        url: 'https://example.com/docs',
+        domain: 'example.com',
+        snippet: 'Authoritative prior search context.',
+        provider: 'brave',
+        sourceType: 'official',
+        publishedAt: null,
+      }],
+    };
+    const timingOnly: PersistedSearchMetadata = {
+      version: 3,
+      mode: 'off',
+      profile: null,
+      status: 'not_attempted',
+      query: null,
+      responseActivity: { reasoningMs: 3_200 },
+      providers: [],
+      sources: [],
+    };
+    mockGenerateObject.mockResolvedValue({
+      object: {
+        resolvedIntent: 'Find official model documentation.',
+        queries: ['official model documentation'],
+        topicEntities: ['model documentation'],
+        sourceStrategy: 'official',
+        freshnessNeeded: false,
+        reusePriorSources: true,
+      },
+    });
+
+    await planSearchAction({
+      latestMessage: 'Find the official docs again',
+      recentMessages: [],
+      priorSearches: [sourcedSearch, timingOnly, timingOnly, timingOnly, timingOnly],
+      currentTime: '2026-06-19 10:00 (America/Vancouver)',
+      currentDateLabel: '2026-06-19',
+      searchMode: 'required',
+    }, {
+      model: 'planner-model' as never,
+      plannerModelId: 'runtime-planner',
+      plannerProvider: 'openrouter',
+    });
+
+    const prompt = mockGenerateObject.mock.calls[0]?.[0]?.prompt as string;
+    const priorSearches = prompt.match(/<prior_searches_json>\n([\s\S]*?)\n<\/prior_searches_json>/)?.[1];
+    expect(priorSearches).toContain('Source that must remain available');
+    expect(priorSearches).not.toContain('not_attempted');
   });
 
   it('records failed primary and successful fallback search decisions separately', async () => {

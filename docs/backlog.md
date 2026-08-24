@@ -22,8 +22,20 @@ right now?"
 Add confirmed user-visible defects here. Include a reproduction or link when it
 is not obvious.
 
+- [ ] Inline threads can be created against a reply that is still streaming.
+  `useHomeThreads` skips streaming replies by testing whether the message id
+  starts with `streaming-`, but run identifiers are `crypto.randomUUID()`
+  values, so the check never matches. Selecting text in a partly streamed reply
+  stores offsets that keep moving as tokens arrive.
+
 ## Important improvements
 
+- [ ] Re-confirm auto search failure visibility before unhiding auto mode. The
+  composer only toggles required and off today. Auto activity now streams live,
+  so a late failure settles as unavailable instead of staying invisible.
+- [ ] Say something other than "Thinking" while a reply runs with thinking
+  turned off. The phase label does not know the per-model thinking setting, so
+  it claims reasoning that was never requested and never streams.
 - [ ] Add server-side cleanup for image uploads that are abandoned before a
   message is saved.
 - [ ] Validate and tune live search against real provider traffic.

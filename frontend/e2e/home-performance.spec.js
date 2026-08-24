@@ -545,7 +545,7 @@ test.describe('home production performance baseline', () => {
       authUser: 0,
       refreshes: 0,
       profileReads: 10,
-      mentorReads: 10,
+      mentorReads: 0,
       workspaceListReads: 10,
       conversationReads: 10,
     });
@@ -678,17 +678,7 @@ test.describe('home production performance baseline', () => {
     await page.context().addCookies([
       await createAuthenticatedCookie({
         userId,
-        mentors: [{
-          id: 'mentor-retry',
-          slug: 'mentor-retry',
-          name: 'Retry Mentor',
-          tagline: null,
-          description: null,
-          is_builtin: false,
-          accent_color: null,
-          avatar_url: null,
-        }],
-        mentorReadFailures: 1,
+        workspaceReadFailures: 1,
       }),
     ]);
 
@@ -696,11 +686,11 @@ test.describe('home production performance baseline', () => {
 
     await expect(page.getByLabel('Message composer')).toBeVisible();
     const notice = page.getByText(/Some navigation data is unavailable/);
-    await expect(notice).toContainText('mentors');
+    await expect(notice).toContainText('workspaces');
     await page.getByRole('button', { name: 'Retry' }).click();
     await expect(notice).toHaveCount(0);
     await expect
-      .poll(async () => (await getFixtureState(userId)).counters.mentorReads)
+      .poll(async () => (await getFixtureState(userId)).counters.workspaceListReads)
       .toBe(2);
   });
 

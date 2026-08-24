@@ -240,6 +240,8 @@ function getProviderOptionsForModel(
       return {
         openai: {
           reasoningEffort: mapOpenAiReasoningEffort(effort, thinkingEnabled),
+          /* OpenAI never exposes raw reasoning, so ask for a summary instead. */
+          ...(thinkingEnabled ? { reasoningSummary: 'auto' } : {}),
         },
       };
     case 'anthropic':

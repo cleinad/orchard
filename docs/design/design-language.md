@@ -156,6 +156,20 @@ Branch controls should reveal structure without interrupting reading flow.
 Place errors, warnings, loading states, and confirmations near the action they
 govern. Destructive confirmations must state what will be removed.
 
+While a reply is being generated, the chat transcript shows the animated Orchard
+mark, the current phase, elapsed seconds, and the searches as they run, where the
+reply will appear. Models that return reasoning stream it into the same block, in
+a clipped scrolling pane so it never pushes the composer down. Providers may
+interleave reasoning with the answer, so the block stays for the whole run rather
+than only until the first token. The phase is read from real run activity rather
+than cycled for effect, so the indicator reports work instead of decorating the
+wait. Once the run finishes, the block collapses to one line summarizing the work
+behind the reply, which expands to the same detail. Reasoning text is kept only
+for the session and is not stored. Persistent replies retain only the time until
+their first visible answer token and any search duration, so the settled summary
+survives reload without retaining the reasoning itself. Motion is limited to the
+brand mark and is disabled under `prefers-reduced-motion`.
+
 ## Copy
 
 Copy should be clear, direct, and specific about the learning action.
