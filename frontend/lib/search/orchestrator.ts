@@ -546,11 +546,17 @@ export async function runConversationalSearch(
       }
     : createRejectedOutput(combinedOutput);
   const sources = sourcesFromSearchOutput(acceptedOutput);
+  const infrastructureFailure =
+    acceptedOutput.status === 'missing_config'
+    || acceptedOutput.status === 'timeout'
+    || acceptedOutput.status === 'upstream_error';
 
   events.push({
     type: 'search_completed',
     sourceCount: sources.length,
-    collapsedLabel: 'Search completed',
+    collapsedLabel: infrastructureFailure
+      ? 'Search was unavailable for this reply'
+      : 'Search completed',
   });
   publishActivity();
 

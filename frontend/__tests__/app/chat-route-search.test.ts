@@ -691,7 +691,7 @@ describe('chat route search citations', () => {
       status: 'upstream_error',
       metadata: {
         activity: expect.objectContaining({
-          collapsedLabel: 'Search completed',
+          collapsedLabel: 'Search was unavailable for this reply',
         }),
       },
     });
