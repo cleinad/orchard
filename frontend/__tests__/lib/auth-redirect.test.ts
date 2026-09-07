@@ -14,7 +14,7 @@ describe('getSafeRedirectPath', () => {
 
   it('preserves safe in-app destinations', () => {
     expect(getSafeRedirectPath('/settings')).toBe('/settings');
-    expect(getSafeRedirectPath('/memory?scope=all')).toBe('/memory?scope=all');
+    expect(getSafeRedirectPath('/workspaces/workspace-1')).toBe('/workspaces/workspace-1');
     expect(getSafeRedirectPath('/mentors?view=create')).toBe('/mentors?view=create');
   });
 });

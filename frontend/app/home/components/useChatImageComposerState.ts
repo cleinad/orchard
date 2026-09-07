@@ -8,10 +8,7 @@ import {
   type Dispatch,
   type SetStateAction,
 } from 'react';
-import {
-  createPendingChatImageAttachments,
-  type PendingChatImageAttachment,
-} from '@/app/home/components/chatImageUploads';
+import type { PendingChatImageAttachment } from '@/app/home/components/chatImageUploads';
 import type { ChatModelId, ChatModelListItem } from '@/lib/chat-models';
 
 export const IMAGE_MODEL_UNSUPPORTED_MESSAGE =
@@ -46,7 +43,8 @@ export function useChatImageComposerState({
   const pendingImageAttachmentsRef = useRef<PendingChatImageAttachment[]>([]);
 
   const selectedModelSupportsImages = selectedChatModel?.supportsImages ?? true;
-  const selectedModelRejectsGifImages = selectedChatModel?.provider === 'google';
+  const selectedModelRejectsGifImages =
+    selectedChatModel?.provider === 'google' || selectedChatModel?.id === 'auto';
   const imageInputDisabledReason = selectedModelSupportsImages
     ? null
     : IMAGE_MODEL_UNSUPPORTED_MESSAGE;
@@ -104,6 +102,9 @@ export function useChatImageComposerState({
       return;
     }
 
+    const { createPendingChatImageAttachments } = await import(
+      '@/app/home/components/chatImageUploads'
+    );
     const result = await createPendingChatImageAttachments(
       files,
       pendingImageAttachments.length

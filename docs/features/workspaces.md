@@ -1,60 +1,122 @@
 # Workspaces
 
-Workspaces group related conversations around a subject such as Health, Math 337, Finances, or a project. They sit above Keen in the sidebar and have a dedicated page at `/workspaces/:workspaceId`.
+Workspaces group persistent chats around a subject or project. Each workspace
+has a dedicated page and shared instructions.
 
-## User Model
+## User model
 
 A workspace contains:
 
-- sessions, which are conversations scoped to the workspace
-- workspace memory, learned only from chats in that workspace
-- workspace context and notes, written by the user and applied to every chat in the workspace
+- a name, optional description, icon, and accent color
+- persistent chats
+- instructions applied to every chat in the workspace
 
-Files and links are intentionally deferred.
+The workspace page is `/workspaces/<workspaceId>`. The sidebar can expand each
+workspace and create a workspace-scoped draft.
 
-## Sidebar Behavior
+Home and workspace routes share one persistent authenticated chat-shell layout.
+The server initializes viewer, model, mentor, workspace-summary, and
+conversation-summary state. A workspace page separately loads one
+RLS-protected detail row and includes the workspace identity, conversations,
+composer, and instructions in the initial HTML.
 
-The sidebar keeps existing mentor behavior and adds Workspaces above Keen.
+Workspace links prefetch the full dynamic route payload on pointer or keyboard
+intent. Navigation retains the chat shell and active runs instead of remounting
+or repeating the sidebar bootstrap.
 
-- Clicking a workspace row opens `/workspaces/:workspaceId`.
-- Clicking its chevron expands or collapses nested workspace chats.
-- Clicking its plus button starts a workspace-scoped draft chat.
-- Existing default chats stay under Keen.
-- Existing mentor chats stay under their mentor groups.
+## Instructions
 
-## Memory Semantics
+Workspace instructions are editable from the workspace page and stored in the
+workspace `context` field. They are added to the system prompt for every chat in
+that workspace.
 
-Default Keen chats read and write global memory.
+They are appropriate for subject background, learning goals, constraints,
+preferred notation, or recurring project context.
 
-Workspace chats read global memory plus memory owned by the active workspace. Extracted memories from workspace chats are written only to that workspace with:
+## Moving chats
 
-- `owner_type = 'workspace'`
-- `owner_id = workspace id`
+Persistent chats can be dragged between the general Chats section and
+workspaces, or between workspaces.
 
-Workspace memory does not appear in default chats, mentor chats, or other workspaces. Automatic promotion from workspace memory to global memory is not part of v1.
+Moving a chat changes its workspace context. Future messages use the shared
+instructions for that context; moving a chat back to general Chats clears the
+workspace context.
 
-Use workspace context as a place for global instructions you want every chat in that space to share (tone, constraints, recurring preferences, and project notes).
+The move is performed by
+`PATCH /api/conversations/<conversationId>/context` and the
+`move_conversation_context` database function. On success, the returned
+conversation summary updates the selected chat and affected sidebar groups
+without reloading mentors, workspaces, or conversations. A failed PATCH leaves
+the local placement unchanged.
 
-## Data Model
+## Deletion
 
-`workspaces` stores the workspace name, description, context, icon, accent color, and owner.
+Deleting a workspace requires confirmation and permanently removes:
 
-`conversations.workspace_id` associates a chat with a workspace. A conversation cannot have both `mentor_id` and `workspace_id`.
+- the workspace
+- its conversations, main messages, branches, and inline threads
+- attachment metadata associated with deleted messages
 
-`memory_items.owner_type` supports `global`, `mentor`, and `workspace`.
+The deletion function returns Storage paths, and the route then attempts to
+remove those private image objects.
 
-## Routes And APIs
+After success, local workspace drafts and selected state are cleared, the
+workspace and its conversations are removed from shared client state, and
+navigation replaces the deleted route with `/home`, so browser Back cannot
+restore the deleted page. Normal success does not reload the mentor, workspace,
+or conversation lists.
 
-Workspace view:
+Rename and instruction updates also update focused page/sidebar state
+optimistically and roll back on failure. Starting a workspace conversation
+locally upserts its returned summary while preserving the first-send handoff to
+the normal home chat runtime. Successful workspace updates and deletes
+revalidate the workspace route so a prefetched or previously visited payload
+cannot restore stale detail.
 
-- `/workspaces/:workspaceId`
-
-Workspace API:
+## API
 
 - `GET /api/workspaces`
 - `POST /api/workspaces`
-- `GET /api/workspaces/:workspaceId`
-- `PATCH /api/workspaces/:workspaceId`
-- `DELETE /api/workspaces/:workspaceId`
+- `GET /api/workspaces/<workspaceId>`
+- `PATCH /api/workspaces/<workspaceId>`
+- `DELETE /api/workspaces/<workspaceId>`
+- `PATCH /api/conversations/<conversationId>/context`
 
-Conversation creation accepts optional `workspaceId` and rejects requests with both `mentorId` and `workspaceId`.
+All routes authenticate with Supabase and scope operations to the current user.
+The list response contains summary fields and excludes long-form workspace
+`context`. Production page rendering uses server data loaders, and production
+workspace mutations use server actions, rather than the browser routes. The
+server actions and mutation routes share authoritative `getUser()` verification
+and RLS-scoped mutation logic.
+
+## Key implementation
+
+- `frontend/app/(authenticated)/(chat-shell)/layout.tsx`
+- `frontend/app/(authenticated)/(chat-shell)/workspaces/[workspaceId]/page.tsx`
+- `frontend/app/workspaces/[workspaceId]/WorkspaceClient.tsx`
+- `frontend/app/workspaces/[workspaceId]/actions.ts`
+- `frontend/app/workspaces/[workspaceId]/data.ts`
+- `frontend/app/workspaces/[workspaceId]/server-mutations.ts`
+- `frontend/app/home/server-data.ts`
+- `frontend/app/api/workspaces/route.ts`
+- `frontend/app/api/workspaces/[workspaceId]/route.ts`
+- `frontend/app/api/conversations/[conversationId]/context/route.ts`
+- `frontend/app/home/components/SidePanel.tsx`
+- `frontend/lib/workspaces.ts`
+- `supabase/migrations/20260719001000_production_schema_baseline.sql`
+
+## Verification
+
+- `frontend/e2e/workspaces.spec.js`
+- `frontend/e2e/workspace-performance.spec.js`
+- `frontend/__tests__/app/workspace-server-data.test.ts`
+- `frontend/__tests__/app/workspaces-route.test.ts`
+- `frontend/__tests__/supabase/workspaces-migration.test.ts`
+- `supabase/tests/database.sql`
+
+## Related docs
+
+- [Global instructions](./global-instructions.md)
+- [Multi-chat home](./multi-chat-home.md)
+- [Image attachments](./image-attachments.md)
+- [Authentication](./auth-and-route-protection.md)

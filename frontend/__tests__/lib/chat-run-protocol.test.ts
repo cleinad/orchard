@@ -3,6 +3,7 @@ import {
   chatRunReducer,
   buildChatRunTarget,
   createQueuedChatRunSnapshot,
+  findActiveMainChatRun,
   getChatRunScopeKey,
   isTerminalChatRunStatus,
 } from '@/lib/chat-runs/protocol';
@@ -62,7 +63,11 @@ describe('chat run protocol', () => {
     });
     const cancelled = chatRunReducer(queued, { type: 'cancelled' });
     expect(chatRunReducer(cancelled, { type: 'streaming' })).toBe(cancelled);
-    expect(cancelled.subsystems.memory).toBe('skipped');
+    expect(cancelled.subsystems).toEqual({
+      response: 'cancelled',
+      title: 'pending',
+      search: 'pending',
+    });
   });
 
   it('hashes semantically identical payload objects identically', async () => {
@@ -81,6 +86,36 @@ describe('chat run protocol', () => {
       kind: 'thread',
       threadId: '60000000-0000-4000-8000-000000000001',
     })).toContain(':thread:60000000-0000-4000-8000-000000000001');
+  });
+
+  it('selects only unsettled main or branch runs for the chat composer', () => {
+    const queued = createQueuedChatRunSnapshot({
+      identifiers,
+      mode: 'persistent',
+      target,
+      fallbackTitle: 'Fallback',
+    });
+    const threadRun = {
+      ...queued,
+      runId: '10000000-0000-4000-8000-000000000002',
+      target: {
+        ...target,
+        kind: 'thread' as const,
+        threadId: '60000000-0000-4000-8000-000000000001',
+      },
+    };
+    const completedRun = {
+      ...queued,
+      runId: '10000000-0000-4000-8000-000000000003',
+      status: 'completed' as const,
+    };
+
+    expect(findActiveMainChatRun(
+      [threadRun, completedRun, queued],
+      target.chatId
+    )).toBe(queued);
+    expect(findActiveMainChatRun([threadRun], target.chatId)).toBeNull();
+    expect(findActiveMainChatRun([queued], 'another-chat')).toBeNull();
   });
 
   it('requires deterministic UUID identifiers but allows an opaque session id', () => {

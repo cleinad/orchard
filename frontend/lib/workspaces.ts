@@ -1,13 +1,18 @@
-export interface WorkspaceListItem {
+export interface WorkspaceSummary {
   id: string;
   name: string;
   description: string | null;
-  context: string | null;
   icon: string | null;
   accent_color: string | null;
   created_at: string;
   updated_at: string;
 }
+
+export interface WorkspaceDetail extends WorkspaceSummary {
+  context: string | null;
+}
+
+export type WorkspaceListItem = WorkspaceDetail;
 
 export interface WorkspaceInput {
   name?: unknown;
@@ -61,4 +66,20 @@ export function mapWorkspaceRow(row: WorkspaceListItem): WorkspaceListItem {
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
+}
+
+export function mapWorkspaceSummary(row: WorkspaceSummary): WorkspaceSummary {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    icon: row.icon,
+    accent_color: row.accent_color,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
+export function toWorkspaceSummary(workspace: WorkspaceDetail): WorkspaceSummary {
+  return mapWorkspaceSummary(workspace);
 }

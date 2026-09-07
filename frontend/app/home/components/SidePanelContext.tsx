@@ -54,14 +54,18 @@ export function SidePanelProvider({ children }: { children: ReactNode }) {
   const clearScrollRequest = useCallback(() => setScrollRequest(null), []);
 
   useEffect(() => {
-    const stored = window.localStorage.getItem(SIDE_PANEL_WIDTH_STORAGE_KEY);
-    const parsed = stored === null ? Number.NaN : Number(stored);
+    const frame = window.requestAnimationFrame(() => {
+      const stored = window.localStorage.getItem(SIDE_PANEL_WIDTH_STORAGE_KEY);
+      const parsed = stored === null ? Number.NaN : Number(stored);
 
-    if (stored !== null) {
-      setWidthPxState(clampSidePanelWidthPx(parsed));
-    }
+      if (stored !== null) {
+        setWidthPxState(clampSidePanelWidthPx(parsed));
+      }
 
-    setHasLoadedWidth(true);
+      setHasLoadedWidth(true);
+    });
+
+    return () => window.cancelAnimationFrame(frame);
   }, []);
 
   useEffect(() => {

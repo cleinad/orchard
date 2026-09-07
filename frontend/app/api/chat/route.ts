@@ -8,8 +8,6 @@ import {
   type ModelMessage,
 } from 'ai';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
-import { loadMemoryContextV2 } from '@/lib/memory-reader';
-import { processMemoryV2 } from '@/lib/memory-agent';
 import { isChatModelEffortLevel, isChatModelId } from '@/lib/chat-models';
 import {
   getChatModel,
@@ -41,6 +39,8 @@ import {
   withSearchDebugMetadata,
 } from '@/lib/chat-search';
 import {
+  createPersistedResponseActivityMetadata,
+  getSearchActivity,
   hasUsableSearchSources,
   type PersistedSearchMetadata,
   parsePersistedSearchMetadata,
@@ -51,20 +51,21 @@ import {
   buildResponseStylePrompt,
   sanitizeResponseStyle,
 } from '@/lib/response-style';
+import { appendGlobalInstructions } from '@/lib/global-instructions';
 import { runConversationalSearch } from '@/lib/search/orchestrator';
 import { runSearchPipeline } from '@/lib/search/pipeline';
+import type { SearchModelTelemetry } from '@/lib/search/query-planner';
 import { createSearchTelemetry } from '@/lib/search/telemetry';
 import type { SearchActivitySummary } from '@/lib/search/types';
 import { buildMentorPrompt } from '@/lib/mentors/prompts';
 import type {
   ChatHistoryMessage,
   ChatMode,
-  TemporaryMemoryMode,
 } from '@/lib/chat-session';
 import {
-  DEFAULT_TEMPORARY_MEMORY_MODE,
   fallbackChatTitleFromMessage,
   isUuid,
+  MAX_CHAT_HISTORY_MESSAGES,
   sanitizeGeneratedChatTitle,
 } from '@/lib/chat-session';
 import { getSelectionStreamVersion } from '@/app/home/components/markdownSelectableStream';
@@ -73,7 +74,6 @@ import {
   getChatRun,
   logChatRunEvent,
   updateActiveChatRun,
-  updateChatRun,
   updateUncancelledChatRun,
   validateChatRunMetadata,
   type ChatRunRequestMetadata,
@@ -83,27 +83,35 @@ import {
   registerActiveChatRun,
   releaseActiveChatRun,
 } from '@/lib/chat-runs/active-run-registry';
+import {
+  startDeferredModelUsageCall,
+  type ModelUsageTerminalRecorder,
+} from '@/lib/telemetry/deferred';
+import { fetchPersistentMainPathToMessage } from '@/app/api/chat/persistentMainPath';
 
 const BASE_SYSTEM_PROMPT = `You are Keen, a thinking partner. You explain things to the user with precision, accuracy, and understandability.
 
 Core traits:
 - You remember context from the conversation and reference it only if the user brings up the same or a closely related topic.
-- You do not force connections to prior conversation context or memory.
+- You do not force connections to unrelated prior conversation context.
 - You avoid fluff, generic advice, and unnecessary preamble.
 - You match the requested response style and the user's assumed familiarity for the current chat.`;
 
-const MEMORY_USE_POLICY = `Use memory only when it directly improves the answer: continuing an existing thread or project, applying a known preference or constraint, resolving ambiguity, or avoiding asking for context the user already gave.
-Do not use memory to personalize examples, make analogies, or connect the current topic to unrelated interests unless the user asks for that kind of connection.
-If a memory is not relevant to the user's latest message, ignore it silently.`;
-
-const RESPONSE_FORMATTING_PROMPT =
-  'Use KaTeX Markdown for math: inline `$...$`; display math with `$$` fences on their own lines. Do not use `\\(...\\)`, `\\[...\\]`, or plain square brackets as math delimiters. In matrices, separate rows with `\\\\`.';
+const RESPONSE_FORMATTING_PROMPT = `Format responses with GitHub-flavored Markdown.
+- Use Markdown tables for textual comparisons and summaries. Do not use LaTeX array environments for prose tables.
+- Reserve KaTeX for mathematical notation. Use $...$ for inline math.
+- Put each $$ display-math fence alone on its own line, with no expression or command beside it. For example:
+$$
+\\begin{aligned}
+a &= b + c \\\\
+d &= e + f
+\\end{aligned}
+$$
+- Do not use \\(...\\), \\[...\\], or plain square brackets as math delimiters. In matrices, separate rows with \\\\.`;
 
 const MAX_THREAD_SELECTED_TEXT_CHARS = 20_000;
 const MAX_THREAD_SOURCE_CONTEXT_CHARS = 24_000;
 const THREAD_SOURCE_EXCERPT_RADIUS = 1_000;
-const MAX_THREAD_ANCHOR_PATH_MESSAGES = 50;
-const MAX_THREAD_ANCHOR_FALLBACK_FETCHES = 5;
 const REDACTED_SEARCH_PLANNER_LOGGER = {
   info: () => undefined,
   warn: () => undefined,
@@ -137,9 +145,11 @@ interface ReplyContext {
   userName: string | null;
 }
 
+const SEARCH_UNAVAILABLE_LABEL = 'Search was unavailable for this reply';
+
 function createRequiredSearchFailureActivity(query: string | null): SearchActivitySummary {
   return {
-    collapsedLabel: 'Search was unavailable for this reply',
+    collapsedLabel: SEARCH_UNAVAILABLE_LABEL,
     events: [
       {
         type: 'search_started',
@@ -149,10 +159,32 @@ function createRequiredSearchFailureActivity(query: string | null): SearchActivi
       {
         type: 'search_completed',
         sourceCount: 0,
-        collapsedLabel: 'Search was unavailable for this reply',
+        collapsedLabel: SEARCH_UNAVAILABLE_LABEL,
       },
     ],
   };
+}
+
+/**
+ * Auto-mode activity streams live, so a late infrastructure failure cannot be
+ * hidden by withholding it. Settle the streamed timeline honestly instead.
+ */
+function createUnavailableActivity(
+  streamed: SearchActivitySummary
+): SearchActivitySummary {
+  return {
+    collapsedLabel: SEARCH_UNAVAILABLE_LABEL,
+    events: [
+      ...streamed.events,
+      { type: 'search_completed', sourceCount: 0, collapsedLabel: SEARCH_UNAVAILABLE_LABEL },
+    ],
+  };
+}
+
+function failedModelUsageStatus(error: unknown) {
+  return error instanceof Error && error.name === 'AbortError'
+    ? 'cancelled' as const
+    : 'failed' as const;
 }
 
 interface ChatRequest {
@@ -176,164 +208,78 @@ interface ChatRequest {
   responseStyle?: unknown;
   timezone?: string;
   chatMode?: ChatMode;
-  memoryMode?: TemporaryMemoryMode;
   history?: ChatHistoryMessage[];
+  historyMessageIds?: string[];
   threadHistory?: ChatHistoryMessage[];
   attachments?: ChatImageAttachmentRequest[];
   run?: ChatRunRequestMetadata;
 }
 
-interface PersistedMainMessage {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  previous_message_id: string | null;
-  created_at: string;
-  search_metadata?: unknown;
-}
-
-function normalizePersistedMainMessage(row: unknown): PersistedMainMessage | null {
-  if (
-    !row
-    || typeof row !== 'object'
-    || typeof (row as { id?: unknown }).id !== 'string'
-    || ((row as { role?: unknown }).role !== 'user' && (row as { role?: unknown }).role !== 'assistant')
-    || typeof (row as { content?: unknown }).content !== 'string'
-  ) {
-    return null;
+async function persistentContextHasImage({
+  supabase,
+  userId,
+  conversationId,
+  previousMessageId,
+  threadId,
+  sourceMessageId,
+  historyMessageIds,
+}: {
+  supabase: SupabaseServerClient;
+  userId: string;
+  conversationId: string | null;
+  previousMessageId: string | null;
+  threadId: string | null;
+  sourceMessageId: string | null;
+  historyMessageIds: string[];
+}) {
+  if (!conversationId) {
+    return false;
   }
 
-  const message = row as {
-    id: string;
-    role: 'user' | 'assistant';
-    content: string;
-    previous_message_id?: unknown;
-    created_at?: unknown;
-    search_metadata?: unknown;
-  };
-
-  return {
-    id: message.id,
-    role: message.role,
-    content: message.content,
-    previous_message_id:
-      typeof message.previous_message_id === 'string' ? message.previous_message_id : null,
-    created_at: typeof message.created_at === 'string' ? message.created_at : '',
-    search_metadata: message.search_metadata,
-  };
-}
-
-function buildPathHistory(
-  messages: PersistedMainMessage[],
-  tailMessageId: string | null
-): PersistedMainMessage[] {
-  if (!tailMessageId) {
-    return [];
-  }
-
-  const byId = new Map(messages.map((message) => [message.id, message]));
-  const path: PersistedMainMessage[] = [];
-  const seen = new Set<string>();
-  let current = byId.get(tailMessageId) ?? null;
-
-  while (current && !seen.has(current.id)) {
-    path.push(current);
-    seen.add(current.id);
-    current = current.previous_message_id
-      ? byId.get(current.previous_message_id) ?? null
-      : null;
-  }
-
-  return path.reverse();
-}
-
-async function fetchPersistentMainMessageById(
-  supabase: SupabaseServerClient,
-  conversationId: string,
-  messageId: string
-): Promise<PersistedMainMessage | null> {
-  const { data: row } = await supabase
-    .from('messages')
-    .select('id, role, content, previous_message_id, created_at, search_metadata')
-    .eq('id', messageId)
-    .eq('conversation_id', conversationId)
-    .is('thread_id', null)
-    .maybeSingle();
-
-  return normalizePersistedMainMessage(row);
-}
-
-async function fetchPersistentMainAnchorWindow(
-  supabase: SupabaseServerClient,
-  conversationId: string,
-  sourceMessage: PersistedMainMessage
-) {
-  const query = supabase
-    .from('messages')
-    .select('id, role, content, previous_message_id, created_at, search_metadata')
-    .eq('conversation_id', conversationId)
-    .is('thread_id', null);
-
-  const { data: rows } = await (
-    sourceMessage.created_at
-      ? query.lte('created_at', sourceMessage.created_at)
-      : query
-  )
-    .order('created_at', { ascending: false })
-    .limit(MAX_THREAD_ANCHOR_PATH_MESSAGES);
-
-  return (rows || [])
-    .map((row) => normalizePersistedMainMessage(row))
-    .filter((row): row is PersistedMainMessage => row !== null);
-}
-
-async function fetchPersistentMainPathToMessage(
-  supabase: SupabaseServerClient,
-  conversationId: string | null,
-  messageId: string | null
-): Promise<PersistedMainMessage[]> {
-  if (!conversationId || !messageId) {
-    return [];
-  }
-
-  const sourceMessage = await fetchPersistentMainMessageById(supabase, conversationId, messageId);
-  if (!sourceMessage) {
-    return [];
-  }
-
-  const anchorWindow = await fetchPersistentMainAnchorWindow(
+  const mainPath = await fetchPersistentMainPathToMessage(
     supabase,
     conversationId,
-    sourceMessage
+    sourceMessageId ?? previousMessageId,
+    historyMessageIds
   );
-  const messagesById = new Map(anchorWindow.map((message) => [message.id, message]));
-  messagesById.set(sourceMessage.id, sourceMessage);
+  const messageIds = mainPath.map((message) => message.id);
 
-  const path: PersistedMainMessage[] = [];
-  const seen = new Set<string>();
-  let fallbackFetchCount = 0;
-  let currentId: string | null = messageId;
+  if (threadId) {
+    const { data: threadRows, error: threadRowsError } = await supabase
+      .from('messages')
+      .select('id')
+      .eq('conversation_id', conversationId)
+      .eq('thread_id', threadId)
+      .eq('user_id', userId);
 
-  while (currentId && path.length < MAX_THREAD_ANCHOR_PATH_MESSAGES && !seen.has(currentId)) {
-    seen.add(currentId);
-    let row: PersistedMainMessage | null = messagesById.get(currentId) ?? null;
-    if (!row && fallbackFetchCount < MAX_THREAD_ANCHOR_FALLBACK_FETCHES) {
-      row = await fetchPersistentMainMessageById(supabase, conversationId, currentId);
-      fallbackFetchCount += 1;
-      if (row) {
-        messagesById.set(row.id, row);
+    if (threadRowsError) {
+      console.error('[chat] failed to inspect inline-thread image context', threadRowsError);
+    } else {
+      for (const row of threadRows ?? []) {
+        if (typeof row.id === 'string') {
+          messageIds.push(row.id);
+        }
       }
     }
-
-    if (!row) {
-      break;
-    }
-
-    path.push(row);
-    currentId = row.previous_message_id;
   }
 
-  return path.reverse();
+  if (messageIds.length === 0) {
+    return false;
+  }
+
+  const { data: attachmentRows, error: attachmentRowsError } = await supabase
+    .from('message_attachments')
+    .select('id')
+    .eq('user_id', userId)
+    .in('message_id', [...new Set(messageIds)])
+    .limit(1);
+
+  if (attachmentRowsError) {
+    console.error('[chat] failed to inspect persistent image context', attachmentRowsError);
+    return false;
+  }
+
+  return Boolean(attachmentRows?.length);
 }
 
 function sliceMessagesThroughSource<T extends { id?: string | null }>(
@@ -589,41 +535,15 @@ function appendReplyContext(basePrompt: string, replyContext: ReplyContext) {
 ${formatReplyContext(replyContext)}`;
 }
 
-function buildSystemPrompt(memoryContext: string, replyContext: ReplyContext): string {
-  if (!memoryContext.trim()) return appendReplyContext(BASE_SYSTEM_PROMPT, replyContext);
-
-  return appendReplyContext(
-    `${BASE_SYSTEM_PROMPT}
-
-You have memory about this user from previous conversations. Use it naturally: reference what you know as if you simply remember. Never announce that you are reading from memory or mention your memory system. 
-Only use it if it makes sense in context and if it's an appropriate time. Don't force connections between unrelated things.
-${MEMORY_USE_POLICY}
-
-<user_memory>
-${memoryContext}
-</user_memory>`,
-    replyContext
-  );
+function buildSystemPrompt(replyContext: ReplyContext): string {
+  return appendReplyContext(BASE_SYSTEM_PROMPT, replyContext);
 }
 
 function buildMentorSystemPrompt(
   basePrompt: string,
-  memoryContext: string,
   replyContext: ReplyContext
 ): string {
-  if (!memoryContext.trim()) return appendReplyContext(basePrompt, replyContext);
-
-  return appendReplyContext(
-    `${basePrompt}
-
-Use the user's memory naturally. Keep it implicit and never mention a memory system.
-${MEMORY_USE_POLICY}
-
-<user_memory>
-${memoryContext}
-</user_memory>`,
-    replyContext
-  );
+  return appendReplyContext(basePrompt, replyContext);
 }
 
 function appendWorkspaceContext(basePrompt: string, workspaceContext: string | null): string {
@@ -801,6 +721,18 @@ function sanitizeHistoryAttachmentRequests(
 
 function normalizeOptionalId(value: string | undefined) {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+function sanitizeHistoryMessageIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+
+  return Array.from(
+    new Set(
+      value.filter(
+        (id): id is string => typeof id === 'string' && isUuid(id)
+      )
+    )
+  ).slice(-MAX_CHAT_HISTORY_MESSAGES);
 }
 
 function validateAttachmentsForModel(
@@ -1073,24 +1005,51 @@ ${formatSearchResultsForPrompt(searchMetadata)}
 }
 
 async function generateConversationTitle(
-  userMessage: string,
+  params: {
+    userMessage: string;
+    userId: string;
+    requestId: string;
+    runId: string | null;
+    chatMode: ChatMode;
+    surface: 'main' | 'branch' | 'inline_thread';
+  },
   assistantMessage?: string
 ) {
-  const fallbackTitle = fallbackChatTitleFromMessage(userMessage);
+  const fallbackTitle = fallbackChatTitleFromMessage(params.userMessage);
+  let recordTerminal: ModelUsageTerminalRecorder | null = null;
 
   try {
     const titleModelSelection = resolveChatModelSelection(null);
     if (!titleModelSelection) {
       return { title: fallbackTitle, failed: true };
     }
+    const titleModel = getChatModel(titleModelSelection.id);
+    recordTerminal = startDeferredModelUsageCall({
+      userId: params.userId,
+      requestId: params.requestId,
+      runId: params.runId,
+      callKind: 'conversation_title',
+      attempt: 0,
+      chatMode: params.chatMode,
+      surface: params.surface,
+      requestedModelId: null,
+      resolvedModelId: titleModelSelection.id,
+      provider: titleModelSelection.provider,
+      providerModelId: titleModelSelection.apiModelId,
+    });
 
     const result = await generateText({
-      model: getChatModel(titleModelSelection.id),
+      model: titleModel,
       system:
         'Generate a concise sidebar title that names the conversation topic in 2 to 5 words. Do not answer the user\'s question or make a factual claim. Convert questions into short noun phrases. Return only the title in plain title case, without quotes or ending punctuation.',
       prompt: assistantMessage
-        ? `First user message:\n${userMessage}\n\nAssistant reply (secondary context):\n${assistantMessage}`
-        : `First user message:\n${userMessage}`,
+        ? `First user message:\n${params.userMessage}\n\nAssistant reply (secondary context):\n${assistantMessage}`
+        : `First user message:\n${params.userMessage}`,
+    });
+    recordTerminal({
+      status: 'completed',
+      finishReason: result.finishReason,
+      usage: result.totalUsage,
     });
 
     return {
@@ -1098,6 +1057,7 @@ async function generateConversationTitle(
       failed: false,
     };
   } catch (error) {
+    recordTerminal?.({ status: failedModelUsageStatus(error) });
     console.error('[chat-title] generation failed', {
       code: error instanceof Error ? error.name : 'unknown_error',
     });
@@ -1272,8 +1232,8 @@ export async function POST(request: NextRequest) {
       responseStyle: responseStyleFromBody,
       timezone,
       chatMode = 'persistent',
-      memoryMode: memoryModeFromBody,
       history,
+      historyMessageIds,
       threadHistory,
       attachments: attachmentInput,
       run: runMetadata,
@@ -1284,6 +1244,7 @@ export async function POST(request: NextRequest) {
     if (runMetadataError) {
       return NextResponse.json({ error: runMetadataError }, { status: 400 });
     }
+    const telemetryRequestId = runMetadata?.runId ?? crypto.randomUUID();
     const { attachments, error: attachmentValidationError } =
       validateAttachmentRequests(attachmentInput, user.id);
     if (attachmentValidationError) {
@@ -1295,11 +1256,9 @@ export async function POST(request: NextRequest) {
     const messageForTitle = messageText || 'Image question';
     const isTemporaryChat = chatMode === 'temporary';
     isTemporaryRequest = isTemporaryChat;
-    // Temporary chats default to no memory when omitted; persistent chats keep prior behavior.
-    const memoryMode: TemporaryMemoryMode =
-      memoryModeFromBody ??
-      (isTemporaryChat ? DEFAULT_TEMPORARY_MEMORY_MODE : 'use_existing');
     const sanitizedHistory = sanitizeHistoryMessages(history, 50, user.id);
+    const sanitizedHistoryMessageIds =
+      sanitizeHistoryMessageIds(historyMessageIds);
     const sanitizedThreadHistory = sanitizeHistoryMessages(threadHistory, 30, user.id);
     const responseStyle = sanitizeResponseStyle(responseStyleFromBody);
 
@@ -1394,7 +1353,7 @@ export async function POST(request: NextRequest) {
 
     const { data: profile } = await supabase
       .from('profiles')
-      .select('full_name')
+      .select('full_name, global_instructions')
       .eq('id', user.id)
       .maybeSingle();
 
@@ -1441,8 +1400,35 @@ export async function POST(request: NextRequest) {
       workspace = workspaceRow;
     }
 
+    const temporaryContextHasImage =
+      [...sanitizedHistory, ...sanitizedThreadHistory].some(
+        (messageItem) => (messageItem.attachments?.length ?? 0) > 0
+      );
+    const requestedModelId = modelId ?? mentor?.model_id ?? null;
+    const shouldInspectAutoImageContext =
+      requestedModelId === null || requestedModelId === 'auto';
+    const hasImageContext =
+      shouldInspectAutoImageContext
+      && (
+        attachments.length > 0
+        || (
+          isTemporaryChat
+            ? temporaryContextHasImage
+            : await persistentContextHasImage({
+                supabase,
+                userId: user.id,
+                conversationId: activeConversationId,
+                previousMessageId:
+                  normalizedPreviousMessageId ?? normalizedBranchSourceMessageId,
+                threadId: normalizedThreadId,
+                sourceMessageId: normalizedSourceMessageId,
+                historyMessageIds: sanitizedHistoryMessageIds,
+              })
+        )
+      );
     const resolvedSelection = resolveChatModelSelection(
-      modelId ?? mentor?.model_id ?? null
+      requestedModelId,
+      { hasImageContext }
     );
     if (!resolvedSelection) {
       await removeUnreferencedCleanupAttachmentStorage(supabase, attachments);
@@ -1723,7 +1709,9 @@ export async function POST(request: NextRequest) {
         await updateActiveChatRun({
           supabase,
           runId: activeRunId,
-          values: { status: 'submitting' },
+          values: {
+            status: 'submitting',
+          },
         });
       }
     }
@@ -2222,7 +2210,8 @@ export async function POST(request: NextRequest) {
       const mainPathThroughSource = await fetchPersistentMainPathToMessage(
         supabase,
         activeConversationId,
-        threadSourceMessageId
+        threadSourceMessageId,
+        sanitizedHistoryMessageIds
       );
       const sourceMessageRow = mainPathThroughSource.at(-1) ?? null;
 
@@ -2247,17 +2236,11 @@ export async function POST(request: NextRequest) {
         messages = [{ id: null, role: 'user', content: messageForPrompt, searchMetadata: null }];
       }
     } else {
-      const { data: historyRows } = await supabase
-        .from('messages')
-        .select('id, role, content, previous_message_id, created_at, search_metadata')
-        .eq('conversation_id', activeConversationId)
-        .is('thread_id', null)
-        .order('created_at', { ascending: true })
-        .limit(200);
-
-      const pathHistory = buildPathHistory(
-        (historyRows || []) as PersistedMainMessage[],
-        latestUserMessageId
+      const pathHistory = await fetchPersistentMainPathToMessage(
+        supabase,
+        activeConversationId,
+        latestUserMessageId,
+        sanitizedHistoryMessageIds
       );
 
       messages = sanitizeHistoryMessages(pathHistory, 50, user.id);
@@ -2275,22 +2258,6 @@ export async function POST(request: NextRequest) {
     }
 
     const isMentorConversation = !!mentor;
-    const isWorkspaceConversation = !!workspace;
-    const shouldLoadMemory = !isTemporaryChat || memoryMode === 'use_existing';
-    const memoryContext = shouldLoadMemory
-      ? await loadMemoryContextV2(supabase, user.id, {
-          actor: isMentorConversation
-            ? 'mentor'
-            : isWorkspaceConversation
-              ? 'workspace'
-              : 'default',
-          mentorId: mentor?.id ?? null,
-          workspaceId: workspace?.id ?? null,
-          query: messageForPrompt,
-          tokenBudget: isMentorConversation ? 900 : 1100,
-          maxItems: isMentorConversation ? 24 : 30,
-        })
-      : '';
     const normalizedTimeZone = normalizeTimeZone(timezone);
     const requestTimestamp = new Date();
     const replyContext: ReplyContext = {
@@ -2304,13 +2271,13 @@ export async function POST(request: NextRequest) {
     });
 
     let baseSystemPrompt = isMentorConversation
-      ? buildMentorSystemPrompt(
-          buildMentorPrompt(mentor!),
-          memoryContext,
-          replyContext
-        )
-      : buildSystemPrompt(memoryContext, replyContext);
+      ? buildMentorSystemPrompt(buildMentorPrompt(mentor!), replyContext)
+      : buildSystemPrompt(replyContext);
 
+    baseSystemPrompt = appendGlobalInstructions(
+      baseSystemPrompt,
+      profile?.global_instructions
+    );
     baseSystemPrompt = appendWorkspaceContext(baseSystemPrompt, workspace?.context ?? null);
 
     const threadContextMessage = buildThreadContextMessage(threadSourcePromptContext);
@@ -2474,13 +2441,33 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const capturedMessages = messages;
     const shouldGenerateTitle =
       !activeThreadId &&
       ((isTemporaryChat && sanitizedHistory.length === 0) ||
         (!isTemporaryChat
           && conversationTitleSource === 'fallback'
           && (createdConversation || isFirstPersistentMainMessage)));
+    const modelUsageSurface = activeThreadId
+      ? 'inline_thread' as const
+      : branchSourceForMessage
+        ? 'branch' as const
+        : 'main' as const;
+    const searchModelTelemetry: SearchModelTelemetry = {
+      start: ({ callKind, attempt, provider, providerModelId }) =>
+        startDeferredModelUsageCall({
+          userId: user.id,
+          requestId: telemetryRequestId,
+          runId: activeRunId,
+          callKind,
+          attempt,
+          chatMode: isTemporaryChat ? 'temporary' : 'persistent',
+          surface: modelUsageSurface,
+          requestedModelId: null,
+          resolvedModelId: null,
+          provider,
+          providerModelId,
+        }),
+    };
     if (activeRunId) {
       const streamingStarted = await updateActiveChatRun({
         supabase,
@@ -2490,7 +2477,6 @@ export async function POST(request: NextRequest) {
           response_status: 'running',
           title_status: shouldGenerateTitle ? 'running' : 'skipped',
           search_status: searchMode === 'off' ? 'skipped' : 'running',
-          memory_status: 'pending',
         },
       });
       if (!streamingStarted) {
@@ -2499,7 +2485,14 @@ export async function POST(request: NextRequest) {
       }
     }
     const generatedTitlePromise = shouldGenerateTitle
-      ? generateConversationTitle(messageForTitle)
+      ? generateConversationTitle({
+          userMessage: messageForTitle,
+          userId: user.id,
+          requestId: telemetryRequestId,
+          runId: activeRunId,
+          chatMode: isTemporaryChat ? 'temporary' : 'persistent',
+          surface: modelUsageSurface,
+        })
       : null;
     // Title generation and commit are deliberately independent from response
     // streaming. A provider failure or disconnected browser must not strand it.
@@ -2558,10 +2551,12 @@ export async function POST(request: NextRequest) {
         let search = createNotAttemptedSearchMetadata(searchMode);
         let persistedSearchMetadata: PersistedSearchMetadata | null = null;
         let finalSystemPrompt = baseSystemPrompt;
+        let searchMs: number | null = null;
+        let searchStartedAt: number | null = null;
 
         if (searchMode !== 'off') {
           const searchTraceId = crypto.randomUUID();
-          const searchStartedAt = Date.now();
+          const searchRunStartedAt = Date.now();
           const localDateLabel = formatCurrentDate(requestTimestamp, normalizedTimeZone);
           const searchTelemetry = createSearchTelemetry({
             traceId: searchTraceId,
@@ -2572,8 +2567,15 @@ export async function POST(request: NextRequest) {
 
           searchTelemetry.logRequestStarted({ searchMode });
 
-          const bufferedAutoActivities: SearchActivitySummary[] = [];
+          let lastStreamedActivity: SearchActivitySummary | null = null;
           const writeSearchActivity = (activity: SearchActivitySummary) => {
+            if (
+              searchStartedAt === null
+              && activity.events.some((event) => event.type === 'search_started')
+            ) {
+              searchStartedAt = Date.now();
+            }
+            lastStreamedActivity = activity;
             writer.write({
               type: 'data-searchActivity',
               data: activity,
@@ -2600,6 +2602,7 @@ export async function POST(request: NextRequest) {
                 fallbackDecisionModelId: searchDecisionModelConfig.fallback?.modelId,
                 plannerModelId: SEARCH_PLANNER_MODEL_ID,
                 plannerProvider: SEARCH_PLANNER_PROVIDER,
+                modelTelemetry: searchModelTelemetry,
                 searchPipeline: (query) => {
                   const queryTelemetry = createSearchTelemetry({
                     traceId: searchTraceId,
@@ -2609,14 +2612,7 @@ export async function POST(request: NextRequest) {
                   });
                   return runSearchPipeline(query, { telemetry: queryTelemetry });
                 },
-                activityWriter: (activity) => {
-                  if (searchMode === 'auto') {
-                    bufferedAutoActivities.push(activity);
-                    return;
-                  }
-
-                  writeSearchActivity(activity);
-                },
+                activityWriter: writeSearchActivity,
                 ...(isTemporaryChat ? { logger: REDACTED_SEARCH_PLANNER_LOGGER } : {}),
               }
             );
@@ -2632,13 +2628,12 @@ export async function POST(request: NextRequest) {
                 traceId: searchTraceId,
                 conversationId: activeConversationId,
                 latestMessage: messageForPrompt,
-                activity: bufferedAutoActivities.at(-1) ?? searchRun.activity,
+                activity: lastStreamedActivity ?? searchRun.activity,
                 error: searchRun.metadata?.status ?? 'auto_search_failed',
                 redactContent: isTemporaryChat,
               });
-            } else if (searchMode === 'auto') {
-              for (const activity of bufferedAutoActivities) {
-                writeSearchActivity(activity);
+              if (lastStreamedActivity) {
+                writeSearchActivity(createUnavailableActivity(lastStreamedActivity));
               }
             }
 
@@ -2662,7 +2657,7 @@ export async function POST(request: NextRequest) {
             finalSystemPrompt = groundedSystemPrompt;
           } catch (error) {
             searchTelemetry.logPipelineFailed({
-              durationMs: Date.now() - searchStartedAt,
+              durationMs: Date.now() - searchRunStartedAt,
               error,
             });
             if (searchMode === 'auto') {
@@ -2670,7 +2665,7 @@ export async function POST(request: NextRequest) {
                 traceId: searchTraceId,
                 conversationId: activeConversationId,
                 latestMessage: messageForPrompt,
-                activity: bufferedAutoActivities.at(-1) ?? null,
+                activity: lastStreamedActivity ?? null,
                 error,
                 redactContent: isTemporaryChat,
               });
@@ -2689,14 +2684,18 @@ export async function POST(request: NextRequest) {
               failureActivity ?? undefined
             );
             persistedSearchMetadata = search.metadata;
-            if (failureActivity) {
-              writer.write({
-                type: 'data-searchActivity',
-                data: failureActivity,
-              });
+            /* Settle whatever the client already streamed, in either mode. */
+            const terminalActivity =
+              failureActivity
+              ?? (lastStreamedActivity ? createUnavailableActivity(lastStreamedActivity) : null);
+            if (terminalActivity) {
+              writeSearchActivity(terminalActivity);
             }
             finalSystemPrompt = baseSystemPrompt;
           }
+          searchMs = searchStartedAt === null
+            ? null
+            : Math.max(0, Date.now() - searchStartedAt);
         }
 
         finalSystemPrompt = [
@@ -2708,107 +2707,199 @@ export async function POST(request: NextRequest) {
         const capturedSearch = search;
         const capturedPersistedSearchMetadata = persistedSearchMetadata;
 
-        const result = streamText({
-          model: chatModel,
-          system: finalSystemPrompt,
-          messages: modelMessages,
-          ...(runAbortController ? { abortSignal: runAbortController.signal } : {}),
-          ...(chatModelProviderOptions
-            ? { providerOptions: chatModelProviderOptions }
-            : {}),
-          onError: async ({ error }) => {
-            console.error('[chat-run] response stream failed', {
-              runId: activeRunId,
-              code: error instanceof Error ? error.name : 'unknown_error',
-            });
-            if (activeRunId) {
-              const currentRun = await getChatRun(supabase, activeRunId);
-              if (currentRun?.status !== 'cancelled') {
-                const markedFailed = await updateActiveChatRun({
-                  supabase,
-                  runId: activeRunId,
-                  values: {
-                    status: 'failed',
-                    response_status: 'failed',
-                    error_code: 'response_stream_failed',
-                    error_message: 'The response stream failed.',
-                    completed_at: new Date().toISOString(),
-                  },
-                });
-                if (markedFailed) {
-                  await logChatRunEvent({
+        const recordResponseTerminal = startDeferredModelUsageCall({
+          userId: user.id,
+          requestId: telemetryRequestId,
+          runId: activeRunId,
+          callKind: 'chat_response',
+          attempt: 0,
+          chatMode: isTemporaryChat ? 'temporary' : 'persistent',
+          surface: modelUsageSurface,
+          requestedModelId: resolvedSelection.requestedId,
+          resolvedModelId: resolvedSelection.id,
+          provider: resolvedSelection.provider,
+          providerModelId: resolvedSelection.apiModelId,
+        });
+
+        try {
+          const responseStartedAt = Date.now();
+          let firstTextDeltaAt: number | null = null;
+          const result = streamText({
+            model: chatModel,
+            system: finalSystemPrompt,
+            messages: modelMessages,
+            ...(runAbortController ? { abortSignal: runAbortController.signal } : {}),
+            ...(chatModelProviderOptions
+              ? { providerOptions: chatModelProviderOptions }
+              : {}),
+            onAbort: () => {
+              recordResponseTerminal({ status: 'cancelled' });
+            },
+            onChunk: ({ chunk }) => {
+              if (
+                firstTextDeltaAt === null
+                && chunk.type === 'text-delta'
+                && chunk.text.trim()
+              ) {
+                firstTextDeltaAt = Date.now();
+              }
+            },
+            onError: async ({ error }) => {
+              recordResponseTerminal({ status: failedModelUsageStatus(error) });
+              console.error('[chat-run] response stream failed', {
+                runId: activeRunId,
+                code: error instanceof Error ? error.name : 'unknown_error',
+              });
+              if (activeRunId) {
+                const currentRun = await getChatRun(supabase, activeRunId);
+                if (currentRun?.status !== 'cancelled') {
+                  const markedFailed = await updateActiveChatRun({
                     supabase,
-                    userId: user.id,
                     runId: activeRunId,
-                    event: 'failed',
-                    detailCode: 'response_stream_failed',
+                    values: {
+                      status: 'failed',
+                      response_status: 'failed',
+                      error_code: 'response_stream_failed',
+                      error_message: 'The response stream failed.',
+                      completed_at: new Date().toISOString(),
+                    },
                   });
+                  if (markedFailed) {
+                    await logChatRunEvent({
+                      supabase,
+                      userId: user.id,
+                      runId: activeRunId,
+                      event: 'failed',
+                      detailCode: 'response_stream_failed',
+                    });
+                  }
+                }
+                releaseActiveChatRun(activeRunId);
+              }
+            },
+            onFinish: async ({ text, totalUsage, finishReason }) => {
+              try {
+                if (activeRunId) {
+                  const currentRun = await getChatRun(supabase, activeRunId);
+                  if (currentRun?.status === 'cancelled') {
+                    recordResponseTerminal({
+                      status: 'cancelled',
+                      finishReason,
+                      usage: totalUsage,
+                    });
+                    releaseActiveChatRun(activeRunId);
+                    return;
+                  }
+                  const movedToFinalizing = await updateActiveChatRun({
+                    supabase,
+                    runId: activeRunId,
+                    values: { status: 'finalizing' },
+                  });
+                  if (!movedToFinalizing) {
+                    recordResponseTerminal({
+                      status: 'interrupted',
+                      finishReason,
+                      usage: totalUsage,
+                    });
+                    releaseActiveChatRun(activeRunId);
+                    return;
+                  }
+                }
+              } catch (error) {
+                recordResponseTerminal({
+                  status: 'completed',
+                  finishReason,
+                  usage: totalUsage,
+                });
+                throw error;
+              }
+              recordResponseTerminal({
+                status: 'completed',
+                finishReason,
+                usage: totalUsage,
+              });
+              let rawText = text.trim();
+
+              if (!rawText) {
+                console.warn('[chat] empty response after streaming generation', {
+                  conversationId: activeConversationId,
+                  searchMode,
+                  searchStatus: capturedSearch.status,
+                });
+
+                const recordRetryTerminal = startDeferredModelUsageCall({
+                  userId: user.id,
+                  requestId: telemetryRequestId,
+                  runId: activeRunId,
+                  callKind: 'chat_response_retry',
+                  attempt: 1,
+                  chatMode: isTemporaryChat ? 'temporary' : 'persistent',
+                  surface: modelUsageSurface,
+                  requestedModelId: null,
+                  resolvedModelId: resolvedSelection.id,
+                  provider: resolvedSelection.provider,
+                  providerModelId: resolvedSelection.apiModelId,
+                });
+                try {
+                  const fallbackGeneration = await generateText({
+                    model: chatModel,
+                    system: finalSystemPrompt,
+                    messages: modelMessages,
+                    ...(runAbortController ? { abortSignal: runAbortController.signal } : {}),
+                    ...(chatModelProviderOptions
+                      ? { providerOptions: chatModelProviderOptions }
+                      : {}),
+                  });
+                  recordRetryTerminal({
+                    status: 'completed',
+                    finishReason: fallbackGeneration.finishReason,
+                    usage: fallbackGeneration.totalUsage,
+                  });
+
+                  rawText = fallbackGeneration.text.trim();
+                } catch (retryError) {
+                  recordRetryTerminal({
+                    status: failedModelUsageStatus(retryError),
+                  });
+                  console.error(
+                    '[chat] retry after empty streamed response failed',
+                    isTemporaryChat
+                      ? { code: retryError instanceof Error ? retryError.name : 'unknown_error' }
+                      : retryError
+                  );
                 }
               }
-              releaseActiveChatRun(activeRunId);
-            }
-          },
-          onFinish: async ({ text }) => {
-            if (activeRunId) {
-              const currentRun = await getChatRun(supabase, activeRunId);
-              if (currentRun?.status === 'cancelled') {
-                releaseActiveChatRun(activeRunId);
-                return;
-              }
-              const movedToFinalizing = await updateActiveChatRun({
-                supabase,
-                runId: activeRunId,
-                values: { status: 'finalizing' },
-              });
-              if (!movedToFinalizing) {
-                releaseActiveChatRun(activeRunId);
-                return;
-              }
-            }
-            let rawText = text.trim();
 
-            if (!rawText) {
-              console.warn('[chat] empty response after streaming generation', {
-                conversationId: activeConversationId,
-                searchMode,
-                searchStatus: capturedSearch.status,
-              });
+              // Fall back to a static string if the model returned nothing.
+              const assistantText =
+                rawText || "I couldn't generate a reply for that. Please try again.";
 
-              try {
-                const fallbackGeneration = await generateText({
-                  model: chatModel,
-                  system: finalSystemPrompt,
-                  messages: modelMessages,
-                  ...(runAbortController ? { abortSignal: runAbortController.signal } : {}),
-                  ...(chatModelProviderOptions
-                    ? { providerOptions: chatModelProviderOptions }
-                    : {}),
-                });
-
-                rawText = fallbackGeneration.text.trim();
-              } catch (retryError) {
-                console.error(
-                  '[chat] retry after empty streamed response failed',
-                  isTemporaryChat
-                    ? { code: retryError instanceof Error ? retryError.name : 'unknown_error' }
-                    : retryError
-                );
-              }
-            }
-
-            // Fall back to a static string if the model returned nothing.
-            const assistantText =
-              rawText || "I couldn't generate a reply for that. Please try again.";
-
-            const normalizedText =
-              hasUsableSearchSources(capturedPersistedSearchMetadata)
-                ? stripInvalidCitationMarkers(assistantText, capturedPersistedSearchMetadata)
-                : assistantText;
-            const assistantResponse = applySearchDisclosure(normalizedText, capturedSearch);
-            const cleanAssistantResponse = sanitizeAssistantContentForReuse(
-              assistantResponse,
-              capturedPersistedSearchMetadata
-            );
+              const normalizedText =
+                hasUsableSearchSources(capturedPersistedSearchMetadata)
+                  ? stripInvalidCitationMarkers(assistantText, capturedPersistedSearchMetadata)
+                  : assistantText;
+              const assistantResponse = applySearchDisclosure(normalizedText, capturedSearch);
+              const responseActivity = {
+                ...(searchMs !== null ? { searchMs } : {}),
+                reasoningMs: Math.max(
+                  0,
+                  (firstTextDeltaAt ?? Date.now()) - responseStartedAt
+                ),
+              };
+              const hasResponseActivity = Object.values(responseActivity).some(
+                (durationMs) => durationMs > 0
+              );
+              const finalSearch = {
+                ...capturedSearch,
+                metadata: hasResponseActivity
+                  && (searchMode !== 'auto' || capturedPersistedSearchMetadata !== null)
+                  ? createPersistedResponseActivityMetadata(
+                      capturedPersistedSearchMetadata,
+                      responseActivity,
+                      searchMode
+                    )
+                  : capturedSearch.metadata,
+              };
             const finalSearchStatus = searchMode === 'off'
               ? 'skipped'
               : capturedSearch.status === 'missing_config'
@@ -2817,9 +2908,7 @@ export async function POST(request: NextRequest) {
                 ? 'failed'
                 : 'completed';
             const finalSearchActivity =
-              capturedPersistedSearchMetadata?.version === 2
-                ? capturedPersistedSearchMetadata.activity ?? null
-                : null;
+              getSearchActivity(finalSearch.metadata);
 
             let assistantMessageId: string | null = runMetadata?.assistantMessageId ?? null;
             let assistantWasCommitted = isTemporaryChat;
@@ -2830,9 +2919,9 @@ export async function POST(request: NextRequest) {
                   {
                     p_run_id: activeRunId,
                     p_content: assistantResponse,
-                    p_message_search_metadata: capturedSearch.metadata,
+                    p_message_search_metadata: finalSearch.metadata,
                     p_run_search_status: finalSearchStatus,
-                    p_run_search_metadata: capturedSearch,
+                    p_run_search_metadata: finalSearch,
                     p_search_activity: finalSearchActivity,
                     p_thread_id: activeThreadId,
                     p_parent_message_id: threadSourceMessageId,
@@ -2860,7 +2949,7 @@ export async function POST(request: NextRequest) {
                     user_id: user.id,
                     role: 'assistant',
                     content: assistantResponse,
-                    search_metadata: capturedSearch.metadata,
+                    search_metadata: finalSearch.metadata,
                     ...(activeThreadId
                       ? { thread_id: activeThreadId, parent_message_id: threadSourceMessageId }
                       : { previous_message_id: latestUserMessageId }),
@@ -2883,57 +2972,6 @@ export async function POST(request: NextRequest) {
               }
             }
 
-            if (!isTemporaryChat && assistantWasCommitted) {
-              const memoryMessages = capturedMessages.map(({ role, content }) => ({ role, content }));
-              if (activeRunId) {
-                await updateChatRun({
-                  supabase,
-                  runId: activeRunId,
-                  values: { memory_status: 'running' },
-                });
-              }
-              after(async () => {
-                try {
-                  await processMemoryV2(supabase, user.id, memoryMessages, cleanAssistantResponse, {
-                    conversationId: activeConversationId,
-                    mentorId: mentor?.id ?? null,
-                    workspaceId: workspace?.id ?? null,
-                    sourceMessageId: latestUserMessageId,
-                    sourceRole: 'user',
-                  });
-                  if (activeRunId) {
-                    await updateChatRun({
-                      supabase,
-                      runId: activeRunId,
-                      values: { memory_status: 'completed' },
-                    });
-                  }
-                } catch (err) {
-                  console.error('[Memory V2] Error:', err);
-                  if (activeRunId) {
-                    await updateChatRun({
-                      supabase,
-                      runId: activeRunId,
-                      values: { memory_status: 'failed' },
-                    });
-                    await logChatRunEvent({
-                      supabase,
-                      userId: user.id,
-                      runId: activeRunId,
-                      event: 'failed',
-                      detailCode: 'memory_failed',
-                    });
-                  }
-                }
-              });
-            } else if (!isTemporaryChat && activeRunId) {
-              await updateChatRun({
-                supabase,
-                runId: activeRunId,
-                values: { memory_status: 'skipped' },
-              });
-            }
-
             // A title is auxiliary work. The assistant response must reach a
             // terminal state even if title generation is slow or unavailable.
             const temporaryTitleResult = isTemporaryChat
@@ -2954,7 +2992,7 @@ export async function POST(request: NextRequest) {
                       response_status: 'failed',
                       response_text: assistantResponse,
                       search_status: finalSearchStatus,
-                      search_metadata: capturedSearch,
+                      search_metadata: finalSearch,
                       search_activity: finalSearchActivity,
                       error_code: 'assistant_commit_failed',
                       error_message: 'The generated assistant message could not be saved.',
@@ -2990,20 +3028,21 @@ export async function POST(request: NextRequest) {
                 assistantMessageId,
                 resolvedModelId: resolvedSelection.id,
                 resolvedProvider: resolvedSelection.provider,
-                search: capturedSearch,
-                searchActivity:
-                  capturedPersistedSearchMetadata?.version === 2
-                    ? capturedPersistedSearchMetadata.activity ?? null
-                    : null,
+                search: finalSearch,
+                searchActivity: finalSearchActivity,
                 runId: runMetadata?.runId ?? activeRunId,
                 run: completedRun,
               },
             });
-          },
-        });
+            },
+          });
 
-        // Pipe the streamText output into the UI message stream.
-        writer.merge(result.toUIMessageStream());
+          // Pipe the streamText output into the UI message stream.
+          writer.merge(result.toUIMessageStream());
+        } catch (error) {
+          recordResponseTerminal({ status: failedModelUsageStatus(error) });
+          throw error;
+        }
       },
     });
 

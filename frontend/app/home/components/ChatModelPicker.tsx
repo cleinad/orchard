@@ -42,6 +42,7 @@ const EFFORT_LABELS: Record<ChatModelEffortLevel, string> = {
   low: 'Low',
   medium: 'Medium',
   high: 'High',
+  xhigh: 'Extra high',
   max: 'Max',
 };
 
@@ -62,14 +63,6 @@ const BRAND_ICONS: Partial<Record<Exclude<ChatModelProvider, 'auto' | 'google'>,
   deepseek: {
     color: '#5786FE',
     path: 'M23.748 4.651c-.254-.124-.364.113-.512.233-.051.04-.094.09-.137.137-.372.397-.806.657-1.373.626-.829-.046-1.537.214-2.163.848-.133-.782-.575-1.248-1.247-1.548-.352-.155-.708-.311-.955-.65-.172-.24-.219-.509-.305-.774-.055-.16-.11-.323-.293-.35-.2-.031-.278.136-.356.276-.313.572-.434 1.202-.422 1.84.027 1.436.633 2.58 1.838 3.393.137.094.172.187.129.323-.082.28-.18.553-.266.833-.055.179-.137.218-.328.14a5.5 5.5 0 0 1-1.737-1.179c-.857-.828-1.631-1.743-2.597-2.46a12 12 0 0 0-.689-.47c-.985-.957.13-1.743.387-1.836.27-.098.094-.433-.778-.428-.872.003-1.67.295-2.687.685a3 3 0 0 1-.465.136 9.6 9.6 0 0 0-2.883-.101c-1.885.21-3.39 1.1-4.497 2.622C.082 8.776-.231 10.854.152 13.02c.403 2.284 1.568 4.175 3.36 5.653 1.857 1.533 3.997 2.284 6.438 2.14 1.482-.085 3.132-.284 4.994-1.86.47.234.962.328 1.78.398.629.058 1.235-.031 1.705-.129.735-.155.684-.836.418-.961-2.155-1.004-1.682-.595-2.112-.926 1.095-1.295 2.768-3.598 3.284-6.733.05-.346.115-.834.108-1.114-.004-.171.035-.238.23-.257a4.2 4.2 0 0 0 1.545-.475c1.397-.763 1.96-2.016 2.093-3.517.02-.23-.004-.467-.247-.588M11.58 18.168c-2.088-1.642-3.101-2.183-3.52-2.16-.39.024-.32.472-.234.763.09.288.207.487.371.74.114.167.192.416-.113.603-.673.416-1.842-.14-1.897-.168-1.361-.801-2.5-1.86-3.301-3.306-.775-1.393-1.225-2.888-1.299-4.482-.02-.385.094-.522.477-.592a4.7 4.7 0 0 1 1.53-.038c2.131.311 3.946 1.264 5.467 2.774.868.86 1.525 1.887 2.202 2.89.72 1.066 1.494 2.082 2.48 2.915.348.291.626.513.892.677-.802.09-2.14.109-3.055-.615zm1.001-6.44a.306.306 0 0 1 .415-.287.3.3 0 0 1 .113.074.3.3 0 0 1 .086.214c0 .17-.136.307-.308.307a.303.303 0 0 1-.306-.307m3.11 1.596c-.2.081-.4.151-.591.16a1.25 1.25 0 0 1-.798-.254c-.274-.23-.47-.358-.551-.758a1.7 1.7 0 0 1 .015-.588c.07-.327-.007-.537-.238-.727-.188-.156-.426-.199-.689-.199a.6.6 0 0 1-.254-.078.253.253 0 0 1-.114-.358 1 1 0 0 1 .192-.21c.356-.202.767-.136 1.146.016.352.144.618.408 1.001.782.392.451.462.576.685.915.176.264.336.536.446.848.066.194-.02.353-.25.45',
-  },
-  alibaba: {
-    color: '#6950EF',
-    path: 'M23.919 14.545 20.817 9.17l1.47-2.544a.56.56 0 0 0 0-.566l-1.633-2.83a.57.57 0 0 0-.49-.283h-6.207L12.487.402a.57.57 0 0 0-.49-.284H8.732a.56.56 0 0 0-.49.284L5.139 5.775h-2.94a.56.56 0 0 0-.49.284L.077 8.887a.56.56 0 0 0 0 .567L3.18 14.83l-1.47 2.545a.56.56 0 0 0 0 .566l1.634 2.83a.57.57 0 0 0 .49.283h6.205l1.47 2.545a.57.57 0 0 0 .49.284h3.266a.57.57 0 0 0 .49-.284l3.104-5.375h2.94a.57.57 0 0 0 .49-.283l1.634-2.828a.55.55 0 0 0-.004-.568M8.733.686l1.634 2.828-1.634 2.828H21.8L20.164 9.17H7.425L5.63 6.06Zm1.306 19.801-6.205-.002 1.634-2.83h3.265L2.201 6.344h3.267q3.182 5.517 6.367 11.032zm10.124-5.66L18.53 12l-6.532 11.315-1.634-2.83c2.129-3.673 4.25-7.351 6.373-11.028h3.592l3.102 5.374z',
-  },
-  moonshot: {
-    color: '#5D6BFF',
-    path: 'm1.053 16.91 9.538 2.55a21 20.981 0 0 0 .06 2.031l5.956 1.592a12 11.99 0 0 1-15.554-6.172m-1.02-5.79 11.352 3.035a21 20.981 0 0 0-.469 2.01l10.817 2.89a12 11.99 0 0 1-1.845 2.004L.658 15.918a12 11.99 0 0 1-.625-4.796m1.593-5.146L13.573 9.17a21 20.981 0 0 0-1.01 1.874l11.297 3.02a21 20.981 0 0 1-.67 2.362l-11.55-3.087L.125 10.26a12 11.99 0 0 1 1.499-4.285ZM6.067 1.58l11.285 3.016a21 20.981 0 0 0-1.688 1.719l7.824 2.091a21 20.981 0 0 1 .513 2.664L2.107 5.218a12 11.99 0 0 1 3.96-3.638M21.68 4.866 7.222 1.003A12 11.99 0 0 1 21.68 4.866',
   },
 };
 
@@ -179,6 +172,7 @@ export default function ChatModelPicker({
   const [isOpen, setIsOpen] = useState(false);
   const [activeEffortModelId, setActiveEffortModelId] =
     useState<ChatModelId | null>(null);
+  const [showAdvancedModels, setShowAdvancedModels] = useState(false);
   const [effortPresentation, setEffortPresentation] =
     useState<'side' | 'drilldown'>('side');
 
@@ -217,14 +211,26 @@ export default function ChatModelPicker({
       return true;
     }
 
-    return hasOverride
+    const thinkingEnabled = hasOverride
       ? thinkingEnabledOverrides[model.id] ?? effortConfig.defaultThinkingEnabled
       : effortConfig.defaultThinkingEnabled;
+
+    return !thinkingEnabled
+      && effortConfig.thinkingDisableUnsupportedLevels?.includes(getModelEffort(model))
+        ? true
+        : thinkingEnabled;
   };
   const effortMenuActiveEffort =
     effortMenuModel ? getModelEffort(effortMenuModel) : 'medium';
   const effortMenuThinkingEnabled =
     effortMenuModel ? getModelThinkingEnabled(effortMenuModel) : true;
+  const thinkingCanBeDisabled = !effortMenuConfig
+    ?.thinkingDisableUnsupportedLevels
+    ?.includes(effortMenuActiveEffort);
+  const autoModel = chatModels.find((model) => model.id === 'auto') ?? null;
+  const advancedModels = chatModels.filter((model) => model.id !== 'auto');
+  const selectedAdvancedModel =
+    selectedModel?.id === 'auto' ? null : selectedModel;
 
   useLayoutEffect(() => {
     const panels = panelsRef.current;
@@ -364,6 +370,13 @@ export default function ChatModelPicker({
       onChange(model.id);
     }
 
+    if (
+      model.effort?.thinkingDisableUnsupportedLevels?.includes(effort)
+      && !getModelThinkingEnabled(model)
+    ) {
+      onThinkingEnabledChange(model.id, true);
+    }
+
     onEffortChange(model.id, effort);
   };
 
@@ -414,6 +427,8 @@ export default function ChatModelPicker({
             type="button"
             role="switch"
             aria-checked={effortMenuThinkingEnabled}
+            aria-disabled={!thinkingCanBeDisabled}
+            disabled={!thinkingCanBeDisabled}
             onClick={() => onThinkingEnabledChange(
               effortMenuModel.id,
               !effortMenuThinkingEnabled
@@ -422,7 +437,8 @@ export default function ChatModelPicker({
               'flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-left',
               buttonStyles.transition,
               buttonStyles.focus,
-              buttonStyles.menuItemInactive
+              buttonStyles.menuItemInactive,
+              !thinkingCanBeDisabled && 'cursor-not-allowed opacity-50'
             )}
           >
             <span>
@@ -430,7 +446,9 @@ export default function ChatModelPicker({
                 Thinking
               </span>
               <span className="block text-[11px] font-medium text-muted/75">
-                Use deeper reasoning when available
+                {thinkingCanBeDisabled
+                  ? 'Use deeper reasoning when available'
+                  : 'Required at this effort level'}
               </span>
             </span>
             <span
@@ -455,7 +473,9 @@ export default function ChatModelPicker({
       <button
         ref={triggerRef}
         type="button"
-        aria-label={selectedModel ? `Chat model: ${selectedModel.label}` : 'Chat model'}
+        aria-label={
+          selectedModel ? `Model: ${selectedModel.label}` : 'Model'
+        }
         aria-controls={popoverId}
         aria-expanded={isOpen}
         aria-haspopup="menu"
@@ -520,6 +540,7 @@ export default function ChatModelPicker({
           setIsOpen(nextOpen);
           if (!nextOpen) {
             setActiveEffortModelId(null);
+            setShowAdvancedModels(false);
           }
         }}
       >
@@ -557,14 +578,29 @@ export default function ChatModelPicker({
                 </div>
                 {effortControls}
               </>
-            ) : (
+            ) : showAdvancedModels ? (
               <>
-                <div className="px-2.5 pb-1.5 pt-1">
-                  <p className="text-[11px] font-medium text-muted/75">Model</p>
+                <div className="px-1 pb-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveEffortModelId(null);
+                      setShowAdvancedModels(false);
+                    }}
+                    className={cx(
+                      'flex h-8 w-full items-center gap-1 rounded-xl px-1.5 text-left text-[12px] font-medium',
+                      buttonStyles.transition,
+                      buttonStyles.focus,
+                      buttonStyles.menuItemInactive
+                    )}
+                  >
+                    <ChevronLeftIcon />
+                    Model
+                  </button>
                 </div>
 
-                <div role="menu" aria-label="Chat models" className="space-y-0.5">
-                  {chatModels.map((model) => {
+                <div role="menu" aria-label="Advanced models" className="space-y-0.5">
+                  {advancedModels.map((model) => {
                     const active = model.id === selectedModelId;
 
                     return (
@@ -603,15 +639,8 @@ export default function ChatModelPicker({
                             <ProviderIcon provider={model.iconKey} />
                           </span>
                           <span className="min-w-0">
-                            <span className="flex min-w-0 items-center gap-1.5">
-                              <span className="truncate text-[13px] font-medium text-foreground">
-                                {model.label}
-                              </span>
-                              {model.badge ? (
-                                <span className="rounded bg-foreground/[0.055] px-1.5 py-0.5 text-[10px] font-medium text-muted">
-                                  {model.badge}
-                                </span>
-                              ) : null}
+                            <span className="truncate text-[13px] font-medium text-foreground">
+                              {model.label}
                             </span>
                           </span>
                         </span>
@@ -637,6 +666,80 @@ export default function ChatModelPicker({
                       </button>
                     );
                   })}
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="px-2.5 pb-1.5 pt-1">
+                  <p className="text-[11px] font-medium text-muted/75">Model</p>
+                </div>
+
+                <div role="menu" aria-label="Models" className="space-y-0.5">
+                  {autoModel ? (
+                    <button
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={autoModel.id === selectedModelId}
+                      disabled={!autoModel.available}
+                      data-model-id={autoModel.id}
+                      onClick={() => selectModel(autoModel)}
+                      className={cx(
+                        'flex min-h-10 w-full items-center justify-between rounded-xl px-2.5 py-1.5 text-left',
+                        buttonStyles.transition,
+                        buttonStyles.focus,
+                        autoModel.id === selectedModelId
+                          ? buttonStyles.menuItemActive
+                          : buttonStyles.menuItemInactive,
+                        'disabled:cursor-not-allowed disabled:opacity-45'
+                      )}
+                    >
+                      <span className="flex min-w-0 items-center gap-2.5">
+                        <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center text-foreground">
+                          <ProviderIcon provider={autoModel.iconKey} />
+                        </span>
+                        <span className="truncate text-[13px] font-medium text-foreground">
+                          {autoModel.label}
+                        </span>
+                      </span>
+                      {!autoModel.available ? (
+                        <span className="ml-4 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-muted">
+                          <LockIcon />
+                        </span>
+                      ) : autoModel.id === selectedModelId ? (
+                        <span className="ml-4 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-foreground/[0.05] text-accent">
+                          <CheckIcon />
+                        </span>
+                      ) : null}
+                    </button>
+                  ) : null}
+
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => setShowAdvancedModels(true)}
+                    className={cx(
+                      'flex min-h-10 w-full items-center justify-between rounded-xl px-2.5 py-1.5 text-left',
+                      buttonStyles.transition,
+                      buttonStyles.focus,
+                      selectedAdvancedModel
+                        ? buttonStyles.menuItemActive
+                        : buttonStyles.menuItemInactive
+                    )}
+                  >
+                    <span className="flex min-w-0 flex-1 items-center justify-between gap-3">
+                      <span className="flex-shrink-0 text-[13px] font-medium text-foreground">
+                        Advanced
+                      </span>
+                      {selectedAdvancedModel ? (
+                        <span className="min-w-0 truncate text-right text-[12px] font-medium text-muted">
+                          {selectedAdvancedModel.label}
+                        </span>
+                      ) : null}
+                    </span>
+                    <span className="ml-2 flex-shrink-0">
+                      <ChevronRightIcon />
+                    </span>
+                  </button>
                 </div>
               </>
             )}

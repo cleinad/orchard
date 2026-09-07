@@ -1,5 +1,6 @@
 import type { PersistedSearchMetadata, SearchSource } from '@/lib/search-citations';
 import { hasUsableSearchSources, stripCitationMarkers } from '@/lib/search-citations';
+import { normalizeMathMarkdown } from '@/lib/markdown-normalization';
 
 export const ASSISTANT_COPY_FORMATS = [
   'plain',
@@ -69,12 +70,16 @@ export function formatAssistantMarkdownForCopy(
   format: AssistantCopyFormat
 ) {
   const sources = getSources(searchMetadata);
+  const body =
+    format === 'markdown' || format === 'markdown-sources'
+      ? normalizeMathMarkdown(content)
+      : content;
 
   if (format === 'markdown-sources') {
-    return withSources(content, formatMarkdownSources(sources));
+    return withSources(body, formatMarkdownSources(sources));
   }
 
-  return stripCitationMarkers(content, searchMetadata).trim();
+  return stripCitationMarkers(body, searchMetadata).trim();
 }
 
 export function appendPlainSourcesForCopy(

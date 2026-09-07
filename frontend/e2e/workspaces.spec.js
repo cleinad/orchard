@@ -119,7 +119,7 @@ async function dropFilesIntoComposer(page, files, options = {}) {
   }, { files, exposeFiles: options.exposeFiles ?? false });
 }
 
-test('workspace view shows sessions, sidebar workspace grouping, memory, and editable context', async ({ page }) => {
+test('workspace view shows sessions, sidebar grouping, and editable context without memory UI', async ({ page }) => {
   const workspaceId = 'workspace-health';
   const sessionTitle = 'Zone 2 training plan';
   const state = await mockHomeDataRoutes(page, {
@@ -143,27 +143,6 @@ test('workspace view shows sessions, sidebar workspace grouping, memory, and edi
         title: 'Default Keen chat',
       }),
     ],
-    memoryItems: [
-      {
-        id: 'memory-health-1',
-        user_id: 'e2e-user-1',
-        owner_type: 'workspace',
-        owner_id: workspaceId,
-        type: 'goal',
-        text: 'User is rebuilding aerobic base.',
-        normalized_text: 'user rebuilding aerobic base',
-        confidence: 0.9,
-        salience: 80,
-        stability: 'stable',
-        sensitivity: 'normal',
-        status: 'active',
-        source_conversation_id: null,
-        source_message_id: null,
-        source_role: null,
-        created_at: '2026-06-25T12:00:00.000Z',
-        updated_at: '2026-06-25T12:00:00.000Z',
-      },
-    ],
   });
 
   await page.goto(`/workspaces/${workspaceId}?e2e=workspace-view`);
@@ -173,6 +152,13 @@ test('workspace view shows sessions, sidebar workspace grouping, memory, and edi
   await expect(page.getByText(sessionTitle)).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Instructions' })).toBeVisible();
   await expect(page.getByLabel('Message composer')).toBeVisible();
+  await expect.poll(() => state.requestCounts.workspaceLists).toBe(1);
+  await expect.poll(() => state.requestCounts.conversationLists).toBe(1);
+  const listReadsBeforeContextSave = {
+    mentors: state.requestCounts.mentorLists,
+    workspaces: state.requestCounts.workspaceLists,
+    conversations: state.requestCounts.conversationLists,
+  };
 
   const sidePanel = await ensureConversationsOpen(page);
   await expect(sidePanel.locator('#side-panel-section-workspaces')).toBeVisible();
@@ -183,8 +169,7 @@ test('workspace view shows sessions, sidebar workspace grouping, memory, and edi
   await expect(sidePanel.getByRole('button', { name: new RegExp(sessionTitle) })).toBeVisible();
   await page.keyboard.press('Escape');
 
-  await page.getByRole('button', { name: 'Memory' }).click();
-  await expect(page.getByText('User is rebuilding aerobic base.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Memory' })).toHaveCount(0);
 
   await page.getByRole('button', {
     name: 'Edit workspace instructions',
@@ -200,6 +185,113 @@ test('workspace view shows sessions, sidebar workspace grouping, memory, and edi
   await expect(dialog).not.toBeVisible();
   await expect(page.getByText('Prefer practical training advice and concise caveats.')).toBeVisible();
   expect(state.workspaces[0].context).toBe('Prefer practical training advice and concise caveats.');
+  expect({
+    mentors: state.requestCounts.mentorLists,
+    workspaces: state.requestCounts.workspaceLists,
+    conversations: state.requestCounts.conversationLists,
+  }).toEqual(listReadsBeforeContextSave);
+});
+
+test('workspace rename rolls back shared state on failure and retries without list reloads', async ({ page }) => {
+  const workspaceId = 'workspace-rename';
+  const state = await mockHomeDataRoutes(page, {
+    workspaces: [
+      createWorkspace({
+        id: workspaceId,
+        name: 'Health',
+        description: 'Training',
+      }),
+    ],
+    workspacePatchFailures: 1,
+  });
+
+  await page.goto(`/workspaces/${workspaceId}?e2e=workspace-rename`);
+  await expect(page.getByRole('heading', { name: 'Health' })).toBeVisible();
+  await expect.poll(() => state.requestCounts.workspaceLists).toBe(1);
+  await expect.poll(() => state.requestCounts.conversationLists).toBe(1);
+  const listReadsBeforeRename = {
+    mentors: state.requestCounts.mentorLists,
+    workspaces: state.requestCounts.workspaceLists,
+    conversations: state.requestCounts.conversationLists,
+  };
+
+  await page.getByRole('button', { name: 'Rename workspace' }).click();
+  const nameInput = page.getByRole('textbox', { name: 'Workspace name' });
+  await nameInput.fill('Wellness');
+  await nameInput.press('Enter');
+
+  await expect(page.getByText('Injected workspace update failure')).toBeVisible();
+  await expect(nameInput).toHaveValue('Wellness');
+  expect(state.workspaces[0].name).toBe('Health');
+
+  const sidePanel = page
+    .locator('[role="region"][aria-label="Conversations and sections"]')
+    .first();
+  await expect(
+    sidePanel.getByTestId(`workspace-drop-target-${workspaceId}`).getByRole('link')
+  ).toContainText('Health');
+
+  await nameInput.press('Enter');
+  await expect(page.getByRole('heading', { name: 'Wellness' })).toBeVisible();
+  await ensureConversationsOpen(page);
+  await expect(
+    sidePanel.getByTestId(`workspace-drop-target-${workspaceId}`).getByRole('link')
+  ).toContainText('Wellness');
+  expect(state.workspaces[0].name).toBe('Wellness');
+  expect({
+    mentors: state.requestCounts.mentorLists,
+    workspaces: state.requestCounts.workspaceLists,
+    conversations: state.requestCounts.conversationLists,
+  }).toEqual(listReadsBeforeRename);
+});
+
+test('workspace instruction failure preserves the draft and retries without list reloads', async ({
+  page,
+}) => {
+  const workspaceId = 'workspace-context-retry';
+  const originalContext = 'Use the original workspace instructions.';
+  const updatedContext = 'Use the revised workspace instructions.';
+  const state = await mockHomeDataRoutes(page, {
+    workspaces: [
+      createWorkspace({
+        id: workspaceId,
+        name: 'Health',
+        context: originalContext,
+      }),
+    ],
+    workspacePatchFailures: 1,
+  });
+
+  await page.goto(`/workspaces/${workspaceId}?e2e=workspace-context-retry`);
+  await expect(page.getByText(originalContext)).toBeVisible();
+  await expect.poll(() => state.requestCounts.workspaceLists).toBe(1);
+  await expect.poll(() => state.requestCounts.conversationLists).toBe(1);
+  const listReadsBeforeSave = {
+    mentors: state.requestCounts.mentorLists,
+    workspaces: state.requestCounts.workspaceLists,
+    conversations: state.requestCounts.conversationLists,
+  };
+
+  await page.getByRole('button', { name: 'Edit workspace instructions' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Edit instructions' });
+  const contextBox = dialog.getByPlaceholder(/Add background/);
+  await contextBox.fill(updatedContext);
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+
+  await expect(page.getByText('Injected workspace update failure')).toBeVisible();
+  await expect(dialog).toBeVisible();
+  await expect(contextBox).toHaveValue(updatedContext);
+  expect(state.workspaces[0].context).toBe(originalContext);
+
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  await expect(page.getByText(updatedContext)).toBeVisible();
+  expect(state.workspaces[0].context).toBe(updatedContext);
+  expect({
+    mentors: state.requestCounts.mentorLists,
+    workspaces: state.requestCounts.workspaceLists,
+    conversations: state.requestCounts.conversationLists,
+  }).toEqual(listReadsBeforeSave);
 });
 
 test('open resized desktop sidebar stays open when navigating to a workspace', async ({ page }) => {
@@ -210,7 +302,7 @@ test('open resized desktop sidebar stays open when navigating to a workspace', a
   await page.addInitScript(({ width }) => {
     window.localStorage.setItem('keen-side-panel-width-v1', String(width));
   }, { width: expectedWidth });
-  await mockHomeDataRoutes(page, {
+  const state = await mockHomeDataRoutes(page, {
     workspaces: [
       createWorkspace({
         id: workspaceId,
@@ -222,13 +314,20 @@ test('open resized desktop sidebar stays open when navigating to a workspace', a
   await page.goto('/home?e2e=workspace-sidebar-navigation');
 
   const sidePanel = await ensureConversationsOpen(page);
+  await expect.poll(() => state.requestCounts.workspaceLists).toBe(1);
+  await expect.poll(() => state.requestCounts.conversationLists).toBe(1);
+  const bootstrapReadsBeforeNavigation = {
+    mentors: state.requestCounts.mentorLists,
+    workspaces: state.requestCounts.workspaceLists,
+    conversations: state.requestCounts.conversationLists,
+  };
   await expect.poll(async () =>
     Math.abs(Math.round((await sidePanel.boundingBox())?.width ?? 0) - expectedWidth)
   ).toBeLessThanOrEqual(1);
 
   await sidePanel
     .getByTestId(`workspace-drop-target-${workspaceId}`)
-    .getByRole('button')
+    .getByRole('link', { name: 'Health' })
     .first()
     .click();
 
@@ -248,9 +347,15 @@ test('open resized desktop sidebar stays open when navigating to a workspace', a
       - expectedWidth
     )
   ).toBeLessThanOrEqual(1);
+  expect({
+    mentors: state.requestCounts.mentorLists,
+    workspaces: state.requestCounts.workspaceLists,
+    conversations: state.requestCounts.conversationLists,
+  }).toEqual(bootstrapReadsBeforeNavigation);
+  expect(state.requestCounts.workspaceDetails).toBeGreaterThanOrEqual(1);
 });
 
-test('workspace delete requires confirmation and removes scoped chats and memories', async ({ page }) => {
+test('workspace delete requires confirmation and removes scoped data', async ({ page }) => {
   const workspaceId = 'workspace-health';
   const state = await mockHomeDataRoutes(page, {
     workspaces: [
@@ -283,50 +388,17 @@ test('workspace delete requires confirmation and removes scoped chats and memori
         title: 'Default Keen chat',
       }),
     ],
-    memoryItems: [
-      {
-        id: 'memory-health-1',
-        user_id: 'e2e-user-1',
-        owner_type: 'workspace',
-        owner_id: workspaceId,
-        type: 'goal',
-        text: 'User is rebuilding aerobic base.',
-        normalized_text: 'user rebuilding aerobic base',
-        confidence: 0.9,
-        salience: 80,
-        stability: 'stable',
-        sensitivity: 'normal',
-        status: 'active',
-        source_conversation_id: null,
-        source_message_id: null,
-        source_role: null,
-        created_at: '2026-06-25T12:00:00.000Z',
-        updated_at: '2026-06-25T12:00:00.000Z',
-      },
-      {
-        id: 'memory-global-1',
-        user_id: 'e2e-user-1',
-        owner_type: 'global',
-        owner_id: null,
-        type: 'profile',
-        text: 'User likes concise answers.',
-        normalized_text: 'user likes concise answers',
-        confidence: 0.9,
-        salience: 80,
-        stability: 'stable',
-        sensitivity: 'normal',
-        status: 'active',
-        source_conversation_id: null,
-        source_message_id: null,
-        source_role: null,
-        created_at: '2026-06-25T12:00:00.000Z',
-        updated_at: '2026-06-25T12:00:00.000Z',
-      },
-    ],
   });
 
   await page.goto(`/workspaces/${workspaceId}?e2e=workspace-delete`);
   await expect(page.getByRole('heading', { name: 'Health' })).toBeVisible();
+  await expect.poll(() => state.requestCounts.workspaceLists).toBe(1);
+  await expect.poll(() => state.requestCounts.conversationLists).toBe(1);
+  const listReadsBeforeDelete = {
+    mentors: state.requestCounts.mentorLists,
+    workspaces: state.requestCounts.workspaceLists,
+    conversations: state.requestCounts.conversationLists,
+  };
 
   await page.getByRole('button', { name: 'Workspace actions' }).click();
   await page.mouse.move(0, 0);
@@ -335,7 +407,7 @@ test('workspace delete requires confirmation and removes scoped chats and memori
   const dialog = page.getByRole('dialog', { name: 'Delete this workspace?' });
   await expect(dialog).toBeVisible();
   await expect(dialog).toContainText('all chats in it');
-  await expect(dialog).toContainText('Global memory will not be changed.');
+  await expect(dialog).not.toContainText(/memor/i);
 
   await dialog.getByRole('button', { name: 'Cancel' }).click();
   await expect(dialog).not.toBeVisible();
@@ -357,18 +429,17 @@ test('workspace delete requires confirmation and removes scoped chats and memori
   expect(
     state.conversations.some((conversation) => conversation.workspace_id === workspaceId)
   ).toBe(false);
-  expect(
-    state.memoryItems.some(
-      (item) => item.owner_type === 'workspace' && item.owner_id === workspaceId
-    )
-  ).toBe(false);
   expect(state.conversations.some((conversation) => conversation.id === 'conversation-keen-1')).toBe(true);
-  expect(state.memoryItems.some((item) => item.id === 'memory-global-1')).toBe(true);
 
   const sidePanel = await ensureConversationsOpen(page);
   await expect(sidePanel.getByTestId('workspace-drop-target-workspace-math')).toBeVisible();
   await expect(sidePanel.getByTestId(`workspace-drop-target-${workspaceId}`)).toHaveCount(0);
   await expect(sidePanel.getByRole('button', { name: /Health plan/ })).toHaveCount(0);
+  expect({
+    mentors: state.requestCounts.mentorLists,
+    workspaces: state.requestCounts.workspaceLists,
+    conversations: state.requestCounts.conversationLists,
+  }).toEqual(listReadsBeforeDelete);
 });
 
 test('workspace new chat preserves workspace selection after navigating home', async ({ page }) => {
@@ -497,11 +568,11 @@ test('workspace composer persists model changes and enables image attachments fo
         description: 'Routes automatically.',
         available: true,
         isDefault: true,
-        supportsImages: false,
+        supportsImages: true,
       },
       {
-        id: 'gemini-3-flash-preview',
-        label: 'Gemini 3 Flash',
+        id: 'gemini-3.6-flash',
+        label: 'Gemini 3.6 Flash',
         provider: 'google',
         providerLabel: 'Google',
         iconKey: 'google',
@@ -521,35 +592,20 @@ test('workspace composer persists model changes and enables image attachments fo
 
   await page.goto(`/workspaces/${workspaceId}?e2e=workspace-images`);
 
-  await expect(page.getByRole('button', { name: 'Attach image' })).toBeDisabled();
-  await page.locator('[aria-label^="Attach image disabled"]').hover();
-  await expect(
-    page.getByRole('tooltip', {
-      name: 'The selected model cannot read images. Choose a vision-capable model.',
-    })
-  ).toBeVisible();
-  await pasteFilesIntoComposer(page, [
-    {
-      name: 'blocked.png',
-      mimeType: 'image/png',
-      base64: TINY_PNG_BASE64,
-    },
-  ]);
-  await expect(
-    page.getByTestId('composer-image-warning')
-  ).toHaveText('The selected model cannot read images. Choose a vision-capable model.');
+  await expect(page.getByRole('button', { name: 'Attach image' })).toBeEnabled();
 
-  await page.getByRole('button', { name: /Chat model: Auto/ }).click();
-  await page.getByRole('menuitemradio', { name: /Gemini 3 Flash/ }).click();
+  await page.getByRole('button', { name: /Model: Auto/ }).click();
+  await page.getByRole('menuitem', { name: /Advanced/ }).click();
+  await page.getByRole('menuitemradio', { name: /Gemini 3\.6 Flash/ }).click();
 
-  await expect(page.getByRole('button', { name: /Chat model: Gemini 3 Flash/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Model: Gemini 3\.6 Flash/ })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Attach image' })).toBeEnabled();
   await expect
     .poll(() => page.evaluate(() => window.localStorage.getItem('keen-chat-model')))
-    .toBe('gemini-3-flash-preview');
+    .toBe('gemini-3.6-flash');
 
   await page.reload();
-  await expect(page.getByRole('button', { name: /Chat model: Gemini 3 Flash/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Model: Gemini 3\.6 Flash/ })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Attach image' })).toBeEnabled();
 
   await page.locator('input[type="file"]').setInputFiles({
@@ -560,13 +616,11 @@ test('workspace composer persists model changes and enables image attachments fo
 
   await expect(page.getByAltText('workspace.png')).toBeVisible();
 
-  await page.getByRole('button', { name: /Chat model: Gemini 3 Flash/ }).click();
+  await page.getByRole('button', { name: /Model: Gemini 3\.6 Flash/ }).click();
   await page.getByRole('menuitemradio', { name: /Auto/ }).click();
-  await expect(page.getByAltText('workspace.png')).toHaveCount(0);
-  await expect(page.getByTestId('composer-image-warning')).toHaveText(
-    'Removed attached images because the selected model cannot read images.'
-  );
-  await expect(page.getByRole('button', { name: 'Attach image' })).toBeDisabled();
+  await expect(page.getByAltText('workspace.png')).toBeVisible();
+  await expect(page.getByTestId('composer-image-warning')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Attach image' })).toBeEnabled();
 });
 
 test('workspace composer shows inline warnings for unsupported pasted files', async ({ page }) => {
@@ -583,8 +637,8 @@ test('workspace composer shows inline warnings for unsupported pasted files', as
     conversations: [],
     chatModels: [
       {
-        id: 'gemini-3-flash-preview',
-        label: 'Gemini 3 Flash',
+        id: 'gemini-3.6-flash',
+        label: 'Gemini 3.6 Flash',
         provider: 'google',
         providerLabel: 'Google',
         iconKey: 'google',
@@ -661,8 +715,8 @@ test('workspace composer does not duplicate images exposed as files and items', 
     conversations: [],
     chatModels: [
       {
-        id: 'gemini-3-flash-preview',
-        label: 'Gemini 3 Flash',
+        id: 'gemini-3.6-flash',
+        label: 'Gemini 3.6 Flash',
         provider: 'google',
         providerLabel: 'Google',
         iconKey: 'google',
@@ -717,8 +771,8 @@ test('workspace composer warns when image attachment limit is reached', async ({
     conversations: [],
     chatModels: [
       {
-        id: 'gemini-3-flash-preview',
-        label: 'Gemini 3 Flash',
+        id: 'gemini-3.6-flash',
+        label: 'Gemini 3.6 Flash',
         provider: 'google',
         providerLabel: 'Google',
         iconKey: 'google',
@@ -757,7 +811,7 @@ test('workspace composer warns when image attachment limit is reached', async ({
   );
 });
 
-test('dragging a default chat into a workspace moves the chat and single-source global memory', async ({ page }) => {
+test('dragging a default chat into a workspace preserves the active chat', async ({ page }) => {
   const workspaceId = 'workspace-health';
   const conversationId = 'conversation-keen-drag';
   const chatStarted = deferred();
@@ -786,58 +840,6 @@ test('dragging a default chat into a workspace moves the chat and single-source 
         },
       ],
     },
-    memoryItems: [
-      {
-        id: 'memory-single-source',
-        user_id: 'e2e-user-1',
-        owner_type: 'global',
-        owner_id: null,
-        type: 'goal',
-        text: 'User is rebuilding aerobic base.',
-        normalized_text: 'user rebuilding aerobic base',
-        confidence: 0.9,
-        salience: 80,
-        stability: 'stable',
-        sensitivity: 'normal',
-        status: 'active',
-        source_conversation_id: conversationId,
-        source_message_id: 'message-keen-drag-user',
-        source_role: 'user',
-        created_at: '2026-06-25T12:00:00.000Z',
-        updated_at: '2026-06-25T12:00:00.000Z',
-      },
-      {
-        id: 'memory-shared-global',
-        user_id: 'e2e-user-1',
-        owner_type: 'global',
-        owner_id: null,
-        type: 'preference',
-        text: 'User likes concise answers.',
-        normalized_text: 'user likes concise answers',
-        confidence: 0.9,
-        salience: 80,
-        stability: 'stable',
-        sensitivity: 'normal',
-        status: 'active',
-        source_conversation_id: conversationId,
-        source_message_id: 'message-keen-drag-user',
-        source_role: 'user',
-        created_at: '2026-06-25T12:00:00.000Z',
-        updated_at: '2026-06-25T12:00:00.000Z',
-      },
-    ],
-    memoryItemSources: [
-      {
-        memory_item_id: 'memory-shared-global',
-        conversation_id: conversationId,
-        message_id: 'message-keen-drag-user',
-      },
-      {
-        memory_item_id: 'memory-shared-global',
-        conversation_id: 'conversation-other-global',
-        message_id: 'message-other-global-user',
-      },
-    ],
   });
 
   await mockChatRoute(page, async (body) => {
@@ -860,14 +862,9 @@ test('dragging a default chat into a workspace moves the chat and single-source 
 
   expect(state.conversations.find((conversation) => conversation.id === conversationId).workspace_id)
     .toBe(workspaceId);
-  expect(state.memoryItems.find((item) => item.id === 'memory-single-source').owner_type)
-    .toBe('workspace');
-  expect(state.memoryItems.find((item) => item.id === 'memory-single-source').owner_id)
-    .toBe(workspaceId);
-  expect(state.memoryItems.find((item) => item.id === 'memory-shared-global').owner_type)
-    .toBe('global');
 
   await expect(sidePanel.getByTestId(`conversation-row-${conversationId}`)).toBeVisible();
+  await expect(page.getByText('Remember that I am rebuilding aerobic base.')).toBeVisible();
 
   const composer = page.getByLabel('Message composer').first();
   await composer.fill('continue after move');
@@ -876,7 +873,7 @@ test('dragging a default chat into a workspace moves the chat and single-source 
   await expect.poll(async () => (await chatStarted.promise).workspaceId).toBe(workspaceId);
 });
 
-test('dragging a workspace chat to another workspace moves the chat and single-source workspace memory', async ({ page }) => {
+test('dragging a workspace chat to another workspace updates the active chat and sidebar', async ({ page }) => {
   const sourceWorkspaceId = 'workspace-health';
   const targetWorkspaceId = 'workspace-math';
   const conversationId = 'conversation-workspace-cross-drag';
@@ -900,27 +897,6 @@ test('dragging a workspace chat to another workspace moves the chat and single-s
         workspaceId: sourceWorkspaceId,
       }),
     ],
-    memoryItems: [
-      {
-        id: 'memory-workspace-transfer',
-        user_id: 'e2e-user-1',
-        owner_type: 'workspace',
-        owner_id: sourceWorkspaceId,
-        type: 'goal',
-        text: 'User is comparing training metrics.',
-        normalized_text: 'user comparing training metrics',
-        confidence: 0.9,
-        salience: 80,
-        stability: 'stable',
-        sensitivity: 'normal',
-        status: 'active',
-        source_conversation_id: conversationId,
-        source_message_id: 'message-workspace-transfer-user',
-        source_role: 'user',
-        created_at: '2026-06-25T12:00:00.000Z',
-        updated_at: '2026-06-25T12:00:00.000Z',
-      },
-    ],
   });
 
   await page.goto(`/home/${conversationId}?e2e=workspace-cross-drag`);
@@ -936,15 +912,11 @@ test('dragging a workspace chat to another workspace moves the chat and single-s
 
   expect(state.conversations.find((conversation) => conversation.id === conversationId).workspace_id)
     .toBe(targetWorkspaceId);
-  expect(state.memoryItems.find((item) => item.id === 'memory-workspace-transfer').owner_type)
-    .toBe('workspace');
-  expect(state.memoryItems.find((item) => item.id === 'memory-workspace-transfer').owner_id)
-    .toBe(targetWorkspaceId);
 
   await expect(sidePanel.getByTestId(`conversation-row-${conversationId}`)).toBeVisible();
 });
 
-test('dragging a workspace chat to Chats requires confirmation and leaves workspace memory scoped', async ({ page }) => {
+test('dragging a workspace chat to Chats moves immediately and keeps the chat selected', async ({ page }) => {
   const workspaceId = 'workspace-health';
   const conversationId = 'conversation-workspace-drag-out';
   const state = await mockHomeDataRoutes(page, {
@@ -962,27 +934,6 @@ test('dragging a workspace chat to Chats requires confirmation and leaves worksp
         workspaceId,
       }),
     ],
-    memoryItems: [
-      {
-        id: 'memory-workspace-local',
-        user_id: 'e2e-user-1',
-        owner_type: 'workspace',
-        owner_id: workspaceId,
-        type: 'goal',
-        text: 'User is rebuilding aerobic base.',
-        normalized_text: 'user rebuilding aerobic base',
-        confidence: 0.9,
-        salience: 80,
-        stability: 'stable',
-        sensitivity: 'normal',
-        status: 'active',
-        source_conversation_id: conversationId,
-        source_message_id: 'message-workspace-user',
-        source_role: 'user',
-        created_at: '2026-06-25T12:00:00.000Z',
-        updated_at: '2026-06-25T12:00:00.000Z',
-      },
-    ],
   });
 
   await page.goto(`/home/${conversationId}?e2e=workspace-drag-out`);
@@ -995,25 +946,11 @@ test('dragging a workspace chat to Chats requires confirmation and leaves worksp
   const chatsRow = sidePanel.getByTestId('global-drop-target');
 
   await chatRow.dragTo(chatsRow);
-  const dialog = page.getByRole('dialog', { name: 'Move this chat to Chats?' });
-  await expect(dialog).toBeVisible();
-  await expect(dialog).toContainText('Existing workspace memories');
-  await dialog.getByRole('button', { name: 'Cancel' }).click();
-  await expect(dialog).not.toBeVisible();
-  expect(state.conversations.find((conversation) => conversation.id === conversationId).workspace_id)
-    .toBe(workspaceId);
-
-  await chatRow.dragTo(chatsRow);
-  await expect(dialog).toBeVisible();
-  await dialog.getByRole('button', { name: 'Move chat' }).click();
-  await expect(dialog).not.toBeVisible();
-
-  expect(state.conversations.find((conversation) => conversation.id === conversationId).workspace_id)
-    .toBeNull();
-  expect(state.memoryItems.find((item) => item.id === 'memory-workspace-local').owner_type)
-    .toBe('workspace');
-  expect(state.memoryItems.find((item) => item.id === 'memory-workspace-local').owner_id)
-    .toBe(workspaceId);
+  await expect(page.getByRole('dialog', { name: 'Move this chat to Chats?' })).toHaveCount(0);
+  await expect.poll(
+    () => state.conversations.find((conversation) => conversation.id === conversationId).workspace_id
+  ).toBeNull();
+  await expect(sidePanel.getByTestId(`conversation-row-${conversationId}`)).toBeVisible();
 });
 
 test('workspace composer autosizes and hands first send to the normal home chat runtime', async ({ page }) => {
@@ -1023,7 +960,7 @@ test('workspace composer autosizes and hands first send to the normal home chat 
   const chatStarted = deferred();
   const chatBodies = [];
 
-  await mockHomeDataRoutes(page, {
+  const state = await mockHomeDataRoutes(page, {
     workspaces: [
       createWorkspace({
         id: workspaceId,
@@ -1054,6 +991,13 @@ test('workspace composer autosizes and hands first send to the normal home chat 
 
   const composer = page.getByLabel('Message composer');
   await expect(composer).toBeVisible();
+  await expect.poll(() => state.requestCounts.workspaceLists).toBe(1);
+  await expect.poll(() => state.requestCounts.conversationLists).toBe(1);
+  const listReadsBeforeSend = {
+    mentors: state.requestCounts.mentorLists,
+    workspaces: state.requestCounts.workspaceLists,
+    conversations: state.requestCounts.conversationLists,
+  };
   const initialHeight = await composer.evaluate((node) => node.clientHeight);
   await composer.fill('line one\nline two\nline three\nline four');
   await expect.poll(async () =>
@@ -1091,4 +1035,9 @@ test('workspace composer autosizes and hands first send to the normal home chat 
 
   chatRelease.resolve();
   await expect(page.getByText('Workspace answer')).toBeVisible();
+  expect({
+    mentors: state.requestCounts.mentorLists,
+    workspaces: state.requestCounts.workspaceLists,
+    conversations: state.requestCounts.conversationLists,
+  }).toEqual(listReadsBeforeSend);
 });

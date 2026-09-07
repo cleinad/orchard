@@ -44,7 +44,6 @@ interface ChatRunDatabaseRow {
   response_status: ChatRunSnapshot['subsystems']['response'];
   title_status: ChatRunSnapshot['subsystems']['title'];
   search_status: ChatRunSnapshot['subsystems']['search'];
-  memory_status: ChatRunSnapshot['subsystems']['memory'];
   response_text?: string | null;
   search_metadata?: ChatRunSnapshot['search'];
   search_activity?: ChatRunSnapshot['searchActivity'];
@@ -69,7 +68,6 @@ const RUN_FIELDS = [
   'response_status',
   'title_status',
   'search_status',
-  'memory_status',
   'response_text',
   'search_metadata',
   'search_activity',
@@ -194,7 +192,6 @@ export function mapChatRunRow(row: ChatRunDatabaseRow): ChatRunSnapshot {
       response: row.response_status,
       title: row.title_status,
       search: row.search_status,
-      memory: row.memory_status,
     },
     errorCode: row.error_code ?? null,
     errorMessage: row.error_message ?? null,

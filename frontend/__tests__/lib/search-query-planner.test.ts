@@ -11,6 +11,7 @@ import {
   planSearchAction,
   planSearchQuery,
 } from '@/lib/search/query-planner';
+import type { PersistedSearchMetadata } from '@/lib/search-citations';
 
 function searchPlannerInput({
   latestMessage,
@@ -460,10 +461,21 @@ describe('search query planner', () => {
     );
 
     const prompt = mockGenerateObject.mock.calls[0]?.[0]?.prompt as string;
+    const call = mockGenerateObject.mock.calls[0]?.[0];
 
     expect(decision.shouldSearch).toBe(true);
     expect(decision.provider).toBe('openrouter');
     expect(decision.providerModelId).toBe('qwen/qwen-2.5-7b-instruct');
+    expect(call).toMatchObject({
+      maxOutputTokens: 512,
+      temperature: 0,
+      timeout: 10_000,
+      providerOptions: {
+        openai: {
+          reasoningEffort: 'none',
+        },
+      },
+    });
     expect(prompt).toContain('Would online sources materially improve the answer');
     expect(prompt).toContain('<latest_message>');
     expect(prompt).toContain('tell me the smartest military moves');
@@ -637,4 +649,221 @@ describe('search query planner', () => {
       });
     }
   );
+
+  it('records a content-free terminal event for model-backed search planning', async () => {
+    const terminals: Array<{ call: unknown; terminal: unknown }> = [];
+    const modelTelemetry = {
+      start: vi.fn((call: unknown) => (terminal: unknown) => {
+        terminals.push({ call, terminal });
+      }),
+    };
+    const usage = {
+      inputTokens: 20,
+      outputTokens: 10,
+      totalTokens: 30,
+    };
+    mockGenerateObject.mockResolvedValue({
+      object: {
+        resolvedIntent: 'Official OpenAI pricing.',
+        queries: ['official OpenAI API pricing'],
+        topicEntities: ['OpenAI'],
+        sourceStrategy: 'official',
+        freshnessNeeded: false,
+        reusePriorSources: false,
+      },
+      finishReason: 'stop',
+      usage,
+    });
+
+    await planSearchAction(
+      {
+        latestMessage: 'official OpenAI pricing',
+        recentMessages: [],
+        currentTime: '2026-06-19 10:00 (America/Vancouver)',
+        currentDateLabel: '2026-06-19',
+        searchMode: 'required',
+      },
+      {
+        model: 'planner-model' as never,
+        plannerModelId: 'runtime-planner',
+        plannerProvider: 'openrouter',
+        modelTelemetry,
+      }
+    );
+
+    expect(mockGenerateObject).toHaveBeenCalledWith(
+      expect.objectContaining({
+        maxOutputTokens: 512,
+        temperature: 0,
+        timeout: 10_000,
+        providerOptions: {
+          openai: {
+            reasoningEffort: 'none',
+          },
+        },
+      })
+    );
+    expect(terminals).toEqual([{
+      call: {
+        callKind: 'search_plan',
+        attempt: 0,
+        provider: 'openrouter',
+        providerModelId: 'runtime-planner',
+      },
+      terminal: {
+        status: 'completed',
+        finishReason: 'stop',
+        usage,
+      },
+    }]);
+  });
+
+  it('keeps timing-only replies out of the prior-search prompt budget', async () => {
+    const sourcedSearch: PersistedSearchMetadata = {
+      version: 2,
+      mode: 'required',
+      profile: 'fresh_web',
+      status: 'success',
+      query: 'official model documentation',
+      providers: ['brave'],
+      sources: [{
+        id: 1,
+        title: 'Source that must remain available',
+        url: 'https://example.com/docs',
+        domain: 'example.com',
+        snippet: 'Authoritative prior search context.',
+        provider: 'brave',
+        sourceType: 'official',
+        publishedAt: null,
+      }],
+    };
+    const timingOnly: PersistedSearchMetadata = {
+      version: 3,
+      mode: 'off',
+      profile: null,
+      status: 'not_attempted',
+      query: null,
+      responseActivity: { reasoningMs: 3_200 },
+      providers: [],
+      sources: [],
+    };
+    mockGenerateObject.mockResolvedValue({
+      object: {
+        resolvedIntent: 'Find official model documentation.',
+        queries: ['official model documentation'],
+        topicEntities: ['model documentation'],
+        sourceStrategy: 'official',
+        freshnessNeeded: false,
+        reusePriorSources: true,
+      },
+    });
+
+    await planSearchAction({
+      latestMessage: 'Find the official docs again',
+      recentMessages: [],
+      priorSearches: [sourcedSearch, timingOnly, timingOnly, timingOnly, timingOnly],
+      currentTime: '2026-06-19 10:00 (America/Vancouver)',
+      currentDateLabel: '2026-06-19',
+      searchMode: 'required',
+    }, {
+      model: 'planner-model' as never,
+      plannerModelId: 'runtime-planner',
+      plannerProvider: 'openrouter',
+    });
+
+    const prompt = mockGenerateObject.mock.calls[0]?.[0]?.prompt as string;
+    const priorSearches = prompt.match(/<prior_searches_json>\n([\s\S]*?)\n<\/prior_searches_json>/)?.[1];
+    expect(priorSearches).toContain('Source that must remain available');
+    expect(priorSearches).not.toContain('not_attempted');
+  });
+
+  it('records failed primary and successful fallback search decisions separately', async () => {
+    const terminals: Array<{ call: unknown; terminal: unknown }> = [];
+    const modelTelemetry = {
+      start: vi.fn((call: unknown) => (terminal: unknown) => {
+        terminals.push({ call, terminal });
+      }),
+    };
+    const fallbackUsage = {
+      inputTokens: 12,
+      outputTokens: 4,
+      totalTokens: 16,
+    };
+    mockGenerateObject
+      .mockRejectedValueOnce(new Error('primary unavailable'))
+      .mockResolvedValueOnce({
+        object: {
+          shouldSearch: true,
+          reason: 'Sources improve coverage.',
+          confidence: 0.81,
+          freshnessRisk: 'low',
+        },
+        finishReason: 'stop',
+        usage: fallbackUsage,
+      });
+
+    await decideSearchNecessity(
+      searchPlannerInput({
+        latestMessage: 'give me the top semiconductor equipment companies',
+      }),
+      {
+        model: 'primary-model' as never,
+        plannerModelId: 'primary-model-id',
+        provider: 'primary-provider',
+        fallbackModel: 'fallback-model' as never,
+        fallbackPlannerModelId: 'fallback-model-id',
+        fallbackProvider: 'fallback-provider',
+        modelTelemetry,
+      }
+    );
+
+    expect(terminals).toEqual([
+      {
+        call: {
+          callKind: 'search_decision',
+          attempt: 0,
+          provider: 'primary-provider',
+          providerModelId: 'primary-model-id',
+        },
+        terminal: { status: 'failed' },
+      },
+      {
+        call: {
+          callKind: 'search_decision',
+          attempt: 1,
+          provider: 'fallback-provider',
+          providerModelId: 'fallback-model-id',
+        },
+        terminal: {
+          status: 'completed',
+          finishReason: 'stop',
+          usage: fallbackUsage,
+        },
+      },
+    ]);
+  });
+
+  it('records an aborted search model call as cancelled', async () => {
+    const terminals: unknown[] = [];
+    const abortError = new Error('request aborted');
+    abortError.name = 'AbortError';
+    mockGenerateObject.mockRejectedValueOnce(abortError);
+
+    await decideSearchNecessity(
+      searchPlannerInput({
+        latestMessage: 'Find current release notes',
+      }),
+      {
+        model: 'planner-model' as never,
+        plannerModelId: 'runtime-planner',
+        provider: 'openrouter',
+        logger: { info: vi.fn(), warn: vi.fn() },
+        modelTelemetry: {
+          start: () => (terminal) => terminals.push(terminal),
+        },
+      }
+    );
+
+    expect(terminals).toEqual([{ status: 'cancelled' }]);
+  });
 });

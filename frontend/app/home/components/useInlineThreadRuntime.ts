@@ -41,7 +41,7 @@ import type { Message } from '@/app/home/types';
 import {
   createTemporaryId,
   toChatHistory,
-  type TemporaryMemoryMode,
+  toChatHistoryMessageIds,
 } from '@/lib/chat-session';
 import { getBrowserTimeZone } from '@/lib/browser-timezone';
 import type { ChatModelEffortLevel } from '@/lib/chat-models';
@@ -59,7 +59,6 @@ import { fallbackChatTitleFromMessage } from '@/lib/chat-session';
 interface UseInlineThreadRuntimeParams {
   activeConversationId: string | null;
   activeMessages: Message[];
-  activeTemporaryMemoryMode: TemporaryMemoryMode;
   activateThreadSession: (sessionId: string) => void;
   createThreadSession: (
     session: ThreadSession,
@@ -97,7 +96,6 @@ interface UseInlineThreadRuntimeParams {
 export function useInlineThreadRuntime({
   activeConversationId,
   activeMessages,
-  activeTemporaryMemoryMode,
   activateThreadSession,
   createThreadSession,
   findThreadSessionId,
@@ -630,6 +628,14 @@ export function useInlineThreadRuntime({
               : {}),
             timezone: getBrowserTimeZone(),
             chatMode: params.selection.kind === 'temporary' ? 'temporary' : 'persistent',
+            ...(params.selection.kind === 'persistent'
+              ? {
+                  historyMessageIds: toChatHistoryMessageIds(
+                    activeMessages,
+                    params.source.sourceMessageId
+                  ),
+                }
+              : {}),
             run: {
               ...params.identifiers,
               temporarySessionId:
@@ -643,7 +649,6 @@ export function useInlineThreadRuntime({
             },
             ...(params.selection.kind === 'temporary'
               ? {
-                  memoryMode: activeTemporaryMemoryMode,
                   history: toChatHistory(activeMessages),
                   threadHistory: toChatHistory(params.previousMessages),
                 }
@@ -750,7 +755,6 @@ export function useInlineThreadRuntime({
     },
     [
       activeMessages,
-      activeTemporaryMemoryMode,
       chatRunCoordinator,
       persistThreadResult,
       selectedModelEffort,

@@ -7,10 +7,17 @@ const mockGenerateText = vi.fn();
 const mockGenerateObject = vi.fn();
 const mockStreamText = vi.fn();
 const mockCreateSupabaseServerClient = vi.fn();
-const mockLoadMemoryContextV2 = vi.fn();
-const mockProcessMemoryV2 = vi.fn();
 const mockBuildMentorPrompt = vi.fn();
 const mockRunSearchPipeline = vi.fn();
+const mockGetSearchPlannerModel = vi.fn(() => null as unknown);
+const mockGetSearchDecisionModelConfig = vi.fn(() => ({
+  primary: null,
+  fallback: null,
+}));
+const mockRecordModelUsage = vi.fn();
+const mockStartDeferredModelUsageCall = vi.fn((context: unknown) => (
+  terminal: unknown
+) => mockRecordModelUsage(context, terminal));
 
 vi.mock('next/server', async (importOriginal) => {
   const actual = await importOriginal<typeof import('next/server')>();
@@ -112,35 +119,29 @@ vi.mock('@/lib/supabase-server', () => ({
   createSupabaseServerClient: () => mockCreateSupabaseServerClient(),
 }));
 
-vi.mock('@/lib/memory-reader', () => ({
-  loadMemoryContextV2: (...args: unknown[]) => mockLoadMemoryContextV2(...args),
-}));
-
-vi.mock('@/lib/memory-agent', () => ({
-  processMemoryV2: (...args: unknown[]) => mockProcessMemoryV2(...args),
-}));
-
 vi.mock('@/lib/models', () => ({
   getChatModel: vi.fn(() => 'mock-chat-model'),
-  getSearchPlannerModel: vi.fn(() => null),
-  getSearchDecisionModelConfig: vi.fn(() => ({
-    primary: null,
-    fallback: null,
-  })),
+  getSearchPlannerModel: () => mockGetSearchPlannerModel(),
+  getSearchDecisionModelConfig: () => mockGetSearchDecisionModelConfig(),
   SEARCH_PLANNER_MODEL_ID: 'qwen/qwen-2.5-7b-instruct',
   SEARCH_PLANNER_PROVIDER: 'openrouter',
   getChatModelProviderOptions: vi.fn(() => undefined),
   getNoChatModelConfiguredMessage: vi.fn(() => 'No chat model is configured.'),
   resolveChatModelSelection: vi.fn(() => ({
-    id: 'gpt-5.4',
-    requestedId: 'gpt-5.4',
+    id: 'gpt-5.6-terra',
+    requestedId: 'gpt-5.6-terra',
     provider: 'openai',
-    apiModelId: 'gpt-5.4',
+    apiModelId: 'gpt-5.6-terra',
   })),
 }));
 
 vi.mock('@/lib/search/pipeline', () => ({
   runSearchPipeline: (...args: unknown[]) => mockRunSearchPipeline(...args),
+}));
+
+vi.mock('@/lib/telemetry/deferred', () => ({
+  startDeferredModelUsageCall: (context: unknown) =>
+    mockStartDeferredModelUsageCall(context),
 }));
 
 vi.mock('@/lib/mentors/prompts', () => ({
@@ -195,9 +196,18 @@ async function runChatRequest(
   return { response, body: metadata, parts, tracker };
 }
 
+function lastSearchActivity(parts: Record<string, unknown>[]) {
+  return parts.filter((part) => part.type === 'data-searchActivity').at(-1)?.data ?? null;
+}
+
 describe('chat route search citations', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGetSearchPlannerModel.mockReturnValue(null);
+    mockGetSearchDecisionModelConfig.mockReturnValue({
+      primary: null,
+      fallback: null,
+    });
     mockStreamText.mockImplementation(({ onFinish }: { onFinish?: (result: { text: string }) => Promise<void> }) => {
       return {
         toUIMessageStream: () => ({
@@ -212,8 +222,6 @@ describe('chat route search citations', () => {
         query: null,
       },
     });
-    mockLoadMemoryContextV2.mockResolvedValue('');
-    mockProcessMemoryV2.mockResolvedValue(undefined);
     mockBuildMentorPrompt.mockReturnValue('Mentor base prompt');
     mockRunSearchPipeline.mockResolvedValue({
       status: 'success',
@@ -241,6 +249,68 @@ describe('chat route search citations', () => {
         },
       ],
     });
+  });
+
+  it('attributes temporary search-model calls to the initiating request without content', async () => {
+    const usage = {
+      inputTokens: 18,
+      outputTokens: 9,
+      totalTokens: 27,
+    };
+    const runId = '10000000-0000-4000-8000-000000000001';
+    mockGetSearchPlannerModel.mockReturnValue('search-planner-model');
+    mockGenerateObject.mockResolvedValue({
+      object: {
+        resolvedIntent: 'Current provider status.',
+        queries: ['current provider status'],
+        topicEntities: ['provider'],
+        sourceStrategy: 'official',
+        freshnessNeeded: true,
+        reusePriorSources: false,
+      },
+      finishReason: 'stop',
+      usage,
+    });
+
+    const { response } = await runChatRequest({
+      message: 'Search for current provider status',
+      searchMode: 'required',
+      chatMode: 'temporary',
+      run: {
+        runId,
+        userMessageId: '20000000-0000-4000-8000-000000000001',
+        assistantMessageId: '30000000-0000-4000-8000-000000000001',
+        temporarySessionId: '40000000-0000-4000-8000-000000000001',
+      },
+    });
+
+    expect(response.status).toBe(200);
+    const searchContext = mockStartDeferredModelUsageCall.mock.calls
+      .map(([context]) => context as Record<string, unknown>)
+      .find(({ callKind }) => callKind === 'search_plan');
+    expect(searchContext).toEqual(expect.objectContaining({
+      requestId: runId,
+      runId: null,
+      callKind: 'search_plan',
+      attempt: 0,
+      chatMode: 'temporary',
+      surface: 'main',
+      requestedModelId: null,
+      resolvedModelId: null,
+      provider: 'openrouter',
+      providerModelId: 'qwen/qwen-2.5-7b-instruct',
+    }));
+    expect(searchContext).not.toHaveProperty('prompt');
+    expect(searchContext).not.toHaveProperty('query');
+    expect(searchContext).not.toHaveProperty('url');
+    expect(mockRecordModelUsage).toHaveBeenCalledWith(
+      expect.objectContaining({ callKind: 'search_plan' }),
+      {
+        status: 'completed',
+        finishReason: 'stop',
+        usage,
+      }
+    );
   });
 
   afterEach(() => {
@@ -470,12 +540,22 @@ describe('chat route search citations', () => {
     );
   });
 
-  it('keeps thrown auto search failures invisible to the user but logs internally', async () => {
+  it('settles thrown auto search failures as unavailable without persisting metadata', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-01-02T03:04:05.000Z'));
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     mockRunSearchPipeline.mockRejectedValue(new Error('provider down'));
-    mockStreamText.mockImplementation(({ onFinish }: { onFinish?: (result: { text: string }) => Promise<void> }) => {
+    mockStreamText.mockImplementation(({
+      onChunk,
+      onFinish,
+    }: {
+      onChunk?: (event: { chunk: { type: 'text-delta'; text: string; id: string } }) => void;
+      onFinish?: (result: { text: string }) => Promise<void>;
+    }) => {
+      vi.advanceTimersByTime(3_200);
+      onChunk?.({
+        chunk: { type: 'text-delta', id: 'text-1', text: 'General answer without source narration.' },
+      });
       return {
         toUIMessageStream: () => ({
           __pending: onFinish?.({ text: 'General answer without source narration.' }) ?? Promise.resolve(),
@@ -493,7 +573,9 @@ describe('chat route search citations', () => {
     );
 
     expect(response.status).toBe(200);
-    expect(parts.some((part) => part.type === 'data-searchActivity')).toBe(false);
+    expect(lastSearchActivity(parts)).toMatchObject({
+      collapsedLabel: 'Search was unavailable for this reply',
+    });
     expect(body.message).toBe('General answer without source narration.');
     expect(body.search).toMatchObject({
       mode: 'auto',
@@ -516,7 +598,7 @@ describe('chat route search citations', () => {
     warnSpy.mockRestore();
   });
 
-  it('keeps non-throwing auto provider failures invisible to the user but logs internally', async () => {
+  it('settles non-throwing auto provider failures as unavailable without persisting metadata', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-01-02T03:04:05.000Z'));
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -546,7 +628,9 @@ describe('chat route search citations', () => {
     );
 
     expect(response.status).toBe(200);
-    expect(parts.some((part) => part.type === 'data-searchActivity')).toBe(false);
+    expect(lastSearchActivity(parts)).toMatchObject({
+      collapsedLabel: 'Search was unavailable for this reply',
+    });
     expect(body.message).toBe('General answer after provider failure.');
     expect(body.search).toMatchObject({
       mode: 'auto',
@@ -607,7 +691,7 @@ describe('chat route search citations', () => {
       status: 'upstream_error',
       metadata: {
         activity: expect.objectContaining({
-          collapsedLabel: 'Search completed',
+          collapsedLabel: 'Search was unavailable for this reply',
         }),
       },
     });
@@ -703,16 +787,9 @@ describe('chat route search citations', () => {
         }),
       ],
     });
-    expect(mockProcessMemoryV2).toHaveBeenCalledWith(
-      expect.anything(),
-      'user-1',
-      [{ role: 'user', content: 'What changed this week?' }],
-      'Grounded answer',
-      expect.objectContaining({
-        conversationId: 'conv-1',
-        sourceMessageId: 'msg-user-1',
-      })
-    );
+    expect(tracker.queries.some(({ table }) => table.startsWith('memory_'))).toBe(false);
+    expect(tracker.mutations.some(({ table }) => table.startsWith('memory_'))).toBe(false);
+    expect(tracker.rpcs.some(({ fn }) => fn.includes('memory'))).toBe(false);
     expect(mockStreamText).toHaveBeenCalledWith(
       expect.objectContaining({
         system: expect.stringContaining(
@@ -730,6 +807,81 @@ describe('chat route search citations', () => {
     expect(systemPrompt).toContain('Length: Brief');
     expect(systemPrompt).not.toContain('2 to 4 sentences');
     expect(mockGenerateObject).not.toHaveBeenCalled();
+  });
+
+  it('persists model wait time for a reasoning-only reply when search is off', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-02T03:04:05.000Z'));
+    mockStreamText.mockImplementation(({
+      onChunk,
+      onFinish,
+    }: {
+      onChunk?: (event: { chunk: { type: 'text-delta'; text: string; id: string } }) => void;
+      onFinish?: (result: { text: string }) => Promise<void>;
+    }) => {
+      vi.advanceTimersByTime(3_200);
+      onChunk?.({
+        chunk: { type: 'text-delta', id: 'text-1', text: 'Assistant reply' },
+      });
+      return {
+        toUIMessageStream: () => ({
+          __pending: onFinish?.({ text: 'Assistant reply' }) ?? Promise.resolve(),
+        }),
+      };
+    });
+
+    const { body } = await runChatRequest({
+      message: 'Explain binary search',
+      chatMode: 'temporary',
+      searchMode: 'off',
+    });
+
+    expect(body.search).toMatchObject({
+      mode: 'off',
+      attempted: false,
+      metadata: {
+        version: 3,
+        mode: 'off',
+        status: 'not_attempted',
+        responseActivity: { reasoningMs: 3_200 },
+      },
+    });
+  });
+
+  it('does not persist activity timing when Auto skips search', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-02T03:04:05.000Z'));
+    mockStreamText.mockImplementation(({
+      onChunk,
+      onFinish,
+    }: {
+      onChunk?: (event: { chunk: { type: 'text-delta'; text: string; id: string } }) => void;
+      onFinish?: (result: { text: string }) => Promise<void>;
+    }) => {
+      vi.advanceTimersByTime(3_200);
+      onChunk?.({
+        chunk: { type: 'text-delta', id: 'text-1', text: 'Assistant reply' },
+      });
+      return {
+        toUIMessageStream: () => ({
+          __pending: onFinish?.({ text: 'Assistant reply' }) ?? Promise.resolve(),
+        }),
+      };
+    });
+
+    const { body } = await runChatRequest({
+      message: 'Help me brainstorm names',
+      chatMode: 'temporary',
+      searchMode: 'auto',
+    });
+
+    expect(mockRunSearchPipeline).not.toHaveBeenCalled();
+    expect(body.search).toMatchObject({
+      mode: 'auto',
+      attempted: false,
+      status: 'not_attempted',
+      metadata: null,
+    });
   });
 
   it('searches resolved contextual follow-up queries and records the final query', async () => {

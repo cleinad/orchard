@@ -49,8 +49,7 @@ describe('search decision model config', () => {
     });
   });
 
-  it('uses openrouter as the decision model and ignores alibaba env vars', async () => {
-    vi.stubEnv('ALIBABA_API_KEY', 'alibaba-key');
+  it('uses OpenRouter as the decision model', async () => {
     vi.stubEnv('ALIBABA_DECISION_MODEL', 'qwen2.5-7b-instruct');
     vi.stubEnv('SEARCH_PLANNER_API_KEY', 'openrouter-key');
     vi.stubEnv('SEARCH_PLANNER_BASE_URL', 'https://openrouter.ai/api/v1');
@@ -70,17 +69,18 @@ describe('search decision model config', () => {
     expect(config.fallback).toBeNull();
   });
 
-  it('defaults to the lightweight openrouter qwen model', async () => {
+  it('defaults to DeepSeek V4 Flash through OpenRouter', async () => {
     vi.stubEnv('SEARCH_PLANNER_API_KEY', 'openrouter-key');
     vi.stubEnv('SEARCH_PLANNER_BASE_URL', 'https://openrouter.ai/api/v1');
+    vi.stubEnv('SEARCH_PLANNER_MODEL', '');
 
     const { SEARCH_PLANNER_MODEL_ID, getSearchDecisionModelConfig } = await loadModels();
     const config = getSearchDecisionModelConfig();
 
-    expect(SEARCH_PLANNER_MODEL_ID).toBe('qwen/qwen-2.5-7b-instruct');
+    expect(SEARCH_PLANNER_MODEL_ID).toBe('deepseek/deepseek-v4-flash');
     expect(config.primary).toMatchObject({
       provider: 'openrouter',
-      modelId: 'qwen/qwen-2.5-7b-instruct',
+      modelId: 'deepseek/deepseek-v4-flash',
     });
   });
 });

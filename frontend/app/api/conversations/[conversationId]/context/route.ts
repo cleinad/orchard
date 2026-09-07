@@ -21,14 +21,6 @@ function normalizeWorkspaceId(value: unknown): string | null | undefined {
   return normalized.length > 0 ? normalized : null;
 }
 
-function normalizeMemoryPolicy(value: unknown): 'conservative' | undefined {
-  if (value === undefined || value === null || value === 'conservative') {
-    return 'conservative';
-  }
-
-  return undefined;
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -65,15 +57,9 @@ export async function PATCH(
       return NextResponse.json({ error: 'workspaceId must be a string or null' }, { status: 400 });
     }
 
-    const memoryPolicy = normalizeMemoryPolicy(body.memoryPolicy);
-    if (!memoryPolicy) {
-      return NextResponse.json({ error: 'Unsupported memory policy' }, { status: 400 });
-    }
-
     const { data, error } = await supabase.rpc('move_conversation_context', {
       p_conversation_id: normalizedConversationId,
       p_workspace_id: workspaceId,
-      p_memory_policy: memoryPolicy,
     });
 
     if (error) {
@@ -112,7 +98,6 @@ export async function PATCH(
     }
 
     const conversation = isRecord(data.conversation) ? data.conversation : null;
-    const memory = isRecord(data.memory) ? data.memory : {};
     if (!conversation || typeof conversation.id !== 'string') {
       return NextResponse.json({ error: 'Failed to move conversation' }, { status: 500 });
     }
@@ -128,11 +113,6 @@ export async function PATCH(
           typeof conversation.created_at === 'string' ? conversation.created_at : null,
         updatedAt:
           typeof conversation.updated_at === 'string' ? conversation.updated_at : null,
-      },
-      memory: {
-        moved: typeof memory.moved === 'number' ? memory.moved : 0,
-        copied: typeof memory.copied === 'number' ? memory.copied : 0,
-        leftInPlace: typeof memory.leftInPlace === 'number' ? memory.leftInPlace : 0,
       },
     });
   } catch (error) {

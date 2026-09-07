@@ -1,285 +1,192 @@
 # Search Tuning Playbook
 
-This is the manual process for validating and tuning Keen's Search mode with real provider traffic.
+Use this manual process to evaluate live-search routing, provider quality,
+ranking, latency, and failure behavior with real provider traffic.
 
-## What To Call It
+## When to use it
 
-The general process is usually called one of:
+- a provider, query planner, router, relevance gate, or reranker changes
+- real searches return weak or noisy sources
+- latency changes materially
+- structured telemetry shows repeated partial failures
 
-- retrieval tuning
-- search relevance tuning
-- retrieval evaluation
-
-For Keen, use `Search Tuning` as the short name. That keeps it understandable in product and engineering conversations while still being technically accurate.
-
-## When To Use This
-
-Run this playbook when:
-
-- Search mode has shipped a new provider or reranking change
-- result quality feels off in real usage
-- latency feels worse than expected
-- telemetry shows a provider is returning weak or noisy evidence
-- you want to decide whether to change result counts, timeouts, routing rules, or rerank weights
-
-## Current Scope
-
-This playbook is for the current v1 stack:
-
-- `Brave`
-- `Exa`
-- deterministic routing
-- structured server-side search telemetry
-
-It is intentionally manual right now. Keen does not yet have durable search analytics tables.
+Automated tests should pass before tuning. This playbook evaluates behavior that
+mocks cannot establish.
 
 ## Prerequisites
 
-Before tuning:
-
-1. Configure real keys in [README.md](../../README.md):
-   - `BRAVE_API_KEY`
-   - `EXA_API_KEY`
-2. Start the frontend locally:
+1. Configure `BRAVE_API_KEY` and `EXA_API_KEY` in `frontend/.env.local`.
+2. Optionally configure the compatible search-planner endpoint described in
+   [Local setup](../development/setup.md).
+3. Start Orchard:
 
 ```bash
 cd frontend
 npm run dev
 ```
 
-3. Use Search mode from the actual app UI.
-4. Watch the server logs while sending searched messages.
+4. Use Auto or Always search in the actual chat UI.
+5. Watch server logs for structured search events.
 
-## Tuning Goals
+Do not copy prompts, provider keys, or sensitive result content into a permanent
+evaluation note.
 
-The goal is not "more sources." The goal is:
+## Evaluation matrix
 
-- correct route selection
-- strong official and authoritative sources near the top
-- useful diversity across the final visible set
-- acceptable latency for the routed query type
-- graceful partial results when one provider fails
+Use at least one query from each category.
 
-## Query Matrix
+### Fresh web
 
-Use at least one query from each bucket.
+Examples:
 
-### Fresh Web
-
-- `What changed with OpenAI pricing this week?`
-- `Latest OpenAI API updates`
+- `What changed with OpenAI API pricing this week?`
+- `Latest official Next.js release`
 
 Expected:
 
-- profile: `fresh_web`
-- providers: usually `brave`
-- official pages and major reporting above random blogs
+- `fresh_web` profile
+- current official sources and strong reporting near the top
+- freshness settings appropriate to the query
 
-### Official Priority
+### Official sources
+
+Examples:
 
 - `Official Anthropic release notes for Claude`
-- `OpenAI pricing official sources only`
+- `OpenAI pricing from official sources`
 
 Expected:
 
-- profile: `official_priority`
-- providers: `brave + exa`
-- docs, changelogs, pricing pages, and company pages above commentary
+- `official_priority` profile
+- documentation, changelogs, pricing pages, and first-party sources above
+  commentary
 
-### Research Backed
+### Research evidence
+
+Examples:
 
 - `What does the evidence say about creatine and cognition?`
 - `Research on sleep deprivation and memory consolidation`
 
 Expected:
 
-- profile: `research_backed`
-- providers: `brave + exa`
-- papers, PubMed, university, or institutional sources above forums/blogs
+- `research_backed` profile
+- papers, institutional sources, and appropriate review material above generic
+  blogs or forums
 
-### Weak Or Edge Case
+### Social or reaction intent
 
-- `Latest updates on a very obscure topic`
-- a vague query with no clear official source
+Choose a query explicitly asking how people are reacting.
 
 Expected:
 
-- search may still succeed, but telemetry should show whether weak quality came from routing, sparse results, or provider failures
+- `web_social` profile
+- web sources appropriate to public reaction
+- no claim that unsupported social platforms were searched
 
-## What To Watch In Telemetry
+### Sparse or ambiguous
 
-Current search telemetry emits:
+Use an obscure topic and a vague follow-up.
 
-- `search.request_started`
-- `search.route_selected`
-- `search.provider_finished`
-- `search.pipeline_completed`
-- `search.pipeline_failed`
+Expected:
 
-Read these in order.
+- weak evidence is filtered rather than padded into the visible set
+- Always search discloses an unavailable or ungrounded result
+- Auto can fall back silently to an unsourced answer
 
-### 1. Route Selection
+## Telemetry sequence
 
-Check:
+Read events in order:
 
-- `profile`
-- `providers`
-- `providerRequestCount`
-- `freshness`
+1. `search.request_started`
+2. `search.route_selected`
+3. `search.provider_finished`
+4. `search.pipeline_completed` or `search.pipeline_failed`
 
-Questions:
+### Route
 
-- Did the query go to the right profile?
-- Did it use one provider or two?
-- Did freshness get recognized correctly?
+Inspect:
 
-If wrong:
+- profile
+- selected providers
+- planned request count
+- freshness
 
-- adjust routing cues or precedence in `frontend/lib/search/router.ts`
+If the route is wrong, adjust cues, thresholds, or precedence in
+`frontend/lib/search/router.ts`. If a model-generated plan is wrong, inspect its
+validated output and fallback behavior before changing deterministic routing.
 
-### 2. Provider Quality
+### Providers
 
-Check each `search.provider_finished` event:
+For each provider, inspect:
 
-- `provider`
-- `status`
-- `durationMs`
-- `requestedResultCount`
-- `usefulResultCount`
-- `httpStatus`
+- status and duration
+- requested and useful result counts
+- HTTP status
 
-Questions:
+Repeated low yield suggests a query, category, count, or provider-selection
+problem. Repeated timeouts suggest a timeout or route-cost problem.
 
-- Is one provider consistently slow?
-- Is one provider returning many unusable results?
-- Is a provider timing out too often?
+### Pipeline
 
-If wrong:
+Inspect:
 
-- reduce provider result count
-- adjust timeout budget
-- narrow provider usage to the query classes where it actually helps
+- deduplicated count
+- ranked count
+- visible count
+- failed-provider count
+- outbound request count
+- total duration
 
-### 3. Pipeline Outcome
+This distinguishes sparse retrieval from over-aggressive relevance filtering or
+poor ranking.
 
-Check `search.pipeline_completed`:
+## Recording results
 
-- `dedupedCount`
-- `rankedCount`
-- `visibleCount`
-- `failedProviderCount`
-- `outboundRequestCount`
-- `durationMs`
+For each query, record only:
 
-Questions:
+- query or a safe paraphrase
+- expected and actual profile
+- expected and actual providers
+- top visible domains
+- `good`, `acceptable`, or `needs tuning`
+- perceived latency
+- smallest plausible change
 
-- Did dedupe collapse too much?
-- Are we surfacing too few visible sources?
-- Are partial results still good enough?
-- Is total search latency acceptable for this route?
+Avoid building a permanent analytics system in Markdown. Keep a short working
+note while tuning and move only genuine follow-up work into the
+[backlog](../backlog.md).
 
-If wrong:
+## Tuning order
 
-- tune visible-count rules
-- tune rerank weights
-- revisit provider mix for that route
+1. Fix route selection.
+2. Fix provider errors and timeouts.
+3. Check relevance acceptance and deduplication.
+4. Tune authority, source type, and diversity ranking.
+5. Tune result counts and timeouts.
+6. Consider caching only after repeated-query evidence justifies it.
 
-## How To Judge Quality
-
-For each query, record:
-
-- query
-- expected profile
-- actual profile
-- expected providers
-- actual providers
-- top 3 visible sources
-- whether the answer felt trustworthy
-- whether latency felt acceptable
-- what should change, if anything
-
-Use a simple outcome label:
-
-- `good`
-- `acceptable`
-- `needs tuning`
-
-## Common Tuning Levers
-
-Use the smallest lever that explains the problem.
-
-### Wrong Route
-
-Change:
-
-- query cue lists
-- route score thresholds
-- route precedence
-
-File:
+Relevant implementation:
 
 - `frontend/lib/search/router.ts`
-
-### Good Route, Bad Ranking
-
-Change:
-
-- authority boosts
-- social/forum penalties
-- domain diversity behavior
-- official/research weighting
-
-File:
-
+- `frontend/lib/search/query-planner.ts`
+- `frontend/lib/search/relevance.ts`
 - `frontend/lib/search/rerank.ts`
+- `frontend/lib/search/pipeline.ts`
+- `frontend/lib/search/providers/`
 
-### Good Ranking, Poor Provider Yield
+## Exit criteria
 
-Change:
+- the evaluation matrix routes as expected
+- official and research queries surface appropriate authority
+- weak queries fail gracefully
+- partial provider failures remain understandable
+- latency is acceptable for each route class
+- no prompt-derived sensitive content appears in telemetry
+- each proposed code change is supported by repeated evidence, not one query
 
-- provider result counts
-- provider freshness filters
-- provider category selection
-- timeouts
+## Related docs
 
-Files:
-
-- `frontend/lib/search/providers/brave.ts`
-- `frontend/lib/search/providers/exa.ts`
-
-### Good Results, Bad Latency
-
-Change:
-
-- lower requested result counts
-- lower timeout budgets
-- reduce two-provider usage where one provider is enough
-- add caching later if repeated queries justify it
-
-## Suggested Tuning Order
-
-Use this order so you do not overfit the wrong part of the system:
-
-1. Verify route correctness
-2. Verify provider health and latency
-3. Verify top-source quality
-4. Tune reranking
-5. Tune result counts and timeouts
-6. Only then decide whether caching is needed
-
-## Exit Criteria
-
-Search tuning for a slice is "good enough" when:
-
-- route selection looks correct for the test matrix
-- official queries consistently show official sources high in the set
-- research queries consistently show stronger institutional or paper sources high in the set
-- weak or sparse queries fail gracefully
-- latency is acceptable for the routed query class
-- provider failures are visible in logs and do not silently degrade quality
-
-## Related Docs
-
-- [Search Mode](../features/live-search.md)
-- [Search Citations Testing](./search-citations-and-source-ui.md)
-- [Docs Index](../README.md)
+- [Live search](../features/live-search.md)
+- [Testing](./README.md)
+- [Backlog](../backlog.md)

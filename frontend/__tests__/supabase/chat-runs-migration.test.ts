@@ -26,6 +26,16 @@ const targetIntegrityMigration = readFileSync(
   ),
   'utf8'
 ).toLowerCase();
+const memoryRemovalMigration = readFileSync(
+  join(
+    process.cwd(),
+    '..',
+    'supabase',
+    'migrations',
+    '20260729120000_remove_persistent_memory.sql'
+  ),
+  'utf8'
+).toLowerCase();
 
 describe('persistent chat runs migration', () => {
   it('creates idempotent persistent runs with active-tail uniqueness and atomic commits', () => {
@@ -94,5 +104,32 @@ describe('persistent chat runs migration', () => {
         'v_message.parent_message_id is distinct from v_parent_message_id'
       );
     }
+  });
+
+  it('removes the memory subsystem without weakening remaining run access', () => {
+    expect(memoryRemovalMigration).toContain(
+      'drop constraint if exists chat_runs_memory_status_check'
+    );
+    expect(memoryRemovalMigration).toContain(
+      'drop column if exists memory_status'
+    );
+    expect(memoryRemovalMigration).toContain(
+      'grant select on table public.chat_runs to authenticated'
+    );
+    expect(memoryRemovalMigration).toContain('response_status');
+    expect(memoryRemovalMigration).toContain('title_status');
+    expect(memoryRemovalMigration).toContain('search_status');
+    expect(memoryRemovalMigration).not.toMatch(
+      /\bdrop\b[^;]*\bcascade\s*;/
+    );
+  });
+
+  it('deletes only the memory-specific retained failure event', () => {
+    expect(memoryRemovalMigration).toContain(
+      "where event = 'failed'"
+    );
+    expect(memoryRemovalMigration).toContain(
+      "and detail_code = 'memory_failed'"
+    );
   });
 });

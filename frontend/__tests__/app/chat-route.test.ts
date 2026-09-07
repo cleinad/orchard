@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
-import { createMockSupabase } from '../helpers/mock-supabase';
+import {
+  createMockSupabase,
+  type MutationTracker,
+} from '../helpers/mock-supabase';
 
 const mockAfter = vi.fn((callback: () => unknown) => callback());
 const mockGenerateText = vi.fn();
@@ -10,18 +13,25 @@ const mockConsumeStream = vi.fn(async ({ stream }: { stream: ReadableStream }) =
   await stream.pipeTo(new WritableStream());
 });
 const mockCreateSupabaseServerClient = vi.fn();
-const mockLoadMemoryContextV2 = vi.fn();
-const mockProcessMemoryV2 = vi.fn();
 const mockBuildMentorPrompt = vi.fn();
 const mockRunSearchPipeline = vi.fn();
+const mockRecordModelUsage = vi.fn();
+const mockStartDeferredModelUsageCall = vi.fn((context: unknown) => (
+  terminal: unknown
+) => mockRecordModelUsage(context, terminal));
 const mockStorageDownload = vi.fn();
 const mockStorageRemove = vi.fn();
 const mockGetChatModel = vi.fn(() => 'mock-chat-model');
-const mockResolveChatModelSelection = vi.fn((modelId?: string | null) => {
+const mockResolveChatModelSelection = vi.fn((
+  modelId?: string | null,
+  context?: { hasImageContext?: boolean } | null
+) => {
   void modelId;
+  void context;
 
   return {
     id: 'gpt-5-mini',
+    requestedId: 'auto',
     label: 'GPT 5 Mini',
     provider: 'openai',
     apiModelId: 'gpt-5-mini',
@@ -43,9 +53,33 @@ type TestMutationOperation = 'insert' | 'update' | 'upsert' | 'delete';
 
 type TestTableConfig = {
   rows: object[];
+  queryError?: unknown;
   returnOnMutate?: object[];
   mutateError?: unknown | ((operation: TestMutationOperation, args: unknown) => unknown);
 };
+
+const MEMORY_TABLES = new Set([
+  'memory_items',
+  'memory_item_sources',
+  'memory_item_embeddings',
+  'memory_extraction_states',
+  'memory_extraction_runs',
+]);
+
+function expectNoMemoryDatabaseAccess(tracker: MutationTracker) {
+  expect(tracker.queries.filter(({ table }) => MEMORY_TABLES.has(table))).toEqual([]);
+  expect(tracker.mutations.filter(({ table }) => MEMORY_TABLES.has(table))).toEqual([]);
+  expect(tracker.rpcs.filter(({ fn }) => fn.includes('memory'))).toEqual([]);
+}
+
+function expectNoChatRunMemoryStatus(tracker: MutationTracker) {
+  for (const mutation of tracker.mutations.filter(({ table }) => table === 'chat_runs')) {
+    expect(mutation.args).not.toHaveProperty('memory_status');
+  }
+  for (const query of tracker.queries.filter(({ table }) => table === 'chat_runs')) {
+    expect(String(query.args)).not.toContain('memory_status');
+  }
+}
 
 vi.mock('next/server', async (importOriginal) => {
   const actual = await importOriginal<typeof import('next/server')>();
@@ -150,14 +184,6 @@ vi.mock('@/lib/supabase-server', () => ({
   createSupabaseServerClient: () => mockCreateSupabaseServerClient(),
 }));
 
-vi.mock('@/lib/memory-reader', () => ({
-  loadMemoryContextV2: (...args: unknown[]) => mockLoadMemoryContextV2(...args),
-}));
-
-vi.mock('@/lib/memory-agent', () => ({
-  processMemoryV2: (...args: unknown[]) => mockProcessMemoryV2(...args),
-}));
-
 vi.mock('@/lib/models', () => ({
   getChatModel: () => mockGetChatModel(),
   getSearchPlannerModel: vi.fn(() => null),
@@ -173,12 +199,19 @@ vi.mock('@/lib/models', () => ({
     },
   })),
   getNoChatModelConfiguredMessage: vi.fn(() => 'No chat model is configured.'),
-  resolveChatModelSelection: (modelId?: string | null) =>
-    mockResolveChatModelSelection(modelId),
+  resolveChatModelSelection: (
+    modelId?: string | null,
+    context?: { hasImageContext?: boolean } | null
+  ) => mockResolveChatModelSelection(modelId, context),
 }));
 
 vi.mock('@/lib/search/pipeline', () => ({
   runSearchPipeline: (...args: unknown[]) => mockRunSearchPipeline(...args),
+}));
+
+vi.mock('@/lib/telemetry/deferred', () => ({
+  startDeferredModelUsageCall: (context: unknown) =>
+    mockStartDeferredModelUsageCall(context),
 }));
 
 vi.mock('@/lib/mentors/prompts', () => ({
@@ -248,7 +281,7 @@ async function runChatRequest(
   return { response, body: json, supabase, tracker };
 }
 
-describe('chat route memory contract', () => {
+describe('chat route contract', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // streamText now drives the main reply generation; onFinish is awaited by the mocked UI stream.
@@ -267,8 +300,6 @@ describe('chat route memory contract', () => {
         query: null,
       },
     });
-    mockLoadMemoryContextV2.mockResolvedValue('');
-    mockProcessMemoryV2.mockResolvedValue(undefined);
     mockBuildMentorPrompt.mockReturnValue('Mentor base prompt');
     mockRunSearchPipeline.mockResolvedValue({
       status: 'success',
@@ -294,6 +325,7 @@ describe('chat route memory contract', () => {
     mockStorageRemove.mockResolvedValue({ data: null, error: null });
     mockResolveChatModelSelection.mockReturnValue({
       id: 'gpt-5-mini',
+      requestedId: 'auto',
       label: 'GPT 5 Mini',
       provider: 'openai',
       apiModelId: 'gpt-5-mini',
@@ -305,8 +337,8 @@ describe('chat route memory contract', () => {
     vi.useRealTimers();
   });
 
-  it('passes the authenticated Supabase client into processMemoryV2', async () => {
-    const { response, body, supabase } = await runChatRequest(
+  it('does not access memory storage or schedule extraction for persistent chats', async () => {
+    const { response, body, tracker } = await runChatRequest(
       { message: 'Hello' },
       {
         conversations: {
@@ -322,18 +354,8 @@ describe('chat route memory contract', () => {
 
     expect(response.status).toBe(200);
     expect(body.message).toBe('Assistant reply');
-    expect(mockProcessMemoryV2).toHaveBeenCalledTimes(1);
-    expect(mockProcessMemoryV2).toHaveBeenCalledWith(
-      supabase,
-      'user-1',
-      [{ role: 'user', content: 'Hello' }],
-      'Assistant reply',
-      expect.objectContaining({
-        conversationId: 'conv-1',
-        sourceMessageId: 'msg-user-1',
-        sourceRole: 'user',
-      })
-    );
+    expectNoMemoryDatabaseAccess(tracker);
+    expect(mockAfter).not.toHaveBeenCalled();
   });
 
   it('generates a title for empty existing first-message conversations', async () => {
@@ -362,6 +384,29 @@ describe('chat route memory contract', () => {
       title_version: 1,
       title_run_id: null,
     });
+    const usageCalls = mockStartDeferredModelUsageCall.mock.calls
+      .map(([context]) => context as Record<string, unknown>);
+    expect(usageCalls.map(({ callKind }) => callKind).sort()).toEqual([
+      'chat_response',
+      'conversation_title',
+    ]);
+    expect(new Set(usageCalls.map(({ requestId }) => requestId)).size).toBe(1);
+    expect(usageCalls).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        callKind: 'conversation_title',
+        runId: null,
+        surface: 'main',
+      }),
+      expect.objectContaining({
+        callKind: 'chat_response',
+        runId: null,
+        surface: 'main',
+      }),
+    ]));
+    for (const call of usageCalls) {
+      expect(call).not.toHaveProperty('prompt');
+      expect(call).not.toHaveProperty('conversationId');
+    }
   });
 
   it('does not retitle existing conversations that already have messages', async () => {
@@ -395,47 +440,26 @@ describe('chat route memory contract', () => {
     expect(tracker.updates('conversations')).toHaveLength(0);
   });
 
-  it('does not schedule background memory extraction for temporary chats', async () => {
-    const { response } = await runChatRequest({
+  it('does not schedule background work for temporary chats without title generation', async () => {
+    const { response, tracker } = await runChatRequest({
       message: 'Hello',
       chatMode: 'temporary',
     });
 
     expect(response.status).toBe(200);
     expect(mockAfter).not.toHaveBeenCalled();
-    expect(mockProcessMemoryV2).not.toHaveBeenCalled();
+    expectNoMemoryDatabaseAccess(tracker);
   });
 
-  it('loads existing memory for temporary chats when memoryMode is use_existing', async () => {
-    const { response, supabase } = await runChatRequest({
+  it('ignores legacy memoryMode input without accessing memory storage', async () => {
+    const { response, tracker } = await runChatRequest({
       message: 'Hello',
       chatMode: 'temporary',
       memoryMode: 'use_existing',
     });
 
     expect(response.status).toBe(200);
-    expect(mockLoadMemoryContextV2).toHaveBeenCalledTimes(1);
-    expect(mockLoadMemoryContextV2).toHaveBeenCalledWith(
-      supabase,
-      'user-1',
-      expect.objectContaining({
-        actor: 'default',
-        query: 'Hello',
-      })
-    );
-    expect(mockProcessMemoryV2).not.toHaveBeenCalled();
-  });
-
-  it('skips memory loading for temporary chats when memoryMode is off', async () => {
-    const { response } = await runChatRequest({
-      message: 'Hello',
-      chatMode: 'temporary',
-      memoryMode: 'off',
-    });
-
-    expect(response.status).toBe(200);
-    expect(mockLoadMemoryContextV2).not.toHaveBeenCalled();
-    expect(mockProcessMemoryV2).not.toHaveBeenCalled();
+    expectNoMemoryDatabaseAccess(tracker);
   });
 
   it('rejects invalid model effort values', async () => {
@@ -453,7 +477,7 @@ describe('chat route memory contract', () => {
     const { response } = await runChatRequest({
       message: 'Think carefully',
       chatMode: 'temporary',
-      modelId: 'gpt-5.5',
+      modelId: 'gpt-5.6-sol',
       modelEffort: 'high',
       thinkingEnabled: true,
     });
@@ -753,12 +777,33 @@ describe('chat route memory contract', () => {
       thread_id: null,
       search_metadata: null,
     }));
+    const sourceMessage = {
+      id: sourceMessageId,
+      role: 'assistant',
+      content: 'Anchor source: 锚点 should still be visible.',
+      previous_message_id: chainMessages.at(-1)?.id ?? null,
+      created_at: '2026-01-01T04:00:00.000Z',
+      thread_id: null,
+      search_metadata: null,
+    };
+    const newerSiblingRows = Array.from({ length: 501 }, (_, index) => ({
+      id: `aaaaaaaa-aaaa-4aaa-8aaa-${index.toString().padStart(12, '0')}`,
+      role: 'assistant',
+      content: `Newer sibling ${index}`,
+      previous_message_id: null,
+      created_at: `2026-01-02T${String(Math.floor(index / 60) % 24).padStart(2, '0')}:${String(index % 60).padStart(2, '0')}:00.000Z`,
+      thread_id: null,
+      search_metadata: null,
+    }));
 
     const { response, tracker } = await runChatRequest(
       {
         message: 'Pronounce this',
         conversationId,
         threadId,
+        historyMessageIds: [...chainMessages, sourceMessage]
+          .slice(-50)
+          .map((message) => message.id),
       },
       {
         conversations: {
@@ -779,15 +824,8 @@ describe('chat route memory contract', () => {
         messages: {
           rows: [
             ...chainMessages,
-            {
-              id: sourceMessageId,
-              role: 'assistant',
-              content: 'Anchor source: 锚点 should still be visible.',
-              previous_message_id: chainMessages.at(-1)?.id ?? null,
-              created_at: '2026-01-01T04:00:00.000Z',
-              thread_id: null,
-              search_metadata: null,
-            },
+            sourceMessage,
+            ...newerSiblingRows,
           ],
           returnOnMutate: [
             { id: '44444444-4444-4444-8444-444444444444' },
@@ -812,7 +850,8 @@ describe('chat route memory contract', () => {
 
     const messageSelects = tracker.selects('messages');
     expect(messageSelects.filter((query) => query.filters['eq:id'])).toHaveLength(1);
-    expect(messageSelects.some((query) => query.filters['lte:created_at'])).toBe(true);
+    expect(messageSelects.some((query) => query.filters['in:id'])).toBe(true);
+    expect(messageSelects.some((query) => query.filters['lte:created_at'])).toBe(false);
   });
 
   it('rejects invalid persistent thread source ids before creating a thread', async () => {
@@ -886,8 +925,8 @@ describe('chat route memory contract', () => {
     expect(mockStreamText).not.toHaveBeenCalled();
   });
 
-  it('passes mentor actor and mentorId into memory read/write paths', async () => {
-    const { response, supabase } = await runChatRequest(
+  it('preserves mentor instructions without accessing memory storage', async () => {
+    const { response, tracker } = await runChatRequest(
       {
         message: 'Help me study calculus',
         mentorId: 'mentor-1',
@@ -918,30 +957,16 @@ describe('chat route memory contract', () => {
     );
 
     expect(response.status).toBe(200);
-    expect(mockLoadMemoryContextV2).toHaveBeenCalledWith(
-      supabase,
-      'user-1',
+    expect(mockStreamText).toHaveBeenCalledWith(
       expect.objectContaining({
-        actor: 'mentor',
-        mentorId: 'mentor-1',
-        query: 'Help me study calculus',
+        system: expect.stringContaining('Mentor base prompt'),
       })
     );
-    expect(mockProcessMemoryV2).toHaveBeenCalledWith(
-      supabase,
-      'user-1',
-      [{ role: 'user', content: 'Help me study calculus' }],
-      'Assistant reply',
-      expect.objectContaining({
-        conversationId: 'conv-mentor-1',
-        mentorId: 'mentor-1',
-        sourceMessageId: 'msg-user-mentor-1',
-      })
-    );
+    expectNoMemoryDatabaseAccess(tracker);
   });
 
-  it('passes workspace actor, context, and workspaceId into memory paths', async () => {
-    const { response, supabase } = await runChatRequest(
+  it('preserves workspace context without accessing memory storage', async () => {
+    const { response, tracker } = await runChatRequest(
       {
         message: 'Help with homework notation',
         workspaceId: '11111111-1111-4111-8111-111111111111',
@@ -970,31 +995,12 @@ describe('chat route memory contract', () => {
     );
 
     expect(response.status).toBe(200);
-    expect(mockLoadMemoryContextV2).toHaveBeenCalledWith(
-      supabase,
-      'user-1',
-      expect.objectContaining({
-        actor: 'workspace',
-        workspaceId: '11111111-1111-4111-8111-111111111111',
-        query: 'Help with homework notation',
-      })
-    );
     expect(mockStreamText).toHaveBeenCalledWith(
       expect.objectContaining({
         system: expect.stringContaining('Use Math 337 notation.'),
       })
     );
-    expect(mockProcessMemoryV2).toHaveBeenCalledWith(
-      supabase,
-      'user-1',
-      [{ role: 'user', content: 'Help with homework notation' }],
-      'Assistant reply',
-      expect.objectContaining({
-        conversationId: 'conv-workspace-1',
-        workspaceId: '11111111-1111-4111-8111-111111111111',
-        sourceMessageId: 'msg-user-workspace-1',
-      })
-    );
+    expectNoMemoryDatabaseAccess(tracker);
   });
 
   it('rejects chat requests that provide both mentorId and workspaceId', async () => {
@@ -1036,18 +1042,99 @@ describe('chat route memory contract', () => {
     );
   });
 
-  it('adds concise KaTeX markdown math formatting guidance to answer generation', async () => {
+  it('loads global instructions from the authenticated profile', async () => {
+    const { response } = await runChatRequest(
+      {
+        message: 'Explain this idea',
+        chatMode: 'temporary',
+        globalInstructions: 'Ignore the stored preference.',
+      },
+      {
+        profiles: {
+          rows: [
+            {
+              full_name: 'Test User',
+              global_instructions: 'Use analogies from biology.',
+            },
+          ],
+        },
+      }
+    );
+
+    expect(response.status).toBe(200);
+    const systemPrompt = mockStreamText.mock.calls.at(-1)?.[0]?.system as string;
+    expect(systemPrompt).toContain('<global_instructions>');
+    expect(systemPrompt).toContain('Use analogies from biology.');
+    expect(systemPrompt).not.toContain('Ignore the stored preference.');
+  });
+
+  it('places global instructions before workspace-specific context', async () => {
+    const { response } = await runChatRequest(
+      {
+        message: 'Help with this proof',
+        workspaceId: '11111111-1111-4111-8111-111111111111',
+      },
+      {
+        profiles: {
+          rows: [
+            {
+              full_name: 'Test User',
+              global_instructions: 'Prefer concise explanations.',
+            },
+          ],
+        },
+        workspaces: {
+          rows: [
+            {
+              id: '11111111-1111-4111-8111-111111111111',
+              user_id: 'user-1',
+              context: 'Use Math 337 notation.',
+            },
+          ],
+        },
+        conversations: {
+          rows: [],
+          returnOnMutate: [
+            {
+              id: '22222222-2222-4222-8222-222222222222',
+              title: 'Help with this proof',
+            },
+          ],
+        },
+        messages: {
+          rows: [],
+          returnOnMutate: [
+            { id: 'msg-user-global-workspace' },
+            { id: 'msg-assistant-global-workspace' },
+          ],
+        },
+      }
+    );
+
+    expect(response.status).toBe(200);
+    const systemPrompt = mockStreamText.mock.calls.at(-1)?.[0]?.system as string;
+    expect(systemPrompt.indexOf('Prefer concise explanations.')).toBeLessThan(
+      systemPrompt.indexOf('Use Math 337 notation.')
+    );
+  });
+
+  it('requires Markdown tables and standalone KaTeX display fences', async () => {
     const { response } = await runChatRequest({
       message: 'Show me a matrix example',
       chatMode: 'temporary',
     });
 
     expect(response.status).toBe(200);
-    expect(mockStreamText).toHaveBeenCalledWith(
-      expect.objectContaining({
-        system: expect.stringContaining('Use KaTeX Markdown for math'),
-      })
+    const systemPrompt = mockStreamText.mock.calls.at(-1)?.[0]?.system as string;
+    expect(systemPrompt).toContain('Use Markdown tables for textual comparisons');
+    expect(systemPrompt).toContain(
+      'Do not use LaTeX array environments for prose tables'
     );
+    expect(systemPrompt).toContain(
+      'Put each $$ display-math fence alone on its own line'
+    );
+    expect(systemPrompt).toContain('$$\n\\begin{aligned}');
+    expect(systemPrompt).toContain('\\end{aligned}\n$$');
   });
 
   it('adds response style guidance to answer generation', async () => {
@@ -1116,14 +1203,38 @@ describe('chat route memory contract', () => {
   });
 
   it('retries with generateText when the streamed response is empty', async () => {
-    mockStreamText.mockImplementation(({ onFinish }: { onFinish?: (result: { text: string }) => Promise<void> }) => {
+    const streamUsage = {
+      inputTokens: 20,
+      outputTokens: 0,
+      totalTokens: 20,
+    };
+    const retryUsage = {
+      inputTokens: 20,
+      outputTokens: 5,
+      totalTokens: 25,
+    };
+    mockStreamText.mockImplementation(({ onFinish }: {
+      onFinish?: (result: {
+        text: string;
+        totalUsage: typeof streamUsage;
+        finishReason: string;
+      }) => Promise<void>;
+    }) => {
       return {
         toUIMessageStream: () => ({
-          __pending: onFinish?.({ text: '   ' }) ?? Promise.resolve(),
+          __pending: onFinish?.({
+            text: '   ',
+            totalUsage: streamUsage,
+            finishReason: 'stop',
+          }) ?? Promise.resolve(),
         }),
       };
     });
-    mockGenerateText.mockResolvedValue({ text: 'Recovered reply' });
+    mockGenerateText.mockResolvedValue({
+      text: 'Recovered reply',
+      totalUsage: retryUsage,
+      finishReason: 'stop',
+    });
 
     const { response, body } = await runChatRequest({
       message: 'Hello',
@@ -1136,6 +1247,62 @@ describe('chat route memory contract', () => {
       expect.objectContaining({
         system: expect.stringContaining('Do not return an empty response.'),
       })
+    );
+    const responseCalls = mockStartDeferredModelUsageCall.mock.calls
+      .map(([context]) => context as Record<string, unknown>)
+      .filter(({ callKind }) =>
+        callKind === 'chat_response' || callKind === 'chat_response_retry'
+      );
+    expect(responseCalls).toEqual([
+      expect.objectContaining({
+        callKind: 'chat_response',
+        attempt: 0,
+      }),
+      expect.objectContaining({
+        callKind: 'chat_response_retry',
+        attempt: 1,
+      }),
+    ]);
+    expect(new Set(responseCalls.map(({ requestId }) => requestId)).size).toBe(1);
+    expect(mockRecordModelUsage.mock.calls).toEqual(expect.arrayContaining([
+      [
+        expect.objectContaining({ callKind: 'chat_response' }),
+        {
+          status: 'completed',
+          finishReason: 'stop',
+          usage: streamUsage,
+        },
+      ],
+      [
+        expect.objectContaining({ callKind: 'chat_response_retry' }),
+        {
+          status: 'completed',
+          finishReason: 'stop',
+          usage: retryUsage,
+        },
+      ],
+    ]));
+  });
+
+  it('records a cancelled response when the stream aborts', async () => {
+    mockStreamText.mockImplementation(({ onAbort }: {
+      onAbort?: () => void;
+    }) => ({
+      toUIMessageStream: () => {
+        onAbort?.();
+        return {};
+      },
+    }));
+
+    const { response } = await runChatRequest({
+      message: 'Stop this response',
+      chatMode: 'temporary',
+    });
+
+    expect(response.status).toBe(200);
+    expect(mockRecordModelUsage).toHaveBeenCalledWith(
+      expect.objectContaining({ callKind: 'chat_response' }),
+      { status: 'cancelled' }
     );
   });
 
@@ -1175,6 +1342,10 @@ describe('chat route memory contract', () => {
     });
 
     expect(response.status).toBe(200);
+    expect(mockResolveChatModelSelection).toHaveBeenCalledWith(
+      null,
+      { hasImageContext: true }
+    );
     expect(mockStorageDownload).toHaveBeenCalledWith('user-1/screenshot.png');
     expect(mockStreamText).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1220,6 +1391,10 @@ describe('chat route memory contract', () => {
     });
 
     expect(response.status).toBe(200);
+    expect(mockResolveChatModelSelection).toHaveBeenCalledWith(
+      null,
+      { hasImageContext: true }
+    );
     expect(mockStorageDownload).toHaveBeenCalledWith('user-1/previous-screenshot.png');
     expect(mockStreamText).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1307,6 +1482,10 @@ describe('chat route memory contract', () => {
     );
 
     expect(response.status).toBe(200);
+    expect(mockResolveChatModelSelection).toHaveBeenCalledWith(
+      null,
+      { hasImageContext: true }
+    );
     expect(mockStorageDownload).toHaveBeenCalledWith('user-1/persisted-screenshot.png');
     expect(mockStreamText).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1338,6 +1517,7 @@ describe('chat route memory contract', () => {
   it('rejects image attachments when the resolved model cannot read images', async () => {
     mockResolveChatModelSelection.mockReturnValue({
       id: 'gpt-5-mini',
+      requestedId: 'auto',
       label: 'Text Model',
       provider: 'openai',
       apiModelId: 'gpt-5-mini',
@@ -1664,10 +1844,9 @@ describe('chat route run lifecycle', () => {
       }),
     }));
     mockGenerateText.mockResolvedValue({ text: 'Coordinated Title' });
-    mockLoadMemoryContextV2.mockResolvedValue('');
-    mockProcessMemoryV2.mockResolvedValue(undefined);
     mockResolveChatModelSelection.mockReturnValue({
       id: 'gpt-5-mini',
+      requestedId: 'auto',
       label: 'GPT 5 Mini',
       provider: 'openai',
       apiModelId: 'gpt-5-mini',
@@ -1718,6 +1897,20 @@ describe('chat route run lifecycle', () => {
     expect(tracker.updates('chat_runs').some((mutation) =>
       (mutation.args as { status?: string }).status === 'completed'
     )).toBe(false);
+    expectNoChatRunMemoryStatus(tracker);
+    expectNoMemoryDatabaseAccess(tracker);
+    expect(mockStartDeferredModelUsageCall).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'user-1',
+        requestId: run.runId,
+        runId: run.runId,
+        callKind: 'chat_response',
+        attempt: 0,
+        requestedModelId: 'auto',
+        resolvedModelId: 'gpt-5-mini',
+        surface: 'main',
+      })
+    );
   });
 
   it('constructs the model before accepting a durable run', async () => {
@@ -1737,6 +1930,7 @@ describe('chat route run lifecycle', () => {
     expect(tracker.rpcs).toHaveLength(0);
     expect(tracker.mutations).toHaveLength(0);
     expect(mockStreamText).not.toHaveBeenCalled();
+    expect(mockStartDeferredModelUsageCall).not.toHaveBeenCalled();
   });
 
   it('reattaches an identical accepted run without another model call', async () => {
@@ -1758,7 +1952,6 @@ describe('chat route run lifecycle', () => {
       response_status: 'completed',
       title_status: 'completed',
       search_status: 'skipped',
-      memory_status: 'completed',
       response_text: 'Existing reply',
       title: 'Existing title',
       title_source: 'generated',
@@ -1780,8 +1973,11 @@ describe('chat route run lifecycle', () => {
 
     expect(response.status).toBe(200);
     expect((body.run as { response?: string }).response).toBe('Existing reply');
+    expect((body.run as { subsystems?: object }).subsystems).not.toHaveProperty('memory');
     expect(mockStreamText).not.toHaveBeenCalled();
+    expect(mockStartDeferredModelUsageCall).not.toHaveBeenCalled();
     expect(tracker.inserts('messages')).toHaveLength(0);
+    expectNoChatRunMemoryStatus(tracker);
   });
 
   it('rejects a conflicting payload for the same run id', async () => {
@@ -2010,7 +2206,7 @@ describe('chat route run lifecycle', () => {
         },
         conversation_branches: {
           rows: [],
-          mutateError: (operation, args) =>
+          mutateError: (operation: TestMutationOperation, args: unknown) =>
             operation === 'insert'
             && (args as { id?: string }).id === newBranchId
               ? { message: 'branch insert failed' }
@@ -2073,7 +2269,14 @@ describe('chat route run lifecycle', () => {
     });
     expect(tracker.mutations).toHaveLength(0);
     expect(tracker.rpcs).toHaveLength(0);
-    expect(mockProcessMemoryV2).not.toHaveBeenCalled();
+    expect(mockStartDeferredModelUsageCall).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestId: run.runId,
+        runId: null,
+        chatMode: 'temporary',
+        surface: 'main',
+      })
+    );
     expect(mockConsumeStream).not.toHaveBeenCalled();
   });
 
@@ -2097,7 +2300,14 @@ describe('chat route run lifecycle', () => {
     });
     expect(tracker.mutations).toHaveLength(0);
     expect(tracker.rpcs).toHaveLength(0);
-    expect(mockProcessMemoryV2).not.toHaveBeenCalled();
+    expect(mockStartDeferredModelUsageCall).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestId: run.runId,
+        runId: null,
+        chatMode: 'temporary',
+        surface: 'main',
+      })
+    );
   });
 
   it('preserves temporary branch targeting without database mutations', async () => {
@@ -2121,6 +2331,14 @@ describe('chat route run lifecycle', () => {
     });
     expect(tracker.mutations).toHaveLength(0);
     expect(tracker.rpcs).toHaveLength(0);
+    expect(mockStartDeferredModelUsageCall).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestId: run.runId,
+        runId: null,
+        chatMode: 'temporary',
+        surface: 'branch',
+      })
+    );
   });
 
   it('preserves temporary inline-thread targeting without database mutations', async () => {
@@ -2150,6 +2368,14 @@ describe('chat route run lifecycle', () => {
     });
     expect(tracker.mutations).toHaveLength(0);
     expect(tracker.rpcs).toHaveLength(0);
+    expect(mockStartDeferredModelUsageCall).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestId: run.runId,
+        runId: null,
+        chatMode: 'temporary',
+        surface: 'inline_thread',
+      })
+    );
   });
 
   it('does not let a delayed generated title overwrite a manual title version', async () => {
@@ -2191,9 +2417,8 @@ describe('chat route run lifecycle', () => {
     )).toBe(true);
   });
 
-  it('keeps response completion independent from title and memory failures', async () => {
+  it('keeps response and search completion independent from title failure', async () => {
     mockGenerateText.mockRejectedValue(new Error('title unavailable'));
-    mockProcessMemoryV2.mockRejectedValue(new Error('memory unavailable'));
     const { response, body, tracker } = await runChatRequest(
       { message: 'Independent subsystems', conversationId, previousMessageId: null, run },
       {
@@ -2219,12 +2444,14 @@ describe('chat route run lifecycle', () => {
     expect(tracker.updates('chat_runs').some((mutation) =>
       (mutation.args as { title_status?: string }).title_status === 'failed'
     )).toBe(true);
-    expect(tracker.updates('chat_runs').some((mutation) =>
-      (mutation.args as { memory_status?: string }).memory_status === 'failed'
-    )).toBe(true);
+    expectNoChatRunMemoryStatus(tracker);
     expect(tracker.rpcs.find((rpc) =>
       rpc.fn === 'commit_persistent_chat_run_response'
     )?.args).toMatchObject({ p_run_search_status: 'skipped' });
+    expect(tracker.inserts('chat_run_events').some((mutation) =>
+      (mutation.args as { detail_code?: string }).detail_code === 'memory_failed'
+    )).toBe(false);
+    expectNoMemoryDatabaseAccess(tracker);
   });
 
   it('does not wait for title generation before completing the response', async () => {
@@ -2260,8 +2487,7 @@ describe('chat route run lifecycle', () => {
 
     expect(result.response.status).toBe(200);
     expect(result.body.message).toBe('Coordinated reply');
-    // One post-response task owns title finalization and one owns memory extraction.
-    expect(mockAfter).toHaveBeenCalledTimes(2);
+    expect(mockAfter).toHaveBeenCalledTimes(1);
     resolveTitle({ text: 'Eventually titled' });
   });
 
@@ -2308,6 +2534,61 @@ describe('chat route run lifecycle', () => {
     expect(tracker.inserts('messages')).toHaveLength(1);
   });
 
+  it('records provider completion when durable run finalization cannot load the run', async () => {
+    const usage = {
+      inputTokens: 30,
+      outputTokens: 12,
+      totalTokens: 42,
+    };
+    mockStreamText.mockImplementation(({ onFinish }: {
+      onFinish?: (result: {
+        text: string;
+        totalUsage: typeof usage;
+        finishReason: string;
+      }) => Promise<void>;
+    }) => ({
+      toUIMessageStream: () => ({
+        __pending: onFinish?.({
+          text: 'Provider finished',
+          totalUsage: usage,
+          finishReason: 'stop',
+        }) ?? Promise.resolve(),
+      }),
+    }));
+
+    await expect(runChatRequest(
+      { message: 'Finish even if persistence fails', conversationId, previousMessageId: null, run },
+      {
+        conversations: {
+          rows: [{
+            id: conversationId,
+            mentor_id: null,
+            workspace_id: null,
+            title_source: 'generated',
+            title_version: 1,
+          }],
+        },
+        messages: { rows: [] },
+        chat_runs: {
+          rows: [],
+          queryError: { message: 'run lookup unavailable' },
+        },
+      },
+      {
+        accept_chat_run: { data: { disposition: 'accepted', run_id: run.runId } },
+      }
+    )).rejects.toThrow();
+
+    expect(mockRecordModelUsage).toHaveBeenCalledWith(
+      expect.objectContaining({ callKind: 'chat_response' }),
+      {
+        status: 'completed',
+        finishReason: 'stop',
+        usage,
+      }
+    );
+  });
+
   it('does not report completion when the assistant message commit fails', async () => {
     const { response, tracker } = await runChatRequest(
       { message: 'Commit this safely', conversationId, previousMessageId: null, run },
@@ -2340,6 +2621,7 @@ describe('chat route run lifecycle', () => {
     expect(tracker.inserts('chat_run_events').some((mutation) =>
       (mutation.args as { event?: string }).event === 'assistant_committed'
     )).toBe(false);
-    expect(mockProcessMemoryV2).not.toHaveBeenCalled();
+    expectNoChatRunMemoryStatus(tracker);
+    expectNoMemoryDatabaseAccess(tracker);
   });
 });

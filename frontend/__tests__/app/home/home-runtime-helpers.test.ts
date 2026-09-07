@@ -1,4 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('@/lib/supabase', () => ({
+  supabase: {},
+}));
+
 import {
   BLANK_COMPOSER_KEY,
   deleteRecordKey,
@@ -26,6 +31,12 @@ import {
   removeProvisionalChatPromotion,
   storeProvisionalChatPromotion,
 } from '@/app/home/components/provisionalChatPromotion';
+import {
+  commitSynchronizedStateAction,
+  deserializeTemporaryChats,
+  serializeTemporaryChats,
+  writeTemporaryChatsToStorage,
+} from '@/app/home/components/HomeDataContext';
 import { createQueuedChatRunSnapshot } from '@/lib/chat-runs/protocol';
 
 function createSessionStorage() {
@@ -118,6 +129,100 @@ describe('homeStorage helpers', () => {
 
     expect(restored).toEqual(message);
     expect(restored.timestamp).toBeInstanceOf(Date);
+  });
+});
+
+describe('temporary chat storage', () => {
+  it('makes consecutive state mutations visible before React renders again', () => {
+    const stateRef = { current: ['existing'] };
+    const commits: string[][] = [];
+
+    commitSynchronizedStateAction(
+      (current) => ['first', ...current],
+      stateRef,
+      (next) => commits.push(next)
+    );
+    commitSynchronizedStateAction(
+      (current) => ['second', ...current],
+      stateRef,
+      (next) => commits.push(next)
+    );
+
+    expect(stateRef.current).toEqual(['second', 'first', 'existing']);
+    expect(commits).toEqual([
+      ['first', 'existing'],
+      ['second', 'first', 'existing'],
+    ]);
+  });
+
+  it('loads legacy memoryMode data and rewrites the session without it', () => {
+    const restored = deserializeTemporaryChats(JSON.stringify([
+      {
+        id: 'temp-legacy',
+        title: 'Legacy temporary chat',
+        memoryMode: 'use_existing',
+        createdAt: '2026-07-27T10:00:00.000Z',
+        updatedAt: '2026-07-27T10:01:00.000Z',
+        messages: [{
+          id: 'message-legacy',
+          role: 'user',
+          content: 'Keep this conversation',
+          timestamp: '2026-07-27T10:00:30.000Z',
+          previousMessageId: null,
+        }],
+        branches: [],
+        selectedBranchIds: {},
+        threadsMap: {},
+        threadMessages: {},
+        threadStatuses: {},
+      },
+    ]));
+
+    expect(restored).toHaveLength(1);
+    expect(restored[0]).toMatchObject({
+      id: 'temp-legacy',
+      title: 'Legacy temporary chat',
+      messages: [{
+        id: 'message-legacy',
+        content: 'Keep this conversation',
+      }],
+    });
+    expect(restored[0]).not.toHaveProperty('memoryMode');
+
+    const reserialized = JSON.parse(serializeTemporaryChats(restored)) as object[];
+    expect(reserialized[0]).not.toHaveProperty('memoryMode');
+    expect(reserialized[0]).toMatchObject({
+      id: 'temp-legacy',
+      title: 'Legacy temporary chat',
+    });
+  });
+
+  it('keeps the active chat usable when session storage rejects a write', () => {
+    const chats = deserializeTemporaryChats(JSON.stringify([
+      {
+        id: 'temp-storage-error',
+        title: 'Temporary chat',
+        createdAt: '2026-07-27T10:00:00.000Z',
+        updatedAt: '2026-07-27T10:01:00.000Z',
+        messages: [],
+        branches: [],
+        selectedBranchIds: {},
+        threadsMap: {},
+        threadMessages: {},
+        threadStatuses: {},
+      },
+    ]));
+    const blockedStorage = {
+      setItem: () => {
+        throw new Error('Storage blocked');
+      },
+      removeItem: () => {
+        throw new Error('Storage blocked');
+      },
+    };
+
+    expect(writeTemporaryChatsToStorage(blockedStorage, chats)).toBe(false);
+    expect(writeTemporaryChatsToStorage(blockedStorage, [])).toBe(false);
   });
 });
 
@@ -311,7 +416,6 @@ describe('temporary chat attachment cleanup helpers', () => {
       {
         id: 'temp-1',
         title: 'Temporary chat',
-        memoryMode: 'off',
         createdAt: '2026-06-15T00:00:00.000Z',
         updatedAt: '2026-06-15T00:00:00.000Z',
         messages: [
@@ -386,7 +490,6 @@ describe('temporary chat attachment cleanup helpers', () => {
       {
         id: 'temp-2',
         title: 'Other temporary chat',
-        memoryMode: 'off',
         createdAt: '2026-06-15T00:00:00.000Z',
         updatedAt: '2026-06-15T00:00:00.000Z',
         messages: [

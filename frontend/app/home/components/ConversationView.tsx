@@ -1,21 +1,18 @@
 "use client";
 
 import { useCallback, useState, type RefObject } from 'react';
+import ResponseActivity from '@/app/home/components/ResponseActivity';
 import MessageRow from '@/app/home/components/MessageRow';
 import type { InlineThreadMarker, ThreadSource } from '@/app/home/components/threadTypes';
 import type { Message } from '@/app/home/types';
 import type { BranchChip } from '@/app/home/components/conversationTree';
 
-interface ConversationViewProps {
+export interface ConversationViewProps {
   activeHighlightSource: ThreadSource | null;
   isWideLayout: boolean;
   listError: string | null;
-  routeConversationError: string | null;
   messages: Message[];
-  emptyTitle: string;
-  emptySubtitle: string;
   isLoading: boolean;
-  isRouteConversationLoading: boolean;
   threadsMap: Map<string, InlineThreadMarker[]>;
   branchChipsByMessageId: Map<string, BranchChip[]>;
   pendingBranchSourceMessageId: string | null;
@@ -24,18 +21,19 @@ interface ConversationViewProps {
   onSelectBranch: (sourceMessageId: string, branchId: string | null) => void;
   onCreateBranch: (sourceMessageId: string) => void;
   onAssistantPointerUp: () => void;
+  retrying?: boolean;
+  onRetry?: () => void;
 }
+
+const EMPTY_BRANCH_CHIPS: BranchChip[] = [];
+const EMPTY_THREAD_MARKERS: InlineThreadMarker[] = [];
 
 export default function ConversationView({
   activeHighlightSource,
   isWideLayout,
   listError,
-  routeConversationError,
   messages,
-  emptyTitle,
-  emptySubtitle,
   isLoading,
-  isRouteConversationLoading,
   threadsMap,
   branchChipsByMessageId,
   pendingBranchSourceMessageId,
@@ -44,6 +42,8 @@ export default function ConversationView({
   onSelectBranch,
   onCreateBranch,
   onAssistantPointerUp,
+  retrying = false,
+  onRetry,
 }: ConversationViewProps) {
   const [openSourceTray, setOpenSourceTray] = useState<{
     messageId: string;
@@ -89,53 +89,21 @@ export default function ConversationView({
     <div className={`mx-auto pb-4 ${widthClassName}`}>
       {listError && (
         <div className="mb-4 rounded-lg bg-surface px-4 py-2 font-sans text-xs text-muted shadow-sm">
-          {listError}
+          <span>{listError}</span>
+          {onRetry && (
+            <button
+              type="button"
+              onClick={onRetry}
+              disabled={retrying}
+              className="ml-2 font-semibold text-foreground underline underline-offset-2 disabled:opacity-50"
+            >
+              {retrying ? 'Retrying…' : 'Retry'}
+            </button>
+          )}
         </div>
       )}
 
-      {messages.length === 0 ? (
-        <div className="flex h-full min-h-[50vh] flex-col items-center justify-center px-4">
-          {isRouteConversationLoading ? (
-            <div
-              role="status"
-              aria-label="Loading conversation"
-              className="flex items-center gap-1.5 text-muted"
-            >
-              <span
-                className="h-2 w-2 animate-bounce rounded-full bg-muted/40"
-                style={{ animationDelay: '0ms' }}
-              />
-              <span
-                className="h-2 w-2 animate-bounce rounded-full bg-muted/40"
-                style={{ animationDelay: '150ms' }}
-              />
-              <span
-                className="h-2 w-2 animate-bounce rounded-full bg-muted/40"
-                style={{ animationDelay: '300ms' }}
-              />
-            </div>
-          ) : routeConversationError ? (
-            <div className="max-w-md text-center">
-              <h1 className="font-heading text-3xl text-foreground sm:text-4xl">
-                Could not load this conversation
-              </h1>
-              <p className="mt-4 font-sans text-md font-medium leading-relaxed text-muted">
-                {routeConversationError}
-              </p>
-            </div>
-          ) : (
-            <div className="text-center">
-              <h1 className="font-heading text-3xl text-foreground sm:text-4xl">
-                {emptyTitle}
-              </h1>
-              <p className="mt-4 max-w-md font-sans text-md font-medium leading-relaxed text-muted">
-                {emptySubtitle}
-              </p>
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="py-8">
+      <div className="py-8">
           {messages.map((message) => {
             const replySearchMetadata =
               message.role === 'assistant' ? message.searchMetadata ?? null : null;
@@ -144,7 +112,8 @@ export default function ConversationView({
               isSourceTrayOpen
                 ? openSourceTray?.sourceId ?? replySearchMetadata?.sources[0]?.id ?? null
                 : null;
-            const branchChips = branchChipsByMessageId.get(message.id) || [];
+            const branchChips =
+              branchChipsByMessageId.get(message.id) ?? EMPTY_BRANCH_CHIPS;
             const isPendingBranchSource = pendingBranchSourceMessageId === message.id;
 
             return (
@@ -156,7 +125,7 @@ export default function ConversationView({
                 isPendingBranchSource={isPendingBranchSource}
                 isSourceTrayOpen={isSourceTrayOpen}
                 message={message}
-                threads={threadsMap.get(message.id) || []}
+                threads={threadsMap.get(message.id) ?? EMPTY_THREAD_MARKERS}
                 onAssistantPointerUp={onAssistantPointerUp}
                 onCitationClick={handleCitationClick}
                 onCreateBranch={onCreateBranch}
@@ -168,31 +137,15 @@ export default function ConversationView({
             );
           })}
 
-          {/* Bouncing dots only while waiting for the first token (no streaming message yet) */}
-          {isLoading && !messages.some((m) => m.isStreaming) && (
-            <div
-              role="status"
-              aria-label="Generating response"
-              className="flex items-center gap-1.5 py-4 font-sans"
-            >
-              <span
-                className="h-2 w-2 animate-bounce rounded-full bg-muted/40"
-                style={{ animationDelay: '0ms' }}
-              />
-              <span
-                className="h-2 w-2 animate-bounce rounded-full bg-muted/40"
-                style={{ animationDelay: '150ms' }}
-              />
-              <span
-                className="h-2 w-2 animate-bounce rounded-full bg-muted/40"
-                style={{ animationDelay: '300ms' }}
-              />
-            </div>
-          )}
+          {/*
+            Only while waiting without a streaming placeholder. Once the
+            placeholder exists, MessageRow owns the waiting state so the
+            indicator sits where the reply will appear.
+          */}
+          {isLoading && !messages.some((m) => m.isStreaming) && <ResponseActivity live awaitingFirstToken />}
 
           <div ref={messagesEndRef} />
-        </div>
-      )}
+      </div>
     </div>
   );
 }

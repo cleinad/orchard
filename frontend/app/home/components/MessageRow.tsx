@@ -16,6 +16,7 @@ import ChatMessageFrame, {
   chatMessageContentClassName,
 } from '@/app/home/components/ChatMessageFrame';
 import MarkdownWithThreads from '@/app/home/components/MarkdownWithThreads';
+import ResponseActivity from '@/app/home/components/ResponseActivity';
 import SearchSourcesTray from '@/app/home/components/SearchSourcesTray';
 import ThreadHighlightOverlay, {
   type ThreadHighlightOverlaySource,
@@ -25,10 +26,14 @@ import type { InlineThreadMarker, ThreadSource } from '@/app/home/components/thr
 import type { Message } from '@/app/home/types';
 import { getSelectionStreamVersion } from '@/app/home/components/markdownSelectableStream';
 import type { ChatImageAttachment } from '@/lib/chat-attachments';
-import { hasUsableSearchSources } from '@/lib/search-citations';
-import type { SearchActivityEvent } from '@/lib/search/types';
+import {
+  getResponseActivitySummary,
+  getSearchActivity,
+  hasUsableSearchSources,
+} from '@/lib/search-citations';
 import SourceFavicon from '@/app/home/components/SourceFavicon';
 import { buttonStyles, cx } from '@/app/components/buttonStyles';
+import { recordHomePerformanceEvent } from '@/app/home/components/homePerformanceInstrumentation';
 
 function getHighlightSourceIdAtPoint(root: HTMLElement, clientX: number, clientY: number) {
   const overlayRects = Array.from(
@@ -62,26 +67,6 @@ interface MessageRowProps {
   onSourcesToggle: (messageId: string, sourceId: number) => void;
   onThreadClick: (thread: InlineThreadMarker) => void;
   onTraySourceSelect: (messageId: string, sourceId: number) => void;
-}
-
-function searchActivityEventLabel(event: SearchActivityEvent) {
-  switch (event.type) {
-    case 'planning_started':
-    case 'search_decision_started':
-    case 'search_decision_completed':
-    case 'search_skipped':
-    case 'plan_selected':
-    case 'prior_sources_checked':
-    case 'relevance_checked':
-    case 'search_completed':
-      return '';
-    case 'search_started':
-      return `Searched ${event.query}`;
-    default: {
-      const exhaustiveCheck: never = event;
-      return exhaustiveCheck;
-    }
-  }
 }
 
 function BranchPlusIcon() {
@@ -119,6 +104,15 @@ function MessageRow({
   onThreadClick,
   onTraySourceSelect,
 }: MessageRowProps) {
+  recordHomePerformanceEvent('message-row-render');
+  recordHomePerformanceEvent(
+    `message-row-render:${message.renderId ?? message.id}`
+  );
+  recordHomePerformanceEvent(
+    message.isStreaming
+      ? 'streaming-message-row-render'
+      : 'finalized-message-row-render'
+  );
   const [selectedImage, setSelectedImage] = useState<ChatImageAttachment | null>(null);
   const [emphasizedThreadMarkerId, setEmphasizedThreadMarkerId] = useState<string | null>(null);
   const messageContentRef = useRef<HTMLDivElement | null>(null);
@@ -128,16 +122,14 @@ function MessageRow({
   const searchActivity =
     message.role === 'assistant'
       ? message.searchActivity
-        ?? (replySearchMetadata?.version === 2 ? replySearchMetadata.activity ?? null : null)
+        ?? getSearchActivity(replySearchMetadata)
       : null;
-  const searchActivityLabel = searchActivity?.collapsedLabel ?? null;
-  const searchActivitySteps =
-    searchActivity?.events
-      .map(searchActivityEventLabel)
-      .filter((label, index, labels) => label && labels.indexOf(label) === index)
-    ?? [];
-  const canExpandSearchActivity = searchActivitySteps.length > 0;
+  const responseActivity =
+    message.role === 'assistant' ? getResponseActivitySummary(replySearchMetadata) : null;
   const hasSources = hasUsableSearchSources(replySearchMetadata);
+  /* Whitespace-only deltas still read as an empty reply, so keep waiting. */
+  const isAwaitingFirstToken =
+    Boolean(message.isStreaming) && message.content.trim().length === 0;
   const setMessageContentNode = useCallback((node: HTMLDivElement | null) => {
     messageContentRef.current = node;
     setMessageContentEl((current) => (current === node ? current : node));
@@ -357,29 +349,14 @@ function MessageRow({
             : undefined
         }
       >
-        {searchActivityLabel && (
-          <div
-            className="mt-2 font-sans text-xs text-muted/70"
-            onPointerUp={(event) => event.stopPropagation()}
-          >
-            {canExpandSearchActivity ? (
-              <details className="group">
-                <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 rounded-md py-0.5 text-muted/80 transition-colors hover:text-foreground">
-                  <span>{searchActivityLabel}</span>
-                  <span className="text-muted/45 transition group-open:rotate-90">&gt;</span>
-                </summary>
-                <ol className="mt-1.5 space-y-1 pl-3 text-muted/60">
-                  {searchActivitySteps.map((step, index) => (
-                    <li key={`${index}-${step}`} className="list-decimal pl-1">
-                      {step}
-                    </li>
-                  ))}
-                </ol>
-              </details>
-            ) : (
-              <span>{searchActivityLabel}</span>
-            )}
-          </div>
+        {(message.isStreaming || searchActivity || responseActivity || message.reasoning) && (
+          <ResponseActivity
+            live={Boolean(message.isStreaming)}
+            awaitingFirstToken={isAwaitingFirstToken}
+            searchActivity={searchActivity}
+            responseActivity={responseActivity}
+            reasoning={message.reasoning}
+          />
         )}
 
         <div
@@ -403,7 +380,7 @@ function MessageRow({
             activeCitationSourceId={activeSourceId}
             onCitationClick={hasSources ? handleCitationClick : undefined}
           />
-          {message.isStreaming && (
+          {message.isStreaming && !isAwaitingFirstToken && (
             <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-foreground/50 align-middle" />
           )}
         </div>

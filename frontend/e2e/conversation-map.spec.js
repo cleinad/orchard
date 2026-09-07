@@ -574,6 +574,9 @@ test('desktop map keeps existing node positions stable when selecting another fo
   await page.getByTestId('conversation-map-toggle').click();
 
   const mapPane = page.getByTestId('conversation-map-desktop');
+  await expect(
+    mapPane.locator('[data-map-node-id="stable-root-assistant"]')
+  ).toBeVisible();
   const getRelativePositions = () =>
     mapPane.locator('[data-map-node="true"]').evaluateAll((elements) => {
       const root = elements.find(

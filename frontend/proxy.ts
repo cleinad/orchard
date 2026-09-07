@@ -7,16 +7,16 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
 function isPublicPage(pathname: string) {
   return pathname === '/'
+    || pathname === '/roadmap'
     || pathname === '/login'
     || pathname === '/signup'
     || pathname === '/icon.png'
+    || pathname.startsWith('/demos/')
     || pathname.startsWith('/pdfjs/');
 }
 
 function isE2eBypassRoute(pathname: string) {
-  return pathname.startsWith('/home')
-    || pathname.startsWith('/workspaces')
-    || pathname.startsWith('/paper-demo');
+  return pathname.startsWith('/home') || pathname.startsWith('/workspaces');
 }
 
 export async function proxy(request: NextRequest) {
@@ -61,13 +61,27 @@ export async function proxy(request: NextRequest) {
     },
   });
 
-  const { data: { user } } = await supabase.auth.getUser();
+  let claimsResult;
+  try {
+    claimsResult = await supabase.auth.getClaims();
+  } catch {
+    claimsResult = { data: null, error: new Error('Invalid session') };
+  }
 
-  if (!user) {
+  const userId = claimsResult.data?.claims?.sub;
+  if (
+    claimsResult.error
+    || typeof userId !== 'string'
+    || userId.length === 0
+  ) {
     const loginUrl = new URL('/login', request.url);
     const redirectTarget = `${pathname}${request.nextUrl.search}`;
     loginUrl.searchParams.set('redirect', redirectTarget);
-    return NextResponse.redirect(loginUrl);
+    const redirectResponse = NextResponse.redirect(loginUrl);
+    response.cookies.getAll().forEach((cookie) => {
+      redirectResponse.cookies.set(cookie);
+    });
+    return redirectResponse;
   }
 
   return response;
@@ -75,6 +89,6 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    '/((?!api|_next/static|_next/image|pdfjs|favicon.ico|icon.png|robots.txt|sitemap.xml).*)',
+    '/((?!api|_next/static|_next/image|favicon.ico|icon.png|robots.txt|sitemap.xml).*)',
   ],
 };

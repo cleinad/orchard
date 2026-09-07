@@ -11,6 +11,8 @@ export interface Message {
   timestamp: Date;
   searchMetadata?: PersistedSearchMetadata | null;
   searchActivity?: SearchActivitySummary | null;
+  /** Streamed model reasoning. Live only: never sent to the server or reloaded. */
+  reasoning?: string;
   previousMessageId: string | null;
   isStreaming?: boolean;
   isError?: boolean;

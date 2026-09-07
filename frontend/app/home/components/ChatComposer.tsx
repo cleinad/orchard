@@ -11,13 +11,12 @@ import {
   type ReactElement,
   type RefObject,
 } from 'react';
-import IconTooltip from '@/app/components/IconTooltip';
 import Tooltip from '@/app/components/Tooltip';
+import ConversationMapToggle from '@/app/home/components/ConversationMapToggle';
 import ChatModelPicker from '@/app/home/components/ChatModelPicker';
 import ResponseStylePicker from '@/app/home/components/ResponseStylePicker';
 import type { PendingChatImageAttachment } from '@/app/home/components/chatImageUploads';
 import { MAX_CHAT_IMAGE_ATTACHMENTS } from '@/lib/chat-attachments';
-import type { TemporaryMemoryMode } from '@/lib/chat-session';
 import type { SearchMode } from '@/lib/chat-search';
 import {
   type ChatModelEffortOverrides,
@@ -42,9 +41,8 @@ interface ChatComposerProps {
   thinkingEnabledOverrides: ChatModelThinkingOverrides;
   searchMode: SearchMode;
   isWideLayout?: boolean;
-  temporaryChatEnabled: boolean;
-  showTemporaryIntro: boolean;
-  temporaryMemoryMode: TemporaryMemoryMode;
+  conversationMapNodeCount?: number;
+  conversationMapOpen?: boolean;
   searchWarning: string | null;
   imageWarning: string | null;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
@@ -58,7 +56,7 @@ interface ChatComposerProps {
   onResponseStyleChange: (value: ResponseStyle) => void;
   onSearchModeChange: (mode: SearchMode) => void;
   onToggleWideLayout?: () => void;
-  onTemporaryMemoryModeChange: (mode: TemporaryMemoryMode) => void;
+  onToggleConversationMap?: () => void;
   onSubmit: FormEventHandler<HTMLFormElement>;
   onStop?: () => void;
   onKeyDown: KeyboardEventHandler<HTMLTextAreaElement>;
@@ -77,9 +75,8 @@ export default function ChatComposer({
   thinkingEnabledOverrides,
   searchMode,
   isWideLayout = false,
-  temporaryChatEnabled,
-  showTemporaryIntro,
-  temporaryMemoryMode,
+  conversationMapNodeCount = 0,
+  conversationMapOpen = false,
   searchWarning,
   imageWarning,
   textareaRef,
@@ -93,7 +90,7 @@ export default function ChatComposer({
   onResponseStyleChange,
   onSearchModeChange,
   onToggleWideLayout,
-  onTemporaryMemoryModeChange,
+  onToggleConversationMap,
   onSubmit,
   onStop,
   onKeyDown,
@@ -106,39 +103,14 @@ export default function ChatComposer({
     ?? chatModels.find((model) => model.available)
     ?? chatModels[0]
     ?? null;
-  const [searchMenuOpen, setSearchMenuOpen] = useState(false);
   const [compactControls, setCompactControls] = useState(false);
   const controlsRowRef = useRef<HTMLDivElement | null>(null);
   const controlsMeasureRef = useRef<HTMLDivElement | null>(null);
-  const searchMenuRef = useRef<HTMLDivElement | null>(null);
-  const searchModeLabels: Record<SearchMode, string> = {
-    auto: 'Auto',
-    required: 'Always search',
-    off: 'Off',
-  };
   const searchModeTooltip: Record<SearchMode, string> = {
     auto: 'Search auto: live sources are used when needed',
     required: 'Always search: replies use live sources',
     off: 'Search off: replies do not use live retrieval',
   };
-  useEffect(() => {
-    if (!searchMenuOpen) {
-      return;
-    }
-
-    const handlePointerDown = (event: PointerEvent) => {
-      if (
-        searchMenuRef.current
-        && event.target instanceof Node
-        && !searchMenuRef.current.contains(event.target)
-      ) {
-        setSearchMenuOpen(false);
-      }
-    };
-
-    window.addEventListener('pointerdown', handlePointerDown);
-    return () => window.removeEventListener('pointerdown', handlePointerDown);
-  }, [searchMenuOpen]);
 
   useLayoutEffect(() => {
     const row = controlsRowRef.current;
@@ -371,67 +343,11 @@ export default function ChatComposer({
   };
 
   return (
-    <div className="mx-auto w-full max-w-2xl px-4">
+    <div
+      data-home-region="composer"
+      className="mx-auto w-full max-w-2xl px-4"
+    >
       <div className="shrink-0 pb-2 pt-2">
-        {temporaryChatEnabled && showTemporaryIntro && (
-          <div
-            className="mb-2 flex items-center gap-2 rounded-lg border border-border-subtle bg-foreground/[0.02] px-3 py-2 font-sans text-foreground"
-            role="region"
-            aria-label="Temporary chat settings"
-          >
-            {/* Segmented control: left off (default), right opt-in */}
-            <div
-              className="flex min-h-9 min-w-0 flex-1 rounded-lg bg-foreground/[0.06] p-0.5 sm:min-w-[14rem]"
-              role="group"
-              aria-label="Memory for this chat"
-            >
-              <button
-                type="button"
-                onClick={() => onTemporaryMemoryModeChange('off')}
-                className={cx(
-                  'flex flex-1 cursor-pointer items-center justify-center rounded-md px-2 py-1.5 text-xs font-medium',
-                  buttonStyles.transition,
-                  buttonStyles.focus,
-                  temporaryMemoryMode === 'off'
-                    ? buttonStyles.segmentSelected
-                    : buttonStyles.segmentInactive
-                )}
-              >
-                No memory
-              </button>
-              <button
-                type="button"
-                onClick={() => onTemporaryMemoryModeChange('use_existing')}
-                className={cx(
-                  'flex flex-1 cursor-pointer items-center justify-center rounded-md px-2 py-1.5 text-xs font-medium',
-                  buttonStyles.transition,
-                  buttonStyles.focus,
-                  temporaryMemoryMode === 'use_existing'
-                    ? buttonStyles.segmentSelected
-                    : buttonStyles.segmentInactive
-                )}
-              >
-                Use memories
-              </button>
-            </div>
-            <IconTooltip
-              side="top"
-              ariaLabel="Temporary memory details"
-              content={(
-                <span>
-                  <span className="font-medium">No memory:</span>
-                  {' '}
-                  Saved memory is not read or updated.
-                  <br />
-                  <span className="font-medium">Use memories:</span>
-                  {' '}
-                  Saved memories may inform replies; this chat isn&apos;t stored.
-                </span>
-              )}
-            />
-          </div>
-        )}
-
         <form
           onSubmit={onSubmit}
           onPaste={handlePaste}
@@ -631,117 +547,69 @@ export default function ChatComposer({
                   </button>
                 </Tooltip>
               )}
-              <div ref={searchMenuRef} className="relative">
-                <Tooltip content={searchModeTooltip[searchMode]} side="bottom">
-                  <button
-                    type="button"
-                    aria-haspopup="menu"
-                    aria-expanded={searchMenuOpen}
-                    aria-label={`Search mode ${searchModeLabels[searchMode].toLowerCase()}`}
-                    onClick={() => setSearchMenuOpen((open) => !open)}
-                    className={cx(
-                      'inline-flex h-8 items-center justify-between rounded-lg border text-left font-sans font-medium',
-                      compactControls
-                        ? 'min-w-[3.25rem] gap-1.5 px-2'
-                        : 'min-w-[6.4rem] gap-2 px-3',
-                      buttonStyles.transition,
-                      searchMenuOpen || searchMode === 'required'
-                        ? buttonStyles.controlActive
-                        : searchMode === 'off'
-                          ? buttonStyles.controlInactiveMuted
-                          : buttonStyles.controlInactive,
-                      buttonStyles.controlShadow,
-                      buttonStyles.controlFocus
-                    )}
+              {onToggleConversationMap && (
+                <ConversationMapToggle
+                  nodeCount={conversationMapNodeCount}
+                  isOpen={conversationMapOpen}
+                  onToggle={onToggleConversationMap}
+                  compact
+                />
+              )}
+              <Tooltip content={searchModeTooltip[searchMode]} side="bottom">
+                <button
+                  type="button"
+                  aria-label={`Toggle search, currently ${searchMode === 'required' ? 'on' : 'off'}`}
+                  aria-pressed={searchMode === 'required'}
+                  onClick={() => onSearchModeChange(searchMode === 'required' ? 'off' : 'required')}
+                  className={cx(
+                    'inline-flex h-8 items-center rounded-lg border text-left font-sans font-medium',
+                    compactControls
+                      ? 'min-w-[3.25rem] justify-center px-2'
+                      : 'min-w-[6.4rem] gap-2 px-3',
+                    buttonStyles.transition,
+                    searchMode === 'required'
+                      ? buttonStyles.controlActive
+                      : searchMode === 'off'
+                        ? buttonStyles.controlInactiveMuted
+                        : buttonStyles.controlInactive,
+                    buttonStyles.controlShadow,
+                    buttonStyles.controlFocus
+                  )}
+                >
+                  <span
+                    className={`flex h-4 w-4 flex-shrink-0 items-center justify-center ${
+                      searchMode === 'required' ? 'text-[#3749ad]' : 'text-current'
+                    }`}
                   >
-                    <span className="flex min-w-0 items-center gap-2">
-                      <span
-                        className={`flex h-4 w-4 flex-shrink-0 items-center justify-center ${
-                          searchMode === 'required' ? 'text-accent' : 'text-current'
-                        }`}
-                      >
-                        <svg
-                          aria-hidden="true"
-                          className="h-4 w-4"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="1.8"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d="M12 21a9 9 0 100-18 9 9 0 000 18z"
-                          />
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d="M3.6 9h16.8M3.6 15h16.8M12 3c2.1 2.25 3.15 5.25 3.15 9S14.1 18.75 12 21M12 3C9.9 5.25 8.85 8.25 8.85 12S9.9 18.75 12 21"
-                          />
-                        </svg>
-                      </span>
-                      <span className={cx(
-                        'truncate text-[13px]',
-                        compactControls ? 'hidden' : 'inline'
-                      )}
-                      >
-                        Search
-                      </span>
-                    </span>
-
                     <svg
                       aria-hidden="true"
-                      className={`h-3.5 w-3.5 flex-shrink-0 text-muted transition-transform duration-150 ${
-                        searchMenuOpen ? 'rotate-180' : ''
-                      }`}
+                      className="h-4 w-4"
                       fill="none"
                       stroke="currentColor"
                       strokeWidth="1.8"
-                      viewBox="0 0 20 20"
+                      viewBox="0 0 24 24"
                     >
                       <path
-                        d="M5.5 7.5L10 12l4.5-4.5"
                         strokeLinecap="round"
                         strokeLinejoin="round"
+                        d="M12 21a9 9 0 100-18 9 9 0 000 18z"
+                      />
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M3.6 9h16.8M3.6 15h16.8M12 3c2.1 2.25 3.15 5.25 3.15 9S14.1 18.75 12 21M12 3C9.9 5.25 8.85 8.25 8.85 12S9.9 18.75 12 21"
                       />
                     </svg>
-                  </button>
-                </Tooltip>
-
-                {searchMenuOpen && (
-                  <div
-                    role="menu"
-                    aria-label="Search mode"
-                    className="absolute bottom-10 left-0 z-30 min-w-[11rem] rounded-[1.1rem] bg-background p-1.5 font-sans text-xs text-foreground shadow-[0_16px_36px_rgba(15,23,42,0.12)] ring-1 ring-black/[0.06] dark:shadow-[0_18px_40px_rgba(0,0,0,0.28)] dark:ring-white/[0.06]"
+                  </span>
+                  <span className={cx(
+                    'truncate text-[13px]',
+                    compactControls ? 'hidden' : 'inline'
+                  )}
                   >
-                    {(['auto', 'required', 'off'] as const).map((mode) => (
-                      <button
-                        key={mode}
-                        type="button"
-                        role="menuitemradio"
-                        aria-checked={searchMode === mode}
-                        onClick={() => {
-                          onSearchModeChange(mode);
-                          setSearchMenuOpen(false);
-                        }}
-                        className={cx(
-                          'grid h-9 w-full grid-cols-[1fr_0.875rem] items-center gap-3 whitespace-nowrap rounded-xl px-2.5 text-left',
-                          buttonStyles.transition,
-                          buttonStyles.focus,
-                          searchMode === mode
-                            ? buttonStyles.menuItemActive
-                            : buttonStyles.menuItemInactive
-                        )}
-                      >
-                        <span className="text-[13px] font-medium">{searchModeLabels[mode]}</span>
-                        {searchMode === mode && (
-                          <span className="h-1.5 w-1.5 justify-self-center rounded-full bg-accent" />
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
+                    Search
+                  </span>
+                </button>
+              </Tooltip>
             </div>
 
             <div className="ml-auto flex flex-shrink-0 items-center gap-1.5">

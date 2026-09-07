@@ -1,92 +1,72 @@
 # Image Attachments
 
-## Scope
+Chats accept image attachments through paste, drag and drop, or the file picker.
+Images are passed directly to vision-capable chat models; Orchard does not
+perform OCR or indexing.
 
-Chat supports up to 5 image attachments per user message. The first version uses model-native vision only: images are sent to the selected multimodal model. There is no OCR, indexing, or image memory extraction yet.
+## Limits
 
-For text-only follow-up turns, the API may reattach the most recent prior user image turn as model context, subject to provider attachment limits. If the latest user message includes new images, those new images take priority and prior images are not reattached.
+- up to 5 images per message
+- up to 10 MiB per image
+- PNG, JPEG, WebP, and GIF at the shared validation layer
+- provider-specific MIME restrictions may be narrower
 
-Client-accepted types for models/providers that support them:
+The client validates before upload, and the server validates attachment
+metadata, ownership, size, type, and selected-model support again before
+generation.
 
-- PNG
-- JPEG
-- WebP
-- GIF
+## Flow
 
-Each image is limited to 10MB.
+1. The client creates local previews and validates the selection.
+2. Authenticated browser code uploads files to the private `chat-images`
+   Supabase Storage bucket.
+3. The chat request sends attachment IDs and metadata.
+4. The server verifies ownership and storage paths, downloads the files, and
+   sends image parts to the model.
+5. Persistent message attachments are recorded in `message_attachments`.
+6. The transcript loads images through the authenticated
+   `/api/chat/images/<attachmentId>` route.
 
-The client and server apply provider-specific limits before invoking the model. For example, Google models reject GIF attachments in the composer; use PNG, JPEG, or WebP for those models.
+The server never accepts an arbitrary client-supplied public image URL as model
+input.
 
-## User Flow
+## Later turns
 
-Users can attach images by:
+For a text-only follow-up, the server may reattach the most recent earlier user
+image turn, subject to the selected provider's limits. New images on the current
+turn take priority.
 
-- Pasting an image into the composer
-- Dragging and dropping image files
-- Using the image picker button
+## Temporary chats
 
-Images upload only when the user sends the message. Before sending, the composer shows thumbnails and each thumbnail can be removed. On send, the pending thumbnails move into the transcript immediately using local preview URLs; the app uploads in the background, then replaces the optimistic attachment metadata with Supabase-backed URLs before calling the model. Clicking a thumbnail opens an in-app modal preview; it does not open a new browser tab.
-
-## Data Flow
-
-```text
-Composer pending images
-  -> optimistic user message with local thumbnails on send
-  -> upload to private Supabase Storage bucket
-  -> patch optimistic attachments with storage paths
-  -> send storage paths to POST /api/chat
-  -> API validates ownership, model support, provider limits, and downloads bytes
-  -> API sends latest user message as text + image parts to the AI SDK
-  -> API may attach the latest prior image turn for text-only follow-ups
-  -> persistent chats store message_attachments metadata
-  -> transcript loads attachment metadata and renders stable image proxy URLs
-```
-
-Temporary chats upload images so the model can read them, but do not persist attachment metadata. When a temporary chat is closed, the client best-effort deletes associated storage objects.
-
-## Storage
-
-Images live in the private Supabase Storage bucket:
-
-```text
-chat-images/<user_id>/<uuid>.<extension>
-```
-
-Metadata for persistent messages lives in `public.message_attachments`.
-
-The app serves persisted thumbnails through:
-
-```text
-GET /api/chat/images/:attachmentId
-```
-
-That route authenticates the user, verifies ownership, downloads from the private bucket, and streams the image response back with `private, no-store` cache headers. This avoids stale signed URLs in long-lived pages and keeps Storage URLs out of browser history.
-
-## Validation
-
-Validation happens in two places:
-
-- Client: file count, MIME type, size, selected model image support, and Google GIF rejection before upload.
-- Server: storage path ownership, count, MIME type, size, downloaded byte length, basic image signatures, resolved model image support, and provider-specific image limits before model invocation.
-
-The model catalog exposes `supportsImages`. Provider limits live in `CHAT_IMAGE_PROVIDER_LIMITS`.
+Temporary images use the same private bucket because the server must retrieve
+them for model input. Their paths are tracked in session state rather than
+attached to persisted messages, and the client attempts cleanup when the
+temporary chat closes.
 
 ## Cleanup
 
-The client removes uploaded objects when upload succeeds but chat submission fails before the turn is accepted.
+Files uploaded for a request that fails before acceptance are removed when the
+client can identify them. Deleting a workspace also removes the attachment
+paths returned by the database deletion function.
 
-The API also best-effort removes cleanup-marked uploads on validation and persistence failures before the message is accepted. Before deleting, it checks `message_attachments` so a replayed or reused storage path that is already referenced is not removed.
+There is currently no scheduled server-side orphan sweeper.
 
-Known cleanup boundaries:
+## Key implementation
 
-- If the browser closes mid-request, uploaded objects may still become orphaned.
-- If the server saves the user message but fails later, the image should remain with that message.
-- A scheduled server-side orphan cleanup job is still a future hardening item.
+- `frontend/lib/chat-attachments.ts`
+- `frontend/app/home/components/chatImageUploads.ts`
+- `frontend/app/home/components/useChatImageComposerState.ts`
+- `frontend/app/api/chat/images/[attachmentId]/route.ts`
+- `frontend/app/api/chat/route.ts`
 
-## Future Work
+## Verification
 
-- Add a server-side orphan cleanup job for old `chat-images` objects without `message_attachments` rows.
-- Add OCR or image summaries for search, memory, and richer future-turn context.
-- Add provider-specific resizing/conversion for large images.
-- Add HEIC support for mobile uploads.
-- Add modal focus trapping, zoom/pan, and arrow navigation.
+- `frontend/__tests__/app/chat-image-route.test.ts`
+- image cases in `frontend/__tests__/app/chat-route.test.ts`
+- upload cases in `frontend/e2e/workspaces.spec.js`
+
+## Related docs
+
+- [Model selection](./chat-model-selection.md)
+- [Temporary chats](./temporary-chat.md)
+- [Workspaces](./workspaces.md)

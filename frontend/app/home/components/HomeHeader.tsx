@@ -2,49 +2,34 @@
 
 import ThemePicker from "@/app/components/ThemePicker";
 import Tooltip from "@/app/components/Tooltip";
-import ConversationMapToggle from "@/app/home/components/ConversationMapToggle";
 import {
   headerIconBase,
   headerIconOff,
 } from "@/app/home/components/homeHeaderToolbar";
-import type { TemporaryMemoryMode } from "@/lib/chat-session";
 
 type HomeHeaderProps = {
   conversationTitle: string;
   isTemporaryChat: boolean;
-  temporaryMemoryMode: TemporaryMemoryMode;
   loadingLists: boolean;
   onCreateTemporaryChat: () => void;
-  conversationMapNodeCount: number;
-  conversationMapOpen: boolean;
-  onToggleConversationMap: () => void;
 };
 
 export default function HomeHeader({
   conversationTitle,
   isTemporaryChat,
-  temporaryMemoryMode,
   loadingLists,
   onCreateTemporaryChat,
-  conversationMapNodeCount,
-  conversationMapOpen,
-  onToggleConversationMap,
 }: HomeHeaderProps) {
-  const temporaryMemoryModeLabel =
-    temporaryMemoryMode === "use_existing" ? "With memory" : "No memory";
-
   return (
-    <header className="flex h-16 items-center justify-between">
+    <header
+      data-home-region="header"
+      className="flex h-16 items-center justify-between"
+    >
       <div className="flex min-w-0 items-center gap-3">
         <div className="min-w-0">
-          <div className="truncate font-heading text-xl text-foreground">
+          <div className="truncate font-serif text-lg font-normal text-foreground/85">
             {isTemporaryChat ? "Temporary Chat" : conversationTitle}
           </div>
-          {isTemporaryChat && (
-            <div className="mt-0.5 font-sans text-[11px] font-medium text-muted">
-              {temporaryMemoryModeLabel}
-            </div>
-          )}
         </div>
       </div>
 
@@ -58,12 +43,6 @@ export default function HomeHeader({
         >
           loading...
         </span>
-        <ConversationMapToggle
-          nodeCount={conversationMapNodeCount}
-          isOpen={conversationMapOpen}
-          onToggle={onToggleConversationMap}
-        />
-
         <Tooltip content="New temporary chat">
           <button
             type="button"

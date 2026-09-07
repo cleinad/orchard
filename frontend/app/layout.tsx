@@ -1,8 +1,6 @@
 import type { Metadata } from "next";
-import { Fraunces, Newsreader } from "next/font/google";
+import { Newsreader } from "next/font/google";
 import BodyFontSync from "@/app/components/BodyFontSync";
-import { ChatRunCoordinator } from "@/app/components/ChatRunCoordinator";
-import { SidePanelProvider } from "@/app/home/components/SidePanelContext";
 import {
   BODY_FONT_STACK,
   BODY_FONT_STORAGE_KEY,
@@ -19,12 +17,6 @@ import {
 import "katex/dist/katex.min.css";
 import "./globals.css";
 
-const fraunces = Fraunces({
-  variable: "--font-heading",
-  subsets: ["latin"],
-  display: "swap",
-});
-
 const newsreader = Newsreader({
   variable: "--font-body-newsreader",
   subsets: ["latin"],
@@ -35,7 +27,8 @@ const newsreader = Newsreader({
 
 export const metadata: Metadata = {
   title: "Orchard",
-  description: "A place for ideas to grow.",
+  description:
+    "Go deeper in any conversation and ask more questions without losing your place.",
 };
 
 const themeBootstrapScript = `(function(){try{var root=document.documentElement;var stored=localStorage.getItem('${STORAGE_KEY}');var modes=${JSON.stringify(THEME_MODE_BY_ID)};var legacy=${JSON.stringify(LEGACY_THEME_ID_MAP)};var prefers=window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches;var theme=(stored&&modes[stored]?stored:(stored&&legacy[stored]?legacy[stored]:null))||(prefers?'${DEFAULT_DARK_THEME_ID}':'${DEFAULT_LIGHT_THEME_ID}');var isDark=modes[theme]==='dark';root.dataset.theme=theme;root.classList.toggle('dark',isDark);root.style.colorScheme=isDark?'dark':'light';if(stored&&legacy[stored]&&stored!==legacy[stored]){localStorage.setItem('${STORAGE_KEY}',legacy[stored]);}}catch(e){}})();`;
@@ -49,7 +42,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={newsreader.variable} suppressHydrationWarning>
-      <body className={`${fraunces.variable} ${newsreader.variable} antialiased`}>
+      <body className={`${newsreader.variable} antialiased`}>
         <script
           dangerouslySetInnerHTML={{
             __html: themeBootstrapScript,
@@ -61,9 +54,7 @@ export default function RootLayout({
           }}
         />
         <BodyFontSync />
-        <ChatRunCoordinator>
-          <SidePanelProvider>{children}</SidePanelProvider>
-        </ChatRunCoordinator>
+        {children}
       </body>
     </html>
   );

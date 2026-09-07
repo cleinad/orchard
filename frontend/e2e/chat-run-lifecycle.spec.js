@@ -1,5 +1,6 @@
 const { test, expect } = require('@playwright/test');
 const { mockHomeDataRoutes } = require('./helpers/homeRouteMocks');
+const { createAuthenticatedCookie } = require('./helpers/supabaseAuthFixture');
 
 function streamBody(body, {
   response = 'Temporary answer',
@@ -68,7 +69,6 @@ function persistentRunSnapshot(body, {
       response: completed ? 'completed' : cancelled ? 'cancelled' : 'running',
       title: completed ? 'completed' : cancelled ? 'cancelled' : 'running',
       search: 'skipped',
-      memory: completed ? 'completed' : cancelled ? 'cancelled' : 'pending',
     },
     errorCode: null,
     errorMessage: null,
@@ -90,6 +90,20 @@ async function createTemporaryChat(page, prompt) {
   await page.getByRole('main').getByLabel('New temporary chat').click();
   await page.getByLabel('Message composer').fill(prompt);
   await page.getByLabel('Message composer').press('Enter');
+}
+
+async function ensureConversationsOpen(page) {
+  const rail = page.locator('nav[aria-hidden]').first();
+  const sidePanel = page.locator(
+    '[role="region"][aria-label="Conversations and sections"]'
+  ).first();
+
+  if ((await rail.getAttribute('aria-hidden')) !== 'true') {
+    await page.getByRole('button', { name: 'Open conversations' }).first().click();
+    await expect(rail).toHaveAttribute('aria-hidden', 'true');
+  }
+
+  return sidePanel;
 }
 
 test('new persistent submission does not reconcile before server acknowledgement', async ({ page }) => {
@@ -491,9 +505,14 @@ test('a rejected first persistent submission restores the editable draft', async
   }))).toEqual({ promotion: null, run: null });
 });
 
-test('persistent generation continues across in-app navigation', async ({ page }) => {
-  const workspaceId = 'workspace-persistent-run-navigation';
-  const now = new Date().toISOString();
+test('persistent generation continues across settings navigation', async ({ page }) => {
+  if (!process.env.PLAYWRIGHT_AUTH_STORAGE_STATE) {
+    await page.context().addCookies([
+      await createAuthenticatedCookie({
+        userId: 'persistent-settings-navigation',
+      }),
+    ]);
+  }
   let releaseResponse;
   const responseGate = new Promise((resolve) => {
     releaseResponse = resolve;
@@ -501,16 +520,6 @@ test('persistent generation continues across in-app navigation', async ({ page }
   const state = await mockHomeDataRoutes(page, {
     conversations: [],
     messagesByConversationId: {},
-    workspaces: [{
-      id: workspaceId,
-      name: 'Persistent Run Navigation',
-      description: null,
-      context: null,
-      icon: 'P',
-      accent_color: null,
-      created_at: now,
-      updated_at: now,
-    }],
   });
   await page.route('**/api/chat', async (route) => {
     const body = route.request().postDataJSON();
@@ -557,15 +566,334 @@ test('persistent generation continues across in-app navigation', async ({ page }
   await createPersistentChat(page, 'Keep this persistent request running');
   await expect(page.getByRole('button', { name: 'Stop response' })).toBeVisible();
   await page.getByRole('button', { name: 'Open conversations' }).click();
-  await page.getByTestId(`workspace-drop-target-${workspaceId}`)
-    .getByRole('button')
-    .first()
-    .click();
-  await expect(page).toHaveURL(new RegExp(`/workspaces/${workspaceId}`));
+  await page.getByRole('link', { name: 'Open settings' }).click();
+  await expect(page).toHaveURL(/\/settings$/);
 
   releaseResponse();
   await page.goBack();
   await expect(page.getByText('Persistent work finished off-screen')).toBeVisible();
+});
+
+test('returning to a chat with an active response blocks another submission', async ({ page }) => {
+  const conversationId = '20000000-0000-4000-8000-000000000011';
+  const previousAssistantId = '30000000-0000-4000-8000-000000000011';
+  const workspaceId = 'workspace-active-run-return';
+  const now = new Date().toISOString();
+  let submissions = 0;
+  let releaseResponse;
+  const responseGate = new Promise((resolve) => {
+    releaseResponse = resolve;
+  });
+  const state = await mockHomeDataRoutes(page, {
+    conversations: [{
+      id: conversationId,
+      title: 'Existing Active Chat',
+      mentor_id: null,
+      workspace_id: null,
+      created_at: now,
+      updated_at: now,
+    }],
+    messagesByConversationId: {
+      [conversationId]: [{
+        id: previousAssistantId,
+        role: 'assistant',
+        content: 'Existing response',
+        previous_message_id: null,
+        created_at: now,
+        search_metadata: null,
+      }],
+    },
+    workspaces: [{
+      id: workspaceId,
+      name: 'Active Run Return',
+      description: null,
+      context: null,
+      icon: 'A',
+      accent_color: null,
+      created_at: now,
+      updated_at: now,
+    }],
+  });
+  await page.route('**/api/chat', async (route) => {
+    submissions += 1;
+    const body = route.request().postDataJSON();
+    await responseGate;
+    const run = persistentRunSnapshot(body, {
+      response: 'The original response completed.',
+      title: 'Active Run Return',
+    });
+    const createdAt = new Date().toISOString();
+    const conversation = state.conversations.find((entry) => entry.id === conversationId);
+    if (conversation) conversation.title = run.title.value;
+    state.messagesByConversationId[conversationId] = [
+      {
+        id: previousAssistantId,
+        role: 'assistant',
+        content: 'Existing response',
+        previous_message_id: null,
+        created_at: now,
+        search_metadata: null,
+      },
+      {
+        id: run.userMessageId,
+        role: 'user',
+        content: body.message,
+        previous_message_id: previousAssistantId,
+        created_at: createdAt,
+        search_metadata: null,
+      },
+      {
+        id: run.assistantMessageId,
+        role: 'assistant',
+        content: run.response,
+        previous_message_id: run.userMessageId,
+        created_at: createdAt,
+        search_metadata: null,
+      },
+    ];
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream',
+      body: streamBody(body, {
+        response: run.response,
+        title: run.title.value,
+        titleSource: run.title.source,
+        conversationId,
+        run,
+      }),
+    });
+  });
+
+  await page.goto(`/home/${conversationId}?e2e=chat-run-lifecycle`);
+  await expect(page.getByText('Existing response')).toBeVisible();
+  await page.getByLabel('Message composer').fill('Keep this response active');
+  await page.getByLabel('Message composer').press('Enter');
+  await expect(page.getByRole('button', { name: 'Stop response' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Open conversations' }).click();
+  await page.getByTestId(`workspace-drop-target-${workspaceId}`)
+    .getByRole('link')
+    .first()
+    .click();
+  await expect(page).toHaveURL(new RegExp(`/workspaces/${workspaceId}`));
+
+  await page.goBack();
+  await expect(page.getByRole('button', { name: 'Stop response' })).toBeVisible();
+
+  await page.getByLabel('Message composer').fill('Do not submit this yet');
+  await page.getByLabel('Message composer').press('Enter');
+  await expect.poll(() => submissions).toBe(1);
+
+  releaseResponse();
+  await expect(page.getByText('The original response completed.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Send message' })).toBeVisible();
+  await expect(page.getByLabel('Message composer')).toHaveValue('Do not submit this yet');
+});
+
+test('completed persistent branch run preserves its selection across chat navigation', async ({
+  page,
+}) => {
+  const branchedConversationId = 'conversation-persistent-branch-navigation';
+  const otherConversationId = 'conversation-persistent-branch-navigation-other';
+  const rootAssistantId = 'branch-navigation-root-assistant';
+  const alternateAssistantId = 'branch-navigation-alternate-assistant';
+  const completedResponse = 'The alternate route finished while another chat was open.';
+  const now = '2026-07-26T18:00:00.000Z';
+  let releaseResponse;
+  const responseGate = new Promise((resolve) => {
+    releaseResponse = resolve;
+  });
+  let markResponseDelivered;
+  const responseDelivered = new Promise((resolve) => {
+    markResponseDelivered = resolve;
+  });
+  const state = await mockHomeDataRoutes(page, {
+    conversations: [
+      {
+        id: branchedConversationId,
+        title: 'Branched Navigation',
+        mentor_id: null,
+        workspace_id: null,
+        created_at: now,
+        updated_at: now,
+      },
+      {
+        id: otherConversationId,
+        title: 'Other Conversation',
+        mentor_id: null,
+        workspace_id: null,
+        created_at: now,
+        updated_at: now,
+      },
+    ],
+    messagesByConversationId: {
+      [branchedConversationId]: [
+        {
+          id: 'branch-navigation-root-user',
+          role: 'user',
+          content: 'Show me two routes.',
+          previous_message_id: null,
+          created_at: '2026-07-26T18:00:00.000Z',
+          search_metadata: null,
+        },
+        {
+          id: rootAssistantId,
+          role: 'assistant',
+          content: 'Choose the main route or the alternate route.',
+          previous_message_id: 'branch-navigation-root-user',
+          created_at: '2026-07-26T18:00:01.000Z',
+          search_metadata: null,
+        },
+        {
+          id: 'branch-navigation-main-user',
+          role: 'user',
+          content: 'Take the main route.',
+          previous_message_id: rootAssistantId,
+          created_at: '2026-07-26T18:00:02.000Z',
+          search_metadata: null,
+        },
+        {
+          id: 'branch-navigation-main-assistant',
+          role: 'assistant',
+          content: 'This content belongs only to the main route.',
+          previous_message_id: 'branch-navigation-main-user',
+          created_at: '2026-07-26T18:00:03.000Z',
+          search_metadata: null,
+        },
+        {
+          id: 'branch-navigation-alternate-user',
+          role: 'user',
+          content: 'Take the alternate route.',
+          previous_message_id: rootAssistantId,
+          created_at: '2026-07-26T18:00:04.000Z',
+          search_metadata: null,
+        },
+        {
+          id: alternateAssistantId,
+          role: 'assistant',
+          content: 'This content belongs only to the alternate route.',
+          previous_message_id: 'branch-navigation-alternate-user',
+          created_at: '2026-07-26T18:00:05.000Z',
+          search_metadata: null,
+        },
+      ],
+      [otherConversationId]: [
+        {
+          id: 'branch-navigation-other-user',
+          role: 'user',
+          content: 'Keep this other conversation visible.',
+          previous_message_id: null,
+          created_at: now,
+          search_metadata: null,
+        },
+        {
+          id: 'branch-navigation-other-assistant',
+          role: 'assistant',
+          content: 'The other conversation remains selected.',
+          previous_message_id: 'branch-navigation-other-user',
+          created_at: '2026-07-26T18:00:01.000Z',
+          search_metadata: null,
+        },
+      ],
+    },
+    branchesByConversationId: {
+      [branchedConversationId]: [
+        {
+          id: 'branch-navigation-main',
+          source_message_id: rootAssistantId,
+          entry_message_id: 'branch-navigation-main-user',
+          title: 'Main',
+          is_main: true,
+          position: 0,
+        },
+        {
+          id: 'branch-navigation-alternate',
+          source_message_id: rootAssistantId,
+          entry_message_id: 'branch-navigation-alternate-user',
+          title: 'Alternate route',
+          is_main: false,
+          position: 1,
+        },
+      ],
+    },
+  });
+
+  await page.route('**/api/chat', async (route) => {
+    const body = route.request().postDataJSON();
+    expect(body.previousMessageId).toBe(alternateAssistantId);
+    await responseGate;
+
+    const run = persistentRunSnapshot(body, {
+      response: completedResponse,
+      title: 'Branched Navigation',
+    });
+    const createdAt = new Date().toISOString();
+    state.messagesByConversationId[branchedConversationId] = [
+      ...state.messagesByConversationId[branchedConversationId],
+      {
+        id: run.userMessageId,
+        role: 'user',
+        content: body.message,
+        previous_message_id: alternateAssistantId,
+        created_at: createdAt,
+        search_metadata: null,
+      },
+      {
+        id: run.assistantMessageId,
+        role: 'assistant',
+        content: run.response,
+        previous_message_id: run.userMessageId,
+        created_at: createdAt,
+        search_metadata: null,
+      },
+    ];
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream',
+      body: streamBody(body, {
+        response: run.response,
+        title: run.title.value,
+        titleSource: run.title.source,
+        conversationId: branchedConversationId,
+        run,
+      }),
+    });
+    markResponseDelivered();
+  });
+
+  await page.goto(
+    `/home/${branchedConversationId}?e2e=chat-run-lifecycle`
+  );
+  await page.getByRole('button', { name: 'Alternate route', exact: true }).click();
+  await expect(
+    page.getByText('This content belongs only to the alternate route.')
+  ).toBeVisible();
+
+  await page.getByLabel('Message composer').fill('Continue this alternate route.');
+  await page.getByLabel('Message composer').press('Enter');
+  await expect(page.getByRole('button', { name: 'Stop response' })).toBeVisible();
+
+  let sidePanel = await ensureConversationsOpen(page);
+  await sidePanel.getByRole('button', { name: /Other Conversation/ }).click();
+  await expect(page).toHaveURL(
+    new RegExp(`/home/${otherConversationId}\\?e2e=chat-run-lifecycle$`)
+  );
+  await expect(page.getByText('The other conversation remains selected.')).toBeVisible();
+
+  releaseResponse();
+  await responseDelivered;
+
+  sidePanel = await ensureConversationsOpen(page);
+  await sidePanel.getByRole('button', { name: /Branched Navigation/ }).click();
+
+  await expect(page.getByText(completedResponse)).toBeVisible();
+  await expect(
+    page.getByText('This content belongs only to the alternate route.')
+  ).toBeVisible();
+  await expect(
+    page.getByText('This content belongs only to the main route.')
+  ).toHaveCount(0);
 });
 
 test('completed temporary response and generated title restore locally after reload', async ({ page }) => {
@@ -681,22 +1009,17 @@ test('repeated submission while a temporary run is active starts only one reques
   expect(submissions).toBe(1);
 });
 
-test('temporary generation continues across in-app navigation while connected', async ({ page }) => {
-  const workspaceId = 'workspace-run-navigation';
-  const now = new Date().toISOString();
+test('temporary generation continues across settings navigation while connected', async ({ page }) => {
+  if (!process.env.PLAYWRIGHT_AUTH_STORAGE_STATE) {
+    await page.context().addCookies([
+      await createAuthenticatedCookie({
+        userId: 'temporary-settings-navigation',
+      }),
+    ]);
+  }
   await mockHomeDataRoutes(page, {
     conversations: [],
     messagesByConversationId: {},
-    workspaces: [{
-      id: workspaceId,
-      name: 'Run Navigation',
-      description: null,
-      context: null,
-      icon: 'R',
-      accent_color: null,
-      created_at: now,
-      updated_at: now,
-    }],
   });
   await page.route('**/api/chat', async (route) => {
     const body = route.request().postDataJSON();
@@ -705,7 +1028,7 @@ test('temporary generation continues across in-app navigation while connected', 
       status: 200,
       contentType: 'text/event-stream',
       body: streamBody(body, {
-        response: 'Finished while viewing the workspace',
+        response: 'Finished while viewing settings',
         title: 'Background Navigation',
         titleSource: 'generated',
       }),
@@ -715,15 +1038,13 @@ test('temporary generation continues across in-app navigation while connected', 
   await createTemporaryChat(page, 'Keep working while I navigate');
   await expect(page.getByRole('button', { name: 'Stop response' })).toBeVisible();
   await page.getByRole('button', { name: 'Open conversations' }).click();
-  await page.getByTestId(`workspace-drop-target-${workspaceId}`)
-    .getByRole('button')
-    .first()
-    .click();
-  await expect(page).toHaveURL(new RegExp(`/workspaces/${workspaceId}`));
+  await page.getByRole('link', { name: 'Open settings' }).click();
+  await expect(page).toHaveURL(/\/settings$/);
 
   await page.goBack();
+  await page.getByRole('button', { name: 'Open conversations' }).click();
   await page.getByRole('button', { name: 'Temp Background Navigation' }).click();
-  await expect(page.getByText('Finished while viewing the workspace')).toBeVisible();
+  await expect(page.getByText('Finished while viewing settings')).toBeVisible();
 });
 
 test('Stop cancels a temporary run locally without a cancellation API', async ({ page }) => {

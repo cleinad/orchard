@@ -1,12 +1,11 @@
 const DEFAULT_CHAT_MODELS = [
   {
-    id: 'gpt-5.5',
-    label: 'GPT-5.5',
+    id: 'gpt-5.6-sol',
+    label: 'GPT-5.6 Sol',
     provider: 'openai',
     providerLabel: 'OpenAI',
     iconKey: 'openai',
     description: 'Best OpenAI model for complex reasoning and coding.',
-    badge: 'Max',
     available: true,
     isDefault: true,
     effort: {
@@ -22,6 +21,7 @@ const DEFAULT_VIEWER = {
   id: 'e2e-user-1',
   email: 'e2e@example.com',
   fullName: 'E2E User',
+  globalInstructions: '',
 };
 
 function parseEqFilter(value) {
@@ -59,11 +59,10 @@ async function fulfillJson(route, json, status = 200) {
 
 async function mockHomeDataRoutes(page, state) {
   const resolvedState = {
-    viewer: DEFAULT_VIEWER,
+    viewer: { ...DEFAULT_VIEWER },
+    profileExists: true,
     mentors: [],
     workspaces: [],
-    memoryItems: [],
-    memoryItemSources: [],
     conversations: [],
     messagesByConversationId: {},
     attachmentsByMessageId: {},
@@ -71,14 +70,26 @@ async function mockHomeDataRoutes(page, state) {
     threadsByConversationId: {},
     chatModels: DEFAULT_CHAT_MODELS,
     createdConversations: [],
+    workspacePatchFailures: 0,
+    requestCounts: {},
     ...state,
+  };
+  resolvedState.requestCounts = {
+    mentorLists: 0,
+    workspaceLists: 0,
+    workspaceDetails: 0,
+    conversationLists: 0,
+    modelLists: 0,
+    ...resolvedState.requestCounts,
   };
 
   await page.route('**/api/chat/models', async (route) => {
+    resolvedState.requestCounts.modelLists += 1;
     await fulfillJson(route, { models: resolvedState.chatModels });
   });
 
   await page.route('**/api/mentors', async (route) => {
+    resolvedState.requestCounts.mentorLists += 1;
     await fulfillJson(route, resolvedState.mentors);
   });
 
@@ -103,6 +114,7 @@ async function mockHomeDataRoutes(page, state) {
       return;
     }
 
+    resolvedState.requestCounts.workspaceLists += 1;
     await fulfillJson(route, { workspaces: resolvedState.workspaces });
   });
 
@@ -118,6 +130,12 @@ async function mockHomeDataRoutes(page, state) {
     }
 
     if (method === 'PATCH') {
+      if (resolvedState.workspacePatchFailures > 0) {
+        resolvedState.workspacePatchFailures -= 1;
+        await fulfillJson(route, { error: 'Injected workspace update failure' }, 500);
+        return;
+      }
+
       const body = route.request().postDataJSON();
       Object.assign(workspace, {
         ...(Object.prototype.hasOwnProperty.call(body, 'name') ? { name: body.name } : {}),
@@ -133,20 +151,12 @@ async function mockHomeDataRoutes(page, state) {
       const conversationIds = resolvedState.conversations
         .filter((conversation) => conversation.workspace_id === workspaceId)
         .map((conversation) => conversation.id);
-      const memoryIds = resolvedState.memoryItems
-        .filter(
-          (item) => item.owner_type === 'workspace' && item.owner_id === workspaceId
-        )
-        .map((item) => item.id);
 
       resolvedState.workspaces = resolvedState.workspaces.filter(
         (entry) => entry.id !== workspaceId
       );
       resolvedState.conversations = resolvedState.conversations.filter(
         (conversation) => conversation.workspace_id !== workspaceId
-      );
-      resolvedState.memoryItems = resolvedState.memoryItems.filter(
-        (item) => !(item.owner_type === 'workspace' && item.owner_id === workspaceId)
       );
 
       for (const conversationId of conversationIds) {
@@ -160,28 +170,13 @@ async function mockHomeDataRoutes(page, state) {
         deleted: {
           workspace: 1,
           conversations: conversationIds.length,
-          memoryItems: memoryIds.length,
         },
       });
       return;
     }
 
+    resolvedState.requestCounts.workspaceDetails += 1;
     await fulfillJson(route, { workspace });
-  });
-
-  await page.route('**/api/memory/items*', async (route) => {
-    const url = new URL(route.request().url());
-    const scope = url.searchParams.get('scope') || 'all';
-    const items =
-      scope.startsWith('workspace:')
-        ? resolvedState.memoryItems.filter(
-            (item) =>
-              item.owner_type === 'workspace' &&
-              item.owner_id === scope.replace(/^workspace:/, '')
-          )
-        : resolvedState.memoryItems;
-
-    await fulfillJson(route, { items });
   });
 
   await page.route('**/api/conversations', async (route) => {
@@ -265,50 +260,6 @@ async function mockHomeDataRoutes(page, state) {
       return;
     }
 
-    const sourceWorkspaceId = conversation.workspace_id ?? null;
-    const sourceOwnerType = sourceWorkspaceId ? 'workspace' : 'global';
-    const sourceOwnerId = sourceWorkspaceId;
-    let movedMemoryCount = 0;
-    let leftMemoryCount = 0;
-
-    const sourceConversationIdsForMemory = (memoryItem) => {
-      const sourceRows = resolvedState.memoryItemSources.filter(
-        (source) => source.memory_item_id === memoryItem.id && source.conversation_id
-      );
-      if (sourceRows.length > 0) {
-        return sourceRows.map((source) => source.conversation_id);
-      }
-      return memoryItem.source_conversation_id ? [memoryItem.source_conversation_id] : [];
-    };
-
-    if (targetWorkspaceId) {
-      for (const item of resolvedState.memoryItems) {
-        if (item.status !== 'active') continue;
-        if (item.owner_type !== sourceOwnerType) continue;
-        if (sourceOwnerType === 'global' && item.owner_id !== null) continue;
-        if (sourceOwnerType === 'workspace' && item.owner_id !== sourceOwnerId) continue;
-
-        const sourceConversationIds = sourceConversationIdsForMemory(item);
-        if (!sourceConversationIds.includes(conversationId)) continue;
-
-        const hasOtherSource = sourceConversationIds.some((id) => id !== conversationId);
-        if (hasOtherSource) {
-          leftMemoryCount += 1;
-          continue;
-        }
-
-        item.owner_type = 'workspace';
-        item.owner_id = targetWorkspaceId;
-        movedMemoryCount += 1;
-      }
-    } else {
-      leftMemoryCount = resolvedState.memoryItems.filter((item) => {
-        if (item.status !== 'active') return false;
-        if (item.owner_type !== 'workspace' || item.owner_id !== sourceWorkspaceId) return false;
-        return sourceConversationIdsForMemory(item).includes(conversationId);
-      }).length;
-    }
-
     conversation.workspace_id = targetWorkspaceId;
     conversation.mentor_id = null;
     conversation.updated_at = new Date().toISOString();
@@ -321,11 +272,6 @@ async function mockHomeDataRoutes(page, state) {
         workspaceId: conversation.workspace_id,
         createdAt: conversation.created_at,
         updatedAt: conversation.updated_at,
-      },
-      memory: {
-        moved: movedMemoryCount,
-        copied: 0,
-        leftInPlace: leftMemoryCount,
       },
     });
   });
@@ -352,8 +298,38 @@ async function mockHomeDataRoutes(page, state) {
 
   await page.route('**/rest/v1/profiles*', async (route) => {
     const viewer = resolvedState.viewer;
+    const method = route.request().method();
 
-    await fulfillJson(route, viewer ? { full_name: viewer.fullName } : null);
+    if (method === 'PATCH' && viewer) {
+      if (!resolvedState.profileExists) {
+        await fulfillJson(
+          route,
+          {
+            code: 'PGRST116',
+            message: 'JSON object requested, multiple (or no) rows returned',
+          },
+          406
+        );
+        return;
+      }
+
+      const body = route.request().postDataJSON();
+      viewer.globalInstructions = body?.global_instructions ?? '';
+      await fulfillJson(route, {
+        global_instructions: viewer.globalInstructions,
+      });
+      return;
+    }
+
+    await fulfillJson(
+      route,
+      viewer && resolvedState.profileExists
+        ? {
+            full_name: viewer.fullName,
+            global_instructions: viewer.globalInstructions,
+          }
+        : null
+    );
   });
 
   await page.route('**/rest/v1/conversations*', async (route) => {
@@ -372,6 +348,7 @@ async function mockHomeDataRoutes(page, state) {
       return;
     }
 
+    resolvedState.requestCounts.conversationLists += 1;
     await fulfillJson(route, resolvedState.conversations);
   });
 
@@ -382,6 +359,20 @@ async function mockHomeDataRoutes(page, state) {
     const messages = conversationId
       ? resolvedState.messagesByConversationId[conversationId] || []
       : [];
+    const limit = Number(url.searchParams.get('limit'));
+    const offset = Number(url.searchParams.get('offset'));
+    const normalizedOffset =
+      Number.isFinite(offset) && offset >= 0 ? offset : 0;
+    const rangeHeader = route.request().headers().range;
+    const rangeMatch = rangeHeader?.match(/^(\d+)-(\d+)$/);
+    const rangedMessages = Number.isFinite(limit) && limit >= 0
+      ? messages.slice(normalizedOffset, normalizedOffset + limit)
+      : rangeMatch
+        ? messages.slice(
+          Number(rangeMatch[1]),
+          Number(rangeMatch[2]) + 1
+        )
+        : messages;
 
     if (typeof resolvedState.onMessagesRequest === 'function') {
       const handled = await resolvedState.onMessagesRequest({
@@ -389,7 +380,7 @@ async function mockHomeDataRoutes(page, state) {
         url,
         conversationId,
         select,
-        messages,
+        messages: rangedMessages,
         fulfillJson,
       });
 
@@ -404,7 +395,7 @@ async function mockHomeDataRoutes(page, state) {
       return;
     }
 
-    await fulfillJson(route, messages);
+    await fulfillJson(route, rangedMessages);
   });
 
   await page.route('**/rest/v1/message_attachments*', async (route) => {

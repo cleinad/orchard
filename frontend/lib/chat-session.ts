@@ -4,12 +4,7 @@ import { stripCitationMarkers } from '@/lib/search-citations';
 
 export const CHAT_MODES = ['persistent', 'temporary'] as const;
 export type ChatMode = (typeof CHAT_MODES)[number];
-
-export const TEMPORARY_MEMORY_MODES = ['use_existing', 'off'] as const;
-export type TemporaryMemoryMode = (typeof TEMPORARY_MEMORY_MODES)[number];
-
-/** New temporary chats start with memory off unless the user opts into saved memories. */
-export const DEFAULT_TEMPORARY_MEMORY_MODE: TemporaryMemoryMode = 'off';
+export const MAX_CHAT_HISTORY_MESSAGES = 50;
 
 export interface ChatHistoryMessage {
   id?: string | null;
@@ -57,6 +52,53 @@ export function toChatHistory(
       ...(attachments.length > 0 ? { attachments } : {}),
     };
   });
+}
+
+export function toChatHistoryMessageIds(
+  messages: Array<{
+    id?: string | null;
+    previousMessageId?: string | null;
+  }>,
+  targetMessageId?: string | null
+): string[] {
+  if (targetMessageId) {
+    const messagesById = new Map(
+      messages
+        .filter(
+          (message): message is typeof message & { id: string } =>
+            typeof message.id === 'string' && message.id.length > 0
+        )
+        .map((message) => [message.id, message])
+    );
+    const nearestFirst: string[] = [];
+    const seen = new Set<string>();
+    let currentId: string | null = targetMessageId;
+
+    while (
+      currentId
+      && nearestFirst.length < MAX_CHAT_HISTORY_MESSAGES
+      && !seen.has(currentId)
+    ) {
+      const message = messagesById.get(currentId);
+      if (!message) break;
+      seen.add(currentId);
+      nearestFirst.push(currentId);
+      currentId =
+        typeof message.previousMessageId === 'string'
+          ? message.previousMessageId
+          : null;
+    }
+
+    return nearestFirst.reverse();
+  }
+
+  return Array.from(
+    new Set(
+      messages
+        .map((message) => message.id)
+        .filter((id): id is string => typeof id === 'string' && id.length > 0)
+    )
+  ).slice(-MAX_CHAT_HISTORY_MESSAGES);
 }
 
 export function createTemporaryId(prefix: string): string {

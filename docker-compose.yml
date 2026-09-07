@@ -1,0 +1,35 @@
+name: orchard
+
+services:
+  app:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:?required}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:?required}
+    image: orchard-app:latest
+    container_name: orchard-app
+    env_file:
+      - ./frontend/.env.local
+    environment:
+      HOSTNAME: 0.0.0.0
+      NEXT_TELEMETRY_DISABLED: "1"
+      NODE_ENV: production
+      PORT: "3000"
+    init: true
+    ports:
+      - "127.0.0.1:3000:3000"
+    restart: unless-stopped
+    stop_grace_period: 30s
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/api/health').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

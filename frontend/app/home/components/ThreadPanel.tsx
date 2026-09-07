@@ -19,6 +19,11 @@ import type { ThreadSession } from "@/app/home/components/threadTypes";
 import { SIDE_PANEL_COLLAPSED_WIDTH_PX } from "@/app/home/components/SidePanelContext";
 import { hasUsableSearchSources } from "@/lib/search-citations";
 import { buttonStyles, cx } from "@/app/components/buttonStyles";
+import {
+  clampThreadPanelWidthPx,
+  THREAD_PANEL_MAX_WIDTH_PX,
+  THREAD_PANEL_MIN_WIDTH_PX,
+} from "@/app/home/components/threadPanelSizing";
 
 interface ThreadPanelProps {
   isOpen: boolean;
@@ -34,17 +39,6 @@ interface ThreadPanelProps {
 }
 
 const THREAD_PANEL_DESKTOP_MEDIA_QUERY = "(min-width: 768px)";
-export const THREAD_PANEL_MIN_WIDTH_PX = 200;
-export const THREAD_PANEL_DEFAULT_WIDTH_PX = 460;
-export const THREAD_PANEL_MAX_WIDTH_PX = 720;
-
-export function clampThreadPanelWidthPx(value: number) {
-  if (!Number.isFinite(value)) {
-    return THREAD_PANEL_DEFAULT_WIDTH_PX;
-  }
-
-  return Math.min(THREAD_PANEL_MAX_WIDTH_PX, Math.max(THREAD_PANEL_MIN_WIDTH_PX, Math.round(value)));
-}
 
 function toSnippet(text: string, maxLength = 88): string {
   const normalized = text.replace(/\s+/g, " ").trim();

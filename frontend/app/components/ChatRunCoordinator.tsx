@@ -7,10 +7,12 @@ import {
   useEffect,
   useMemo,
   useRef,
+  useSyncExternalStore,
   type ReactNode,
 } from 'react';
 import {
   chatRunReducer,
+  findActiveMainChatRun,
   isSettledChatRunSnapshot,
   isTerminalChatRunStatus,
   type ChatRunSnapshot,
@@ -27,6 +29,7 @@ import type { SearchActivitySummary } from '@/lib/search/types';
 interface StartRunHandlers {
   onDelta?: (delta: string) => void;
   onSearchActivity?: (activity: SearchActivitySummary) => void;
+  onReasoningDelta?: (delta: string, partId: string) => void;
   onSnapshot?: (snapshot: ChatRunSnapshot) => void;
 }
 
@@ -45,6 +48,7 @@ interface ChatRunCoordinatorValue {
   getSnapshot: (runId: string) => ChatRunSnapshot | null;
   getSnapshotsForChat: (chatId: string) => ChatRunSnapshot[];
   getActiveRunForChat: (chatId: string) => ChatRunSnapshot | null;
+  getActiveMainRunForChat: (chatId: string) => ChatRunSnapshot | null;
   subscribe: (
     runId: string,
     listener: (snapshot: ChatRunSnapshot) => void
@@ -91,12 +95,15 @@ async function readRunStream(
     try {
       const event = JSON.parse(payload) as {
         type?: unknown;
+        id?: unknown;
         delta?: unknown;
         data?: unknown;
         errorText?: unknown;
       };
       if (event.type === 'text-delta' && typeof event.delta === 'string') {
         handlers.onDelta?.(event.delta);
+      } else if (event.type === 'reasoning-delta' && typeof event.delta === 'string') {
+        handlers.onReasoningDelta?.(event.delta, String(event.id ?? ''));
       } else if (event.type === 'data-searchActivity' && event.data) {
         handlers.onSearchActivity?.(event.data as SearchActivitySummary);
       } else if (event.type === 'data-chatRun' && event.data) {
@@ -337,9 +344,6 @@ export function ChatRunCoordinator({ children }: { children: ReactNode }) {
                 response: 'completed' as const,
                 title: metadata.titleStatus ?? 'completed' as const,
                 search: metadata.search ? 'completed' as const : 'skipped' as const,
-                memory: initialSnapshot.mode === 'temporary'
-                  ? 'skipped' as const
-                  : 'running' as const,
               },
               updatedAt: new Date().toISOString(),
               completedAt: new Date().toISOString(),
@@ -568,6 +572,10 @@ export function ChatRunCoordinator({ children }: { children: ReactNode }) {
       .sort((a, b) =>
         (b.acceptedAt ?? b.updatedAt).localeCompare(a.acceptedAt ?? a.updatedAt)
       )[0] ?? null, []);
+  const getActiveMainRunForChat = useCallback(
+    (chatId: string) => findActiveMainChatRun(runsRef.current.values(), chatId),
+    []
+  );
 
   const subscribe = useCallback<ChatRunCoordinatorValue['subscribe']>(
     (runId, listener) => {
@@ -667,11 +675,13 @@ export function ChatRunCoordinator({ children }: { children: ReactNode }) {
     getSnapshot,
     getSnapshotsForChat,
     getActiveRunForChat,
+    getActiveMainRunForChat,
     subscribe,
     subscribeAll,
   }), [
     closeTemporaryChat,
     dismiss,
+    getActiveMainRunForChat,
     getActiveRunForChat,
     getSnapshot,
     getSnapshotsForChat,
@@ -699,4 +709,19 @@ export function useChatRunCoordinator() {
 
 export function useOptionalChatRunCoordinator() {
   return useContext(ChatRunCoordinatorContext);
+}
+
+export function useActiveMainChatRun(chatId: string | null) {
+  const coordinator = useChatRunCoordinator();
+  const subscribe = useCallback(
+    (onStoreChange: () => void) =>
+      coordinator.subscribeAll(() => onStoreChange()),
+    [coordinator]
+  );
+  const getSnapshot = useCallback(
+    () => chatId ? coordinator.getActiveMainRunForChat(chatId) : null,
+    [chatId, coordinator]
+  );
+
+  return useSyncExternalStore(subscribe, getSnapshot, () => null);
 }

@@ -10,6 +10,7 @@ import {
   decideSearchNecessity,
   planSearchAction,
   type PlannerLogger,
+  type SearchModelTelemetry,
   type SearchPlannerMessage,
 } from '@/lib/search/query-planner';
 import { assessSearchResults, buildRepairQuery } from '@/lib/search/relevance';
@@ -86,18 +87,35 @@ function createActivitySummary(events: SearchActivityEvent[]): SearchActivitySum
   };
 }
 
+/**
+ * The client sees the plan and the executed queries. Decision and relevance
+ * deliberation stay server-side: they expose reasoning about the prompt rather
+ * than the work the reply was built from. The planner model id is dropped so it
+ * is not streamed to the browser or persisted with the reply.
+ */
 function createVisibleActivitySummary(events: SearchActivityEvent[]): SearchActivitySummary {
   return createActivitySummary(
-    events.filter(
-      (event) =>
-        event.type !== 'planning_started'
-        && event.type !== 'search_decision_started'
-        && event.type !== 'search_decision_completed'
-        && event.type !== 'search_skipped'
-        && event.type !== 'plan_selected'
-        && event.type !== 'prior_sources_checked'
-        && event.type !== 'relevance_checked'
-    )
+    events
+      .filter(
+        (event) =>
+          event.type !== 'planning_started'
+          && event.type !== 'search_decision_started'
+          && event.type !== 'search_decision_completed'
+          && event.type !== 'search_skipped'
+          && event.type !== 'prior_sources_checked'
+          && event.type !== 'relevance_checked'
+      )
+      .map((event) =>
+        event.type === 'plan_selected'
+          ? {
+              type: 'plan_selected' as const,
+              resolvedIntent: event.resolvedIntent,
+              queries: event.queries,
+              reusePriorSources: event.reusePriorSources,
+              plannerSource: event.plannerSource,
+            }
+          : event
+      )
   );
 }
 
@@ -251,6 +269,7 @@ export async function runConversationalSearch(
     searchPipeline?: typeof runSearchPipeline;
     activityWriter?: (activity: SearchActivitySummary) => void;
     logger?: PlannerLogger;
+    modelTelemetry?: SearchModelTelemetry;
   } = {}
 ): Promise<ConversationalSearchRun> {
   const events: SearchActivityEvent[] = [
@@ -345,6 +364,9 @@ export async function runConversationalSearch(
           ? { fallbackProvider: dependencies.fallbackDecisionProvider }
           : {}),
         ...(dependencies.logger ? { logger: dependencies.logger } : {}),
+        ...(dependencies.modelTelemetry
+          ? { modelTelemetry: dependencies.modelTelemetry }
+          : {}),
       }
     );
 
@@ -411,6 +433,7 @@ export async function runConversationalSearch(
       ...(dependencies.plannerModelId ? { plannerModelId: dependencies.plannerModelId } : {}),
       ...(dependencies.plannerProvider ? { plannerProvider: dependencies.plannerProvider } : {}),
       ...(dependencies.logger ? { logger: dependencies.logger } : {}),
+      ...(dependencies.modelTelemetry ? { modelTelemetry: dependencies.modelTelemetry } : {}),
     }
   );
 
@@ -523,11 +546,17 @@ export async function runConversationalSearch(
       }
     : createRejectedOutput(combinedOutput);
   const sources = sourcesFromSearchOutput(acceptedOutput);
+  const infrastructureFailure =
+    acceptedOutput.status === 'missing_config'
+    || acceptedOutput.status === 'timeout'
+    || acceptedOutput.status === 'upstream_error';
 
   events.push({
     type: 'search_completed',
     sourceCount: sources.length,
-    collapsedLabel: 'Search completed',
+    collapsedLabel: infrastructureFailure
+      ? 'Search was unavailable for this reply'
+      : 'Search completed',
   });
   publishActivity();
 
