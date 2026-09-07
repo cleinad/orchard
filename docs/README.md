@@ -46,6 +46,7 @@ If docs conflict, prefer:
 - [features/conversation-branching.md](./features/conversation-branching.md): branch chips, conversation map, tree state, persistence model, and runtime isolation rules
 - [features/image-attachments.md](./features/image-attachments.md): image paste/drop/upload behavior, Supabase Storage flow, model-native vision handling, validation, and cleanup boundaries
 - [features/inline-threads.md](./features/inline-threads.md): text selection, popover behavior, thread panel rules, keyboard behavior, and edge cases across `/home` and `/home/[conversationId]`
+- [features/pdf-region-threads.md](./features/pdf-region-threads.md): session-only PDF region capture, document-thread requests, and persistent page highlights on `/paper-demo`
 - [features/live-search.md](./features/live-search.md): search-mode behavior, provider-backed retrieval pipeline, persisted source metadata, and safety constraints
 - [features/memory.md](./features/memory.md): memory system architecture, read/write paths, schema, and API shape
 - [features/mentors.md](./features/mentors.md): built-in and custom mentors, data model, prompt construction, and API integration
