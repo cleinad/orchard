@@ -20,6 +20,7 @@ import {
   deserializePersistentThreadRuntimes,
   mapThreadMessages,
   mergeThreadMessages,
+  settleCancelledThreadMessages,
   removeThreadMetaFromRecord,
   serializePersistentThreadRuntimes,
   type PersistentThreadRuntime,
@@ -119,6 +120,9 @@ export function useInlineThreadRuntime({
   const [persistentThreadStorageRestored, setPersistentThreadStorageRestored] =
     useState(false);
   const reconciledPersistentThreadRunVersionsRef = useRef(new Set<string>());
+  // A cancelled stream may race a committed reply. Only server reads establish
+  // that a message should survive later cancellation notifications.
+  const confirmedThreadMessagesRef = useRef(new Map<string, ThreadMessage>());
   useEffect(() => {
     const stored = window.sessionStorage.getItem(storageKey);
     if (!stored) {
@@ -395,6 +399,49 @@ export function useInlineThreadRuntime({
     ]
   );
 
+  // The panel owns drafts; the backing runtime owns messages across navigation.
+  useEffect(() => {
+    const runtime = selectedChat?.kind === 'persistent'
+      ? persistentThreadRuntimes[selectedChat.conversationId]
+      : selectedTemporaryChat;
+    if (!runtime) return;
+    for (const session of Object.values(threadSessionsRef.current)) {
+      if (!session.threadId) continue;
+      const messages = runtime.threadMessages[session.threadId];
+      const status = runtime.threadStatuses[session.threadId];
+      if (!messages || (messages === session.messages && status === session.status)) continue;
+      updateThreadSession(session.sessionId, (current) => ({
+        ...current,
+        messages,
+        status: status ?? current.status,
+        isHydrating: false,
+      }));
+    }
+  }, [persistentThreadRuntimes, selectedChat, selectedTemporaryChat, threadSessionsRef, updateThreadSession]);
+
+  const updateThreadResult = useCallback((
+    selection: Extract<SelectedChat, { kind: 'temporary' | 'persistent' }>,
+    threadId: string,
+    updater: (messages: ThreadMessage[], status: ThreadSessionStatus) => {
+      messages: ThreadMessage[];
+      status: ThreadSessionStatus;
+    }
+  ) => {
+    const apply = <T extends Pick<PersistentThreadRuntime, 'threadMessages' | 'threadStatuses'>>(runtime: T): T => {
+      const next = updater(runtime.threadMessages[threadId] ?? [], runtime.threadStatuses[threadId] ?? 'ready');
+      return {
+        ...runtime,
+        threadMessages: { ...runtime.threadMessages, [threadId]: next.messages },
+        threadStatuses: { ...runtime.threadStatuses, [threadId]: next.status },
+      };
+    };
+    if (selection.kind === 'persistent') {
+      updatePersistentThreadRuntime(selection.conversationId, apply);
+    } else {
+      updateTemporaryChat(selection.tempChatId, apply);
+    }
+  }, [updatePersistentThreadRuntime, updateTemporaryChat]);
+
   useEffect(() => {
     if (!chatRunCoordinator) return;
 
@@ -429,25 +476,69 @@ export function useInlineThreadRuntime({
           );
         }
       }
-      if (run.status !== 'interrupted' && !isTerminalChatRunStatus(run.status)) {
-        setPersistentThreadStatus(conversationId, threadId, 'loading');
-        return;
-      }
-      if (run.status !== 'completed') {
-        setPersistentThreadStatus(
-          conversationId,
-          threadId,
-          run.status === 'cancelled' ? 'ready' : 'error'
-        );
-        return;
-      }
+      const selection = { kind: 'persistent' as const, conversationId, mentorId: null, workspaceId: null };
+      const settled = run.status === 'interrupted' || isTerminalChatRunStatus(run.status);
+      updateThreadResult(selection, threadId, (messages, status) => {
+        // Older responses may resolve different IDs. Locate their optimistic turn
+        // by its predecessor rather than assuming it is still the latest turn.
+        if (settled && !messages.some((message) => message.id === run.userMessageId)) {
+          const predecessorIndex = run.target.expectedPredecessorId
+            ? messages.findIndex((message) => message.id === run.target.expectedPredecessorId)
+            : -1;
+          const userIndex = predecessorIndex + 1;
+          if ((!run.target.expectedPredecessorId || predecessorIndex !== -1)
+            && messages[userIndex]?.role === 'user') {
+            messages = messages.map((message, index) => index === userIndex
+              ? { ...message, id: run.userMessageId }
+              : index === userIndex + 1 && message.isStreaming
+                ? { ...message, id: run.assistantMessageId }
+                : message);
+          }
+        }
+        const isLatestTurn = !messages.some((message) => message.role === 'user')
+          || messages.findLast((message) => message.role === 'user')?.id === run.userMessageId;
+        if (!settled) {
+          if (!isLatestTurn) return { messages, status };
+          const existing = messages.find((message) => message.id === run.assistantMessageId);
+          const placeholder: ThreadMessage = {
+            id: run.assistantMessageId, role: 'assistant', content: '',
+            timestamp: new Date(run.updatedAt), ...existing, isStreaming: true,
+          };
+          return {
+            messages: messages.some((message) => message.id === placeholder.id)
+              ? messages.map((message) => message.id === placeholder.id ? placeholder : message)
+              : [...messages, placeholder],
+            status: 'loading',
+          };
+        }
+        const existingAssistant = messages.find((message) => message.id === run.assistantMessageId);
+        const assistant: ThreadMessage = {
+          id: run.assistantMessageId,
+          role: 'assistant',
+          content: run.status === 'interrupted' && status === 'error' && existingAssistant && !existingAssistant.isStreaming
+            ? existingAssistant.content
+            : run.response ?? run.errorMessage ?? 'Thread run failed.',
+          timestamp: new Date(run.updatedAt),
+          searchMetadata: run.search?.metadata ?? null,
+          searchActivity: run.searchActivity,
+        };
+        return {
+          messages: run.status === 'cancelled'
+            ? settleCancelledThreadMessages(messages, run.assistantMessageId,
+                confirmedThreadMessagesRef.current.get(run.assistantMessageId))
+            : mergeThreadMessages([assistant], messages, run.assistantMessageId),
+          status: isLatestTurn
+            ? run.status === 'completed' || run.status === 'cancelled' ? 'ready' : 'error'
+            : status,
+        };
+      });
+      if (run.status !== 'completed' && !(run.status === 'cancelled' && run.acceptedAt)) return;
 
       const versionKey = `${run.runId}:${run.status}:${run.updatedAt}`;
       if (reconciledPersistentThreadRunVersionsRef.current.has(versionKey)) {
         return;
       }
       reconciledPersistentThreadRunVersionsRef.current.add(versionKey);
-      setPersistentThreadStatus(conversationId, threadId, 'ready');
 
       void fetch(`/api/threads/${threadId}/messages`)
         .then(async (response) => {
@@ -502,8 +593,11 @@ export function useInlineThreadRuntime({
             }
           }
           const messages = mapThreadMessages(data.messages ?? []);
-          setPersistentThreadMessages(conversationId, threadId, messages);
-          setPersistentThreadStatus(conversationId, threadId, 'ready');
+          messages.forEach((message) => confirmedThreadMessagesRef.current.set(message.id, message));
+          updateThreadResult(selection, threadId, (localMessages, status) => ({
+            messages: mergeThreadMessages(messages, localMessages),
+            status,
+          }));
         })
         .catch(() => {
           reconciledPersistentThreadRunVersionsRef.current.delete(versionKey);
@@ -514,19 +608,16 @@ export function useInlineThreadRuntime({
     chatRunCoordinator,
     persistentThreadRuntimesRef,
     replaceThreadResultId,
-    setPersistentThreadMessages,
-    setPersistentThreadStatus,
+    updateThreadResult,
   ]);
 
   const sendThreadRequest = useCallback(
     async (params: {
-      sessionId: string;
       question: string;
       selection: Extract<SelectedChat, { kind: 'temporary' | 'persistent' }>;
       source: ThreadSource;
       requestThreadId: string | null;
       previousMessages: ThreadMessage[];
-      optimisticMessages: ThreadMessage[];
       optimisticUserMessageId: string;
       identifiers: ChatRunIdentifiers;
       isNewThread: boolean;
@@ -534,54 +625,92 @@ export function useInlineThreadRuntime({
       if (params.selection.kind !== 'persistent' && params.selection.kind !== 'temporary') {
         return;
       }
+      let frame: number | null = null;
+      let streaming = true;
+      let content = '';
+      let reasoning = '';
+      let reasoningPartId = '';
+      let searchActivity: ThreadMessage['searchActivity'];
+      const stopPublication = () => {
+        streaming = false;
+        if (frame !== null) cancelAnimationFrame(frame);
+        frame = null;
+      };
+      const publish = () => {
+        if (!streaming || !params.requestThreadId) return;
+        updateThreadResult(params.selection, params.requestThreadId, (messages, status) => ({
+          messages: messages.map((message) => message.id === params.identifiers.assistantMessageId && message.isStreaming
+            ? { ...message, content, reasoning, searchActivity }
+            : message),
+          status,
+        }));
+      };
+      const schedulePublication = () => {
+        if (!streaming || frame !== null) return;
+        frame = requestAnimationFrame(() => {
+          frame = null;
+          publish();
+        });
+      };
+      const onDelta = (delta: string) => {
+        content += delta;
+        schedulePublication();
+      };
+      const onReasoningDelta = (delta: string, partId: string) => {
+        if (reasoning && partId !== reasoningPartId) reasoning += '\n\n';
+        reasoningPartId = partId;
+        reasoning += delta;
+        schedulePublication();
+      };
+      const onSearchActivity = (activity: NonNullable<ThreadMessage['searchActivity']>) => {
+        searchActivity = activity;
+        schedulePublication();
+      };
       const finalizeThreadState = (options: {
         status: ThreadSessionStatus;
         threadId: string | null;
-        assistantMessage: ThreadMessage;
+        assistantMessage: ThreadMessage | null;
         resolvedUserMessageId?: string | null;
       }) => {
-        const latestSession = threadSessionsRef.current[params.sessionId];
-        const reconciledMessages = (latestSession?.messages ?? params.optimisticMessages).map(
-          (message) =>
-            message.id === params.optimisticUserMessageId && options.resolvedUserMessageId
-              ? { ...message, id: options.resolvedUserMessageId }
-              : message
-        );
-        const nextMessages = [...reconciledMessages, options.assistantMessage];
-        const nextThreadId = options.threadId ?? latestSession?.threadId ?? null;
-
-        if (
-          nextThreadId
-          && params.requestThreadId
-          && nextThreadId !== params.requestThreadId
-        ) {
-          replaceThreadResultId(
-            params.selection,
-            params.requestThreadId,
-            nextThreadId,
-            params.source
-          );
+        stopPublication();
+        const nextThreadId = options.threadId ?? params.requestThreadId;
+        if (!nextThreadId) return;
+        if (params.requestThreadId && nextThreadId !== params.requestThreadId) {
+          replaceThreadResultId(params.selection, params.requestThreadId, nextThreadId, params.source);
+          for (const session of Object.values(threadSessionsRef.current)) {
+            if (session.threadId === params.requestThreadId) {
+              updateThreadSession(session.sessionId, (current) => ({ ...current, threadId: nextThreadId }));
+            }
+          }
         }
-
-        if (latestSession) {
-          updateThreadSession(params.sessionId, () => ({
-            ...latestSession,
-            threadId: nextThreadId,
-            status: options.status,
-            isHydrating: false,
-            messages: nextMessages,
-          }));
-        }
-
-        persistThreadResult(
-          {
-            selection: params.selection,
-            source: params.source,
-          },
-          nextThreadId,
-          nextMessages,
-          options.status
-        );
+        updateThreadResult(params.selection, nextThreadId, (messages, status) => {
+          const latestUserId = messages.findLast((message) => message.role === 'user')?.id;
+          const isLatestTurn = latestUserId === params.optimisticUserMessageId || latestUserId === options.resolvedUserMessageId;
+          const previousAssistant = messages.find((message) => message.id === params.identifiers.assistantMessageId
+            || message.id === options.assistantMessage?.id);
+          const reconciledMessages = messages.map((message) => {
+            if (message.id === params.optimisticUserMessageId && options.resolvedUserMessageId) {
+              return { ...message, id: options.resolvedUserMessageId };
+            }
+            if (message.id === params.identifiers.assistantMessageId && options.assistantMessage) {
+              return { ...message, id: options.assistantMessage.id };
+            }
+            return message;
+          });
+          const assistant = options.assistantMessage ? {
+            ...options.assistantMessage,
+            timestamp: previousAssistant?.timestamp ?? options.assistantMessage.timestamp,
+            reasoning: reasoning || previousAssistant?.reasoning,
+            searchActivity: options.assistantMessage.searchActivity ?? searchActivity,
+          } : null;
+          return {
+            messages: assistant
+              ? mergeThreadMessages([assistant], reconciledMessages, assistant.id)
+              : settleCancelledThreadMessages(reconciledMessages, params.identifiers.assistantMessageId,
+                  confirmedThreadMessagesRef.current.get(params.identifiers.assistantMessageId)),
+            status: isLatestTurn ? options.status : status,
+          };
+        });
       };
 
       try {
@@ -658,6 +787,9 @@ export function useInlineThreadRuntime({
         if (chatRunCoordinator) {
           const run = await chatRunCoordinator.start({
             request: requestBody,
+            onDelta,
+            onReasoningDelta,
+            onSearchActivity,
             initialSnapshot: createQueuedChatRunSnapshot({
               identifiers: params.identifiers,
               mode: runMode,
@@ -685,7 +817,7 @@ export function useInlineThreadRuntime({
             body: JSON.stringify(requestBody),
           });
           data = response.ok
-            ? await readChatStream(response, () => {})
+            ? await readChatStream(response, onDelta, { onReasoningDelta, onSearchActivity })
             : (await response.json()) as ChatResponse;
           if (!response.ok && !data.error) data.error = 'Something went wrong.';
         }
@@ -697,19 +829,7 @@ export function useInlineThreadRuntime({
             : params.requestThreadId;
 
         if (data.cancelled) {
-          const latestSession = threadSessionsRef.current[params.sessionId];
-          const messages = latestSession?.messages ?? params.optimisticMessages;
-          updateThreadSession(params.sessionId, (session) => ({
-            ...session,
-            status: 'ready',
-            isHydrating: false,
-          }));
-          persistThreadResult(
-            { selection: params.selection, source: params.source },
-            resolvedThreadId,
-            messages,
-            'ready'
-          );
+          finalizeThreadState({ status: 'ready', threadId: resolvedThreadId, assistantMessage: null });
           return;
         }
 
@@ -737,6 +857,7 @@ export function useInlineThreadRuntime({
             content: data.message,
             timestamp: new Date(),
             searchMetadata: data.search?.metadata ?? null,
+            searchActivity: data.searchActivity,
           },
           resolvedUserMessageId: data.userMessageId,
         });
@@ -756,7 +877,7 @@ export function useInlineThreadRuntime({
     [
       activeMessages,
       chatRunCoordinator,
-      persistThreadResult,
+      updateThreadResult,
       selectedModelEffort,
       responseStyle,
       replaceThreadResultId,
@@ -795,7 +916,13 @@ export function useInlineThreadRuntime({
       const session = buildThreadSession(source, {
         threadId: requestThreadId,
         status: 'loading',
-        messages: [userMessage],
+        messages: [userMessage, {
+          id: identifiers.assistantMessageId,
+          role: 'assistant',
+          content: '',
+          timestamp: new Date(),
+          isStreaming: true,
+        }],
       });
 
       createThreadSession(session, { makeActive: true });
@@ -808,13 +935,11 @@ export function useInlineThreadRuntime({
       );
 
       void sendThreadRequest({
-        sessionId: session.sessionId,
         question: trimmedQuestion,
         selection,
         source,
         requestThreadId,
         previousMessages: [],
-        optimisticMessages: session.messages,
         optimisticUserMessageId: userMessage.id,
         identifiers,
         isNewThread: true,
@@ -895,7 +1020,13 @@ export function useInlineThreadRuntime({
         content,
         timestamp: new Date(),
       };
-      const nextMessages = [...session.messages, userMessage];
+      const nextMessages: ThreadMessage[] = [...session.messages, userMessage, {
+        id: identifiers.assistantMessageId,
+        role: 'assistant',
+        content: '',
+        timestamp: new Date(),
+        isStreaming: true,
+      }];
 
       updateThreadSession(sessionId, () => ({
         ...session,
@@ -914,13 +1045,11 @@ export function useInlineThreadRuntime({
       );
 
       void sendThreadRequest({
-        sessionId,
         question: content,
         selection,
         source: session,
         requestThreadId,
         previousMessages: session.messages,
-        optimisticMessages: nextMessages,
         optimisticUserMessageId: userMessage.id,
         identifiers,
         isNewThread: !session.threadId,
@@ -1004,11 +1133,18 @@ export function useInlineThreadRuntime({
           }>
         );
 
+        nextMessages.forEach((message) => confirmedThreadMessagesRef.current.set(message.id, message));
+        if (selectedChat?.kind === 'persistent') {
+          updateThreadResult(selectedChat, thread.threadId, (messages, status) => ({
+            messages: mergeThreadMessages(nextMessages, messages),
+            status,
+          }));
+        }
         updateThreadSession(sessionId, (session) => ({
           ...session,
           messages: mergeThreadMessages(nextMessages, session.messages),
           isHydrating: false,
-          status: session.status === 'error' ? session.status : 'ready',
+          status: session.status,
         }));
       } catch {
         updateThreadSession(sessionId, (session) => ({
@@ -1026,6 +1162,7 @@ export function useInlineThreadRuntime({
       selectedChat,
       selectedTemporaryChat?.threadMessages,
       selectedTemporaryChat?.threadStatuses,
+      updateThreadResult,
       threadSessionsRef,
       updateThreadSession,
     ]

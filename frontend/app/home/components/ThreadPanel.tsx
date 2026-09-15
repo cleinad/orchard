@@ -14,6 +14,8 @@ import MarkdownWithThreads from "@/app/home/components/MarkdownWithThreads";
 import ChatMessageFrame, {
   chatMessageContentClassName,
 } from "@/app/home/components/ChatMessageFrame";
+import ResponseActivity from "@/app/home/components/ResponseActivity";
+import { getSearchActivity, getResponseActivitySummary } from "@/lib/search-citations";
 import SearchSourcesTray from "@/app/home/components/SearchSourcesTray";
 import type { ThreadSession } from "@/app/home/components/threadTypes";
 import { SIDE_PANEL_COLLAPSED_WIDTH_PX } from "@/app/home/components/SidePanelContext";
@@ -341,6 +343,15 @@ export default function ThreadPanel({
         >
           {session?.messages.map((message) => (
             <ChatMessageFrame key={message.id} messageRole={message.role}>
+              {message.role === 'assistant' && (
+                <ResponseActivity
+                  live={Boolean(message.isStreaming)}
+                  awaitingFirstToken={message.content.trim().length === 0}
+                  searchActivity={message.searchActivity ?? getSearchActivity(message.searchMetadata ?? null)}
+                  responseActivity={getResponseActivitySummary(message.searchMetadata ?? null)}
+                  reasoning={message.reasoning}
+                />
+              )}
               <div
                 className={chatMessageContentClassName(message.role)}
               >
@@ -360,8 +371,11 @@ export default function ThreadPanel({
                       : undefined
                   }
                 />
+                {message.isStreaming && message.content.trim().length > 0 && (
+                  <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-foreground/50 align-middle" />
+                )}
               </div>
-              {hasUsableSearchSources(message.searchMetadata) && message.searchMetadata && (
+              {!message.isStreaming && hasUsableSearchSources(message.searchMetadata) && message.searchMetadata && (
                 <>
                   <div className="mt-2">
                     <button
@@ -410,7 +424,7 @@ export default function ThreadPanel({
             </ChatMessageFrame>
           ))}
 
-          {isBusy && (
+          {session?.isHydrating && (
             <div data-testid="thread-panel-loading" className="flex items-center gap-1.5 py-2">
               <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted/40" style={{ animationDelay: "0ms" }} />
               <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted/40" style={{ animationDelay: "150ms" }} />

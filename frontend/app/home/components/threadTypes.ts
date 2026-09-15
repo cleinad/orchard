@@ -19,6 +19,9 @@ export interface ThreadMessage {
   content: string;
   timestamp: Date;
   searchMetadata?: Message['searchMetadata'];
+  isStreaming?: boolean;
+  reasoning?: Message['reasoning'];
+  searchActivity?: Message['searchActivity'];
 }
 
 export type ThreadSessionStatus = 'loading' | 'ready' | 'error';
