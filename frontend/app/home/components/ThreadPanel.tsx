@@ -14,9 +14,12 @@ import MarkdownWithThreads from "@/app/home/components/MarkdownWithThreads";
 import ChatMessageFrame, {
   chatMessageContentClassName,
 } from "@/app/home/components/ChatMessageFrame";
+import ResponseActivity from "@/app/home/components/ResponseActivity";
+import { getSearchActivity, getResponseActivitySummary } from "@/lib/search-citations";
 import SearchSourcesTray from "@/app/home/components/SearchSourcesTray";
-import type { ThreadSession } from "@/app/home/components/threadTypes";
+import type { ThreadSession, ThreadSource } from "@/app/home/components/threadTypes";
 import { SIDE_PANEL_COLLAPSED_WIDTH_PX } from "@/app/home/components/SidePanelContext";
+import { useAutoFollowScroll } from "@/app/home/components/useAutoFollowScroll";
 import { hasUsableSearchSources } from "@/lib/search-citations";
 import { buttonStyles, cx } from "@/app/components/buttonStyles";
 import {
@@ -35,6 +38,7 @@ interface ThreadPanelProps {
   onInputChange: (sessionId: string, value: string) => void;
   onSend: (sessionId: string, overrideContent?: string) => void;
   onStop?: (sessionId: string) => void;
+  onShowSource?: (source: ThreadSource) => void;
   onClose: () => void;
 }
 
@@ -56,13 +60,14 @@ export default function ThreadPanel({
   onInputChange,
   onSend,
   onStop,
+  onShowSource,
   onClose,
 }: ThreadPanelProps) {
   const [openSourceTray, setOpenSourceTray] = useState<{
     messageId: string;
     sourceId: number | null;
   } | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isBusy = Boolean(session && (session.status === "loading" || session.isHydrating));
   const activeQuestion = isBusy
@@ -74,9 +79,14 @@ export default function ThreadPanel({
     "--thread-panel-width": `${widthPx}px`,
   } as CSSProperties;
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [session?.messages]);
+  // Follow streamed replies like the main transcript: stay pinned to the bottom,
+  // but stop the moment the reader scrolls away.
+  useAutoFollowScroll({
+    containerRef: scrollContainerRef,
+    contentKey: session?.messages,
+    enabled: isOpen,
+    resetKey: `${session?.sessionId ?? "none"}:${isOpen ? "open" : "closed"}`,
+  });
 
   useEffect(() => {
     if (!isOpen || !session) return;
@@ -166,6 +176,17 @@ export default function ThreadPanel({
           }
     );
   }, []);
+
+  // Jump to the highlighted source in the main transcript. On narrow screens the
+  // panel covers the transcript, so close it to reveal the jump.
+  const handleShowSource = useCallback(() => {
+    if (!session) return;
+
+    onShowSource?.(session);
+    if (!window.matchMedia(THREAD_PANEL_DESKTOP_MEDIA_QUERY).matches) {
+      onClose();
+    }
+  }, [onClose, onShowSource, session]);
 
   const handleStartResize = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -291,9 +312,6 @@ export default function ThreadPanel({
               <span>Main</span>
             </button>
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-              <p className="text-xs font-medium tracking-wider text-muted/60">
-                {activeQuestion ? "Follow-up" : "Thread"}
-              </p>
               {temporaryChatEnabled && (
                 <>
                   {/* Divider + plain label: avoids pill chrome while staying scannable */}
@@ -313,6 +331,21 @@ export default function ThreadPanel({
               </p>
             )}
           </div>
+          {session && onShowSource && (
+            <button
+              type="button"
+              onClick={handleShowSource}
+              data-testid="thread-panel-show-source"
+              className={cx(
+                "ml-4 inline-flex h-8 flex-shrink-0 items-center rounded-lg px-2 text-xs font-medium text-muted md:px-3",
+                buttonStyles.transition,
+                buttonStyles.focus,
+                buttonStyles.ghost
+              )}
+            >
+              Show in chat
+            </button>
+          )}
           <button
             type="button"
             onClick={onClose}
@@ -332,6 +365,7 @@ export default function ThreadPanel({
         </div>
 
         <div
+          ref={scrollContainerRef}
           className="flex-1 overflow-y-auto px-4 py-4 md:px-6"
           style={{
             scrollbarWidth: "thin",
@@ -341,6 +375,15 @@ export default function ThreadPanel({
         >
           {session?.messages.map((message) => (
             <ChatMessageFrame key={message.id} messageRole={message.role}>
+              {message.role === 'assistant' && (
+                <ResponseActivity
+                  live={Boolean(message.isStreaming)}
+                  awaitingFirstToken={message.content.trim().length === 0}
+                  searchActivity={message.searchActivity ?? getSearchActivity(message.searchMetadata ?? null)}
+                  responseActivity={getResponseActivitySummary(message.searchMetadata ?? null)}
+                  reasoning={message.reasoning}
+                />
+              )}
               <div
                 className={chatMessageContentClassName(message.role)}
               >
@@ -360,8 +403,11 @@ export default function ThreadPanel({
                       : undefined
                   }
                 />
+                {message.isStreaming && message.content.trim().length > 0 && (
+                  <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-foreground/50 align-middle" />
+                )}
               </div>
-              {hasUsableSearchSources(message.searchMetadata) && message.searchMetadata && (
+              {!message.isStreaming && hasUsableSearchSources(message.searchMetadata) && message.searchMetadata && (
                 <>
                   <div className="mt-2">
                     <button
@@ -410,15 +456,13 @@ export default function ThreadPanel({
             </ChatMessageFrame>
           ))}
 
-          {isBusy && (
+          {session?.isHydrating && (
             <div data-testid="thread-panel-loading" className="flex items-center gap-1.5 py-2">
               <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted/40" style={{ animationDelay: "0ms" }} />
               <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted/40" style={{ animationDelay: "150ms" }} />
               <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted/40" style={{ animationDelay: "300ms" }} />
             </div>
           )}
-
-          <div ref={messagesEndRef} />
         </div>
 
         <div className="border-t border-border-subtle px-4 py-3 md:px-6 md:py-4">

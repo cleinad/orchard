@@ -11,12 +11,50 @@ import {
   type SetStateAction,
 } from 'react';
 import type { Message } from '@/app/home/types';
+import { restoreRangeFromOffsets } from '@/app/home/components/selectableTextIndex';
+import type { ThreadSource } from '@/app/home/components/threadTypes';
 
 const MAP_SCROLL_TOP_OFFSET = 104;
 const TRANSCRIPT_NAVIGATION_LOCK_MS = 700;
 const JUMP_TO_MESSAGE_MAX_ATTEMPTS = 8;
 const SCROLL_BOTTOM_EPSILON_PX = 2;
+const HIGHLIGHT_SCROLL_PADDING_PX = 24;
 const SCROLL_KEYS = new Set(['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' ']);
+
+function getMessageSelector(messageId: string) {
+  return typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
+    ? `[data-message-id="${CSS.escape(messageId)}"]`
+    : `[data-message-id="${messageId.replace(/["\\]/g, '\\$&')}"]`;
+}
+
+/**
+ * Scroll offset that puts a measured anchor in view. `anchorTop` is relative to
+ * the scroll container's viewport. A highlight is centred when it fits and
+ * pinned below the top padding when it does not; without a measurable highlight
+ * the standard message offset is used.
+ */
+export function getAnchorScrollTop({
+  anchorTop,
+  highlightHeight,
+  scrollTop,
+  viewportHeight,
+}: {
+  anchorTop: number;
+  highlightHeight: number | null;
+  scrollTop: number;
+  viewportHeight: number;
+}): number {
+  let topInset = MAP_SCROLL_TOP_OFFSET;
+  if (highlightHeight !== null) {
+    const fitsViewport =
+      highlightHeight + HIGHLIGHT_SCROLL_PADDING_PX * 2 <= viewportHeight;
+    topInset = fitsViewport
+      ? (viewportHeight - highlightHeight) / 2
+      : HIGHLIGHT_SCROLL_PADDING_PX;
+  }
+
+  return Math.max(0, scrollTop + anchorTop - topInset);
+}
 
 interface UseTranscriptNavigationParams {
   activeMessages: Message[];
@@ -410,10 +448,7 @@ export function useTranscriptNavigation({
   }, []);
 
   const jumpToMessage = useCallback((messageId: string) => {
-    const selector =
-      typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
-        ? `[data-message-id="${CSS.escape(messageId)}"]`
-        : `[data-message-id="${messageId.replace(/["\\]/g, '\\$&')}"]`;
+    const selector = getMessageSelector(messageId);
 
     setUserHasScrolledState(true);
     let attempts = 0;
@@ -451,11 +486,71 @@ export function useTranscriptNavigation({
     scrollToTarget();
   }, [beginProgrammaticTranscriptNavigation, containerRef, setUserHasScrolledState]);
 
+  /**
+   * Jumps to a thread's highlighted selection rather than the top of the message
+   * that contains it: the stored offsets are restored into a range, and its rect
+   * is centred when it fits the viewport. Falls back to the message top when the
+   * range cannot be restored against the rendered content.
+   */
+  const jumpToThreadSource = useCallback((source: ThreadSource) => {
+    const selector = getMessageSelector(source.sourceMessageId);
+
+    setUserHasScrolledState(true);
+    let attempts = 0;
+
+    const scrollToTarget = () => {
+      const container = containerRef.current;
+      const messageEl = container?.querySelector<HTMLElement>(selector);
+      if (!container || !messageEl) {
+        if (typeof window !== 'undefined' && attempts < JUMP_TO_MESSAGE_MAX_ATTEMPTS) {
+          attempts += 1;
+          window.requestAnimationFrame(scrollToTarget);
+        }
+        return;
+      }
+
+      const contentEl = messageEl.querySelector<HTMLElement>('[data-message-content]');
+      const range = contentEl
+        ? restoreRangeFromOffsets(
+            contentEl,
+            source.startOffset,
+            source.endOffset,
+            source.selectionStreamVersion
+          )
+        : null;
+      const highlightRect = range?.getBoundingClientRect() ?? null;
+      range?.detach();
+
+      const containerRect = container.getBoundingClientRect();
+      const anchorTop = (highlightRect?.top ?? messageEl.getBoundingClientRect().top)
+        - containerRect.top;
+
+      beginProgrammaticTranscriptNavigation();
+      container.scrollTo({
+        top: getAnchorScrollTop({
+          anchorTop,
+          highlightHeight: highlightRect?.height ?? null,
+          scrollTop: container.scrollTop,
+          viewportHeight: container.clientHeight,
+        }),
+        behavior: 'smooth',
+      });
+    };
+
+    if (typeof window !== 'undefined') {
+      window.requestAnimationFrame(scrollToTarget);
+      return;
+    }
+
+    scrollToTarget();
+  }, [beginProgrammaticTranscriptNavigation, containerRef, setUserHasScrolledState]);
+
   return {
     currentMapMessageId,
     endProgrammaticTranscriptNavigation,
     handleScroll,
     jumpToMessage,
+    jumpToThreadSource,
     saveCurrentScrollPosition,
     setUserHasScrolledState,
     userHasScrolled,

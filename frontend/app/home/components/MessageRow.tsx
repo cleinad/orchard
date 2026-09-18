@@ -337,6 +337,7 @@ function MessageRow({
       <ChatMessageFrame
         data-message-id={message.id}
         data-message-error={message.isError ? 'true' : undefined}
+        data-message-streaming={message.isStreaming ? 'true' : undefined}
         messageRole={message.role}
         onPointerUp={
           message.role === 'assistant' && !message.isError

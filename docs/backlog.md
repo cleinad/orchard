@@ -22,12 +22,6 @@ right now?"
 Add confirmed user-visible defects here. Include a reproduction or link when it
 is not obvious.
 
-- [ ] Inline threads can be created against a reply that is still streaming.
-  `useHomeThreads` skips streaming replies by testing whether the message id
-  starts with `streaming-`, but run identifiers are `crypto.randomUUID()`
-  values, so the check never matches. Selecting text in a partly streamed reply
-  stores offsets that keep moving as tokens arrive.
-
 ## Important improvements
 
 - [ ] Re-confirm auto search failure visibility before unhiding auto mode. The

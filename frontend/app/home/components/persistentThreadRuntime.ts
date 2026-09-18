@@ -195,12 +195,26 @@ export function mapThreadMessages(rows: Array<{
 
 export function mergeThreadMessages(
   serverMessages: ThreadMessage[],
-  localMessages: ThreadMessage[]
+  localMessages: ThreadMessage[],
+  settledAssistantId?: string
 ): ThreadMessage[] {
   const merged = [...serverMessages];
   const isOptimisticId = (id: string) => /^\d+$/.test(id);
 
   for (const localMessage of localMessages) {
+    const matchingIndex = merged.findIndex((message) => message.id === localMessage.id);
+    if (matchingIndex !== -1) {
+      const serverMessage = merged[matchingIndex];
+      merged[matchingIndex] = localMessage.isStreaming && localMessage.id !== settledAssistantId
+        ? localMessage
+        : {
+            ...serverMessage,
+            timestamp: localMessage.timestamp,
+            reasoning: serverMessage.reasoning ?? localMessage.reasoning,
+            searchActivity: serverMessage.searchActivity ?? localMessage.searchActivity,
+          };
+      continue;
+    }
     const alreadyExists = merged.some(
       (serverMessage) =>
         serverMessage.id === localMessage.id ||
@@ -215,7 +229,24 @@ export function mergeThreadMessages(
     }
   }
 
-  return merged.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+  // Optimistic user/assistant messages can share a millisecond. Keep their
+  // transcript order so the next request still targets the assistant predecessor.
+  const order = new Map<string, number>();
+  for (const message of [...localMessages, ...serverMessages]) {
+    if (!order.has(message.id)) order.set(message.id, order.size);
+  }
+  return merged.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime()
+    || order.get(a.id)! - order.get(b.id)!);
+}
+
+export function settleCancelledThreadMessages(
+  messages: ThreadMessage[],
+  assistantMessageId: string,
+  confirmedMessage?: ThreadMessage
+): ThreadMessage[] {
+  return confirmedMessage
+    ? mergeThreadMessages([confirmedMessage], messages, assistantMessageId)
+    : messages.filter((message) => message.id !== assistantMessageId);
 }
 
 export function toInlineThreadMarker(

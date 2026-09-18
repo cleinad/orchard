@@ -20,9 +20,9 @@ its thread.
 
 ## Selection behavior
 
-Thread creation is available from non-error assistant messages. The selection
-must resolve inside one message's rendered content; selections crossing message
-or product-UI boundaries are rejected.
+Thread creation is available from completed, non-error assistant messages. The
+selection must resolve inside one message's rendered content; selections crossing
+message or product-UI boundaries are rejected.
 
 Orchard stores:
 
@@ -85,7 +85,16 @@ thread response used live search, and a composer for follow-ups.
   back-to-main control.
 - Enter sends; Shift+Enter inserts a newline.
 - `Ctrl+L` closes the panel unless the selection popover is active.
-- Stop cancels the active thread run when possible.
+- Replies show thinking and search activity before the first token, then stream
+  answer text with a writing indicator. Model reasoning is shown when provided
+  and remains live-only.
+- While a reply streams the panel stays pinned to the newest content; scrolling
+  away pauses that follow, and returning to the bottom resumes it.
+- `Show in chat` returns to the highlighted passage in the main transcript,
+  centring it when it fits the viewport and closing the panel on narrow screens.
+- Stop cancels the active thread run when possible and removes the local reply
+  placeholder. Persistent recovery restores any confirmed final reply without
+  duplicating it or replacing a newer turn.
 
 ## Rendering invariant
 
@@ -101,6 +110,7 @@ rules documented in [Inline-thread rendering](../implementation/inline-thread-re
 - `frontend/app/home/components/TextSelectionPopover.tsx`
 - `frontend/app/home/components/useInlineThreadRuntime.ts`
 - `frontend/app/home/components/ThreadPanel.tsx`
+- `frontend/app/home/components/useAutoFollowScroll.ts`
 - `frontend/app/home/components/MarkdownWithThreads.tsx`
 - `frontend/app/home/components/ThreadHighlightOverlay.tsx`
 - `frontend/app/api/threads/[threadId]/messages/route.ts`
