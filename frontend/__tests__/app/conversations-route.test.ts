@@ -13,6 +13,7 @@ function createAuthenticatedSupabase(
   rpcResults: Record<string, { data?: unknown; error?: unknown }> = {}
 ) {
   const { client, tracker } = createMockSupabase({ tables, rpcResults });
+  const removeStorageObjects = vi.fn().mockResolvedValue({ error: null });
   const supabase = {
     ...client,
     auth: {
@@ -21,9 +22,12 @@ function createAuthenticatedSupabase(
         error: null,
       }),
     },
+    storage: {
+      from: vi.fn(() => ({ remove: removeStorageObjects })),
+    },
   };
 
-  return { supabase, tracker };
+  return { supabase, tracker, removeStorageObjects };
 }
 
 async function runMoveConversationRequest(
@@ -119,6 +123,22 @@ async function runTitleRequest(
     }
   ), { params: Promise.resolve({ conversationId }) });
   return { response, body: await response.json(), tracker };
+}
+
+async function runPersistentConversationDeleteRequest(
+  conversationId: string,
+  rpcResults: Record<string, { data?: unknown; error?: unknown }>
+) {
+  const { supabase, tracker, removeStorageObjects } = createAuthenticatedSupabase({}, rpcResults);
+  mockCreateSupabaseServerClient.mockResolvedValue(supabase);
+  const { DELETE } = await import('@/app/api/conversations/[conversationId]/route');
+  const response = await DELETE(
+    new NextRequest(`http://localhost/api/conversations/${conversationId}`, {
+      method: 'DELETE',
+    }),
+    { params: Promise.resolve({ conversationId }) }
+  );
+  return { response, body: await response.json(), tracker, removeStorageObjects };
 }
 
 describe('conversations route', () => {
@@ -318,6 +338,60 @@ describe('conversations route', () => {
     expect(response.status).toBe(409);
     expect(body.error).toBe('Conversation is not empty');
     expect(tracker.deletes('conversations')).toHaveLength(0);
+  });
+
+  it('deletes an owned persistent conversation through the cascade RPC', async () => {
+    const { response, body, tracker } = await runPersistentConversationDeleteRequest(
+      'conversation-1',
+      {
+        delete_conversation_cascade: {
+          data: { conversation_deleted: true, storage_paths: [] },
+          error: null,
+        },
+      }
+    );
+
+    expect(response.status).toBe(200);
+    expect(body).toEqual({ success: true });
+    expect(tracker.rpcs).toEqual([
+      {
+        fn: 'delete_conversation_cascade',
+        args: { p_conversation_id: 'conversation-1' },
+      },
+    ]);
+  });
+
+  it('does not reveal whether another user owns a missing chat', async () => {
+    const { response, body } = await runPersistentConversationDeleteRequest(
+      'not-owned',
+      {
+        delete_conversation_cascade: {
+          data: { conversation_deleted: false, storage_paths: [] },
+          error: null,
+        },
+      }
+    );
+
+    expect(response.status).toBe(404);
+    expect(body.error).toBe('Chat not found');
+  });
+
+  it('cleans up returned private image paths after the database commit', async () => {
+    const { response, removeStorageObjects } = await runPersistentConversationDeleteRequest(
+      'conversation-with-image',
+      {
+        delete_conversation_cascade: {
+          data: {
+            conversation_deleted: true,
+            storage_paths: ['user-1/conversation/image.png'],
+          },
+          error: null,
+        },
+      }
+    );
+
+    expect(response.status).toBe(200);
+    expect(removeStorageObjects).toHaveBeenCalledWith(['user-1/conversation/image.png']);
   });
 
   it('moves a conversation context through the transactional RPC', async () => {

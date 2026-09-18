@@ -353,6 +353,8 @@ interface HomeDataContextValue {
   handleCreateDraftSelection: (mentorId: string | null, workspaceId?: string | null) => void;
   handleCreateTemporaryChat: () => void;
   handleCloseTemporaryChat: (tempChatId: string) => void;
+  deletePersistentConversation: (conversationId: string) => Promise<void>;
+  markPersistentConversationTitleAsManual: (conversationId: string) => void;
 
   // Data loading helpers the page uses directly
   loadConversationById: (id: string) => Promise<ConversationListItem>;
@@ -421,6 +423,8 @@ interface HomeShellContextValue {
   ) => void;
   handleCreateTemporaryChat: () => void;
   handleCloseTemporaryChat: (tempChatId: string) => void;
+  deletePersistentConversation: (conversationId: string) => Promise<void>;
+  markPersistentConversationTitleAsManual: (conversationId: string) => void;
   refreshSidebarData: () => Promise<void>;
   upsertSidebarConversation: HomeDataContextValue['upsertSidebarConversation'];
   upsertWorkspaceSummary: (workspace: WorkspaceSummary) => void;
@@ -530,6 +534,7 @@ export function HomeDataProvider({
   const shellDraftChatsRef = useRef<HomeShellDraftChat[]>([]);
   const shellTemporaryChatsRef = useRef<HomeShellTemporaryChat[]>([]);
   const appliedPersistentRunTitlesRef = useRef(new Set<string>());
+  const manuallyTitledConversationIdsRef = useRef(new Set<string>());
   const pendingPersistentRunTitleRefreshesRef = useRef(new Set<string>());
   const persistentConversationCacheRef = useRef<PersistentConversationTranscriptRecord>({});
   const persistentConversationLoadsRef =
@@ -831,6 +836,9 @@ export function HomeDataProvider({
           && run.title.source === 'generated'
           && run.subsystems.title === 'completed'
         ) {
+          if (manuallyTitledConversationIdsRef.current.has(conversationId)) {
+            return;
+          }
           const titleKey = `${conversationId}:${run.title.source}:${run.title.version}:${run.title.value}`;
           if (!appliedPersistentRunTitlesRef.current.has(titleKey)) {
             const existing = getSidebarConversation(conversationId);
@@ -1360,6 +1368,51 @@ export function HomeDataProvider({
     ]
   );
 
+  const deletePersistentConversation = useCallback(async (conversationId: string) => {
+    const runs = chatRunCoordinator?.getSnapshotsForChat(conversationId) ?? [];
+    await Promise.all(
+      runs
+        .filter((run) => !isSettledChatRunSnapshot(run))
+        .map((run) => chatRunCoordinator?.stop(run.runId))
+    );
+
+    const response = await fetch(`/api/conversations/${encodeURIComponent(conversationId)}`, {
+      method: 'DELETE',
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.error) {
+      throw new Error(payload.error || 'Could not delete chat.');
+    }
+
+    removePersistentConversationTranscript(conversationId);
+    removeSidebarConversation(conversationId);
+
+    const currentSelection = selectedChatRef.current;
+    if (
+      currentSelection?.kind === 'persistent'
+      && currentSelection.conversationId === conversationId
+    ) {
+      invokePrepareForChatSwitch(null);
+      selectedChatRef.current = null;
+      setSelectedChat(null);
+      setClientRouteConversationId(null);
+      setPendingRouteConversationId(null);
+      router.replace(buildHomeHref('/home'), { scroll: false });
+    }
+  }, [
+    buildHomeHref,
+    chatRunCoordinator,
+    invokePrepareForChatSwitch,
+    removePersistentConversationTranscript,
+    removeSidebarConversation,
+    router,
+    setSelectedChat,
+  ]);
+
+  const markPersistentConversationTitleAsManual = useCallback((conversationId: string) => {
+    manuallyTitledConversationIdsRef.current.add(conversationId);
+  }, []);
+
   // ------------------------------------------------------------------
   // Load sidebar data on mount
   // ------------------------------------------------------------------
@@ -1415,6 +1468,8 @@ export function HomeDataProvider({
       handleCreateDraftSelection,
       handleCreateTemporaryChat,
       handleCloseTemporaryChat,
+      deletePersistentConversation,
+      markPersistentConversationTitleAsManual,
       refreshSidebarData,
       upsertSidebarConversation,
       upsertWorkspaceSummary,
@@ -1427,7 +1482,9 @@ export function HomeDataProvider({
     [
       buildHomeHref,
       conversations,
+      deletePersistentConversation,
       handleCloseTemporaryChat,
+      markPersistentConversationTitleAsManual,
       handleCreateDraftSelection,
       handleCreateTemporaryChat,
       handleSelectConversation,
@@ -1494,6 +1551,8 @@ export function HomeDataProvider({
     handleCreateDraftSelection,
     handleCreateTemporaryChat,
     handleCloseTemporaryChat,
+    deletePersistentConversation,
+    markPersistentConversationTitleAsManual,
     registerPrepareForChatSwitch,
     invokePrepareForChatSwitch,
     registerCloseTempChatCleanup,

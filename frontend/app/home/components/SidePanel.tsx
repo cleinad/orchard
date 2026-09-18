@@ -11,6 +11,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
+import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import SidebarPanelIcon from '@/app/components/SidebarPanelIcon';
@@ -87,6 +88,8 @@ interface Props {
   buildWorkspaceHref: (workspaceId: string) => string;
   onOpenWorkspace: (workspaceId: string) => void;
   onCloseTemporaryChat: (tempChatId: string) => void;
+  onRenameConversation: (conversation: ConversationListItem) => void;
+  onDeleteConversation: (conversation: ConversationListItem) => void;
   onMoveConversation: (
     conversation: ConversationListItem,
     targetWorkspaceId: string | null
@@ -124,6 +127,125 @@ const DEFAULT_EXPANDED_SECTIONS: Record<ExpandedSectionKey, boolean> = {
   temporary: true,
   chats: true,
 };
+
+function ConversationActionsMenu({
+  conversation,
+  onRename,
+  onDelete,
+}: {
+  conversation: ConversationListItem;
+  onRename: (conversation: ConversationListItem) => void;
+  onDelete: (conversation: ConversationListItem) => void;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const [menuPosition, setMenuPosition] = useState<CSSProperties | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const updatePosition = () => {
+      const trigger = triggerRef.current;
+      if (!trigger) return;
+      const bounds = trigger.getBoundingClientRect();
+      setMenuPosition({
+        left: Math.max(8, bounds.right - 144),
+        top: Math.min(window.innerHeight - 96, bounds.bottom + 4),
+      });
+    };
+
+    const closeForOutsidePointer = (event: PointerEvent) => {
+      if (
+        event.target instanceof Node
+        && !menuRef.current?.contains(event.target)
+        && !triggerRef.current?.contains(event.target)
+      ) {
+        setIsOpen(false);
+      }
+    };
+    const closeForEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      setIsOpen(false);
+      triggerRef.current?.focus();
+    };
+
+    document.addEventListener('pointerdown', closeForOutsidePointer);
+    document.addEventListener('keydown', closeForEscape);
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    updatePosition();
+    return () => {
+      document.removeEventListener('pointerdown', closeForOutsidePointer);
+      document.removeEventListener('keydown', closeForEscape);
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [isOpen]);
+
+  return (
+    <div ref={menuRef} className="relative mr-1 flex-shrink-0">
+      <Tooltip content="Chat actions" side="right">
+        <button
+          ref={triggerRef}
+          type="button"
+          onClick={() => setIsOpen((open) => !open)}
+          className={cx(
+            'inline-flex h-7 w-7 items-center justify-center rounded-md text-foreground/70',
+            buttonStyles.transition,
+            buttonStyles.focus,
+            isOpen
+              ? 'bg-foreground/[0.08] text-foreground'
+              : 'hover:bg-foreground/[0.06] hover:text-foreground',
+            'sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100'
+          )}
+          aria-label={`Chat actions for ${conversation.title}`}
+          aria-haspopup="menu"
+          aria-expanded={isOpen}
+        >
+          <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24" aria-hidden>
+            <circle cx="12" cy="5" r="1.6" />
+            <circle cx="12" cy="12" r="1.6" />
+            <circle cx="12" cy="19" r="1.6" />
+          </svg>
+        </button>
+      </Tooltip>
+      {isOpen && menuPosition && createPortal(
+        <div
+          ref={menuRef}
+          style={menuPosition}
+          className="fixed z-[100] min-w-36 rounded-lg border border-border-subtle bg-background p-1 shadow-xl"
+          role="menu"
+          aria-label={`Chat actions for ${conversation.title}`}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              setIsOpen(false);
+              onRename(conversation);
+            }}
+            className="flex w-full items-center rounded-md px-3 py-2 text-left font-sans text-sm text-foreground transition hover:bg-foreground/[0.06]"
+            role="menuitem"
+          >
+            Rename chat
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setIsOpen(false);
+              onDelete(conversation);
+            }}
+            className="flex w-full items-center rounded-md px-3 py-2 text-left font-sans text-sm text-red-600 transition hover:bg-red-500/[0.08] dark:text-red-300"
+            role="menuitem"
+          >
+            Delete chat
+          </button>
+        </div>,
+        document.body
+      )}
+    </div>
+  );
+}
 
 function SectionCaret({ expanded }: { expanded: boolean }) {
   return (
@@ -174,6 +296,8 @@ export default function SidePanel({
   buildWorkspaceHref,
   onOpenWorkspace,
   onCloseTemporaryChat,
+  onRenameConversation,
+  onDeleteConversation,
   onMoveConversation,
 }: Props) {
   recordHomePerformanceEvent('side-panel-render');
@@ -782,46 +906,36 @@ export default function SidePanel({
                   )}
 
                   {visibleConversations.map((conversation) => (
-                    <button
+                    <div
                       key={conversation.id}
-                      type="button"
-                      onClick={() => onSelectConversation(conversation)}
-                      onPointerEnter={() =>
-                        scheduleConversationPrefetch(conversation.id)
-                      }
-                      onPointerLeave={() =>
-                        cancelScheduledConversationPrefetch(conversation.id)
-                      }
-                      onPointerDown={() =>
-                        cancelScheduledConversationPrefetch(conversation.id)
-                      }
-                      onFocus={() =>
-                        scheduleConversationPrefetch(conversation.id)
-                      }
-                      onBlur={() =>
-                        cancelScheduledConversationPrefetch(conversation.id)
-                      }
-                      {...getConversationDragProps(conversation)}
                       className={cx(
-                        'mr-2 flex w-[calc(100%-0.5rem)] items-center justify-between gap-3 rounded-xl px-3 py-1.5 text-left',
-                        buttonStyles.transition,
-                        buttonStyles.focus,
-                        selectedConversationId === conversation.id
-                          ? buttonStyles.listRowSelected
-                          : buttonStyles.listRowHover,
+                        'group mr-2 flex w-[calc(100%-0.5rem)] items-center gap-1 rounded-xl',
+                        selectedConversationId === conversation.id ? buttonStyles.listRowSelected : buttonStyles.listRowHover,
                         movingConversationId === conversation.id ? 'opacity-60' : null
                       )}
                     >
-                      <span className="truncate font-sans text-sm text-foreground/88">
-                        {conversation.title}
-                      </span>
-                      <time
-                        dateTime={conversation.updated_at}
-                        className="flex-shrink-0 font-sans text-[11px] text-muted"
+                      <button
+                        type="button"
+                        onClick={() => onSelectConversation(conversation)}
+                        onPointerEnter={() => scheduleConversationPrefetch(conversation.id)}
+                        onPointerLeave={() => cancelScheduledConversationPrefetch(conversation.id)}
+                        onPointerDown={() => cancelScheduledConversationPrefetch(conversation.id)}
+                        onFocus={() => scheduleConversationPrefetch(conversation.id)}
+                        onBlur={() => cancelScheduledConversationPrefetch(conversation.id)}
+                        {...getConversationDragProps(conversation)}
+                        className={cx('flex min-w-0 flex-1 items-center justify-between gap-3 px-3 py-1.5 text-left', buttonStyles.focus)}
                       >
-                        {formatTimestamp(conversation.updated_at)}
-                      </time>
-                    </button>
+                        <span className="truncate font-sans text-sm text-foreground/88">{conversation.title}</span>
+                        <time dateTime={conversation.updated_at} className="flex-shrink-0 font-sans text-[11px] text-muted">
+                          {formatTimestamp(conversation.updated_at)}
+                        </time>
+                      </button>
+                      <ConversationActionsMenu
+                        conversation={conversation}
+                        onRename={onRenameConversation}
+                        onDelete={onDeleteConversation}
+                      />
+                    </div>
                   ))}
 
                   {group.conversations.length > 3 && (
@@ -911,46 +1025,36 @@ export default function SidePanel({
           )}
 
           {visibleGlobalConversations.map((conversation) => (
-            <button
+            <div
               key={conversation.id}
-              type="button"
-              onClick={() => onSelectConversation(conversation)}
-              onPointerEnter={() =>
-                scheduleConversationPrefetch(conversation.id)
-              }
-              onPointerLeave={() =>
-                cancelScheduledConversationPrefetch(conversation.id)
-              }
-              onPointerDown={() =>
-                cancelScheduledConversationPrefetch(conversation.id)
-              }
-              onFocus={() =>
-                scheduleConversationPrefetch(conversation.id)
-              }
-              onBlur={() =>
-                cancelScheduledConversationPrefetch(conversation.id)
-              }
-              {...getConversationDragProps(conversation)}
               className={cx(
-                'mr-2 flex w-[calc(100%-0.5rem)] items-center justify-between gap-3 rounded-xl px-3 py-1.5 text-left',
-                buttonStyles.transition,
-                buttonStyles.focus,
-                selectedConversationId === conversation.id
-                  ? buttonStyles.listRowSelected
-                  : buttonStyles.listRowHover,
+                'group mr-2 flex w-[calc(100%-0.5rem)] items-center gap-1 rounded-xl',
+                selectedConversationId === conversation.id ? buttonStyles.listRowSelected : buttonStyles.listRowHover,
                 movingConversationId === conversation.id ? 'opacity-60' : null
               )}
             >
-              <span className="truncate font-sans text-sm text-foreground/88">
-                {conversation.title}
-              </span>
-              <time
-                dateTime={conversation.updated_at}
-                className="flex-shrink-0 font-sans text-[11px] text-muted"
+              <button
+                type="button"
+                onClick={() => onSelectConversation(conversation)}
+                onPointerEnter={() => scheduleConversationPrefetch(conversation.id)}
+                onPointerLeave={() => cancelScheduledConversationPrefetch(conversation.id)}
+                onPointerDown={() => cancelScheduledConversationPrefetch(conversation.id)}
+                onFocus={() => scheduleConversationPrefetch(conversation.id)}
+                onBlur={() => cancelScheduledConversationPrefetch(conversation.id)}
+                {...getConversationDragProps(conversation)}
+                className={cx('flex min-w-0 flex-1 items-center justify-between gap-3 px-3 py-1.5 text-left', buttonStyles.focus)}
               >
-                {formatTimestamp(conversation.updated_at)}
-              </time>
-            </button>
+                <span className="truncate font-sans text-sm text-foreground/88">{conversation.title}</span>
+                <time dateTime={conversation.updated_at} className="flex-shrink-0 font-sans text-[11px] text-muted">
+                  {formatTimestamp(conversation.updated_at)}
+                </time>
+              </button>
+              <ConversationActionsMenu
+                conversation={conversation}
+                onRename={onRenameConversation}
+                onDelete={onDeleteConversation}
+              />
+            </div>
           ))}
 
           {globalConversations.length > 10 && (

@@ -193,6 +193,8 @@ function HomeShell({ children }: { children: ReactNode }) {
     handleCreateTemporaryChat,
     handleCloseTemporaryChat,
     upsertSidebarConversation,
+    deletePersistentConversation,
+    markPersistentConversationTitleAsManual,
     upsertWorkspaceSummary,
     buildHomeHref,
     prefetchPersistentConversation,
@@ -211,6 +213,32 @@ function HomeShell({ children }: { children: ReactNode }) {
   )
     .filter(([, status]) => status.status === 'unavailable')
     .map(([resource]) => resource);
+  const [conversationPendingDeletion, setConversationPendingDeletion] = useState<
+    Parameters<typeof handleSelectConversation>[0] | null
+  >(null);
+  const [deletingConversation, setDeletingConversation] = useState(false);
+  const [deleteConversationError, setDeleteConversationError] = useState<string | null>(null);
+  const deleteDialogRef = useRef<HTMLDivElement | null>(null);
+  const [conversationPendingRename, setConversationPendingRename] = useState<
+    Parameters<typeof handleSelectConversation>[0] | null
+  >(null);
+  const [conversationTitleDraft, setConversationTitleDraft] = useState('');
+  const [renamingConversation, setRenamingConversation] = useState(false);
+  const [renameConversationError, setRenameConversationError] = useState<string | null>(null);
+  const renameInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (!conversationPendingDeletion) return;
+    requestAnimationFrame(() => deleteDialogRef.current?.focus());
+  }, [conversationPendingDeletion]);
+
+  useEffect(() => {
+    if (!conversationPendingRename) return;
+    requestAnimationFrame(() => {
+      renameInputRef.current?.focus();
+      renameInputRef.current?.select();
+    });
+  }, [conversationPendingRename]);
 
   // Scroll the sidebar to the requested section after it opens
   useEffect(() => {
@@ -329,6 +357,91 @@ function HomeShell({ children }: { children: ReactNode }) {
     upsertSidebarConversation(movedConversation);
   };
 
+  const requestConversationDeletion = (conversation: Parameters<typeof handleSelectConversation>[0]) => {
+    if (deletingConversation) return;
+    setDeleteConversationError(null);
+    setConversationPendingDeletion(conversation);
+  };
+
+  const requestConversationRename = (conversation: Parameters<typeof handleSelectConversation>[0]) => {
+    if (renamingConversation) return;
+    setConversationTitleDraft(conversation.title);
+    setRenameConversationError(null);
+    setConversationPendingRename(conversation);
+  };
+
+  const closeConversationRename = () => {
+    if (renamingConversation) return;
+    setConversationPendingRename(null);
+    setRenameConversationError(null);
+  };
+
+  const submitConversationRename = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!conversationPendingRename || renamingConversation) return;
+
+    const title = conversationTitleDraft.replace(/\s+/g, ' ').trim();
+    if (!title || title.length > 80) {
+      setRenameConversationError('Title must be between 1 and 80 characters.');
+      return;
+    }
+
+    setRenamingConversation(true);
+    setRenameConversationError(null);
+    try {
+      const response = await fetch(
+        `/api/conversations/${encodeURIComponent(conversationPendingRename.id)}/title`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title }),
+        }
+      );
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload.error) {
+        throw new Error(payload.error || 'Could not rename chat.');
+      }
+      upsertSidebarConversation({
+        id: conversationPendingRename.id,
+        title,
+        mentorId: conversationPendingRename.mentor_id,
+        workspaceId: conversationPendingRename.workspace_id,
+        updatedAt: conversationPendingRename.updated_at,
+        createdAt: conversationPendingRename.created_at,
+      });
+      markPersistentConversationTitleAsManual(conversationPendingRename.id);
+      setConversationPendingRename(null);
+    } catch (error) {
+      setRenameConversationError(
+        error instanceof Error ? error.message : 'Could not rename chat.'
+      );
+    } finally {
+      setRenamingConversation(false);
+    }
+  };
+
+  const closeConversationDeletion = () => {
+    if (deletingConversation) return;
+    setConversationPendingDeletion(null);
+    setDeleteConversationError(null);
+  };
+
+  const confirmConversationDeletion = async () => {
+    if (!conversationPendingDeletion || deletingConversation) return;
+    setDeletingConversation(true);
+    setDeleteConversationError(null);
+    try {
+      await deletePersistentConversation(conversationPendingDeletion.id);
+      setConversationPendingDeletion(null);
+    } catch (error) {
+      setDeleteConversationError(
+        error instanceof Error ? error.message : 'Could not delete chat.'
+      );
+    } finally {
+      setDeletingConversation(false);
+    }
+  };
+
   return (
     <div
       data-home-region="shell"
@@ -371,6 +484,98 @@ function HomeShell({ children }: { children: ReactNode }) {
         onClose={closeCreateWorkspaceModal}
         onSubmit={handleCreateWorkspaceSubmit}
       />
+
+      {conversationPendingRename && (
+        <div
+          className="fixed inset-0 z-[90] flex items-center justify-center bg-foreground/[0.18] px-4 backdrop-blur-sm"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeConversationRename();
+          }}
+        >
+          <form
+            onSubmit={submitConversationRename}
+            className="w-full max-w-md rounded-lg border border-border-subtle bg-background p-4 shadow-2xl"
+            aria-label="Rename chat"
+          >
+            <h2 className="font-sans text-base font-semibold text-foreground">Rename chat</h2>
+            <label htmlFor="chat-title" className="mt-4 block font-sans text-sm font-medium text-foreground">
+              Chat title
+            </label>
+            <input
+              ref={renameInputRef}
+              id="chat-title"
+              value={conversationTitleDraft}
+              onChange={(event) => setConversationTitleDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  event.preventDefault();
+                  closeConversationRename();
+                }
+              }}
+              disabled={renamingConversation}
+              maxLength={80}
+              className="mt-2 h-11 w-full rounded-lg border border-border-subtle bg-surface px-3 font-sans text-sm text-foreground outline-none transition focus:border-foreground/[0.28] disabled:cursor-not-allowed disabled:opacity-60"
+            />
+            {renameConversationError && (
+              <p className="mt-3 rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 font-sans text-sm text-red-700 dark:text-red-200">
+                {renameConversationError}
+              </p>
+            )}
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" onClick={closeConversationRename} disabled={renamingConversation} className="rounded-lg border border-border-subtle bg-surface px-3 py-2 font-sans text-sm font-semibold text-foreground transition hover:bg-foreground/[0.04] disabled:cursor-not-allowed disabled:opacity-60">
+                Cancel
+              </button>
+              <button type="submit" disabled={renamingConversation || conversationTitleDraft.trim().length === 0} className="rounded-lg bg-foreground px-3 py-2 font-sans text-sm font-semibold text-background transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60">
+                {renamingConversation ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {conversationPendingDeletion && (
+        <div
+          className="fixed inset-0 z-[90] flex items-center justify-center bg-foreground/[0.18] px-4 backdrop-blur-sm"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeConversationDeletion();
+          }}
+        >
+          <div
+            ref={deleteDialogRef}
+            className="w-full max-w-md rounded-lg border border-border-subtle bg-background p-4 shadow-2xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-chat-heading"
+            tabIndex={-1}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') closeConversationDeletion();
+            }}
+          >
+            <h2 id="delete-chat-heading" className="font-sans text-base font-semibold text-foreground">
+              Delete this chat?
+            </h2>
+            <p className="mt-2 font-sans text-sm leading-6 text-muted">
+              This permanently deletes “{conversationPendingDeletion.title}”, its messages,
+              branches, threads, and image attachments.
+            </p>
+            {deleteConversationError && (
+              <p className="mt-3 rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 font-sans text-sm text-red-700 dark:text-red-200">
+                {deleteConversationError}
+              </p>
+            )}
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" onClick={closeConversationDeletion} disabled={deletingConversation} className="rounded-lg border border-border-subtle bg-surface px-3 py-2 font-sans text-sm font-semibold text-foreground transition hover:bg-foreground/[0.04] disabled:cursor-not-allowed disabled:opacity-60">
+                Cancel
+              </button>
+              <button type="button" onClick={confirmConversationDeletion} disabled={deletingConversation} className="rounded-lg bg-red-600 px-3 py-2 font-sans text-sm font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60">
+                {deletingConversation ? 'Deleting...' : 'Delete chat'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <SidePanel
         isOpen={sidePanelOpen}
@@ -434,6 +639,8 @@ function HomeShell({ children }: { children: ReactNode }) {
           if (window.innerWidth < SIDE_PANEL_DRAWER_BREAKPOINT_PX) handleCloseSidePanel();
         }}
         onCloseTemporaryChat={handleCloseTemporaryChat}
+        onRenameConversation={requestConversationRename}
+        onDeleteConversation={requestConversationDeletion}
         onMoveConversation={handleMoveConversation}
       />
     </div>
