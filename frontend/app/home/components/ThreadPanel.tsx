@@ -17,7 +17,7 @@ import ChatMessageFrame, {
 import ResponseActivity from "@/app/home/components/ResponseActivity";
 import { getSearchActivity, getResponseActivitySummary } from "@/lib/search-citations";
 import SearchSourcesTray from "@/app/home/components/SearchSourcesTray";
-import type { ThreadSession } from "@/app/home/components/threadTypes";
+import type { ThreadSession, ThreadSource } from "@/app/home/components/threadTypes";
 import { SIDE_PANEL_COLLAPSED_WIDTH_PX } from "@/app/home/components/SidePanelContext";
 import { useAutoFollowScroll } from "@/app/home/components/useAutoFollowScroll";
 import { hasUsableSearchSources } from "@/lib/search-citations";
@@ -38,6 +38,7 @@ interface ThreadPanelProps {
   onInputChange: (sessionId: string, value: string) => void;
   onSend: (sessionId: string, overrideContent?: string) => void;
   onStop?: (sessionId: string) => void;
+  onShowSource?: (source: ThreadSource) => void;
   onClose: () => void;
 }
 
@@ -59,6 +60,7 @@ export default function ThreadPanel({
   onInputChange,
   onSend,
   onStop,
+  onShowSource,
   onClose,
 }: ThreadPanelProps) {
   const [openSourceTray, setOpenSourceTray] = useState<{
@@ -174,6 +176,17 @@ export default function ThreadPanel({
           }
     );
   }, []);
+
+  // Jump to the highlighted source in the main transcript. On narrow screens the
+  // panel covers the transcript, so close it to reveal the jump.
+  const handleShowSource = useCallback(() => {
+    if (!session) return;
+
+    onShowSource?.(session);
+    if (!window.matchMedia(THREAD_PANEL_DESKTOP_MEDIA_QUERY).matches) {
+      onClose();
+    }
+  }, [onClose, onShowSource, session]);
 
   const handleStartResize = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -318,6 +331,21 @@ export default function ThreadPanel({
               </p>
             )}
           </div>
+          {session && onShowSource && (
+            <button
+              type="button"
+              onClick={handleShowSource}
+              data-testid="thread-panel-show-source"
+              className={cx(
+                "ml-4 inline-flex h-8 flex-shrink-0 items-center rounded-lg px-2 text-xs font-medium text-muted md:px-3",
+                buttonStyles.transition,
+                buttonStyles.focus,
+                buttonStyles.ghost
+              )}
+            >
+              Show in chat
+            </button>
+          )}
           <button
             type="button"
             onClick={onClose}
