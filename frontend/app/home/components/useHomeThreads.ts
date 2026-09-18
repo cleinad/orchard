@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 import { getOffsetsFromRange } from '@/app/home/components/selectableTextIndex';
 import { DEFAULT_SELECTION_STREAM_VERSION } from '@/app/home/components/markdownSelectableStream';
+import { isThreadSelectableMessage } from '@/app/home/components/threadSelection';
 import type { PopoverState } from '@/app/home/components/TextSelectionPopover';
 import type { ThreadSession, ThreadSource } from '@/app/home/components/threadTypes';
 
@@ -105,7 +106,14 @@ export function useHomeThreads(
     const messageId = messageEl?.getAttribute('data-message-id');
     const messageRole = messageEl?.getAttribute('data-message-role');
 
-    if (!messageId || messageRole !== 'assistant' || messageId.startsWith('streaming-')) {
+    if (
+      !messageId
+      || !isThreadSelectableMessage({
+        role: messageRole ?? null,
+        isError: messageEl?.getAttribute('data-message-error') === 'true',
+        isStreaming: messageEl?.getAttribute('data-message-streaming') === 'true',
+      })
+    ) {
       return;
     }
 

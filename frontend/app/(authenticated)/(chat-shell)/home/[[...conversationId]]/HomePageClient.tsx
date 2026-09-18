@@ -648,6 +648,7 @@ function HomePageInner({
     endProgrammaticTranscriptNavigation,
     handleScroll,
     jumpToMessage,
+    jumpToThreadSource,
     saveCurrentScrollPosition,
     setUserHasScrolledState,
   } = useTranscriptNavigation({
@@ -1396,6 +1397,7 @@ function HomePageInner({
           onWidthChange={setThreadPanelWidthPx}
           onInputChange={handleThreadPanelInputChange}
           onSend={handleSendThreadMessage}
+          onShowSource={jumpToThreadSource}
           onStop={() => {
             if (!activeSession?.threadId) return;
             const chatId = selectedChat?.kind === 'persistent'

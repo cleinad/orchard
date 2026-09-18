@@ -20,6 +20,7 @@ import {
 import {
   deserializePersistentThreadRuntimes,
   mergeThreadMessages,
+  settleCancelledThreadMessages,
 } from '@/app/home/components/persistentThreadRuntime';
 import { getTemporaryChatAttachmentStoragePaths } from '@/app/home/components/temporaryChatAttachmentCleanup';
 import type { ThreadMessage } from '@/app/home/components/threadTypes';
@@ -373,6 +374,66 @@ describe('persistentThreadRuntime helpers', () => {
     expect(runtime.conversationA.threadsMap.messageA).toHaveLength(1);
     expect(runtime.conversationA.threadMessages).toEqual({});
     expect(runtime.conversationA.threadStatuses).toEqual({});
+  });
+
+  it('settles a confirmed reply across repeated cancellation instead of retaining a live placeholder', () => {
+    const placeholder: ThreadMessage = {
+      id: 'assistant', role: 'assistant', content: 'Partial', timestamp: new Date(), isStreaming: true,
+    };
+    const confirmed = { ...placeholder, content: 'Committed reply', isStreaming: undefined };
+    expect(settleCancelledThreadMessages([placeholder], placeholder.id)).toEqual([]);
+    const settled = settleCancelledThreadMessages([placeholder], placeholder.id, confirmed);
+    expect(settled[0].content).toBe('Committed reply');
+    expect(settled[0].isStreaming).toBeUndefined();
+    expect(settleCancelledThreadMessages(settled, placeholder.id, confirmed)).toEqual(settled);
+  });
+
+  it('keeps a same-millisecond assistant after its user when finalizing', () => {
+    const timestamp = new Date('2026-09-14T00:00:01Z');
+    const user: ThreadMessage = { id: 'user', role: 'user', content: 'Question', timestamp };
+    const placeholder: ThreadMessage = { id: 'assistant', role: 'assistant', content: '', timestamp, isStreaming: true };
+    const final = { ...placeholder, content: 'Answer', isStreaming: undefined };
+    const messages = mergeThreadMessages([final], [user, placeholder], final.id);
+    expect(messages.map((message) => message.id)).toEqual(['user', 'assistant']);
+    expect(messages.at(-1)?.content).toBe('Answer');
+  });
+
+  it('preserves newer streaming content during hydration and settles only the recovered assistant', () => {
+    const local: ThreadMessage = {
+      id: 'assistant-1', role: 'assistant', content: 'Newer partial text',
+      timestamp: new Date('2026-09-14T00:00:01Z'), isStreaming: true,
+      reasoning: 'Live reasoning',
+    };
+    const server = { ...local, content: 'Final text', isStreaming: undefined, reasoning: undefined };
+    const nextTurn = { ...local, id: 'assistant-2', timestamp: new Date('2026-09-14T00:00:03Z') };
+    expect(mergeThreadMessages([server], [local, nextTurn])).toEqual([local, nextTurn]);
+    const settled = mergeThreadMessages([server], [local, nextTurn], local.id);
+    expect(settled).toHaveLength(2);
+    expect(settled[0]).toMatchObject({ content: 'Final text', reasoning: 'Live reasoning' });
+    expect(settled[0].isStreaming).toBeUndefined();
+    expect(settled[1]).toEqual(nextTurn);
+  });
+
+  it('retains reasoning received in the final frame before publication', () => {
+    const local: ThreadMessage = {
+      id: 'assistant', role: 'assistant', content: '', timestamp: new Date(),
+      isStreaming: true, reasoning: 'Earlier thought.',
+    };
+    const final = { ...local, content: 'Answer', isStreaming: undefined, reasoning: 'Earlier thought. Final thought.' };
+    expect(mergeThreadMessages([final], [local], final.id)[0].reasoning).toBe(final.reasoning);
+  });
+
+  it('keeps thread reasoning and streaming activity out of browser storage', () => {
+    const message: ThreadMessage = {
+      id: 'assistant-1', role: 'assistant', content: 'Partial answer',
+      timestamp: new Date(), isStreaming: true, reasoning: 'Private live reasoning',
+      searchActivity: { collapsedLabel: 'Done', events: [] },
+    };
+    const restored = fromStoredThreadMessage(toStoredThreadMessage(message));
+    expect(restored.content).toBe('Partial answer');
+    expect(restored.reasoning).toBeUndefined();
+    expect(restored.isStreaming).toBeUndefined();
+    expect(restored.searchActivity).toBeUndefined();
   });
 
   it('dedupes optimistic local thread messages against nearby server messages', () => {

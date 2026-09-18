@@ -78,9 +78,10 @@ async function getNativeSelectionText(page) {
   return page.evaluate(() => window.getSelection()?.toString() ?? '');
 }
 
-async function selectSearchMode(page, label) {
-  await page.getByRole('button', { name: /^Search mode / }).click();
-  await page.getByRole('menuitemradio', { name: label }).click();
+async function disableSearch(page) {
+  const toggle = page.getByRole('button', { name: /^Toggle search/ });
+  if (await toggle.getAttribute('aria-pressed') !== 'true') await toggle.click();
+  await toggle.click();
 }
 
 function getUnionBounds(rects) {
@@ -268,7 +269,7 @@ test('submitting a selection question opens the thread panel immediately and sho
   });
 
   const { messageId, selectedText } = await gotoHomeFixture(page);
-  await selectSearchMode(page, 'Off');
+  await disableSearch(page);
   await selectTextInMessage(page, messageId, selectedText);
   await page.getByTestId('selection-popover-input').fill(question);
   await page.getByTestId('selection-popover-input').press('Enter');
@@ -277,7 +278,7 @@ test('submitting a selection question opens the thread panel immediately and sho
   const threadPanel = page.getByTestId('thread-panel');
   await expect(threadPanel).toHaveAttribute('data-state', 'open');
   await expect(threadPanel).toContainText(question);
-  await expect(page.getByTestId('thread-panel-loading')).toBeVisible();
+  await expect(page.getByTestId('thread-panel').getByRole('status', { name: 'Generating response' })).toBeVisible();
   const userMessageRow = threadPanel.locator('[data-message-role="user"]');
   await expect(userMessageRow.locator('[data-message-presentation="bubble"]')).toBeVisible();
   await expect(userMessageRow.getByText('You', { exact: true })).toHaveCount(0);
@@ -333,7 +334,7 @@ test('the latest submitted thread owns the panel while earlier threads finish in
   await page.getByTestId('selection-popover-input').press('Enter');
 
   await expect(page.getByTestId('thread-panel')).toContainText(firstQuestion);
-  await expect(page.getByTestId('thread-panel-loading')).toBeVisible();
+  await expect(page.getByTestId('thread-panel').getByRole('status', { name: 'Generating response' })).toBeVisible();
 
   await selectTextInMessage(page, messageId, SECONDARY_SELECTION_TEXT);
   await page.getByTestId('selection-popover-input').fill(secondQuestion);

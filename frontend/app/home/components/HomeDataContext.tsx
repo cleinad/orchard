@@ -921,6 +921,9 @@ export function HomeDataProvider({
                   ? []
                   : [{
                       ...assistantMessage,
+                      timestamp: existingAssistant?.timestamp ?? assistantMessage.timestamp,
+                      reasoning: existingAssistant?.reasoning,
+                      searchActivity: assistantMessage.searchActivity ?? existingAssistant?.searchActivity,
                       content: assistantMessage.content || existingAssistant?.content || '',
                     }]),
               ];
