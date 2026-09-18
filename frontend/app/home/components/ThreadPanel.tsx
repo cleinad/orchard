@@ -19,6 +19,7 @@ import { getSearchActivity, getResponseActivitySummary } from "@/lib/search-cita
 import SearchSourcesTray from "@/app/home/components/SearchSourcesTray";
 import type { ThreadSession } from "@/app/home/components/threadTypes";
 import { SIDE_PANEL_COLLAPSED_WIDTH_PX } from "@/app/home/components/SidePanelContext";
+import { useAutoFollowScroll } from "@/app/home/components/useAutoFollowScroll";
 import { hasUsableSearchSources } from "@/lib/search-citations";
 import { buttonStyles, cx } from "@/app/components/buttonStyles";
 import {
@@ -64,7 +65,7 @@ export default function ThreadPanel({
     messageId: string;
     sourceId: number | null;
   } | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isBusy = Boolean(session && (session.status === "loading" || session.isHydrating));
   const activeQuestion = isBusy
@@ -76,9 +77,14 @@ export default function ThreadPanel({
     "--thread-panel-width": `${widthPx}px`,
   } as CSSProperties;
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [session?.messages]);
+  // Follow streamed replies like the main transcript: stay pinned to the bottom,
+  // but stop the moment the reader scrolls away.
+  useAutoFollowScroll({
+    containerRef: scrollContainerRef,
+    contentKey: session?.messages,
+    enabled: isOpen,
+    resetKey: `${session?.sessionId ?? "none"}:${isOpen ? "open" : "closed"}`,
+  });
 
   useEffect(() => {
     if (!isOpen || !session) return;
@@ -293,9 +299,6 @@ export default function ThreadPanel({
               <span>Main</span>
             </button>
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-              <p className="text-xs font-medium tracking-wider text-muted/60">
-                {activeQuestion ? "Follow-up" : "Thread"}
-              </p>
               {temporaryChatEnabled && (
                 <>
                   {/* Divider + plain label: avoids pill chrome while staying scannable */}
@@ -334,6 +337,7 @@ export default function ThreadPanel({
         </div>
 
         <div
+          ref={scrollContainerRef}
           className="flex-1 overflow-y-auto px-4 py-4 md:px-6"
           style={{
             scrollbarWidth: "thin",
@@ -431,8 +435,6 @@ export default function ThreadPanel({
               <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted/40" style={{ animationDelay: "300ms" }} />
             </div>
           )}
-
-          <div ref={messagesEndRef} />
         </div>
 
         <div className="border-t border-border-subtle px-4 py-3 md:px-6 md:py-4">
