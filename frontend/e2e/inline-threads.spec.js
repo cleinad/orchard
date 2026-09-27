@@ -309,6 +309,44 @@ test('submitting a selection question opens the thread panel immediately and sho
   ).toContainText(selectedText);
 });
 
+test('completed thread replies support the main response copy formats', async ({ context, page }) => {
+  const question = 'Can I copy this reply?';
+  const answer = '**Thread answer**';
+
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await mockChatRoute(page, async (body) => {
+    expect(body.message).toBe(question);
+    return {
+      message: answer,
+      userMessageId: 'user-copy-1',
+      assistantMessageId: 'assistant-copy-1',
+    };
+  });
+
+  const { messageId, selectedText } = await gotoHomeFixture(page);
+  await disableSearch(page);
+  await selectTextInMessage(page, messageId, selectedText);
+  await page.getByTestId('selection-popover-input').fill(question);
+  await page.getByTestId('selection-popover-input').press('Enter');
+
+  const threadPanel = page.getByTestId('thread-panel');
+  const assistantReply = threadPanel.locator('[data-message-role="assistant"]');
+  await expect(assistantReply).toContainText('Thread answer');
+  await expect(
+    assistantReply.getByRole('button', { name: 'Copy response as Plain text' })
+  ).toBeVisible();
+  await expect(
+    threadPanel.locator('[data-message-role="user"]').getByRole('button', { name: /Copy response/ })
+  ).toHaveCount(0);
+
+  await assistantReply.getByRole('button', { name: 'Copy response as Plain text' }).click();
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('Thread answer');
+
+  await assistantReply.getByRole('button', { name: 'Choose copy format' }).click();
+  await assistantReply.getByRole('menuitemradio', { name: 'Markdown', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(answer);
+});
+
 test('the latest submitted thread owns the panel while earlier threads finish in the background', async ({ page }) => {
   const firstQuestion = 'What does the timing mean?';
   const secondQuestion = 'How does that affect state updates?';

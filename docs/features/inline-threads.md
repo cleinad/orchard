@@ -78,7 +78,8 @@ In a temporary chat:
 ## Thread panel
 
 The panel shows the selected source, the thread conversation, citations when a
-thread response used live search, and a composer for follow-ups.
+thread response used live search, the same response-copy formats as the main
+chat, and a composer for follow-ups.
 
 - On desktop it opens beside the main chat and can be resized.
 - On smaller screens it behaves as the active reading surface and includes a
