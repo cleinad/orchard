@@ -11,13 +11,14 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import MarkdownWithThreads from "@/app/home/components/MarkdownWithThreads";
+import AssistantCopyControl from "@/app/home/components/AssistantCopyControl";
 import ChatMessageFrame, {
   chatMessageContentClassName,
 } from "@/app/home/components/ChatMessageFrame";
 import ResponseActivity from "@/app/home/components/ResponseActivity";
 import { getSearchActivity, getResponseActivitySummary } from "@/lib/search-citations";
 import SearchSourcesTray from "@/app/home/components/SearchSourcesTray";
-import type { ThreadSession, ThreadSource } from "@/app/home/components/threadTypes";
+import type { ThreadMessage, ThreadSession, ThreadSource } from "@/app/home/components/threadTypes";
 import { SIDE_PANEL_COLLAPSED_WIDTH_PX } from "@/app/home/components/SidePanelContext";
 import { useAutoFollowScroll } from "@/app/home/components/useAutoFollowScroll";
 import { hasUsableSearchSources } from "@/lib/search-citations";
@@ -48,6 +49,95 @@ function toSnippet(text: string, maxLength = 88): string {
   const normalized = text.replace(/\s+/g, " ").trim();
   if (normalized.length <= maxLength) return normalized;
   return `${normalized.slice(0, maxLength - 3).trimEnd()}...`;
+}
+
+interface ThreadPanelMessageProps {
+  message: ThreadMessage;
+  activeCitationSourceId: number | null;
+  isSourceTrayOpen: boolean;
+  onCitationClick: (messageId: string, sourceId: number) => void;
+  onSourcesToggle: (messageId: string, sourceId: number) => void;
+  onSourceSelect: (messageId: string, sourceId: number) => void;
+}
+
+function ThreadPanelMessage({
+  message,
+  activeCitationSourceId,
+  isSourceTrayOpen,
+  onCitationClick,
+  onSourcesToggle,
+  onSourceSelect,
+}: ThreadPanelMessageProps) {
+  const messageContentRef = useRef<HTMLDivElement>(null);
+  const hasSources = hasUsableSearchSources(message.searchMetadata);
+
+  return (
+    <ChatMessageFrame messageRole={message.role}>
+      {message.role === 'assistant' && (
+        <ResponseActivity
+          live={Boolean(message.isStreaming)}
+          awaitingFirstToken={message.content.trim().length === 0}
+          searchActivity={message.searchActivity ?? getSearchActivity(message.searchMetadata ?? null)}
+          responseActivity={getResponseActivitySummary(message.searchMetadata ?? null)}
+          reasoning={message.reasoning}
+        />
+      )}
+      <div ref={messageContentRef} className={chatMessageContentClassName(message.role)}>
+        <MarkdownWithThreads
+          content={message.content}
+          threads={[]}
+          onThreadClick={() => {}}
+          searchMetadata={message.searchMetadata ?? null}
+          activeCitationSourceId={activeCitationSourceId}
+          onCitationClick={
+            hasSources ? (sourceId) => onCitationClick(message.id, sourceId) : undefined
+          }
+        />
+        {message.isStreaming && message.content.trim().length > 0 && (
+          <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-foreground/50 align-middle" />
+        )}
+      </div>
+      {!message.isStreaming && hasSources && message.searchMetadata && (
+        <>
+          <div className="mt-2">
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                onSourcesToggle(message.id, message.searchMetadata?.sources[0]?.id ?? 1);
+              }}
+              onPointerUp={(event) => event.stopPropagation()}
+              className={cx(
+                "inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-xs",
+                buttonStyles.transition,
+                buttonStyles.focus,
+                isSourceTrayOpen
+                  ? "border-foreground/15 bg-foreground/[0.04] text-foreground"
+                  : "border-transparent hover:border-border-subtle",
+                isSourceTrayOpen ? null : buttonStyles.ghostSubtle
+              )}
+            >
+              <span>Sources</span>
+              <span className="text-current/55">{message.searchMetadata.sources.length}</span>
+            </button>
+          </div>
+
+          {isSourceTrayOpen && (
+            <SearchSourcesTray
+              searchMetadata={message.searchMetadata}
+              activeSourceId={activeCitationSourceId}
+              onSourceSelect={(sourceId) => onSourceSelect(message.id, sourceId)}
+            />
+          )}
+        </>
+      )}
+      {!message.isStreaming && message.role === 'assistant' && (
+        <div className="mt-3 flex flex-wrap items-center gap-1.5">
+          <AssistantCopyControl contentRootRef={messageContentRef} message={message} />
+        </div>
+      )}
+    </ChatMessageFrame>
+  );
 }
 
 export default function ThreadPanel({
@@ -373,88 +463,26 @@ export default function ThreadPanel({
               "color-mix(in srgb, var(--foreground) 18%, transparent) transparent",
           }}
         >
-          {session?.messages.map((message) => (
-            <ChatMessageFrame key={message.id} messageRole={message.role}>
-              {message.role === 'assistant' && (
-                <ResponseActivity
-                  live={Boolean(message.isStreaming)}
-                  awaitingFirstToken={message.content.trim().length === 0}
-                  searchActivity={message.searchActivity ?? getSearchActivity(message.searchMetadata ?? null)}
-                  responseActivity={getResponseActivitySummary(message.searchMetadata ?? null)}
-                  reasoning={message.reasoning}
-                />
-              )}
-              <div
-                className={chatMessageContentClassName(message.role)}
-              >
-                <MarkdownWithThreads
-                  content={message.content}
-                  threads={[]}
-                  onThreadClick={() => {}}
-                  searchMetadata={message.searchMetadata ?? null}
-                  activeCitationSourceId={
-                    openSourceTray?.messageId === message.id
-                      ? openSourceTray.sourceId ?? message.searchMetadata?.sources[0]?.id ?? null
-                      : null
-                  }
-                  onCitationClick={
-                    hasUsableSearchSources(message.searchMetadata)
-                      ? (sourceId) => handleCitationClick(message.id, sourceId)
-                      : undefined
-                  }
-                />
-                {message.isStreaming && message.content.trim().length > 0 && (
-                  <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-foreground/50 align-middle" />
-                )}
-              </div>
-              {!message.isStreaming && hasUsableSearchSources(message.searchMetadata) && message.searchMetadata && (
-                <>
-                  <div className="mt-2">
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        handleSourcesToggle(
-                          message.id,
-                          message.searchMetadata?.sources[0]?.id ?? 1
-                        );
-                      }}
-                      onPointerUp={(event) => event.stopPropagation()}
-                      className={cx(
-                        "inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-xs",
-                        buttonStyles.transition,
-                        buttonStyles.focus,
-                        openSourceTray?.messageId === message.id
-                          ? "border-foreground/15 bg-foreground/[0.04] text-foreground"
-                          : "border-transparent hover:border-border-subtle",
-                        openSourceTray?.messageId === message.id
-                          ? null
-                          : buttonStyles.ghostSubtle
-                      )}
-                    >
-                      <span>Sources</span>
-                      <span className="text-current/55">{message.searchMetadata.sources.length}</span>
-                    </button>
-                  </div>
+          {session?.messages.map((message) => {
+            const isSourceTrayOpen = openSourceTray?.messageId === message.id;
+            const activeCitationSourceId = isSourceTrayOpen
+              ? openSourceTray.sourceId ?? message.searchMetadata?.sources[0]?.id ?? null
+              : null;
 
-                  {openSourceTray?.messageId === message.id && (
-                    <SearchSourcesTray
-                      searchMetadata={message.searchMetadata}
-                      activeSourceId={
-                        openSourceTray.sourceId ?? message.searchMetadata.sources[0]?.id ?? null
-                      }
-                      onSourceSelect={(sourceId) =>
-                        setOpenSourceTray({
-                          messageId: message.id,
-                          sourceId,
-                        })
-                      }
-                    />
-                  )}
-                </>
-              )}
-            </ChatMessageFrame>
-          ))}
+            return (
+              <ThreadPanelMessage
+                key={message.id}
+                message={message}
+                activeCitationSourceId={activeCitationSourceId}
+                isSourceTrayOpen={isSourceTrayOpen}
+                onCitationClick={handleCitationClick}
+                onSourcesToggle={handleSourcesToggle}
+                onSourceSelect={(messageId, sourceId) =>
+                  setOpenSourceTray({ messageId, sourceId })
+                }
+              />
+            );
+          })}
 
           {session?.isHydrating && (
             <div data-testid="thread-panel-loading" className="flex items-center gap-1.5 py-2">

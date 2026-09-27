@@ -22,6 +22,8 @@ import { buttonStyles, cx } from '@/app/components/buttonStyles';
 
 const ASSISTANT_COPY_FORMAT_EVENT = 'novus-assistant-copy-format-change';
 
+type CopyableAssistantMessage = Pick<Message, 'content' | 'searchMetadata'>;
+
 function readAssistantCopyFormat() {
   if (typeof window === 'undefined') {
     return DEFAULT_ASSISTANT_COPY_FORMAT;
@@ -161,7 +163,7 @@ export default function AssistantCopyControl({
   message,
 }: {
   contentRootRef: RefObject<HTMLDivElement | null>;
-  message: Message;
+  message: CopyableAssistantMessage;
 }) {
   const [copyFormat, setCopyFormat] = useState<AssistantCopyFormat>(readAssistantCopyFormat);
   const [copied, setCopied] = useState(false);
