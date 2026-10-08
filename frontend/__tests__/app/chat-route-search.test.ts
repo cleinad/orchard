@@ -804,7 +804,7 @@ describe('chat route search citations', () => {
     );
     const systemPrompt = mockStreamText.mock.calls.at(-1)?.[0]?.system as string;
     expect(systemPrompt).toContain('<web_search_results');
-    expect(systemPrompt).toContain('Length: Brief');
+    expect(systemPrompt).toContain('Length: Adaptive');
     expect(systemPrompt).not.toContain('2 to 4 sentences');
     expect(mockGenerateObject).not.toHaveBeenCalled();
   });

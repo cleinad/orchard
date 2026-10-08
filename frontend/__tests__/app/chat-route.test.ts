@@ -1166,6 +1166,20 @@ describe('chat route contract', () => {
     );
   });
 
+  it('uses adaptive guidance by default without routing or all-mode prompts', async () => {
+    const { response } = await runChatRequest({
+      message: 'Explain eigenvectors',
+      chatMode: 'temporary',
+    });
+
+    expect(response.status).toBe(200);
+    const systemPrompt = mockStreamText.mock.calls.at(-1)?.[0]?.system as string;
+    expect(systemPrompt).toContain('Length: Adaptive');
+    expect(systemPrompt).toContain('Level: Adaptive');
+    expect(systemPrompt).not.toContain('Length: Brief');
+    expect(systemPrompt).not.toContain('Level: Familiar');
+  });
+
   it('passes concrete concise length guidance through to the model prompt', async () => {
     const { response } = await runChatRequest({
       message: 'Define entropy',
@@ -1199,7 +1213,7 @@ describe('chat route contract', () => {
     const systemPrompt = mockStreamText.mock.calls.at(-1)?.[0]?.system as string;
     expect(systemPrompt).not.toContain('Go deep');
     expect(systemPrompt).not.toContain('Be thorough with responses');
-    expect(systemPrompt).toContain('You do not force connections');
+    expect(systemPrompt).toContain('without inventing connections to unrelated earlier topics');
   });
 
   it('retries with generateText when the streamed response is empty', async () => {

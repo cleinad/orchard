@@ -7,7 +7,7 @@ import {
 } from '@/lib/response-style';
 
 describe('response style', () => {
-  it('defaults invalid input to brief and familiar', () => {
+  it('defaults invalid input to adaptive dimensions', () => {
     expect(sanitizeResponseStyle({ length: 'huge', level: 'wizard' })).toEqual(
       DEFAULT_RESPONSE_STYLE
     );
@@ -36,6 +36,8 @@ describe('response style', () => {
         sessionNote: '',
       })
     ).toBe('Concise · Fluent');
+    expect(getResponseStyleSummary({ length: 'adaptive', level: 'new', sessionNote: '' }))
+      .toBe('Adaptive · New');
   });
 
   it('places session notes after slider guidance so they can override conflicts', () => {
@@ -54,6 +56,8 @@ describe('response style', () => {
   });
 
   it('defines concrete output expectations for each length level', () => {
+    expect(buildResponseStylePrompt(DEFAULT_RESPONSE_STYLE))
+      .toContain('Choose the length and structure that best serve the current request');
     expect(buildResponseStylePrompt({ length: 'concise', level: 'familiar', sessionNote: '' }))
       .toContain('shortest answer that fully addresses the request');
     expect(buildResponseStylePrompt({ length: 'brief', level: 'familiar', sessionNote: '' }))
@@ -61,10 +65,12 @@ describe('response style', () => {
     expect(buildResponseStylePrompt({ length: 'detailed', level: 'familiar', sessionNote: '' }))
       .toContain('Use a focused teaching style');
     expect(buildResponseStylePrompt({ length: 'deep', level: 'familiar', sessionNote: '' }))
-      .toContain('Give a deeper, high-signal response');
+      .toContain('Explore the reasoning and implications in depth');
   });
 
-  it('calibrates assumed familiarity across the four level stops', () => {
+  it('calibrates assumed familiarity across adaptive and explicit levels', () => {
+    expect(buildResponseStylePrompt(DEFAULT_RESPONSE_STYLE))
+      .toContain('Infer the useful level of explanation');
     expect(buildResponseStylePrompt({ length: 'brief', level: 'new', sessionNote: '' }))
       .toContain('little or no background');
     expect(buildResponseStylePrompt({ length: 'brief', level: 'familiar', sessionNote: '' }))
@@ -73,5 +79,17 @@ describe('response style', () => {
       .toContain('strong working knowledge');
     expect(buildResponseStylePrompt({ length: 'brief', level: 'fluent', sessionNote: '' }))
       .toContain('comfortable operating in the domain');
+  });
+
+  it('preserves explicit legacy choices without including other modes', () => {
+    const style = sanitizeResponseStyle({ length: 'brief', level: 'familiar' });
+    const prompt = buildResponseStylePrompt(style);
+
+    expect(style.length).toBe('brief');
+    expect(style.level).toBe('familiar');
+    expect(prompt).toContain('Length: Brief');
+    expect(prompt).toContain('Level: Familiar');
+    expect(prompt).not.toContain('Length: Adaptive');
+    expect(prompt).not.toContain('Level: Adaptive');
   });
 });

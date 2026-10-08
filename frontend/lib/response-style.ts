@@ -1,4 +1,5 @@
 export const RESPONSE_STYLE_LENGTH_OPTIONS = [
+  'adaptive',
   'concise',
   'brief',
   'detailed',
@@ -6,6 +7,7 @@ export const RESPONSE_STYLE_LENGTH_OPTIONS = [
 ] as const;
 
 export const RESPONSE_STYLE_LEVEL_OPTIONS = [
+  'adaptive',
   'new',
   'familiar',
   'advanced',
@@ -22,12 +24,13 @@ export interface ResponseStyle {
 }
 
 export const DEFAULT_RESPONSE_STYLE: ResponseStyle = {
-  length: 'brief',
-  level: 'familiar',
+  length: 'adaptive',
+  level: 'adaptive',
   sessionNote: '',
 };
 
 export const RESPONSE_STYLE_LENGTH_LABELS: Record<ResponseStyleLength, string> = {
+  adaptive: 'Adaptive',
   concise: 'Concise',
   brief: 'Brief',
   detailed: 'Detailed',
@@ -35,6 +38,7 @@ export const RESPONSE_STYLE_LENGTH_LABELS: Record<ResponseStyleLength, string> =
 };
 
 export const RESPONSE_STYLE_LEVEL_LABELS: Record<ResponseStyleLevel, string> = {
+  adaptive: 'Adaptive',
   new: 'New',
   familiar: 'Familiar',
   advanced: 'Advanced',
@@ -42,6 +46,8 @@ export const RESPONSE_STYLE_LEVEL_LABELS: Record<ResponseStyleLevel, string> = {
 };
 
 const LENGTH_GUIDANCE: Record<ResponseStyleLength, string> = {
+  adaptive:
+    'Choose the length and structure that best serve the current request. Be brief for a simple answer and expand when explanation, evidence, or nuance would make the answer more useful.',
   concise:
     'Give the shortest answer that fully addresses the request. Include an essential qualification, example, or step when omitting it would mislead or leave the answer unusable.',
   brief:
@@ -53,6 +59,8 @@ const LENGTH_GUIDANCE: Record<ResponseStyleLength, string> = {
 };
 
 const LEVEL_GUIDANCE: Record<ResponseStyleLevel, string> = {
+  adaptive:
+    'Infer the useful level of explanation from the current request and what the user has shown they know. Explain unfamiliar essentials without talking down to the user; use technical detail when it helps.',
   new:
     'Assume the user has little or no background. Define key terms, build from fundamentals, and avoid unexplained jargon.',
   familiar:
@@ -64,6 +72,7 @@ const LEVEL_GUIDANCE: Record<ResponseStyleLevel, string> = {
 };
 
 export const RESPONSE_STYLE_LENGTH_DESCRIPTIONS: Record<ResponseStyleLength, string> = {
+  adaptive: 'Match the question',
   concise: 'Shortest complete answer',
   brief: 'Concise and skimmable',
   detailed: 'Structured explanation',
@@ -71,6 +80,7 @@ export const RESPONSE_STYLE_LENGTH_DESCRIPTIONS: Record<ResponseStyleLength, str
 };
 
 export const RESPONSE_STYLE_LEVEL_DESCRIPTIONS: Record<ResponseStyleLevel, string> = {
+  adaptive: 'Match your familiarity',
   new: 'Start from fundamentals',
   familiar: 'Assume the basics',
   advanced: 'Skip basics, add nuance',

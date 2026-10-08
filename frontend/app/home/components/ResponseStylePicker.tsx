@@ -66,7 +66,7 @@ function SegmentGroup<T extends string>({
       <div
         role="group"
         aria-labelledby={id}
-        className="grid grid-cols-4 gap-1 rounded-xl border border-border-subtle bg-surface/75 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.55)] dark:shadow-none"
+        className="grid grid-cols-5 gap-1 rounded-xl border border-border-subtle bg-surface/75 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.55)] dark:shadow-none"
       >
         {options.map((option) => {
           const selected = value === option;
