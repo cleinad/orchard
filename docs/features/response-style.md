@@ -12,20 +12,24 @@ that chat.
 
 ## Length
 
-- `Concise` — one or two sentences
+- `Adaptive` — match the answer's length to the current request
+- `Concise` — the shortest complete answer, without a rigid sentence count
 - `Brief` — direct and skimmable
 - `Detailed` — structured explanation with useful examples or steps
-- `Deep` — focused depth, context, tradeoffs, and edge cases
+- `Deep` — focused depth, with context and tradeoffs where useful
 
 ## Level
 
+- `Adaptive` — match the explanation to the user's demonstrated familiarity
 - `New` — start from fundamentals and define terms
 - `Familiar` — assume the basics
 - `Advanced` — skip basics and emphasize nuance
-- `Fluent` — use dense, domain-native language
+- `Fluent` — use precise, domain-native language without sacrificing clarity
 
-The default is `Brief · Familiar`. The trigger shows simply `Response style`
-while the default is active.
+Both dimensions default to `Adaptive`. The trigger shows simply `Response style`
+while the default is active. Each explicit choice affects only its own dimension;
+the selected guidance is sent directly with the chat request, without a separate
+classification or prompt-routing call.
 
 ## Custom instruction
 

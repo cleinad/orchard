@@ -1,4 +1,5 @@
 export const RESPONSE_STYLE_LENGTH_OPTIONS = [
+  'adaptive',
   'concise',
   'brief',
   'detailed',
@@ -6,6 +7,7 @@ export const RESPONSE_STYLE_LENGTH_OPTIONS = [
 ] as const;
 
 export const RESPONSE_STYLE_LEVEL_OPTIONS = [
+  'adaptive',
   'new',
   'familiar',
   'advanced',
@@ -22,12 +24,13 @@ export interface ResponseStyle {
 }
 
 export const DEFAULT_RESPONSE_STYLE: ResponseStyle = {
-  length: 'brief',
-  level: 'familiar',
+  length: 'adaptive',
+  level: 'adaptive',
   sessionNote: '',
 };
 
 export const RESPONSE_STYLE_LENGTH_LABELS: Record<ResponseStyleLength, string> = {
+  adaptive: 'Adaptive',
   concise: 'Concise',
   brief: 'Brief',
   detailed: 'Detailed',
@@ -35,6 +38,7 @@ export const RESPONSE_STYLE_LENGTH_LABELS: Record<ResponseStyleLength, string> =
 };
 
 export const RESPONSE_STYLE_LEVEL_LABELS: Record<ResponseStyleLevel, string> = {
+  adaptive: 'Adaptive',
   new: 'New',
   familiar: 'Familiar',
   advanced: 'Advanced',
@@ -42,17 +46,21 @@ export const RESPONSE_STYLE_LEVEL_LABELS: Record<ResponseStyleLevel, string> = {
 };
 
 const LENGTH_GUIDANCE: Record<ResponseStyleLength, string> = {
+  adaptive:
+    'Choose the length and structure that best serve the current request. Be brief for a simple answer and expand when explanation, evidence, or nuance would make the answer more useful.',
   concise:
-    'Answer in 1 to 2 sentences. Skip setup, broad caveats, and examples unless the answer would be unclear without one.',
+    'Give the shortest answer that fully addresses the request. Include an essential qualification, example, or step when omitting it would mislead or leave the answer unusable.',
   brief:
     'Answer directly with concise, skimmable prose. Use short paragraphs or only minimal structure when it helps clarity.',
   detailed:
     'Use a focused teaching style with structure, examples, caveats, or steps when they materially improve understanding.',
   deep:
-    'Give a deeper, high-signal response with useful context, tradeoffs, edge cases, and practical caveats; stay focused and avoid unnecessary length.',
+    'Explore the reasoning and implications in depth when relevant. Include useful context, examples, tradeoffs, or edge cases selectively; depth is not a requirement to cover every possible angle.',
 };
 
 const LEVEL_GUIDANCE: Record<ResponseStyleLevel, string> = {
+  adaptive:
+    'Infer the useful level of explanation from the current request and what the user has shown they know. Explain unfamiliar essentials without talking down to the user; use technical detail when it helps.',
   new:
     'Assume the user has little or no background. Define key terms, build from fundamentals, and avoid unexplained jargon.',
   familiar:
@@ -60,21 +68,23 @@ const LEVEL_GUIDANCE: Record<ResponseStyleLevel, string> = {
   advanced:
     'Assume strong working knowledge. Use precise language, skip basics, and focus on nuance, edge cases, and deeper reasoning.',
   fluent:
-    'Assume the user is comfortable operating in the domain. Be dense, technical, and direct; focus on subtleties, exceptions, and high-leverage insight.',
+    'Assume the user is comfortable operating in the domain. Use precise domain language without explaining familiar basics; remain readable and clarify genuinely subtle points.',
 };
 
 export const RESPONSE_STYLE_LENGTH_DESCRIPTIONS: Record<ResponseStyleLength, string> = {
-  concise: '1-2 sentences',
+  adaptive: 'Match the question',
+  concise: 'Shortest complete answer',
   brief: 'Concise and skimmable',
   detailed: 'Structured explanation',
   deep: 'In-depth but focused',
 };
 
 export const RESPONSE_STYLE_LEVEL_DESCRIPTIONS: Record<ResponseStyleLevel, string> = {
+  adaptive: 'Match your familiarity',
   new: 'Start from fundamentals',
   familiar: 'Assume the basics',
   advanced: 'Skip basics, add nuance',
-  fluent: 'Dense and domain-native',
+  fluent: 'Domain-native and precise',
 };
 
 function isResponseStyleLength(value: unknown): value is ResponseStyleLength {
