@@ -4,6 +4,9 @@ Orchard is a conversational learning tool for people who want to understand
 anything: students, researchers, professionals, and curious people learning on
 their own.
 
+Orchard names the product. The default assistant is a thinking partner without a
+separate personal name.
+
 ## Core experience
 
 Chat is the primary interface. Orchard's defining interactions make it easier
