@@ -1118,7 +1118,7 @@ describe('chat route contract', () => {
     );
   });
 
-  it('requires Markdown tables and standalone KaTeX display fences', async () => {
+  it('uses tables selectively and standalone KaTeX display fences', async () => {
     const { response } = await runChatRequest({
       message: 'Show me a matrix example',
       chatMode: 'temporary',
@@ -1126,7 +1126,7 @@ describe('chat route contract', () => {
 
     expect(response.status).toBe(200);
     const systemPrompt = mockStreamText.mock.calls.at(-1)?.[0]?.system as string;
-    expect(systemPrompt).toContain('Use Markdown tables for textual comparisons');
+    expect(systemPrompt).toContain('Use a Markdown table when it makes a comparison');
     expect(systemPrompt).toContain(
       'Do not use LaTeX array environments for prose tables'
     );
