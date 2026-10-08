@@ -69,7 +69,8 @@ stable client-generated identifiers.
 
 The server reconstructs only the path leading to the submitted user message.
 Messages from sibling paths must not leak into the prompt or search planning for
-the active path.
+the active path. There is no fixed 50-message cutoff on that path; older
+predecessors remain available to the model.
 
 ## Key implementation
 

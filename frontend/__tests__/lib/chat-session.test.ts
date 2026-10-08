@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  MAX_CHAT_HISTORY_MESSAGES,
   toChatHistoryMessageIds,
 } from '@/lib/chat-session';
 
@@ -23,8 +22,8 @@ describe('toChatHistoryMessageIds', () => {
       'path-60'
     );
 
-    expect(ids).toHaveLength(MAX_CHAT_HISTORY_MESSAGES);
-    expect(ids[0]).toBe('path-11');
+    expect(ids).toHaveLength(60);
+    expect(ids[0]).toBe('path-1');
     expect(ids.at(-1)).toBe('path-60');
     expect(ids.some((id) => id.startsWith('sibling-'))).toBe(false);
   });

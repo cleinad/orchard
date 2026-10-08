@@ -4,7 +4,6 @@ import { stripCitationMarkers } from '@/lib/search-citations';
 
 export const CHAT_MODES = ['persistent', 'temporary'] as const;
 export type ChatMode = (typeof CHAT_MODES)[number];
-export const MAX_CHAT_HISTORY_MESSAGES = 50;
 
 export interface ChatHistoryMessage {
   id?: string | null;
@@ -76,7 +75,6 @@ export function toChatHistoryMessageIds(
 
     while (
       currentId
-      && nearestFirst.length < MAX_CHAT_HISTORY_MESSAGES
       && !seen.has(currentId)
     ) {
       const message = messagesById.get(currentId);
@@ -98,7 +96,7 @@ export function toChatHistoryMessageIds(
         .map((message) => message.id)
         .filter((id): id is string => typeof id === 'string' && id.length > 0)
     )
-  ).slice(-MAX_CHAT_HISTORY_MESSAGES);
+  );
 }
 
 export function createTemporaryId(prefix: string): string {

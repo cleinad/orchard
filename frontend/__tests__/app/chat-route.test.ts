@@ -764,7 +764,7 @@ describe('chat route contract', () => {
     expect(modelText).not.toContain('Later unrelated main-chat turn.');
   });
 
-  it('walks the persistent source parent chain with a 50 message cap', async () => {
+  it('walks the full persistent source parent chain', async () => {
     const conversationId = '11111111-1111-4111-8111-111111111111';
     const threadId = '22222222-2222-4222-8222-222222222222';
     const sourceMessageId = '33333333-3333-4333-8333-333333333333';
@@ -802,7 +802,6 @@ describe('chat route contract', () => {
         conversationId,
         threadId,
         historyMessageIds: [...chainMessages, sourceMessage]
-          .slice(-50)
           .map((message) => message.id),
       },
       {
@@ -845,8 +844,7 @@ describe('chat route contract', () => {
 
     expect(modelText).toContain('Anchor source: 锚点 should still be visible.');
     expect(modelText).toContain('Anchor path message 59');
-    expect(modelText).toContain('Anchor path message 11');
-    expect(modelText).not.toContain('Anchor path message 10');
+    expect(modelText).toContain('Anchor path message 0');
 
     const messageSelects = tracker.selects('messages');
     expect(messageSelects.filter((query) => query.filters['eq:id'])).toHaveLength(1);

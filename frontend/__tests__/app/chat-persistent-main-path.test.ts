@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   fetchPersistentMainPathToMessage,
-  MAX_PERSISTENT_MAIN_PATH_MESSAGES,
   PERSISTENT_MAIN_ANCHOR_WINDOW_MESSAGES,
 } from '@/app/api/chat/persistentMainPath';
 import { createMockSupabase } from '../helpers/mock-supabase';
@@ -28,7 +27,7 @@ function createPathMessage(
 }
 
 describe('fetchPersistentMainPathToMessage', () => {
-  it('returns the final bounded path for a linear history beyond 200 messages', async () => {
+  it('returns the full path for a linear history beyond 200 messages', async () => {
     const rows = Array.from({ length: 250 }, (_, offset) => {
       const index = offset + 1;
       return createPathMessage(
@@ -50,10 +49,52 @@ describe('fetchPersistentMainPathToMessage', () => {
       'path-0250'
     );
 
-    expect(path).toHaveLength(MAX_PERSISTENT_MAIN_PATH_MESSAGES);
-    expect(path[0].id).toBe('path-0201');
+    expect(path).toHaveLength(250);
+    expect(path[0].id).toBe('path-0001');
     expect(path.at(-1)?.id).toBe('path-0250');
     expect(tracker.selects('messages')).toHaveLength(2);
+  });
+
+  it('reconstructs beyond the anchor window without client lineage ids', async () => {
+    const rows = Array.from({ length: 550 }, (_, offset) => {
+      const index = offset + 1;
+      return createPathMessage(
+        index,
+        index === 1 ? null : `path-${String(index - 1).padStart(4, '0')}`
+      );
+    });
+    const { client } = createMockSupabase({ tables: { messages: { rows } } });
+
+    const path = await fetchPersistentMainPathToMessage(
+      client as unknown as Parameters<typeof fetchPersistentMainPathToMessage>[0],
+      CONVERSATION_ID,
+      'path-0550'
+    );
+
+    expect(path).toHaveLength(550);
+    expect(path[0].id).toBe('path-0001');
+  });
+
+  it('batches a long client lineage before reconstructing the path', async () => {
+    const rows = Array.from({ length: 250 }, (_, offset) => {
+      const index = offset + 1;
+      return createPathMessage(
+        index,
+        index === 1 ? null : `path-${String(index - 1).padStart(4, '0')}`
+      );
+    });
+    const { client, tracker } = createMockSupabase({ tables: { messages: { rows } } });
+
+    const path = await fetchPersistentMainPathToMessage(
+      client as unknown as Parameters<typeof fetchPersistentMainPathToMessage>[0],
+      CONVERSATION_ID,
+      'path-0250',
+      rows.map((row) => row.id)
+    );
+
+    expect(path).toHaveLength(250);
+    expect(tracker.selects('messages').filter((query) => query.filters['in:id']))
+      .toHaveLength(3);
   });
 
   it('follows stored predecessors when interleaved branches displace the path window', async () => {
@@ -93,8 +134,8 @@ describe('fetchPersistentMainPathToMessage', () => {
       'path-0060'
     );
 
-    expect(path).toHaveLength(MAX_PERSISTENT_MAIN_PATH_MESSAGES);
-    expect(path[0].id).toBe('path-0011');
+    expect(path).toHaveLength(60);
+    expect(path[0].id).toBe('path-0001');
     expect(path.at(-1)?.id).toBe('path-0060');
     expect(path.map((message) => message.id)).not.toContain('sibling-0200');
     expect(tracker.selects('messages')).toHaveLength(2);
@@ -147,11 +188,11 @@ describe('fetchPersistentMainPathToMessage', () => {
       >[0],
       CONVERSATION_ID,
       branchMessage.id,
-      pathRows.slice(-MAX_PERSISTENT_MAIN_PATH_MESSAGES).map((row) => row.id)
+      pathRows.map((row) => row.id)
     );
 
-    expect(path).toHaveLength(MAX_PERSISTENT_MAIN_PATH_MESSAGES);
-    expect(path[0].id).toBe('path-0012');
+    expect(path).toHaveLength(61);
+    expect(path[0].id).toBe('path-0001');
     expect(path.at(-1)?.id).toBe(branchMessage.id);
     expect(tracker.selects('messages')).toHaveLength(2);
   });
