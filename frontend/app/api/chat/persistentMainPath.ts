@@ -1,7 +1,4 @@
 import type { createSupabaseServerClient } from '@/lib/supabase-server';
-import { MAX_CHAT_HISTORY_MESSAGES } from '@/lib/chat-session';
-
-export const MAX_PERSISTENT_MAIN_PATH_MESSAGES = MAX_CHAT_HISTORY_MESSAGES;
 export const PERSISTENT_MAIN_ANCHOR_WINDOW_MESSAGES = 500;
 
 type SupabaseServerClient = Awaited<
@@ -83,29 +80,38 @@ async function fetchPersistentMainAnchorWindow(
   sourceMessage: PersistedMainMessage,
   historyMessageIds: string[]
 ) {
-  const query = supabase
+  const query = () => supabase
     .from('messages')
-    .select(
-      'id, role, content, previous_message_id, created_at, search_metadata'
-    )
+    .select('id, role, content, previous_message_id, created_at, search_metadata')
     .eq('conversation_id', conversationId)
     .is('thread_id', null);
 
-  const { data: rows, error } = historyMessageIds.length > 0
-    ? await query.in('id', historyMessageIds)
-    : await (
-        sourceMessage.created_at
-          ? query.lte('created_at', sourceMessage.created_at)
-          : query
-      )
-        .order('created_at', { ascending: false })
-        .order('id', { ascending: false })
-        .limit(PERSISTENT_MAIN_ANCHOR_WINDOW_MESSAGES);
-
-  if (error) {
-    throw new Error(error.message);
+  const rows: unknown[] = [];
+  if (historyMessageIds.length > 0) {
+    // Keep PostgREST URLs bounded even when the selected path is very long.
+    for (let offset = 0; offset < historyMessageIds.length; offset += 100) {
+      const { data, error } = await query().in(
+        'id',
+        historyMessageIds.slice(offset, offset + 100)
+      );
+      if (error) throw new Error(error.message);
+      rows.push(...(data || []));
+    }
+  } else {
+    const anchorQuery = query();
+    const { data, error } = await (
+      sourceMessage.created_at
+        ? anchorQuery.lte('created_at', sourceMessage.created_at)
+        : anchorQuery
+    )
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
+      .limit(PERSISTENT_MAIN_ANCHOR_WINDOW_MESSAGES);
+    if (error) throw new Error(error.message);
+    rows.push(...(data || []));
   }
-  return (rows || [])
+
+  return rows
     .map((row) => normalizePersistedMainMessage(row))
     .filter((row): row is PersistedMainMessage => row !== null);
 }
@@ -146,12 +152,12 @@ export async function fetchPersistentMainPathToMessage(
 
   while (
     currentId
-    && path.length < MAX_PERSISTENT_MAIN_PATH_MESSAGES
     && !seen.has(currentId)
   ) {
     seen.add(currentId);
     const row: PersistedMainMessage | null =
-      messagesById.get(currentId) ?? null;
+      messagesById.get(currentId)
+      ?? await fetchPersistentMainMessageById(supabase, conversationId, currentId);
     if (!row) {
       throw new Error(
         `Unable to reconstruct predecessor ${currentId} within the bounded history window for conversation ${conversationId}.`

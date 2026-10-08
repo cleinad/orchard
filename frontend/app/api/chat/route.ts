@@ -65,7 +65,6 @@ import type {
 import {
   fallbackChatTitleFromMessage,
   isUuid,
-  MAX_CHAT_HISTORY_MESSAGES,
   sanitizeGeneratedChatTitle,
 } from '@/lib/chat-session';
 import { getSelectionStreamVersion } from '@/app/home/components/markdownSelectableStream';
@@ -732,7 +731,7 @@ function sanitizeHistoryMessageIds(value: unknown): string[] {
         (id): id is string => typeof id === 'string' && isUuid(id)
       )
     )
-  ).slice(-MAX_CHAT_HISTORY_MESSAGES);
+  );
 }
 
 function validateAttachmentsForModel(
@@ -911,7 +910,7 @@ function sanitizeAssistantContentForReuse(
   content: string,
   searchMetadata: PersistedSearchMetadata | null
 ) {
-  return stripCitationMarkers(content, searchMetadata).trim().slice(0, 8_000);
+  return stripCitationMarkers(content, searchMetadata).trim();
 }
 
 function sanitizeHistoryMessages(
@@ -938,7 +937,7 @@ function sanitizeHistoryMessages(
       const content =
         role === 'assistant'
           ? sanitizeAssistantContentForReuse(rawContent, searchMetadata)
-          : rawContent.trim().slice(0, 8_000);
+          : rawContent.trim();
       const attachments =
         role === 'user' && userId
           ? sanitizeHistoryAttachmentRequests(item.attachments, userId)
@@ -1256,7 +1255,7 @@ export async function POST(request: NextRequest) {
     const messageForTitle = messageText || 'Image question';
     const isTemporaryChat = chatMode === 'temporary';
     isTemporaryRequest = isTemporaryChat;
-    const sanitizedHistory = sanitizeHistoryMessages(history, 50, user.id);
+    const sanitizedHistory = sanitizeHistoryMessages(history, Infinity, user.id);
     const sanitizedHistoryMessageIds =
       sanitizeHistoryMessageIds(historyMessageIds);
     const sanitizedThreadHistory = sanitizeHistoryMessages(threadHistory, 30, user.id);
@@ -2229,7 +2228,7 @@ export async function POST(request: NextRequest) {
 
       messages = sanitizeHistoryMessages(
         [...mainPathThroughSource, ...(persistedThreadHistory || [])],
-        80,
+        Infinity,
         user.id
       );
       if (messages.length === 0) {
@@ -2243,7 +2242,7 @@ export async function POST(request: NextRequest) {
         sanitizedHistoryMessageIds
       );
 
-      messages = sanitizeHistoryMessages(pathHistory, 50, user.id);
+      messages = sanitizeHistoryMessages(pathHistory, Infinity, user.id);
       if (messages.length === 0) {
         messages = [{ id: null, role: 'user', content: messageForPrompt, searchMetadata: null }];
       }
