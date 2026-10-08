@@ -43,13 +43,13 @@ export const RESPONSE_STYLE_LEVEL_LABELS: Record<ResponseStyleLevel, string> = {
 
 const LENGTH_GUIDANCE: Record<ResponseStyleLength, string> = {
   concise:
-    'Answer in 1 to 2 sentences. Skip setup, broad caveats, and examples unless the answer would be unclear without one.',
+    'Give the shortest answer that fully addresses the request. Include an essential qualification, example, or step when omitting it would mislead or leave the answer unusable.',
   brief:
     'Answer directly with concise, skimmable prose. Use short paragraphs or only minimal structure when it helps clarity.',
   detailed:
     'Use a focused teaching style with structure, examples, caveats, or steps when they materially improve understanding.',
   deep:
-    'Give a deeper, high-signal response with useful context, tradeoffs, edge cases, and practical caveats; stay focused and avoid unnecessary length.',
+    'Explore the reasoning and implications in depth when relevant. Include useful context, examples, tradeoffs, or edge cases selectively; depth is not a requirement to cover every possible angle.',
 };
 
 const LEVEL_GUIDANCE: Record<ResponseStyleLevel, string> = {
@@ -60,11 +60,11 @@ const LEVEL_GUIDANCE: Record<ResponseStyleLevel, string> = {
   advanced:
     'Assume strong working knowledge. Use precise language, skip basics, and focus on nuance, edge cases, and deeper reasoning.',
   fluent:
-    'Assume the user is comfortable operating in the domain. Be dense, technical, and direct; focus on subtleties, exceptions, and high-leverage insight.',
+    'Assume the user is comfortable operating in the domain. Use precise domain language without explaining familiar basics; remain readable and clarify genuinely subtle points.',
 };
 
 export const RESPONSE_STYLE_LENGTH_DESCRIPTIONS: Record<ResponseStyleLength, string> = {
-  concise: '1-2 sentences',
+  concise: 'Shortest complete answer',
   brief: 'Concise and skimmable',
   detailed: 'Structured explanation',
   deep: 'In-depth but focused',
@@ -74,7 +74,7 @@ export const RESPONSE_STYLE_LEVEL_DESCRIPTIONS: Record<ResponseStyleLevel, strin
   new: 'Start from fundamentals',
   familiar: 'Assume the basics',
   advanced: 'Skip basics, add nuance',
-  fluent: 'Dense and domain-native',
+  fluent: 'Domain-native and precise',
 };
 
 function isResponseStyleLength(value: unknown): value is ResponseStyleLength {

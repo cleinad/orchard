@@ -1179,7 +1179,7 @@ describe('chat route contract', () => {
     expect(response.status).toBe(200);
     expect(mockStreamText).toHaveBeenCalledWith(
       expect.objectContaining({
-        system: expect.stringContaining('Answer in 1 to 2 sentences.'),
+        system: expect.stringContaining('shortest answer that fully addresses the request'),
       })
     );
     expect(mockStreamText).toHaveBeenCalledWith(

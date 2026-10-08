@@ -28,7 +28,7 @@ ${input.must.map((line) => `- ${line}`).join('\n')}
 You must not:
 ${input.mustNot.map((line) => `- ${line}`).join('\n')}
 
-Keep responses conversational and focused. This is a voice conversation.`;
+Keep responses conversational and focused. Adapt naturally to text or voice.`;
 }
 
 export const DEFAULT_MENTORS: DefaultMentorDefinition[] = [

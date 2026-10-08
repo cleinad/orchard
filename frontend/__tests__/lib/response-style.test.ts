@@ -55,7 +55,7 @@ describe('response style', () => {
 
   it('defines concrete output expectations for each length level', () => {
     expect(buildResponseStylePrompt({ length: 'concise', level: 'familiar', sessionNote: '' }))
-      .toContain('Answer in 1 to 2 sentences.');
+      .toContain('shortest answer that fully addresses the request');
     expect(buildResponseStylePrompt({ length: 'brief', level: 'familiar', sessionNote: '' }))
       .toContain('Answer directly with concise, skimmable prose');
     expect(buildResponseStylePrompt({ length: 'detailed', level: 'familiar', sessionNote: '' }))
